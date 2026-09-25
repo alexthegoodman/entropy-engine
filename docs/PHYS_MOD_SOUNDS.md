@@ -425,8 +425,9 @@ head's own motion), and the tests keep those measurements in place.
 | Bessel functions | `bessel.rs` | `J_m(x)` by Miller's backward recurrence, and its zeros |
 | Modal body | `modal.rs` | Modes run as rotated complex states (the exact response to a force held for a sample): in tune in `f32` even for a 30 Hz mode, never unstable, silent above Nyquist. `predict` gives the free position and one-step compliance at any point; `set_scale` retunes a ringing body with displacement and velocity continuous (small changes by rotating the phasors, no transcendental calls); quiet modes are flushed before they turn subnormal. |
 | Contact | `contact.rs` | Materials (hickory, nylon, polyester film, plastic, rubber, steel, brass, glass), tips (Hertz spheres, felt power laws), the Hunt-Crossley law with Flores' restitution relation, and the per-sample bracketed-Newton solve between two sides. `Striker`: a mass with a tip. |
-| Membrane | `membrane.rs` | Circular head: Bessel mode shapes normalized to the head's mass; the **radiation impedance of every mode computed** from its Hankel transform (air mass from the evanescent part, radiation resistance from the propagating part, iterated with the frequency it changes); radiation damping and radiated weights from the same numbers; the tension-modulation coefficient `E h / (4 (1 - nu))`; tension solved from a tuning. |
-| Drums | `drum.rs` | Batter head + optional resonant head + the enclosed air (a spring on the volume-changing modes that couples the heads, and stiffens a timpani's kettle); up to four strikers in flight; tension modulation from the cycle-averaged stretch, capped at the film's yield strain. Presets: 22" kick (two-ply batter with a pillow, felt or plastic beater), 16" floor tom, 12" rack tom (sticks), 26" timpani (felt mallets, soft and hard). |
+| Membrane | `membrane.rs` | Circular head: Bessel mode shapes normalized to the head's mass; the **radiation impedance of every mode computed** from its Hankel transform (air mass from the evanescent part, radiation resistance from the propagating part, iterated with the frequency it changes); radiation damping and radiated weights from the same numbers; the tension-modulation coefficient `E h / (4 (1 - nu))`; tension solved from a tuning. Options: both members of each degenerate pair (for heads touched all round), orders limited, and a **sampled high band** (below). Built heads are cached by description. |
+| Cavity | `cavity.rs` | The air inside a drum as the acoustic modes of a hard-walled cylinder (`J_m(alpha r / a) cos(m theta) cos(l pi z / L)`), driven by both heads and pressing back on them, with the overlaps in closed form; the uniform mode is the air spring, the others slosh below their resonance and tie the heads' asymmetric modes together. A kettle (no depth given) keeps only the uniform mode. |
+| Drums | `drum.rs` | Batter head + optional resonant head + the cavity; up to four strikers in flight; tension modulation from the cycle-averaged stretch, capped at the film's yield strain and ramped every sample; **snare wires** (below). Presets: 22" kick (two-ply batter with a pillow, felt or plastic beater), 14" snare (coated batter, 3-mil snare side, twenty strands; snares off), 16" floor tom, 12" rack tom (sticks), 26" timpani (felt mallets, soft and hard). |
 | Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head) |
 
 ## Phase 1 progress
@@ -434,7 +435,8 @@ head's own motion), and the tests keep those measurements in place.
 - **1a Modal body and contact - done.**
 - **1b Membrane - done.**
 - **1c Kick, toms, timpani - done** as offline models.
-- **1d Snare - not started.**
+- **1d Snare - done** (wires, the cavity's modes, and the high band it needed). The shell's own
+  modes and the rim (rimshots, cross-stick) are not modelled yet.
 - **1e Runtime, view and DAW - not started.**
 
 ## Decisions the measurements made
@@ -455,9 +457,51 @@ head's own motion), and the tests keep those measurements in place.
   which is the top of the spectrum.
 - **Glides.** A floor tom tuned to 82 Hz, struck at mid-radius, starts 63 cents sharp at 6 m/s, 16 at
   3 m/s and not measurably at 0.5 m/s; tuned slack (65 Hz) it glides 163 cents, tight (110 Hz) 14.
-- **The resonant head only needs its axisymmetric modes** while nothing but the shell's air drives
-  it (the air's pressure is uniform over the head). That halves a drum's cost. Snare wires, which
-  touch the resonant head at points, will need the rest back.
+- **A resonant head only needs the modes the air can move.** On a tom or kick nothing but the air
+  inside drives it, so it keeps only the orders the cavity's modes have (up to 4), no high band. A
+  snare's snare side, touched by wires at points all over, keeps every mode, both members of each
+  pair, and the high band.
+
+### The snare, and what it needed
+
+- **A sampled high band.** A membrane's modes crowd together quadratically, so a complete set stops
+  at 2-3 kHz. Above it, each thin slice of frequency (1/40 octave) is represented by one real mode
+  drawn from it, standing for all `count` modes of the slice: its mass divided by `count`, its
+  radiated weight by `sqrt(count)` (incoherent sum), its share of the stretch by `count`. Three
+  things the measurements forced:
+  - *It only listens.* Coupled both ways, the sparse, lightly damped sampled modes made the contact
+    chatter at their frequencies (the force itself had energy flat to 16 kHz); the real, dense band
+    acts on a contact as a smooth load. Driven one way by the contact force, they pick up exactly the
+    force's own sharp edges: a plastic beater now puts 11 dB more above 4 kHz into the kick than felt,
+    and a stick on a tom 10 dB+ more than without the band, with the force pulse within 3%.
+  - *Plane-wave shapes.* One real mode drawn at random can be enormous at the point struck (a high
+    `m = 0` mode near the centre) or almost nothing; a sampled mode takes the local form high membrane
+    modes have (a random plane wave with its wavenumber, mean square one everywhere).
+  - *The slice's average radiation.* High modes are subsonic, and only the orders below `ka` radiate
+    at all (the others by 1e-40), so each sampled mode gets the fraction of orders that radiate times
+    their mean resistance, not its own all-or-nothing value.
+- **Retuning must be smooth.** Changing the frequencies in 16-sample steps modulates every mode with a
+  staircase: sidebands at multiples of 2.8 kHz, 40 dB+ above the true top end. The stretch is
+  measured every 16 samples and the tension ramped every sample; a mode is retuned only once its
+  change passes 1e-5 (0.02 cents). The sampled high band keeps its tuning.
+- **The air inside is a set of modes.** With only a uniform pressure, nothing but the volume-changing
+  modes reach the snare side, and they radiate their energy away within tens of milliseconds. The
+  cavity's transverse modes (the first near 565 Hz in a 14" x 5.5" shell) carry the batter's
+  `(1,1)`, `(2,1)`... motion to the snare side, which now holds 6.5% of its energy in `m = 1` modes a
+  moment after the hit. Couplings that would change a head mode's stiffness by less than 0.1% are
+  dropped (under a cent), which keeps a kick's 3900 possible couplings to about 370.
+- **The snare side is short-lived, the batter carries the buzz.** A 3-mil head weighs 10 g and its
+  modes radiate efficiently (`ka ~ 2` for its `(1,1)`): radiation alone damps them in ~40 ms. The
+  batter's `(1,1)`-`(3,1)` modes ring for 0.25-0.6 s and keep driving it through the air.
+- **The wires lift off at about gravity's scale.** Each group lifts when the head accelerates away
+  faster than `preload / mass`. The strainer's pull, turned by the snare beds, presses the whole set
+  on with only a fraction of a newton; the default is 0.15 N over 6 g of moving coil (~25 m/s^2).
+  A mezzo hit then lands the wires a few hundred times over ~50-90 ms; loosened to 0.05 N they buzz
+  to 130 ms, tightened to 1.2 N they stop at 40 ms.
+- **Cost, measured with a profiler** (`perf`): the modes' step and the wires' predictions are written
+  four modes at a time with SSE2 (the compiler would not vectorize them), the eight wire groups share
+  one pass over the head's free motion plus a small cross-compliance table, and the contact solve uses
+  its analytic slope. The snare went from 44% of a core to 13%.
 
 ## How it is verified (no audio device needed)
 
@@ -476,31 +520,40 @@ Run with `cargo test --release --lib matter`.
 | Air mass tends to `rho / k` for high modes and is far larger for the lowest; radiation of `(0,1)` matches the monopole law at low `ka` | same |
 | The timpani sounds its note on `(1,1)` (within 5 cents); its `(m,1)` ratios are within 6% of 1.5, 2, 2.5 and three times closer than in vacuum; the `(0,1)` thud dies 10 dB+ faster than the note | same |
 | A hard mallet: centroid 1.15x+, 3 dB+ more above 1 kHz; felt brightens when played harder | same |
-| A hard hit glides down to its pitch, a soft one does not; a slacker head glides further | same |
-| A tom follows its tuning (within 10 cents of the ratio) | same |
+| A hard hit glides down to its pitch, a soft one does not; a slacker head glides further (measured on a concert tom: one head, open shell) | same |
+| A tom follows its tuning (within 25 cents of the ratio: the air inside loads the higher tuning a little more) | same |
 | A stick leaves a tom after 1-8 ms | same |
-| The kick's pillow shortens the boom by 6 dB+; a plastic beater puts 3 dB+ more above 1 kHz than felt | same |
+| The kick's pillow shortens the boom by 6 dB+; a plastic beater puts 6 dB+ more above 4 kHz than felt | same |
 | The shell's air drives the resonant head; with no air there is no coupling | same |
 | Later hits land on a ringing head | same |
-| Every drum stays bounded for a 25 m/s hit at the rim and falls silent | same |
+| The high band puts a stick's crack above 4 kHz (10 dB+) without changing the contact (within 3%); a felt kick's octaves from 1 to 16 kHz each fall below the last | same |
+| The cavity's modes give the snare side's `m = 1` modes 3%+ of its energy; with only the uniform mode, none | same |
+| Snare wires lift off and land 50+ times on a mezzo hit, never with the snares off; snares on add 4 dB+ above 3 kHz in the first 50 ms | same |
+| A harder hit rattles more and longer; looser snares buzz longer than tight ones | same |
+| `J_m'` zeros match tables | `matter::bessel::tests` |
+| Every drum (snare included) stays finite for a 25 m/s hit at the rim and falls silent | same |
 
 `matter::tests::listening_examples` (ignored) renders a kick pattern, a tom fill with a hard floor-tom
-glide, a timpani phrase on two drums, a timpani roll with a crescendo and a centre-versus-edge
+glide, a snare groove with ghost notes and a roll, one snare hit with the snares off, loose, normal
+and tight, a timpani phrase on two drums, a timpani roll with a crescendo and a centre-versus-edge
 stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each drum.
 
 ## Known limits
 
-- **The top of the spectrum.** A membrane's modes crowd together quadratically: 400 modes reach
-  ~2.7 kHz on the timpani and ~1.8 kHz on the kick. The kick beater's "click" (2-5 kHz) and a stick's
-  crack on a tom need a statistical high band (many modes represented by a few), which the snare's
-  wires will need anyway.
-- **Cost.** About 4% of one core per ringing drum (420 modes: the batter's 400 and the resonant head's
-  axisymmetric ones), 3.9% for the timpani, in release builds. A whole kit ringing at once is over
-  the 5% budget; skipping silent heads and silent modes is the next step.
-- The inside of each head is loaded with the same air mass as the outside (the enclosed air's
-  inertia is not computed separately); the cavity's own acoustic modes and a kick's port are not
-  modelled.
+- **Cost.** Per ringing drum, in release builds on one core: snare 13%, kick 7%, floor tom 5.5%, rack
+  tom 4%, timpani 2%. A whole kit ringing at once is about 30%, well over the plan's 5%. Next: skip
+  heads and modes that have gone silent, share the wires' contact solves, and let a kit's drums share
+  one voice.
+- **Build time.** A new drum takes 0.2-0.8 s to build (radiation integrals, the high band's zero
+  searches), off the audio thread; the same description is then cached.
+- The snare's shell and rim have no modes yet: no rimshot, cross-stick or shell ring. The wires don't
+  buzz sympathetically with other drums until the kit shares one voice (1e).
+- The inside of each head carries the same air mass as the outside, and the cavity's sloshing modes
+  add their own below resonance, so the inner air is counted a little twice for the low modes; a
+  kick's port is not modelled.
 - Heads are ideal membranes: no bending stiffness (which sharpens high modes slightly), no
   non-uniform tension around the rim, so degenerate mode pairs don't split and beat.
 - Strikes are along the head's normal only; a glancing blow and a buried beater (held against the
   head) are not modelled yet.
+- A 25 m/s stick at the rim peaks at several hundred pascals at 1 m: physical for the speed (90 km/h),
+  but the DAW will need gain staging (full scale is 20 Pa).

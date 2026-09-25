@@ -79,12 +79,10 @@ impl ContactLaw {
         }
     }
 
+    /// `delta^(alpha - 1)`, with Hertz's `alpha = 3/2` as a square root.
     #[inline]
-    fn force(&self, delta: f32, rate: f32, lambda: f32) -> f32 {
-        if delta <= 0.0 {
-            return 0.0;
-        }
-        (self.k * delta.powf(self.alpha) * (1.0 + lambda * rate)).max(0.0)
+    fn power_less_one(&self, delta: f32) -> f32 {
+        if self.alpha == 1.5 { delta.sqrt() } else { delta.powf(self.alpha - 1.0) }
     }
 }
 
@@ -100,13 +98,24 @@ pub struct Contact {
     pub touching: bool,
     /// Number of separate touches so far (a bounce makes it 2).
     pub touches: u32,
+    /// Keep `lambda` as set rather than deriving it from each touch's approach speed.
+    fixed_lambda: bool,
 }
 
 impl Contact {
     /// A contact whose bodies start apart. `solve` must then be called every step, from before the
     /// first touch, so it sees the approach.
     pub fn new(law: ContactLaw) -> Self {
-        Self { law, lambda: 0.0, delta: f32::NEG_INFINITY, force: 0.0, touching: false, touches: 0 }
+        Self { law, lambda: 0.0, delta: f32::NEG_INFINITY, force: 0.0, touching: false, touches: 0, fixed_lambda: false }
+    }
+
+    /// A contact that starts pressed together with penetration `delta` (a snare wire lying on its
+    /// head, a book on a table). Its losses are fixed from the restitution at `speed` (m/s), the
+    /// typical speed of the touches it will see, since a resting contact has no approach to measure.
+    pub fn resting(law: ContactLaw, delta: f32, speed: f32) -> Self {
+        let e = law.restitution.clamp(0.05, 1.0);
+        let force = if delta > 0.0 { law.k * delta.powf(law.alpha) } else { 0.0 };
+        Self { law, lambda: 1.6 * (1.0 - e) / (e * speed.max(0.01)), delta, force, touching: delta > 0.0, touches: 1, fixed_lambda: true }
     }
 
     /// Solves the force for the coming step. `free_gap` is the penetration after the step if no
@@ -121,7 +130,10 @@ impl Contact {
             self.touching = false;
             return 0.0;
         }
-        if !self.touching {
+        if !self.touching && self.fixed_lambda {
+            self.touching = true;
+            self.touches += 1;
+        } else if !self.touching {
             // First touch: the approach speed sets Hunt-Crossley's damping.
             let travel = if prev.is_finite() { free_gap - prev } else { free_gap };
             let v_in = (travel / h).max(0.01);
@@ -134,13 +146,24 @@ impl Contact {
         let c = compliance.max(0.0);
         let law = self.law;
         let lambda = self.lambda;
-        let at = |f: f32| {
+        // The law at force f and its slope d(law)/dF (through delta(F) = free_gap - c F).
+        let at = |f: f32| -> (f32, f32) {
             let d = free_gap - c * f;
-            law.force(d, (d - base) / h, lambda)
+            if d <= 0.0 {
+                return (0.0, 0.0);
+            }
+            let pm1 = law.power_less_one(d);
+            let damp = 1.0 + lambda * (d - base) / h;
+            let v = law.k * pm1 * d * damp;
+            if v <= 0.0 {
+                return (0.0, 0.0);
+            }
+            let dv_dd = law.k * (law.alpha * pm1 * damp + pm1 * d * lambda / h);
+            (v, -c * dv_dd)
         };
         // g(F) = F - law(delta(F)) is increasing in F: g(0) <= 0 and g(hi) >= 0.
         let mut lo = 0.0f32;
-        let mut hi = at(0.0);
+        let mut hi = at(0.0).0;
         if hi <= 0.0 {
             self.delta = free_gap;
             self.force = 0.0;
@@ -148,23 +171,24 @@ impl Contact {
         }
         let mut f = if self.force > 0.0 && self.force < hi { self.force } else { 0.5 * hi };
         for _ in 0..40 {
-            let g = f - at(f);
+            let (v, slope) = at(f);
+            let g = f - v;
             if g > 0.0 {
                 hi = f;
             } else {
                 lo = f;
             }
-            if hi - lo <= 1.0e-6 * hi.max(1.0e-9) {
-                break;
-            }
-            // Newton step on a numerical slope, kept inside the bracket.
-            let df = (hi - lo).max(1.0e-9) * 1.0e-3;
-            let slope = 1.0 - (at(f + df) - at(f)) / df;
-            let mut next = if slope > 1.0e-9 { f - g / slope } else { 0.5 * (lo + hi) };
+            // Newton step on the analytic slope, kept inside the bracket.
+            let dg = 1.0 - slope;
+            let mut next = if dg > 1.0e-9 { f - g / dg } else { 0.5 * (lo + hi) };
             if !(next > lo && next < hi) {
                 next = 0.5 * (lo + hi);
             }
+            let done = (next - f).abs() <= 1.0e-5 * f.max(1.0e-9) || hi - lo <= 1.0e-5 * hi;
             f = next;
+            if done {
+                break;
+            }
         }
         self.delta = free_gap - c * f;
         self.force = f;

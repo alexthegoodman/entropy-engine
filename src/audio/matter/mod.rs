@@ -8,12 +8,14 @@
 //!   Hunt-Crossley losses, solved implicitly every sample; strikers.
 //! * [`membrane`] - a drumhead: Bessel modes, computed air loading and radiation, tension
 //!   modulation.
+//! * [`cavity`] - the air inside a drum as acoustic modes, coupling its heads.
 //! * [`drum`] - heads, the air between them, strikers: kick, toms, timpani.
 //!
 //! As with the strings and the brass, every behaviour is measured from rendered audio in the tests,
 //! not tuned by ear.
 
 pub mod bessel;
+pub mod cavity;
 pub mod contact;
 pub mod drum;
 pub mod membrane;

@@ -11,13 +11,24 @@
 //! sounds - the kick's thump, a tom's pitch glide, the timpani's pitch - are what those quantities do.
 
 use super::contact::{Contact, ContactLaw, Material, Striker, Tip};
-use super::membrane::{HeadSpec, Membrane, C_AIR, RHO_AIR};
-use super::modal::ModalBody;
+use super::cavity::{Cavity, MAX_CAVITY_ORDER};
+use super::membrane::{HeadSpec, Membrane, MembraneOptions};
+use super::modal::{dot, ModalBody};
+
+/// Default density of the sampled high band, modes per octave.
+pub const HIGH_BAND: f32 = 40.0;
+/// Heads carry modes up to this frequency, Hz.
+const TOP_FREQ: f32 = 16_000.0;
 
 /// Most strikers in flight or in contact at once (a flam, a roll, a buzz).
 pub const MAX_STRIKERS: usize = 4;
-/// Mode shapes and the tension are refreshed every this many samples.
+/// The head's stretch is measured every this many samples; the tension is ramped between
+/// measurements every sample.
 const BLOCK: u32 = 16;
+/// Below this summed mean-square motion (m^2) the resonant head cannot disturb resting snare wires.
+const WIRE_WAKE: f32 = 1.0e-14;
+/// Silent modes are flushed every this many samples.
+const FLUSH_EVERY: u32 = 64;
 /// Strain at which polyester film yields (about 3%).
 const YIELD_STRAIN: f32 = 0.03;
 /// Radiated pressure (Pa at 1 m) that maps to full scale.
@@ -55,10 +66,62 @@ impl StrikerSpec {
     }
 }
 
+/// A set of snare wires stretched across the resonant head.
+///
+/// The strands are gathered into `points` groups, each touching the head at one point of the strip
+/// they cover. A group is a small mass held against the head by the strainer: a soft spring, preloaded
+/// so it presses with `preload / points` newtons at rest, and lightly damped (coiled wire rubs on
+/// itself). Between group and head is an ordinary contact (steel on polyester film). When the head
+/// swings away faster than the preload can pull a group after it, the group lifts off, flies and
+/// lands again - and each landing is a small, sharp impact on the head. That, repeated at every
+/// point for as long as the head moves enough, is the snare's buzz.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SnareWires {
+    /// Contact groups (the strands are spread over them).
+    pub points: usize,
+    /// Mass of the strands that moves at the contacts, kg: a few centimetres of coil at each, not
+    /// the whole strand.
+    pub mass: f32,
+    /// Total force pressing the wires onto the head at rest, N: the snare-tension knob. The wires
+    /// hang under the head and the strainer's pull, turned by the snare beds, holds them up against
+    /// it; at a usual setting the middle strands barely press, and a group lifts off when the head
+    /// accelerates away from it faster than `preload / mass`. Looser wires lift off more easily and
+    /// buzz longer.
+    pub preload: f32,
+    /// Spring holding each group toward the head, N/m.
+    pub stiffness: f32,
+    /// Quality factor of a group on its spring.
+    pub q: f32,
+    /// Width of the strip across the head (fraction of the radius) and its length (fraction of the
+    /// diameter the strands lie on).
+    pub width: f32,
+    pub length: f32,
+    /// Coefficient of restitution of a strand landing on the head.
+    pub restitution: f32,
+}
+
+impl SnareWires {
+    /// A 20-strand steel set on a 14" drum.
+    pub fn twenty_strand() -> Self {
+        Self { points: 8, mass: 0.006, preload: 0.15, stiffness: 150.0, q: 4.0, width: 0.42, length: 0.75, restitution: 0.35 }
+    }
+
+    /// Where group `i` touches the head: (radius fraction, angle).
+    pub fn point(&self, i: usize) -> (f32, f32) {
+        let per_row = self.points.div_ceil(2).max(1);
+        let row = (i / per_row) as f32;
+        let col = (i % per_row) as f32;
+        let x = -self.length + 2.0 * self.length * (col + 0.5) / per_row as f32;
+        let y = if self.points > 1 { self.width * 0.5 * (row * 2.0 - 1.0) * 0.5 } else { 0.0 };
+        ((x * x + y * y).sqrt().min(0.98), y.atan2(x))
+    }
+}
+
 /// A kind of drum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrumKind {
     Kick,
+    Snare,
     FloorTom,
     RackTom,
     Timpani,
@@ -72,9 +135,15 @@ pub struct DrumSpec {
     pub reso: Option<HeadSpec>,
     /// Enclosed air volume, m^3 (0: none).
     pub volume: f32,
+    /// Depth of a cylindrical shell, m, for the air's acoustic modes (0: only the uniform one).
+    pub depth: f32,
     pub striker: StrikerSpec,
-    /// Modes kept per head.
+    /// Modes kept per head in the complete band.
     pub max_modes: usize,
+    /// Sampled high-band modes per octave above it (see `MembraneOptions`).
+    pub high_band: f32,
+    /// Snare wires on the resonant head.
+    pub snares: Option<SnareWires>,
 }
 
 impl DrumSpec {
@@ -84,19 +153,34 @@ impl DrumSpec {
         let a = 0.2794;
         let batter = HeadSpec { loss: 25.0, loss_hf: 12.0, ..HeadSpec::two_ply(a) };
         let reso = HeadSpec { loss: 4.0, ..HeadSpec::single_ply(a) };
-        Self::tuned(DrumSpec { kind: DrumKind::Kick, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.457, striker: StrikerSpec::felt_beater(), max_modes: 400 }, tuning, tuning * 1.1)
+        Self::tuned(DrumSpec { kind: DrumKind::Kick, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.457, depth: 0.457, striker: StrikerSpec::felt_beater(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.1)
     }
 
     /// A 16" x 16" floor tom.
     pub fn floor_tom(tuning: f32) -> Self {
         let a = 0.2032;
-        Self::tuned(DrumSpec { kind: DrumKind::FloorTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.406, striker: StrikerSpec::stick(), max_modes: 400 }, tuning, tuning * 1.15)
+        Self::tuned(DrumSpec { kind: DrumKind::FloorTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.406, depth: 0.406, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.15)
     }
 
     /// A 12" x 9" rack tom.
     pub fn rack_tom(tuning: f32) -> Self {
         let a = 0.1524;
-        Self::tuned(DrumSpec { kind: DrumKind::RackTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.229, striker: StrikerSpec::stick(), max_modes: 400 }, tuning, tuning * 1.15)
+        Self::tuned(DrumSpec { kind: DrumKind::RackTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.229, depth: 0.229, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.15)
+    }
+
+    /// A 14" x 5.5" snare: a coated 10-mil batter, a 3-mil snare-side head tuned about a fifth above
+    /// it, twenty steel strands. `tuning` is the batter's fundamental.
+    pub fn snare(tuning: f32) -> Self {
+        let a = 0.1778;
+        let batter = HeadSpec { thickness: 0.25e-3, loss: 4.0, loss_hf: 6.0, ..HeadSpec::single_ply(a) };
+        let reso = HeadSpec { thickness: 0.076e-3, loss: 3.0, loss_hf: 3.0, ..HeadSpec::single_ply(a) };
+        Self::tuned(DrumSpec { kind: DrumKind::Snare, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.14, depth: 0.14, striker: StrikerSpec::stick(), max_modes: 360, high_band: HIGH_BAND, snares: Some(SnareWires::twenty_strand()) }, tuning, tuning * 1.5)
+    }
+
+    /// The same drum with its snares thrown off (the strainer lowers them clear of the head).
+    pub fn snares_off(mut self) -> Self {
+        self.snares = None;
+        self
     }
 
     /// A 26" timpani (a single calfskin-weight film over a kettle of about 0.14 m^3). `pitch` is the
@@ -104,7 +188,7 @@ impl DrumSpec {
     pub fn timpani(pitch: f32) -> Self {
         let a = 0.33;
         let batter = HeadSpec { loss: 0.6, loss_hf: 1.5, ..HeadSpec::single_ply(a) };
-        let mut s = DrumSpec { kind: DrumKind::Timpani, batter, reso: None, volume: 0.14, striker: StrikerSpec::timpani_mallet(), max_modes: 400 };
+        let mut s = DrumSpec { kind: DrumKind::Timpani, batter, reso: None, volume: 0.14, depth: 0.0, striker: StrikerSpec::timpani_mallet(), max_modes: 400, high_band: HIGH_BAND, snares: None };
         s.batter.tension = Membrane::tension_for(s.batter, 1, 1, pitch, true);
         s
     }
@@ -138,23 +222,23 @@ struct Head {
     /// Added tension at the film's yield strain, N/m.
     yield_tension: f32,
     tension: f32,
-    /// Smoothed added tension, N/m.
+    /// Smoothed added tension, N/m, and its change per sample.
     added: f32,
-    /// Indices of the volume-changing modes and their swept volumes.
-    volume_modes: Vec<(usize, f32)>,
+    ramp: f32,
+    /// Sum of the modes' mean-square amplitudes at the last measurement, m^2.
+    quiet: f32,
 }
 
 impl Head {
-    /// `driven_by_air_only`: a resonant head, which only the enclosed air moves, keeps only its
-    /// axisymmetric modes - the others could never be excited.
-    fn new(spec: HeadSpec, max_modes: usize, sr: f32, driven_by_air_only: bool) -> Self {
-        let membrane = if driven_by_air_only { Membrane::axisymmetric(spec, max_modes, 0.45 * sr, true) } else { Membrane::new(spec, max_modes, 0.45 * sr, true) };
-        let body = ModalBody::new(&membrane.mode_specs(), sr);
+    fn new(spec: HeadSpec, options: MembraneOptions, sr: f32) -> Self {
+        let membrane = Membrane::with(spec, options);
+        let mut body = ModalBody::new(&membrane.mode_specs(), sr);
+        // The sampled high band (after the complete band) listens to contacts; see `set_coupled`.
+        body.set_coupled(membrane.modes.iter().take_while(|m| m.count == 1.0).count());
         let k2 = membrane.wavenumbers_squared();
         let stretch = membrane.stretch_coefficient();
         let yield_tension = spec.young * spec.thickness * YIELD_STRAIN / (1.0 - spec.poisson);
-        let volume_modes = membrane.modes.iter().enumerate().filter(|(_, m)| m.m == 0).map(|(i, m)| (i, m.volume)).collect();
-        Self { membrane, body, k2, stretch, yield_tension, tension: spec.tension, added: 0.0, volume_modes }
+        Self { body, membrane, k2, stretch, yield_tension, tension: spec.tension, added: 0.0, ramp: 0.0, quiet: 0.0 }
     }
 
     /// Tension modulation: the stretch of the head raises its tension, and every mode's frequency.
@@ -165,19 +249,25 @@ impl Head {
     /// real head, whose in-plane waves carry that energy back, does not gain. Averaged, the tension
     /// follows the envelope - the pitch glide - and the modes keep their adiabatic invariant. The
     /// film cannot stretch without limit: beyond its yield strain it deforms instead.
-    fn update_tension(&mut self, smoothing: f32) {
-        let mut s = 0.0f32;
+    fn measure_stretch(&mut self, smoothing: f32) {
+        let (mut s, mut all) = (0.0f32, 0.0f32);
         for k in 0..self.k2.len() {
-            s += self.k2[k] * self.body.mean_square(k);
+            let ms = self.body.mean_square(k);
+            s += self.k2[k] * ms;
+            all += ms;
         }
+        self.quiet = all;
         let target = (self.stretch * s).min(self.yield_tension);
-        self.added += (target - self.added) * smoothing;
+        let next = self.added + (target - self.added) * smoothing;
+        self.ramp = (next - self.added) / BLOCK as f32;
+    }
+
+    /// One sample of the ramp toward the last measured tension.
+    fn retune(&mut self) {
+        self.added += self.ramp;
         self.body.set_scale(((self.tension + self.added) / self.tension).sqrt());
     }
 
-    fn swept_volume(&self) -> f32 {
-        self.volume_modes.iter().map(|&(i, v)| v * self.body.q(i)).sum()
-    }
 }
 
 struct Flight {
@@ -188,15 +278,39 @@ struct Flight {
     age: u32,
 }
 
+/// One group of snare strands, measured from where it rests on the (resting) head: `x` toward the
+/// head.
+struct Wire {
+    x: f32,
+    v: f32,
+    shape: Vec<f32>,
+    /// Penetration at rest, and the force the strainer presses with.
+    delta0: f32,
+    preload: f32,
+    contact: Contact,
+    lifted: bool,
+    landings: u32,
+    /// The head's compliance between this point and each group's (itself included), and the
+    /// frequency scale they were computed at: they move with the tuning only in proportion, so they
+    /// are refreshed after a 0.1% change.
+    cross: Vec<f32>,
+    tuned: f32,
+    /// Force beyond the preload applied this sample.
+    applied: f32,
+}
+
 /// A playing drum.
 pub struct Drum {
     pub spec: DrumSpec,
     sr: f32,
     h: f32,
     heads: Vec<Head>,
-    /// `rho c^2 / V`: pressure per unit of swept volume, Pa/m^3.
-    cavity_stiffness: f32,
+    /// The air inside, coupling the heads.
+    cavity: Option<Cavity>,
     flights: Vec<Flight>,
+    wires: Vec<Wire>,
+    /// The resonant head's free next displacements (scratch, one per mode).
+    free: Vec<f32>,
     counter: u32,
     smoothing: f32,
     /// The contact force on the batter head over the last sample (for the view and the tests).
@@ -205,18 +319,59 @@ pub struct Drum {
 
 impl Drum {
     pub fn new(spec: DrumSpec, sr: f32) -> Self {
-        let mut heads = vec![Head::new(spec.batter, spec.max_modes, sr, false)];
+        let top = TOP_FREQ.min(0.45 * sr);
+        let batter = MembraneOptions { high_band_per_octave: spec.high_band, seed: 1, ..MembraneOptions::complete(spec.max_modes, top, true) };
+        let mut heads = vec![Head::new(spec.batter, batter, sr)];
         if let Some(r) = spec.reso {
-            heads.push(Head::new(r, spec.max_modes, sr, true));
+            // A resonant head that only the shell's air drives needs only its axisymmetric modes
+            // (the air's pressure is uniform over it); one that snare wires touch at points all over
+            // needs every mode, both members of each pair.
+            let o = if spec.snares.is_some() {
+                MembraneOptions { sine_partners: true, high_band_per_octave: spec.high_band, seed: 2, ..MembraneOptions::complete(spec.max_modes, top, true) }
+            } else {
+                // Only the air drives it: its modes up to the cavity's orders are all it needs.
+                MembraneOptions { max_order: if spec.depth > 0.0 { MAX_CAVITY_ORDER } else { 0 }, ..MembraneOptions::complete(spec.max_modes, top, true) }
+            };
+            heads.push(Head::new(r, o, sr));
         }
+        let wires = match (spec.snares, heads.get(1)) {
+            (Some(w), Some(reso)) => (0..w.points.max(1))
+                .map(|i| {
+                    let (r, theta) = w.point(i);
+                    let mut shape = vec![0.0; reso.body.len()];
+                    reso.membrane.shape_at(r, theta, &mut shape);
+                    let law = ContactLaw::between(Tip::Solid { radius: 0.0008, material: Material::STEEL }, Material::MYLAR, w.restitution);
+                    let preload = w.preload / w.points.max(1) as f32;
+                    // At rest the group presses with its preload: that sets the resting penetration.
+                    let delta0 = (preload / law.k).powf(1.0 / law.alpha);
+                    Wire { x: 0.0, v: 0.0, shape, delta0, preload, contact: Contact::resting(law, delta0, 0.3), lifted: false, landings: 0, cross: Vec::new(), tuned: 0.0, applied: 0.0 }
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let n = heads[0].body.len();
         let flights = (0..MAX_STRIKERS)
             .map(|_| Flight { striker: Striker { mass: 1.0, tip: spec.striker.tip, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw::between(spec.striker.tip, Material::MYLAR, 0.5)), shape: vec![0.0; n], active: false, age: 0 })
             .collect();
-        let cavity_stiffness = if spec.volume > 0.0 { RHO_AIR * C_AIR * C_AIR / spec.volume } else { 0.0 };
+        let cavity = (spec.volume > 0.0).then(|| Cavity::new(&heads.iter().map(|h| &h.membrane).collect::<Vec<_>>(), spec.volume, spec.depth, sr));
         // In-plane waves are fast: the tension follows the stretch within about a millisecond.
         let smoothing = 1.0 - (-(BLOCK as f32) / (0.0015 * sr)).exp();
-        Self { spec, sr, h: 1.0 / sr, heads, cavity_stiffness, flights, counter: 0, smoothing, last_force: 0.0 }
+        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0 }
+    }
+
+    /// Number of (cavity mode, head mode) couplings.
+    pub fn cavity_pairs(&self) -> (usize, usize) {
+        self.cavity.as_ref().map(|c| (c.modes.len(), c.pair_count())).unwrap_or((0, 0))
+    }
+
+    /// How many times the snare wires have landed back on the head (all groups).
+    pub fn wire_landings(&self) -> u32 {
+        self.wires.iter().map(|w| w.landings).sum()
+    }
+
+    /// How many wire groups are off the head right now.
+    pub fn wires_lifted(&self) -> usize {
+        self.wires.iter().filter(|w| w.lifted).count()
     }
 
     pub fn sample_rate(&self) -> f32 {
@@ -266,23 +421,26 @@ impl Drum {
     /// One sample of radiated sound, normalized so `FULL_SCALE_PA` at 1 m is 1.0.
     pub fn next_sample(&mut self) -> f32 {
         if self.counter % BLOCK == 0 {
+            let flush = self.counter % FLUSH_EVERY == 0;
             for h in self.heads.iter_mut() {
-                h.body.flush_quiet();
-                h.update_tension(self.smoothing);
+                if flush {
+                    h.body.flush_quiet();
+                }
+                h.measure_stretch(self.smoothing);
             }
+            if let (true, Some(c)) = (flush, self.cavity.as_mut()) {
+                c.flush_quiet();
+            }
+        }
+        for h in self.heads.iter_mut() {
+            h.retune();
         }
         self.counter = self.counter.wrapping_add(1);
 
-        // The enclosed air: the heads' swept volume raises the pressure, which pushes every
-        // volume-changing mode of both heads back out.
-        if self.cavity_stiffness > 0.0 {
-            let swept: f32 = self.heads.iter().map(|h| h.swept_volume()).sum();
-            let p = self.cavity_stiffness * swept;
-            for h in self.heads.iter_mut() {
-                for &(i, v) in h.volume_modes.iter() {
-                    h.body.add_modal_force(i, -p * v);
-                }
-            }
+        // The enclosed air: the heads' motion drives its modes, whose pressure pushes back on them.
+        if let Some(cav) = self.cavity.as_mut() {
+            let (first, rest) = self.heads.split_at_mut(1);
+            cav.step(&mut first[0].body, rest.first_mut().map(|h| &mut h.body));
         }
 
         // Strikers against the batter head.
@@ -304,6 +462,49 @@ impl Drum {
             }
         }
         self.last_force = total;
+
+        // Snare wires against the resonant head. Everything here is the motion about the rest state,
+        // where each group presses with its preload: the head (linear) is simulated without the
+        // static dent the preload makes, and gets only the force beyond it.
+        // While the head is far too quiet to move them (well under a micron) and they are at rest,
+        // the wires sit exactly in balance with their preload: nothing to solve.
+        let wires_awake = self.heads.get(1).is_some_and(|r| r.quiet > WIRE_WAKE) || self.wires.iter().any(|g| g.lifted || g.x.abs() > 1.0e-9 || g.v.abs() > 1.0e-7);
+        if let (Some(w), Some(reso), true) = (self.spec.snares, self.heads.get_mut(1), wires_awake) {
+            let m = w.mass / w.points.max(1) as f32;
+            let k = w.stiffness;
+            let c = m * (k / m).sqrt() / w.q.max(0.1);
+            if (reso.body.scale() / self.wires[0].tuned - 1.0).abs() > 1.0e-3 || self.wires[0].tuned == 0.0 {
+                for a in 0..self.wires.len() {
+                    let cross: Vec<f32> = (0..self.wires.len()).map(|b| reso.body.cross_compliance(&self.wires[a].shape, &self.wires[b].shape)).collect();
+                    let g = &mut self.wires[a];
+                    g.cross.clear();
+                    g.cross.extend_from_slice(&cross);
+                    g.tuned = reso.body.scale();
+                }
+            }
+            // Every mode's free next position once; each group's free position is then a dot
+            // product, plus what the groups solved before it this sample moved it.
+            reso.body.free_displacements(&mut self.free);
+            for gi in 0..self.wires.len() {
+                let earlier: f32 = (0..gi).map(|b| self.wires[gi].cross[b] * self.wires[b].applied).sum();
+                let g = &mut self.wires[gi];
+                // Free motion of the group over the step: its spring and damper, and the preload that
+                // the resting contact balances.
+                let v_free = g.v + h * (g.preload - k * g.x - c * g.v) / m;
+                let x_free = g.x + h * v_free;
+                let hy = dot(&g.shape, &self.free) + earlier;
+                let force = g.contact.solve(g.delta0 + x_free - hy, h * h / m + g.cross[gi], h);
+                g.v = v_free - h * force / m;
+                g.x += h * g.v;
+                g.applied = force - g.preload;
+                reso.body.add_force(&g.shape, g.applied);
+                let lifted = force <= 0.0;
+                if g.lifted && !lifted {
+                    g.landings += 1;
+                }
+                g.lifted = lifted;
+            }
+        }
 
         let mut out = 0.0;
         for hd in self.heads.iter_mut() {

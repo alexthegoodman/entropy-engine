@@ -25,7 +25,7 @@
 //! The head is taken as baffled on its outer side (by the shell and the air around it) for radiation;
 //! the inner side is loaded with the same air mass, and its compressibility is the cavity's spring.
 
-use super::bessel::{jn, jn_zeros};
+use super::bessel::{self, jn, jn_zeros};
 use super::modal::ModeSpec;
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -82,6 +82,19 @@ pub struct MembraneMode {
     pub n: u32,
     /// Zero of `J_m`.
     pub j: f32,
+    /// The shape is `J_m(j r / a) cos(m (theta - orient))`: 0 for the cosine member of a degenerate
+    /// pair, `pi / 2m` for the sine one, anything for a sampled high-band mode.
+    pub orient: f32,
+    /// For a sampled high-band mode, the phase of its shape: a plane wave `sqrt(2) cos(k d.x + phase)`
+    /// in direction `orient` with the mode's own wavenumber. High modes of a membrane look locally like
+    /// random superpositions of such waves (Berry's conjecture): mean square one at every point, with
+    /// the right correlation between neighbouring points - where one real mode drawn at random can be
+    /// enormous at the point struck (a high `m = 0` mode near the centre) or nearly nothing, and one
+    /// lucky draw would set the whole band's level.
+    pub phase: f32,
+    /// How many of the head's modes this one stands for: 1 in the complete band; in the high band a
+    /// sampled mode represents all those in its slice of frequency (see [`MembraneOptions`]).
+    pub count: f32,
     /// Normalization so the mean square of the shape over the head is one.
     pub norm: f32,
     /// Volume swept per metre of modal displacement, m^2 (`m = 0` only; zero otherwise).
@@ -112,9 +125,30 @@ pub struct Membrane {
 /// `s = sqrt(kappa^2 - k^2)` (and `t = sqrt(k^2 - kappa^2)` below `k`) removes the square-root
 /// singularity, leaving smooth integrals done by Simpson's rule.
 pub fn radiation(m: u32, j: f64, u: f64) -> (f64, f64) {
+    let f = hankel(m, j);
+    let cm = if m == 0 { 2.0 * PI } else { PI };
+    // Mass: s from 0 to well past the spectral peak at x = j (F^2 falls as x^-5 beyond).
+    let s_max = j + 80.0;
+    let mass = cm * simpson(|s| { let x = (s * s + u * u).sqrt(); f(x).powi(2) }, 0.0, s_max, ((s_max / 0.1) as usize).max(64));
+    (mass, radiation_resistance(m, j, u))
+}
+
+/// The resistance part of [`radiation`] alone: the integral over the propagating wavenumbers only,
+/// cheap even for high modes.
+pub fn radiation_resistance(m: u32, j: f64, u: f64) -> f64 {
+    if u <= 0.0 {
+        return 0.0;
+    }
+    let f = hankel(m, j);
+    let cm = if m == 0 { 2.0 * PI } else { PI };
+    cm * simpson(|t| { let x = (u * u - t * t).max(0.0).sqrt(); f(x).powi(2) }, 0.0, u, ((u / 0.05) as usize).max(32))
+}
+
+/// The Hankel transform of the normalized shape of mode `(m, j)`, in units of the radius.
+fn hankel(m: u32, j: f64) -> impl Fn(f64) -> f64 {
     let norm = mode_norm(m, j);
     let jp = if m == 0 { -jn(1, j) } else { -jn(m + 1, j) };
-    let f = |x: f64| -> f64 {
+    move |x: f64| -> f64 {
         let d = x * x - j * j;
         if d.abs() < 1.0e-6 * j * j {
             // Removable singularity: the integral of J_m(j s)^2 s over the head.
@@ -122,13 +156,7 @@ pub fn radiation(m: u32, j: f64, u: f64) -> (f64, f64) {
         } else {
             norm * j * jn(m, x) * jp / d
         }
-    };
-    let cm = if m == 0 { 2.0 * PI } else { PI };
-    // Mass: s from 0 to well past the spectral peak at x = j (F^2 falls as x^-5 beyond).
-    let s_max = j + 80.0;
-    let mass = cm * simpson(|s| { let x = (s * s + u * u).sqrt(); f(x).powi(2) }, 0.0, s_max, ((s_max / 0.1) as usize).max(64));
-    let res = if u > 0.0 { cm * simpson(|t| { let x = (u * u - t * t).max(0.0).sqrt(); f(x).powi(2) }, 0.0, u, ((u / 0.05) as usize).max(32)) } else { 0.0 };
-    (mass, res)
+    }
 }
 
 /// Normalization of `J_m(j r / a) cos(m theta)` to a mean square of one over the disc.
@@ -151,10 +179,11 @@ fn simpson(f: impl Fn(f64) -> f64, a: f64, b: f64, n: usize) -> f64 {
 }
 
 /// The radiation integrals are the costly part of building a head, and drums are rebuilt with the
-/// same modes at nearby frequencies all the time: cache them by mode and `ka` (to 0.1%).
-fn radiation_cached(m: u32, n: u32, j: f64, u: f64) -> (f64, f64) {
-    static CACHE: OnceLock<Mutex<HashMap<(u32, u32, i64), (f64, f64)>>> = OnceLock::new();
-    let key = (m, n, (u.max(1.0e-6).ln() * 1000.0).round() as i64);
+/// same modes at nearby frequencies all the time: cache them by mode and `ka` (to 1%; the load varies
+/// smoothly and slowly with `ka`).
+fn radiation_cached(m: u32, j: f64, u: f64) -> (f64, f64) {
+    static CACHE: OnceLock<Mutex<HashMap<(u32, i64, i64), (f64, f64)>>> = OnceLock::new();
+    let key = (m, (j * 1.0e6).round() as i64, (u.max(1.0e-6).ln() * 100.0).round() as i64);
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(v) = cache.lock().unwrap().get(&key) {
         return *v;
@@ -182,20 +211,169 @@ fn zeros_table() -> &'static Vec<(u32, u32, f64)> {
 const MAX_ORDER: u32 = 56;
 const MAX_OVERTONE: u32 = 24;
 
+/// Which modes a head is built with.
+///
+/// The **complete band** is every mode in order of frequency, up to `max_modes`. Membrane modes
+/// crowd together quadratically (the count below wavenumber `k` is `(k a)^2 / 4`), so a complete set
+/// stops at a few kHz. Above it, the **high band** samples the rest: the band is cut into slices
+/// `1 / high_band_per_octave` of an octave wide, and each slice is represented by one real mode drawn
+/// from it (a random order `m`, the zero of `J_m` nearest a random point of the slice, a random
+/// orientation) standing for all `count` modes in the slice. Its mass is divided by `count` (so the
+/// head's point compliance, and the energy a force puts in, match the whole slice's on average), its
+/// radiated weight by `sqrt(count)` (the slice's modes radiate incoherently: their powers add), and
+/// its share of the stretch by `count`; its decay is the real mode's. Sampling is deterministic in
+/// `seed`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MembraneOptions {
+    pub max_modes: usize,
+    /// No mode above this, Hz.
+    pub max_freq: f32,
+    /// Air loading and radiation (false: in vacuum).
+    pub air: bool,
+    /// Only the `m = 0` modes (a head only the shell's air drives).
+    pub axisymmetric_only: bool,
+    /// Both members of each degenerate pair (`cos` and `sin`), for a head touched at points all
+    /// round it. Without them, every point is taken on the `theta = 0` axis of the modes.
+    pub sine_partners: bool,
+    /// Sampled modes per octave above the complete band (0: none).
+    pub high_band_per_octave: f32,
+    /// Highest azimuthal order kept (a head driven only by the air in its shell needs only the orders
+    /// the air's modes have).
+    pub max_order: u32,
+    pub seed: u32,
+}
+
+impl MembraneOptions {
+    /// The complete band only, cosine members.
+    pub fn complete(max_modes: usize, max_freq: f32, air: bool) -> Self {
+        Self { max_modes, max_freq, air, axisymmetric_only: false, sine_partners: false, high_band_per_octave: 0.0, max_order: u32::MAX, seed: 1 }
+    }
+}
+
 impl Membrane {
     /// The head's lowest `max_modes` modes (in `j`), those below `max_freq` Hz. With `air` false the
     /// head is in a vacuum: no added mass, no radiation.
     pub fn new(spec: HeadSpec, max_modes: usize, max_freq: f32, air: bool) -> Self {
-        Self::build(spec, max_modes, max_freq, air, false)
+        Self::with(spec, MembraneOptions::complete(max_modes, max_freq, air))
     }
 
     /// Only the axisymmetric (`m = 0`) modes: all a head needs when nothing but the air in the
     /// shell drives it (a resonant head), since the air's pressure is uniform over the head.
     pub fn axisymmetric(spec: HeadSpec, max_modes: usize, max_freq: f32, air: bool) -> Self {
-        Self::build(spec, max_modes, max_freq, air, true)
+        Self::with(spec, MembraneOptions { axisymmetric_only: true, ..MembraneOptions::complete(max_modes, max_freq, air) })
     }
 
-    fn build(spec: HeadSpec, max_modes: usize, max_freq: f32, air: bool, only_axisymmetric: bool) -> Self {
+    pub fn with(spec: HeadSpec, o: MembraneOptions) -> Self {
+        // Heads are rebuilt with the same description all the time (every drum with the same
+        // tuning); the zero searches and radiation integrals are worth keeping.
+        static BUILT: OnceLock<Mutex<HashMap<String, Vec<MembraneMode>>>> = OnceLock::new();
+        let key = format!("{spec:?}{o:?}");
+        let built = BUILT.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Some(modes) = built.lock().unwrap().get(&key) {
+            return Self { spec, modes: modes.clone() };
+        }
+        let m = Self::build(spec, o);
+        let mut map = built.lock().unwrap();
+        if map.len() > 256 {
+            map.clear();
+        }
+        map.insert(key, m.modes.clone());
+        m
+    }
+
+    fn build(spec: HeadSpec, o: MembraneOptions) -> Self {
+        let mut modes = Vec::with_capacity(o.max_modes + 64);
+        let a = spec.radius as f64;
+        let wave_speed = (spec.tension as f64 / spec.surface_density() as f64).sqrt();
+        // Beyond the first zero of the highest order used, the table stops being complete.
+        let complete_below = jn_zeros(MAX_ORDER, 1)[0].min(zeros_table().iter().filter(|z| z.1 == MAX_OVERTONE).map(|z| z.2).fold(f64::MAX, f64::min));
+        let mut j_top = 0.0f64;
+        let mut truncated = false;
+        for &(m, n, j) in zeros_table().iter() {
+            if j >= complete_below {
+                truncated = true;
+                break;
+            }
+            if (o.axisymmetric_only && m != 0) || m > o.max_order {
+                continue;
+            }
+            let members = if o.sine_partners && m > 0 { 2 } else { 1 };
+            if modes.len() + members > o.max_modes {
+                truncated = true;
+                break;
+            }
+            if wave_speed * j / a / (2.0 * PI) > o.max_freq as f64 {
+                break;
+            }
+            modes.push(Self::mode(&spec, m, n, j, 0.0, 1.0, o.air, 4));
+            if members == 2 {
+                modes.push(Self::mode(&spec, m, n, j, std::f64::consts::FRAC_PI_2 / m as f64, 1.0, o.air, 4));
+            }
+            j_top = j;
+        }
+        if truncated && !o.axisymmetric_only && o.high_band_per_octave > 0.0 && j_top > 0.0 {
+            let mut rng = crate::audio::physmod::dsp::Noise(0x9E37_79B9 ^ o.seed.wrapping_mul(2_654_435_761).max(1));
+            let j_max = o.max_freq as f64 * 2.0 * PI * a / wave_speed;
+            let step = 2f64.powf(1.0 / o.high_band_per_octave as f64);
+            let mut lo = j_top;
+            while lo * step <= j_max {
+                let hi = lo * step;
+                // A point of the slice, uniform in modal count (which grows as j^2).
+                let target = (lo * lo + rng.unit() as f64 * (hi * hi - lo * lo)).sqrt();
+                let m_max = (target - 1.86 * target.cbrt()).max(0.0) as u32;
+                let mut found = None;
+                for _ in 0..8 {
+                    let m = (rng.unit() as f64 * (m_max + 1) as f64) as u32;
+                    let zs = bessel::jn_zeros_between(m.min(m_max), target - 2.0, target + 2.0);
+                    if let Some(z) = zs.into_iter().min_by(|x, y| (x - target).abs().partial_cmp(&(y - target).abs()).unwrap()) {
+                        found = Some((m.min(m_max), z));
+                        break;
+                    }
+                }
+                if let Some((m, z)) = found {
+                    let count = (hi * hi - lo * lo) / 4.0;
+                    // The slice's radiation, averaged over its modes. These are subsonic: only the
+                    // orders below ka radiate at all (the rest by 1e-40), so one sampled mode would
+                    // either carry the band or silence it. Instead: the fraction of orders that can
+                    // radiate, times the mean over a few of them. The air mass is rho / k's (pi / j
+                    // here), which the high modes reach (see the tests).
+                    let u_est = wave_speed * z / a * a / C_AIR as f64;
+                    let radiating = (u_est.floor() as u32).min(m_max);
+                    let mut samples: Vec<(u32, f64)> = Vec::new();
+                    for _ in 0..12 {
+                        if samples.len() >= 4 {
+                            break;
+                        }
+                        let mr = (rng.unit() as f64 * (radiating + 1) as f64) as u32;
+                        let zs = bessel::jn_zeros_between(mr.min(radiating), z - 2.0, z + 2.0);
+                        if let Some(zr) = zs.into_iter().min_by(|x, y| (x - z).abs().partial_cmp(&(y - z).abs()).unwrap()) {
+                            samples.push((mr.min(radiating), zr));
+                        }
+                    }
+                    let frac = (radiating + 1) as f64 / (m_max + 1) as f64;
+                    let impedance = |u: f64| {
+                        let r = if samples.is_empty() { 0.0 } else { samples.iter().map(|&(mr, zr)| radiation_resistance(mr, zr, u)).sum::<f64>() / samples.len() as f64 };
+                        (PI / z, frac * r)
+                    };
+                    let mut md = Self::mode_loaded(&spec, m, 0, z, rng.unit() as f64 * 2.0 * PI, count, o.air, 2, &impedance);
+                    md.phase = rng.unit() * std::f32::consts::TAU;
+                    modes.push(md);
+                }
+                lo = hi;
+            }
+        }
+        Self { spec, modes }
+    }
+
+    /// One mode: its air load, frequency, losses and radiation (standing for `count` modes).
+    #[allow(clippy::too_many_arguments)]
+    fn mode(spec: &HeadSpec, m: u32, n: u32, j: f64, orient: f64, count: f64, air: bool, iterations: usize) -> MembraneMode {
+        Self::mode_loaded(spec, m, n, j, orient, count, air, iterations, &|u| radiation_cached(m, j, u))
+    }
+
+    /// As [`Self::mode`], with the air's load `(mass, resistance)` at `ka` given by `impedance`.
+    #[allow(clippy::too_many_arguments)]
+    fn mode_loaded(spec: &HeadSpec, m: u32, n: u32, j: f64, orient: f64, count: f64, air: bool, iterations: usize, impedance: &dyn Fn(f64) -> (f64, f64)) -> MembraneMode {
         let a = spec.radius as f64;
         let sigma = spec.surface_density() as f64;
         let area = PI * a * a;
@@ -203,60 +381,48 @@ impl Membrane {
         let tension = spec.tension as f64;
         let rho = RHO_AIR as f64;
         let c = C_AIR as f64;
-        let mut modes = Vec::with_capacity(max_modes);
-        // Beyond the first zero of the highest order used, the table stops being complete.
-        let complete_below = jn_zeros(MAX_ORDER, 1)[0].min(zeros_table().iter().filter(|z| z.1 == MAX_OVERTONE).map(|z| z.2).fold(f64::MAX, f64::min));
-        for &(m, n, j) in zeros_table().iter() {
-            if modes.len() >= max_modes || j >= complete_below {
-                break;
+        let k = j / a;
+        let wv = (tension / sigma).sqrt() * k;
+        let norm = mode_norm(m, j);
+        let volume = if m == 0 && count == 1.0 { 2.0 * area * norm * jn(1, j) / j } else { 0.0 };
+        let (mut w, mut air_mass, mut resistance) = (wv, 0.0, 0.0);
+        if air {
+            // The load depends on the frequency, the frequency on the load: iterate.
+            for _ in 0..iterations {
+                let u = w * a / c;
+                let (mh, rh) = impedance(u);
+                air_mass = rho * a * a * a * mh;
+                resistance = if spec.radiates { rho * w * a * a * a * rh } else { 0.0 };
+                // Both sides carry the air's mass; only the outer side radiates.
+                w = (tension * k * k * area / (head_mass + 2.0 * air_mass)).sqrt();
             }
-            if only_axisymmetric && m != 0 {
-                continue;
-            }
-            let k = j / a;
-            let wv = (tension / sigma).sqrt() * k;
-            if wv / (2.0 * PI) > max_freq as f64 {
-                break;
-            }
-            let norm = mode_norm(m, j);
-            let volume = if m == 0 { 2.0 * area * norm * jn(1, j) / j } else { 0.0 };
-            let (mut w, mut air_mass, mut resistance) = (wv, 0.0, 0.0);
-            if air {
-                // The load depends on the frequency, the frequency on the load: iterate.
-                for _ in 0..4 {
-                    let u = w * a / c;
-                    let (mh, rh) = radiation_cached(m, n, j, u);
-                    air_mass = rho * a * a * a * mh;
-                    resistance = if spec.radiates { rho * w * a * a * a * rh } else { 0.0 };
-                    // Both sides carry the air's mass; only the outer side radiates.
-                    w = (tension * k * k * area / (head_mass + 2.0 * air_mass)).sqrt();
-                }
-            }
-            let total_mass = head_mass + 2.0 * air_mass;
-            let f = w / (2.0 * PI);
-            let decay = spec.loss as f64 + spec.loss_hf as f64 * f / 1000.0 + resistance / (2.0 * total_mass);
-            // Radiated pressure at 1 m (half-space) per unit modal acceleration: rho / (2 pi) times the
-            // monopole volume radiating the same power, sqrt(2 pi R / (rho c k^2)); signed for the
-            // volume-changing modes, whose far fields add. The head moving *in* (positive q) sends a
-            // negative pulse out.
-            let kk = w / c;
-            let v_eff = if resistance > 0.0 { (2.0 * PI * resistance / (rho * c * kk * kk)).sqrt() } else { 0.0 };
-            let v_eff = if m == 0 { v_eff * volume.signum() } else { v_eff };
-            let radiation = -(rho / (2.0 * PI)) * v_eff;
-            modes.push(MembraneMode {
-                m,
-                n,
-                j: j as f32,
-                norm: norm as f32,
-                volume: volume as f32,
-                air_mass: air_mass as f32,
-                resistance: resistance as f32,
-                vacuum_freq: (wv / (2.0 * PI)) as f32,
-                freq: f as f32,
-                spec: ModeSpec { freq: f as f32, sigma: decay as f32, mass: total_mass as f32, radiation: radiation as f32 },
-            });
         }
-        Self { spec, modes }
+        let total_mass = head_mass + 2.0 * air_mass;
+        let f = w / (2.0 * PI);
+        let decay = spec.loss as f64 + spec.loss_hf as f64 * f / 1000.0 + resistance / (2.0 * total_mass);
+        // Radiated pressure at 1 m (half-space) per unit modal acceleration: rho / (2 pi) times the
+        // monopole volume radiating the same power, sqrt(2 pi R / (rho c k^2)); signed for the
+        // volume-changing modes, whose far fields add. The head moving *in* (positive q) sends a
+        // negative pulse out.
+        let kk = w / c;
+        let v_eff = if resistance > 0.0 { (2.0 * PI * resistance / (rho * c * kk * kk)).sqrt() } else { 0.0 };
+        let v_eff = if m == 0 && count == 1.0 { v_eff * volume.signum() } else { v_eff };
+        let radiation = -(rho / (2.0 * PI)) * v_eff / count.sqrt();
+        MembraneMode {
+            m,
+            n,
+            j: j as f32,
+            orient: orient as f32,
+            phase: 0.0,
+            count: count as f32,
+            norm: norm as f32,
+            volume: volume as f32,
+            air_mass: air_mass as f32,
+            resistance: resistance as f32,
+            vacuum_freq: (wv / (2.0 * PI)) as f32,
+            freq: f as f32,
+            spec: ModeSpec { freq: f as f32, sigma: decay as f32, mass: (total_mass / count) as f32, radiation: radiation as f32 },
+        }
     }
 
     /// The modes as a modal body needs them.
@@ -268,8 +434,14 @@ impl Membrane {
     /// written into `out`.
     pub fn shape_at(&self, r: f32, theta: f32, out: &mut [f32]) {
         let r = r.clamp(0.0, 1.0) as f64;
+        let (px, py) = (r * (theta as f64).cos(), r * (theta as f64).sin());
         for (o, md) in out.iter_mut().zip(self.modes.iter()) {
-            *o = (md.norm as f64 * jn(md.m, md.j as f64 * r) * (md.m as f64 * theta as f64).cos()) as f32;
+            if md.count != 1.0 {
+                let (dx, dy) = ((md.orient as f64).cos(), (md.orient as f64).sin());
+                *o = (std::f64::consts::SQRT_2 * (md.j as f64 * (dx * px + dy * py) + md.phase as f64).cos()) as f32;
+                continue;
+            }
+            *o = (md.norm as f64 * jn(md.m, md.j as f64 * r) * (md.m as f64 * (theta - md.orient) as f64).cos()) as f32;
         }
     }
 
@@ -278,9 +450,10 @@ impl Membrane {
         self.spec.young * self.spec.thickness / (4.0 * (1.0 - self.spec.poisson))
     }
 
-    /// `k^2` of each mode (1/m^2), for the tension-modulation sum.
+    /// `k^2` of each mode (1/m^2) over the number of modes it stands for: its weight in the
+    /// tension-modulation sum.
     pub fn wavenumbers_squared(&self) -> Vec<f32> {
-        self.modes.iter().map(|m| (m.j / self.spec.radius).powi(2)).collect()
+        self.modes.iter().map(|m| (m.j / self.spec.radius).powi(2) / m.count).collect()
     }
 
     /// The tension (N/m) that puts mode `index` at `freq` Hz, air loading included.

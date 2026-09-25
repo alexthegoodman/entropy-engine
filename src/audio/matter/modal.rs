@@ -37,6 +37,12 @@ impl ModeSpec {
     }
 }
 
+/// Frequency-scale changes smaller than this (relative; 0.017 cents) are held until they add up.
+/// Each retuning of a mode under a load makes it ring a little about its new equilibrium; a change
+/// spread over many tiny steps stays inaudible (it approaches the continuous, adiabatic change), and
+/// holding back the tiniest keeps a slow drift cheap.
+pub const SCALE_RESOLUTION: f32 = 1.0e-5;
+
 pub struct ModalBody {
     sr: f32,
     h: f32,
@@ -62,6 +68,9 @@ pub struct ModalBody {
     /// Small scale changes applied incrementally since the last exact recomputation.
     increments: u32,
     active: usize,
+    /// Modes `0..coupled` push back on contacts (`predict` sees them); the rest only listen - they are
+    /// driven by forces but don't take part in a contact's balance (see `set_coupled`).
+    coupled: usize,
 }
 
 impl ModalBody {
@@ -84,6 +93,7 @@ impl ModalBody {
             scale: 0.0,
             increments: 0,
             active: 0,
+            coupled: n,
         };
         b.set_scale(1.0);
         b
@@ -117,7 +127,7 @@ impl ModalBody {
     /// change in its angle - a few multiplies and a square root per mode, since the decay per sample
     /// doesn't depend on the frequency - and a large one recomputes it exactly.
     pub fn set_scale(&mut self, s: f32) {
-        if (s - self.scale).abs() <= 2.0e-6 * self.scale {
+        if (s - self.scale).abs() <= SCALE_RESOLUTION * self.scale {
             return;
         }
         let small = self.scale > 0.0 && (s / self.scale - 1.0).abs() < 0.02 && self.increments < 64;
@@ -125,6 +135,13 @@ impl ModalBody {
         let mut active = 0;
         for k in 0..self.specs.len() {
             let sp = self.specs[k];
+            if k >= self.coupled && self.scale > 0.0 {
+                // Listening modes keep their tuning (see `set_coupled`).
+                if self.omega_d[k] > 0.0 {
+                    active = k + 1;
+                }
+                continue;
+            }
             let w0 = TAU * sp.freq * s;
             let sig = sp.sigma.max(0.0);
             let wd = (w0 * w0 - sig * sig).max(1.0e-6).sqrt();
@@ -199,6 +216,20 @@ impl ModalBody {
         self.omega_d[k] * self.re[k] - self.specs[k].sigma * self.im[k]
     }
 
+    /// Only modes `0..n` take part in contacts; the rest are driven by the forces applied but are
+    /// left out of `predict`. For a sampled high band (a few modes each standing for many): as
+    /// resonators they are sparse and lightly damped, where the dense band they stand for acts on a
+    /// contact as a smooth load, so coupling them both ways makes a contact chatter at their
+    /// frequencies that the real body would not. Driven one way, they receive the contact force's
+    /// own high frequencies - its sharp edges - which is the part that matters.
+    ///
+    /// They also keep their tuning when the body is rescaled: a percent of glide in a dense,
+    /// noise-like band is inaudible, while retuning modes that carry a large quasi-static load (and a
+    /// sampled mode stands for many) in steps makes each step ring.
+    pub fn set_coupled(&mut self, n: usize) {
+        self.coupled = n.min(self.specs.len());
+    }
+
     /// Displacement of a point whose shape values are `shape` (one per mode).
     pub fn displacement(&self, shape: &[f32]) -> f32 {
         let n = self.active.min(shape.len());
@@ -212,22 +243,60 @@ impl ModalBody {
     /// Where the point `shape` will be after the coming step if no further force is added, and how
     /// far one newton applied there for the coming step would move it: `(free, compliance)`.
     pub fn predict(&self, shape: &[f32]) -> (f32, f32) {
-        let n = self.active.min(shape.len());
-        let (mut free, mut comp) = (0.0f32, 0.0f32);
-        for k in 0..n {
-            let re = self.re[k] + self.kick[k] * self.force[k];
-            free += shape[k] * (self.rot_im[k] * re + self.rot_re[k] * self.im[k]);
-            comp += shape[k] * shape[k] * self.reach[k];
+        let n = self.active.min(shape.len()).min(self.coupled);
+        let (sh, re, im, kick, force) = (&shape[..n], &self.re[..n], &self.im[..n], &self.kick[..n], &self.force[..n]);
+        let (rr, ri, reach) = (&self.rot_re[..n], &self.rot_im[..n], &self.reach[..n]);
+        #[cfg(target_arch = "x86_64")]
+        let ((mut free, mut comp), done) = predict_sse(sh, re, im, kick, force, rr, ri, reach);
+        #[cfg(not(target_arch = "x86_64"))]
+        let ((mut free, mut comp), done) = ((0.0f32, 0.0f32), 0usize);
+        for k in done..n {
+            let x = re[k] + kick[k] * force[k];
+            free += sh[k] * (ri[k] * x + rr[k] * im[k]);
+            comp += sh[k] * sh[k] * reach[k];
         }
         (free, comp)
+    }
+
+    /// The one-step compliance at a point alone (the second half of `predict`): it depends only on
+    /// the tuning, so a caller can keep it while the scale barely moves and use `predict_free`.
+    pub fn compliance(&self, shape: &[f32]) -> f32 {
+        self.cross_compliance(shape, shape)
+    }
+
+    /// Every coupled mode's displacement after the coming step if no further force is added, into
+    /// `out` (at least as long as the body): with it, the free position of any point is one dot
+    /// product with its shape (`dot`), which is cheaper than `predict` when many points are asked.
+    pub fn free_displacements(&self, out: &mut [f32]) {
+        let n = self.active.min(self.coupled);
+        let (re, im, kick, force) = (&self.re[..n], &self.im[..n], &self.kick[..n], &self.force[..n]);
+        let (rr, ri) = (&self.rot_re[..n], &self.rot_im[..n]);
+        for (k, o) in out[..n].iter_mut().enumerate() {
+            let x = re[k] + kick[k] * force[k];
+            *o = ri[k] * x + rr[k] * im[k];
+        }
+        out[n..].iter_mut().for_each(|v| *v = 0.0);
+    }
+
+    /// `sum a b reach` over the coupled modes: how far one newton held for this sample at the point
+    /// `b` moves the point `a` (the cross-compliance; `a = b` gives `compliance`).
+    pub fn cross_compliance(&self, a: &[f32], b: &[f32]) -> f32 {
+        let n = self.active.min(self.coupled).min(a.len()).min(b.len());
+        dot3(&a[..n], &b[..n], &self.reach[..n])
     }
 
     /// Adds a force `f` (newtons) at the point `shape` for the coming step.
     pub fn add_force(&mut self, shape: &[f32], f: f32) {
         let n = self.active.min(shape.len());
-        for k in 0..n {
-            self.force[k] += shape[k] * f;
+        for (dst, s) in self.force[..n].iter_mut().zip(&shape[..n]) {
+            *dst += s * f;
         }
+    }
+
+    /// Every mode's displacement and the generalized forces accumulated for the coming step, as
+    /// slices: for couplings that read and drive many modes at once.
+    pub fn displacements_and_forces(&mut self) -> (&[f32], &mut [f32]) {
+        (&self.im, &mut self.force)
     }
 
     /// Adds a generalized force on mode `k` for the coming step.
@@ -239,33 +308,15 @@ impl ModalBody {
     /// Advances every mode by one sample under the accumulated forces (which are then cleared), and
     /// returns the radiated output (the modes' accelerations weighted by their radiation).
     pub fn step(&mut self) -> f32 {
-        const L: usize = 8;
         let n = self.active;
-        // Fixed-width chunks with one partial sum per lane: no bounds checks and no ordered
-        // floating-point sum, so the loop vectorizes.
         let (re, im, force) = (&mut self.re[..n], &mut self.im[..n], &mut self.force[..n]);
         let (rr, ri, kick) = (&self.rot_re[..n], &self.rot_im[..n], &self.kick[..n]);
         let (oi, or) = (&self.out_im[..n], &self.out_re[..n]);
-        let mut lanes = [0.0f32; L];
-        let body = n / L * L;
-        {
-            let it = re[..body].chunks_exact_mut(L).zip(im[..body].chunks_exact_mut(L)).zip(force[..body].chunks_exact_mut(L));
-            let co = rr[..body].chunks_exact(L).zip(ri[..body].chunks_exact(L)).zip(kick[..body].chunks_exact(L)).zip(oi[..body].chunks_exact(L).zip(or[..body].chunks_exact(L)));
-            for (((re, im), f), (((a, b), kk), (oi, or))) in it.zip(co) {
-                for i in 0..L {
-                    let x = re[i] + kk[i] * f[i];
-                    let y = im[i];
-                    let nre = a[i] * x - b[i] * y;
-                    let nim = b[i] * x + a[i] * y;
-                    re[i] = nre;
-                    im[i] = nim;
-                    f[i] = 0.0;
-                    lanes[i] += oi[i] * nim + or[i] * nre;
-                }
-            }
-        }
-        let mut out: f32 = lanes.iter().sum();
-        for i in body..n {
+        #[cfg(target_arch = "x86_64")]
+        let (mut out, done) = step_sse(re, im, force, rr, ri, kick, oi, or);
+        #[cfg(not(target_arch = "x86_64"))]
+        let (mut out, done) = (0.0f32, 0usize);
+        for i in done..n {
             let x = re[i] + kick[i] * force[i];
             let y = im[i];
             let nre = rr[i] * x - ri[i] * y;
@@ -300,4 +351,106 @@ impl ModalBody {
         }
         e
     }
+}
+
+/// The body of `ModalBody::step` four modes at a time (SSE2 is part of every x86-64 processor; the
+/// compiler would not vectorize the plain loop). Returns the output of the modes done and how many.
+#[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
+fn step_sse(re: &mut [f32], im: &mut [f32], force: &mut [f32], rr: &[f32], ri: &[f32], kick: &[f32], oi: &[f32], or: &[f32]) -> (f32, usize) {
+    use std::arch::x86_64::*;
+    let n = re.len();
+    let body = n / 4 * 4;
+    for s in [im.len(), force.len(), rr.len(), ri.len(), kick.len(), oi.len(), or.len()] {
+        assert!(s >= n);
+    }
+    // SAFETY: every slice is at least `n` long (checked above) and each access reads or writes four
+    // floats at an index below `body <= n`, unaligned loads and stores.
+    unsafe {
+        let mut acc = _mm_setzero_ps();
+        let zero = _mm_setzero_ps();
+        let mut i = 0;
+        while i < body {
+            let x = _mm_add_ps(_mm_loadu_ps(re.as_ptr().add(i)), _mm_mul_ps(_mm_loadu_ps(kick.as_ptr().add(i)), _mm_loadu_ps(force.as_ptr().add(i))));
+            let y = _mm_loadu_ps(im.as_ptr().add(i));
+            let a = _mm_loadu_ps(rr.as_ptr().add(i));
+            let b = _mm_loadu_ps(ri.as_ptr().add(i));
+            let nre = _mm_sub_ps(_mm_mul_ps(a, x), _mm_mul_ps(b, y));
+            let nim = _mm_add_ps(_mm_mul_ps(b, x), _mm_mul_ps(a, y));
+            _mm_storeu_ps(re.as_mut_ptr().add(i), nre);
+            _mm_storeu_ps(im.as_mut_ptr().add(i), nim);
+            _mm_storeu_ps(force.as_mut_ptr().add(i), zero);
+            acc = _mm_add_ps(acc, _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(oi.as_ptr().add(i)), nim), _mm_mul_ps(_mm_loadu_ps(or.as_ptr().add(i)), nre)));
+            i += 4;
+        }
+        let mut lanes = [0.0f32; 4];
+        _mm_storeu_ps(lanes.as_mut_ptr(), acc);
+        (lanes.iter().sum(), body)
+    }
+}
+
+/// `ModalBody::predict`'s sums four modes at a time. Returns the partial sums and how many modes
+/// they cover.
+#[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
+fn predict_sse(sh: &[f32], re: &[f32], im: &[f32], kick: &[f32], force: &[f32], rr: &[f32], ri: &[f32], reach: &[f32]) -> ((f32, f32), usize) {
+    use std::arch::x86_64::*;
+    let n = sh.len();
+    let body = n / 4 * 4;
+    for s in [re.len(), im.len(), kick.len(), force.len(), rr.len(), ri.len(), reach.len()] {
+        assert!(s >= n);
+    }
+    // SAFETY: every slice is at least `n` long (checked above); each access reads four floats at an
+    // index below `body <= n`.
+    unsafe {
+        let (mut fa, mut ca) = (_mm_setzero_ps(), _mm_setzero_ps());
+        let mut i = 0;
+        while i < body {
+            let s = _mm_loadu_ps(sh.as_ptr().add(i));
+            let x = _mm_add_ps(_mm_loadu_ps(re.as_ptr().add(i)), _mm_mul_ps(_mm_loadu_ps(kick.as_ptr().add(i)), _mm_loadu_ps(force.as_ptr().add(i))));
+            let q = _mm_add_ps(_mm_mul_ps(_mm_loadu_ps(ri.as_ptr().add(i)), x), _mm_mul_ps(_mm_loadu_ps(rr.as_ptr().add(i)), _mm_loadu_ps(im.as_ptr().add(i))));
+            fa = _mm_add_ps(fa, _mm_mul_ps(s, q));
+            ca = _mm_add_ps(ca, _mm_mul_ps(_mm_mul_ps(s, s), _mm_loadu_ps(reach.as_ptr().add(i))));
+            i += 4;
+        }
+        let (mut f4, mut c4) = ([0.0f32; 4], [0.0f32; 4]);
+        _mm_storeu_ps(f4.as_mut_ptr(), fa);
+        _mm_storeu_ps(c4.as_mut_ptr(), ca);
+        ((f4.iter().sum(), c4.iter().sum()), body)
+    }
+}
+
+/// `sum a b`, four independent partial sums (vectorizes).
+pub fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let n = a.len().min(b.len());
+    let (a, b) = (&a[..n], &b[..n]);
+    let mut acc = [0.0f32; 8];
+    let body = n / 8 * 8;
+    for (ca, cb) in a[..body].chunks_exact(8).zip(b[..body].chunks_exact(8)) {
+        for l in 0..8 {
+            acc[l] += ca[l] * cb[l];
+        }
+    }
+    let mut s: f32 = acc.iter().sum();
+    for k in body..n {
+        s += a[k] * b[k];
+    }
+    s
+}
+
+/// `sum a b c`.
+fn dot3(a: &[f32], b: &[f32], c: &[f32]) -> f32 {
+    let n = a.len().min(b.len()).min(c.len());
+    let mut acc = [0.0f32; 8];
+    let body = n / 8 * 8;
+    for i in (0..body).step_by(8) {
+        for l in 0..8 {
+            acc[l] += a[i + l] * b[i + l] * c[i + l];
+        }
+    }
+    let mut s: f32 = acc.iter().sum();
+    for k in body..n {
+        s += a[k] * b[k] * c[k];
+    }
+    s
 }

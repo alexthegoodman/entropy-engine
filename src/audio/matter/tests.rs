@@ -52,12 +52,16 @@ fn centroid(seg: &[f32]) -> f32 {
     (num / den.max(1.0e-20)) as f32
 }
 
-/// Share of the energy of `seg` above 1 kHz, dB.
-fn above_1k(seg: &[f32]) -> f32 {
+/// Share of the energy of `seg` above `f` Hz, dB.
+fn above(seg: &[f32], f: f32) -> f32 {
     let (m, bin) = spectrum(seg, SR);
     let tot: f32 = m.iter().map(|v| v * v).sum();
-    let hi: f32 = m.iter().enumerate().filter(|(k, _)| *k as f32 * bin > 1000.0).map(|(_, v)| v * v).sum();
+    let hi: f32 = m.iter().enumerate().filter(|(k, _)| *k as f32 * bin > f).map(|(_, v)| v * v).sum();
     10.0 * (hi / tot.max(1.0e-30)).max(1.0e-30).log10()
+}
+
+fn above_1k(seg: &[f32]) -> f32 {
+    above(seg, 1000.0)
 }
 
 fn secs(x: &[f32], a: f32, b: f32) -> &[f32] {
@@ -250,9 +254,11 @@ fn felt_brightens_as_it_is_played_harder() {
 // ---------------------------------------------------------------- toms and kick
 
 /// How far (cents) the batter head's (1,1) mode sounds above its settled pitch just after a hit at
-/// `velocity`, watched on the head itself with a (virtual) laser vibrometer - the radiated sound
-/// also carries the resonant head, tuned close by.
+/// `velocity`, watched on the head itself with a (virtual) laser vibrometer, on the drum with its
+/// resonant head taken off and its bottom open (a concert tom): on the full drum the air ties the
+/// two heads' (1,1) modes into a pair, and the early and late windows can catch different members.
 fn glide(spec: &DrumSpec, velocity: f32) -> f32 {
+    let spec = &DrumSpec { reso: None, volume: 0.0, ..*spec };
     let f = mode_freq(spec, 1, 1);
     let mut d = Drum::new(*spec, SR);
     d.strike(Strike { velocity, position: 0.5, angle: 0.0, striker: spec.striker });
@@ -290,7 +296,9 @@ fn a_tom_follows_its_tuning() {
         peak(secs(&hit(s, 1.0, 0.5), 0.3, 1.0), g * 0.95, g * 1.05).0
     };
     let ratio = f(&hi) / f(&lo);
-    assert!(cents(ratio, 160.0 / 120.0).abs() < 10.0, "ratio {ratio:.3}");
+    // The air inside loads the (1,1) mode through its own (1,1) mode (~660 Hz in this shell), more so
+    // the closer the head's mode comes to it: the higher tuning lands a little flat of the ratio.
+    assert!(cents(ratio, 160.0 / 120.0).abs() < 25.0, "ratio {ratio:.3}");
 }
 
 #[test]
@@ -328,9 +336,9 @@ fn a_plastic_beater_is_brighter_than_felt() {
     let plastic = DrumSpec { striker: StrikerSpec::plastic_beater(), ..felt };
     // Both are dominated by the slack head (the beater rides it for ~19 ms); what the tip changes is
     // the sharp start of the force, which is the top of the spectrum.
-    let hf = above_1k(secs(&hit(&felt, 3.0, 0.2), 0.0, 0.15));
-    let hp = above_1k(secs(&hit(&plastic, 3.0, 0.2), 0.0, 0.15));
-    assert!(hp > hf + 3.0, "above 1 kHz: plastic {hp:.1} dB, felt {hf:.1} dB");
+    let hf = above(secs(&hit(&felt, 3.0, 0.2), 0.0, 0.15), 4000.0);
+    let hp = above(secs(&hit(&plastic, 3.0, 0.2), 0.0, 0.15), 4000.0);
+    assert!(hp > hf + 6.0, "above 4 kHz: plastic {hp:.1} dB, felt {hf:.1} dB");
 }
 
 #[test]
@@ -355,9 +363,10 @@ fn the_shell_air_couples_the_heads() {
 
 #[test]
 fn every_drum_is_bounded_and_falls_silent() {
-    for spec in [DrumSpec::kick(40.0), DrumSpec::floor_tom(60.0), DrumSpec::rack_tom(200.0), DrumSpec::timpani(90.0)] {
+    for spec in [DrumSpec::kick(40.0), DrumSpec::snare(180.0), DrumSpec::floor_tom(60.0), DrumSpec::rack_tom(200.0), DrumSpec::timpani(90.0)] {
         let x = render_hit(&spec, Strike { velocity: 25.0, position: 0.9, angle: 0.0, striker: StrikerSpec::stick() }, SR, 6.0);
-        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 20.0), "{:?} blew up", spec.kind);
+        // 90 km/h at the rim: loud (a few hundred pascals at 1 m) but finite and settling.
+        assert!(x.iter().all(|v| v.is_finite() && v.abs() < 100.0), "{:?} blew up", spec.kind);
         assert!(rms(secs(&x, 5.5, 6.0)) < 1.0e-3, "{:?} still ringing", spec.kind);
     }
 }
@@ -375,12 +384,138 @@ fn later_hits_land_on_a_ringing_head() {
     assert!(two.iter().all(|v| v.is_finite()));
 }
 
+// ---------------------------------------------------------------- the high band
+
+#[test]
+fn the_high_band_carries_a_sticks_crack_without_changing_the_hit() {
+    // The sampled modes above the complete band put the top of the spectrum back (a stick on a tom
+    // has real energy above 4 kHz), and since they only listen to the contact, the contact itself -
+    // the force pulse the stick and the head make - is the same with or without them.
+    let with = DrumSpec::rack_tom(140.0);
+    let without = DrumSpec { high_band: 0.0, ..with };
+    let run = |spec: &DrumSpec| {
+        let mut d = Drum::new(*spec, SR);
+        d.strike(Strike { velocity: 4.0, position: 0.4, angle: 0.0, striker: spec.striker });
+        let mut force = Vec::new();
+        let x: Vec<f32> = (0..(0.2 * SR) as usize).map(|_| { let y = d.next_sample(); force.push(d.last_force); y }).collect();
+        (x, force)
+    };
+    let (xw, fw) = run(&with);
+    let (xo, fo) = run(&without);
+    let (hw, ho) = (above(&xw, 4000.0), above(&xo, 4000.0));
+    assert!(hw > ho + 10.0, "above 4 kHz: {hw:.1} dB with the high band, {ho:.1} dB without");
+    // The one way the high band reaches back: its motion stretches the head too, raising the tension
+    // a little during the contact.
+    let (pw, po) = (fw.iter().fold(0.0f32, |m, v| m.max(*v)), fo.iter().fold(0.0f32, |m, v| m.max(*v)));
+    let (tw, to) = (fw.iter().filter(|v| **v > 0.0).count() as f32, fo.iter().filter(|v| **v > 0.0).count() as f32);
+    assert!((pw / po - 1.0).abs() < 0.03 && (tw / to - 1.0).abs() < 0.03, "peak {pw} vs {po} N, contact {tw} vs {to} samples");
+}
+
+#[test]
+fn a_membranes_high_band_falls_away_smoothly() {
+    // No band of the spectrum stands out: each octave from 2 to 16 kHz of a felt kick hit carries
+    // less than the one below it (the sampled modes are spread evenly, their shapes and radiation
+    // are the band's averages, and retuning during the glide is continuous).
+    let x = hit(&DrumSpec::kick(55.0), 3.0, 0.2);
+    let (m, bin) = spectrum(secs(&x, 0.0, 0.15), SR);
+    let band = |lo: f32, hi: f32| -> f32 { m.iter().enumerate().filter(|(k, _)| { let f = *k as f32 * bin; f >= lo && f < hi }).map(|(_, v)| v * v).sum() };
+    let octaves: Vec<f32> = [1000.0f32, 2000.0, 4000.0, 8000.0].iter().map(|&f| db(band(f, 2.0 * f).sqrt())).collect();
+    for w in octaves.windows(2) {
+        assert!(w[1] < w[0], "octave levels {octaves:?}");
+    }
+}
+
+// ---------------------------------------------------------------- the air inside
+
+#[test]
+fn the_air_inside_ties_the_heads_asymmetric_modes() {
+    // A uniform pressure can only move a head's volume-changing modes. The cavity's transverse modes
+    // carry the batter's (1,1) motion to the resonant head's: with them the snare side's m = 1 modes
+    // move, as they do in a real snare; with only the uniform mode (no depth given) they can't.
+    let energy_m1 = |spec: DrumSpec| {
+        let mut d = Drum::new(spec, SR);
+        d.strike(Strike { velocity: 2.0, position: 0.5, angle: 0.0, striker: spec.striker });
+        for _ in 0..(0.05 * SR) as usize {
+            d.next_sample();
+        }
+        let (head, body) = (d.head(1).unwrap(), d.head_body(1).unwrap());
+        let e = |pick: &dyn Fn(u32) -> bool| head.modes.iter().enumerate().filter(|(_, m)| pick(m.m) && m.count == 1.0).map(|(k, m)| 0.5 * m.spec.mass * (2.0 * std::f32::consts::PI * m.freq).powi(2) * body.mean_square(k)).sum::<f32>();
+        e(&|m| m == 1) / e(&|_| true).max(1.0e-30)
+    };
+    let snare = DrumSpec::snare(220.0).snares_off();
+    let with = energy_m1(snare);
+    let without = energy_m1(DrumSpec { depth: 0.0, ..snare });
+    assert!(with > 0.03 && without == 0.0, "share of the snare side's energy in m = 1: {with:.3} with the cavity's modes, {without:.3} without");
+}
+
+// ---------------------------------------------------------------- the snare
+
+/// Strikes `spec` at `velocity` and listens for a second: (sound, landings, the last time any wire
+/// group was off the head).
+fn snare_hit(spec: &DrumSpec, velocity: f32) -> (Vec<f32>, u32, f32) {
+    let mut d = Drum::new(*spec, SR);
+    d.strike(Strike { velocity, position: 0.4, angle: 0.0, striker: spec.striker });
+    let mut last = 0.0;
+    let x = (0..SR as usize)
+        .map(|i| {
+            let y = d.next_sample();
+            if d.wires_lifted() > 0 {
+                last = i as f32 / SR;
+            }
+            y
+        })
+        .collect();
+    (x, d.wire_landings(), last)
+}
+
+fn with_preload(preload: f32) -> DrumSpec {
+    let mut s = DrumSpec::snare(220.0);
+    s.snares.as_mut().unwrap().preload = preload;
+    s
+}
+
+#[test]
+fn snare_wires_rattle_by_lifting_off_and_landing() {
+    // Nothing plays a noise burst: each wire group is thrown off the head and lands again, many times.
+    let (_, landings, last) = snare_hit(&DrumSpec::snare(220.0), 2.0);
+    assert!(landings > 50, "{landings} landings");
+    assert!(last > 0.02, "the wires stop leaving the head after {last:.3} s");
+    let (_, none, _) = snare_hit(&DrumSpec::snare(220.0).snares_off(), 2.0);
+    assert_eq!(none, 0);
+}
+
+#[test]
+fn snares_on_add_the_top_end_that_snares_off_lacks() {
+    let (on, _, _) = snare_hit(&DrumSpec::snare(220.0), 2.0);
+    let (off, _, _) = snare_hit(&DrumSpec::snare(220.0).snares_off(), 2.0);
+    let level = |x: &[f32]| {
+        let (m, bin) = spectrum(secs(x, 0.0, 0.05), SR);
+        db(m.iter().enumerate().filter(|(k, _)| *k as f32 * bin > 3000.0).map(|(_, v)| v * v).sum::<f32>().sqrt())
+    };
+    let (a, b) = (level(&on), level(&off));
+    assert!(a > b + 4.0, "above 3 kHz in the first 50 ms: {a:.1} dB on, {b:.1} dB off");
+}
+
+#[test]
+fn a_harder_hit_rattles_more_and_longer() {
+    let (_, soft, soft_last) = snare_hit(&DrumSpec::snare(220.0), 0.8);
+    let (_, hard, hard_last) = snare_hit(&DrumSpec::snare(220.0), 4.0);
+    assert!(hard > soft && hard_last > soft_last * 1.3, "soft: {soft} landings until {soft_last:.3} s; hard: {hard} until {hard_last:.3} s");
+}
+
+#[test]
+fn looser_snares_buzz_longer() {
+    let (_, loose, loose_last) = snare_hit(&with_preload(0.05), 2.0);
+    let (_, tight, tight_last) = snare_hit(&with_preload(1.2), 2.0);
+    assert!(loose > tight && loose_last > tight_last * 1.5, "loose: {loose} landings until {loose_last:.3} s; tight: {tight} until {tight_last:.3} s");
+}
+
 /// One second of each drum ringing after a hit, timed on this thread (release builds): the cost
 /// against the budget in `docs/PHYS_MOD_SOUNDS.md`.
 #[test]
 #[ignore]
 fn cost() {
-    for (name, spec) in [("kick", DrumSpec::kick(55.0)), ("floor tom", DrumSpec::floor_tom(82.0)), ("rack tom", DrumSpec::rack_tom(140.0)), ("timpani", DrumSpec::timpani(130.81))] {
+    for (name, spec) in [("snare", DrumSpec::snare(220.0)), ("kick", DrumSpec::kick(55.0)), ("floor tom", DrumSpec::floor_tom(82.0)), ("rack tom", DrumSpec::rack_tom(140.0)), ("timpani", DrumSpec::timpani(130.81))] {
         let mut d = Drum::new(spec, SR);
         d.strike(Strike { velocity: 3.0, position: 0.4, angle: 0.0, striker: spec.striker });
         let t = std::time::Instant::now();
@@ -426,6 +561,26 @@ fn listening_examples() {
     write("timpani_phrase.wav", &a.iter().zip(b.iter().chain(std::iter::repeat(&0.0))).map(|(x, y)| x + y).collect::<Vec<_>>());
     let roll: Vec<(f32, Strike)> = (0..40).map(|i| (i as f32 * 0.06, at(&g, 0.4 + 2.6 * i as f32 / 40.0, 0.72 + 0.04 * (i % 2) as f32))).collect();
     write("timpani_roll.wav", &render_hits(&g, &roll, SR, 2.5));
+    // Snare: a backbeat, ghost notes, a roll, then the same hit with the snares off, loose and tight.
+    let snare = DrumSpec::snare(220.0);
+    let mut groove: Vec<(f32, Strike)> = Vec::new();
+    for bar in 0..2 {
+        let t0 = bar as f32 * 2.0;
+        groove.push((t0 + 0.5, at(&snare, 4.0, 0.35)));
+        groove.push((t0 + 1.5, at(&snare, 4.5, 0.35)));
+        for g in [0.875f32, 1.125, 1.875] {
+            groove.push((t0 + g, at(&snare, 0.6, 0.55)));
+        }
+    }
+    for i in 0..24 {
+        groove.push((4.2 + i as f32 * 0.045, at(&snare, 0.8 + 2.4 * i as f32 / 24.0, 0.4 + 0.05 * (i % 2) as f32)));
+    }
+    write("snare_groove.wav", &render_hits(&snare, &groove, SR, 1.0));
+    let mut settings = Vec::new();
+    for spec in [snare.snares_off(), with_preload(0.05), snare, with_preload(1.2)] {
+        settings.extend(render_hits(&spec, &[(0.0, at(&spec, 3.0, 0.4))], SR, 0.9));
+    }
+    write("snare_off_loose_normal_tight.wav", &settings);
     write("timpani_centre_vs_edge.wav", &render_hits(&c, &[(0.0, at(&c, 2.0, 0.0)), (1.5, at(&c, 2.0, 0.75))], SR, 2.5));
 }
 
@@ -444,5 +599,3 @@ fn report() {
         println!("{name}: T {:.0} N/m, peak {:.1} dBFS, glide hard {:.1} soft {:.1} cents", spec.batter.tension, db(peak_abs), glide(&spec, 6.0), glide(&spec, 0.5));
     }
 }
-
-

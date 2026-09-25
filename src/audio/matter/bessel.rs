@@ -84,6 +84,67 @@ pub fn jn_zeros(m: u32, count: usize) -> Vec<f64> {
     zeros
 }
 
+/// The zeros of `J_m` between `lo` and `hi`, by a scan and bisection.
+pub fn jn_zeros_between(m: u32, lo: f64, hi: f64) -> Vec<f64> {
+    let mut zeros = Vec::new();
+    // No zero of J_m lies below m.
+    let mut x = lo.max(m as f64).max(0.5);
+    let mut fx = jn(m, x);
+    while x < hi {
+        let x2 = x + 0.1;
+        let f2 = jn(m, x2);
+        if fx * f2 < 0.0 {
+            let (mut a, mut b, mut fa) = (x, x2, fx);
+            for _ in 0..50 {
+                let mid = 0.5 * (a + b);
+                let fm = jn(m, mid);
+                if fm * fa <= 0.0 {
+                    b = mid;
+                } else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+            zeros.push(0.5 * (a + b));
+        }
+        x = x2;
+        fx = f2;
+    }
+    zeros
+}
+
+/// The first `count` zeros of `J_m'`, the radial wavenumbers of a hard-walled cylinder's acoustic
+/// modes. For `m = 0` the first is 0 (the uniform mode).
+pub fn jn_prime_zeros(m: u32, count: usize) -> Vec<f64> {
+    let mut zeros = Vec::with_capacity(count);
+    if m == 0 {
+        zeros.push(0.0);
+    }
+    let mut x = if m == 0 { 0.5 } else { (m as f64 * 0.5).max(0.3) };
+    let mut fx = jn_prime(m, x);
+    while zeros.len() < count {
+        let x2 = x + 0.05;
+        let f2 = jn_prime(m, x2);
+        if fx * f2 < 0.0 {
+            let (mut a, mut b, mut fa) = (x, x2, fx);
+            for _ in 0..50 {
+                let mid = 0.5 * (a + b);
+                let fm = jn_prime(m, mid);
+                if fm * fa <= 0.0 {
+                    b = mid;
+                } else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+            zeros.push(0.5 * (a + b));
+        }
+        x = x2;
+        fx = f2;
+    }
+    zeros
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +156,17 @@ mod tests {
         for (m, x, want) in cases {
             let got = jn(m, x);
             assert!((got - want).abs() < 1.0e-8, "J_{m}({x}) = {got}, want {want}");
+        }
+    }
+
+    #[test]
+    fn derivative_zeros_match_tables() {
+        // Abramowitz & Stegun, table 9.5.
+        let z0 = jn_prime_zeros(0, 2);
+        let z1 = jn_prime_zeros(1, 2);
+        let z2 = jn_prime_zeros(2, 1);
+        for (got, want) in [(z0[0], 0.0), (z0[1], 3.831_705_970_2), (z1[0], 1.841_183_781_3), (z1[1], 5.331_442_773_5), (z2[0], 3.054_236_928_2)] {
+            assert!((got - want).abs() < 1.0e-8, "{got} vs {want}");
         }
     }
 
