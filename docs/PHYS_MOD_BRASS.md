@@ -569,3 +569,103 @@ manufacturing or tradition.
 **Physical modeling provides the sound.
 3D provides the intuition.
 Entropy turns the instrument itself into the synthesizer.**
+
+---
+
+# Implementation Status
+
+What exists today, where it lives, and how each claim is checked. As with the strings, the model
+was built and tuned without anyone listening to it: every behaviour below is measured from
+rendered audio, and the tests keep those measurements in place.
+
+## The model (`src/audio/brass/`)
+
+| Piece | File | What it is |
+|---|---|---|
+| Bore | `bore.rs` | Sections (cones, cylinders, Bessel flares) in three runs - front (mouthpiece, leadpipe), cylinder (slide), bell. Stock tenor trombone: .547" bore, 8.5" bell, ~2.8 m, bell stem and flare chosen (by search, as a maker would by trial) so the resonances line up. |
+| Reference acoustics | `impedance.rs` | Transfer-matrix input impedance on a 1 mm staircase, visco-thermal losses and slowing (the boundary-layer `Gamma`), lumped radiation load; peak finding. Build time and tests only. |
+| Air column | `airbore.rs` | Runtime waveguide: Kelly-Lochbaum cells (one sample, ~3.9 mm each) for the front and bell, fractional delay lines for the cylinder, one lumped linear-phase loss filter per direction, boundary-layer slowing at the played pitch, radiation reflection filter, and pressure-dependent propagation in four forward segments (the generalized-Burgers steepening - brassiness - planned as `burgers.rs`, folded in here). |
+| Lips | `lips.rs` | One-mass outward-striking valve, Bernoulli flow solved in closed form against the mouthpiece each sample, lip collision. |
+| Instrument + player | `engine.rs` | 2x oversampling. The player: partial and slide position from the reference resonances (precomputed once per instrument), lip setting from the fitted laws, tongue with breath built up behind it, guided attack (`attack_skill`), attack assist, slurs (soft "da" across positions, lip slurs), glissando, slide vibrato, intonation by ear (slide, or lips bent up at first position), remembered corrections for repeated notes. |
+| Runtime | `mod.rs` | `render_note`, `render_phrase` (offline). |
+
+## Phase 1 progress (build steps above)
+
+1. **Bore and reference impedance - done** for the tenor trombone.
+2. **Waveguide from the profile - done.** Peaks 2-8 within 12 cents of the reference.
+3. **Lips on a fixed bore - done.** Threshold, partial selection by lip setting, hysteresis.
+4. **Player and tuning - done.** In tune across the range at every dynamic (see below).
+5. **Dynamics and brassiness - done.**
+6. **Articulation and attack skill - done** (tongued, legato, glissando; cracked entrances).
+7. **Trumpet, horn, tuba, mutes, hand, bell angle - not started.**
+8. **Live voice, `BrassShared`, 3D view, Physics View, DAW integration - not started.** The engine
+   is not yet reachable from the DAW; it renders offline.
+9. **Laboratory and sections - not started.**
+
+## Decisions the measurements made
+
+- **Dispersion.** The plan assumed an allpass could carry the boundary layer's slowing. At the
+  model's rate a first-order allpass that bends the delay between 100 Hz and 1 kHz swings it by
+  hundreds of samples, where the boundary layer moves it by about nine. The slowing is applied at
+  the pitch being played; resonances well above it come out a little flat of the reference (about
+  15 cents eight partials up).
+- **The one-mass lip plays sharp.** It sounds 50-110 cents above the air-column resonance (a known
+  property of the outward-striking model; real lips, with their upward component, sit closer). The
+  player pulls the tuning slide out by about 0.1 m, leaves first position ~25 cents sharp, and
+  tunes by ear. The two-degree-of-freedom lip is the planned fix.
+- **Lip mass follows the note.** With one mass for every note, low partials would not sound loud
+  and high ones would not sound soft. With the vibrating mass as `3 (233 / f)^2` kg/m² (constant lip
+  stiffness) every partial of the trombone plays from *pp* to *fff*.
+- **The player's laws are fitted from the model.** `lip_center`: the slot's lip frequencies
+  centre at `0.85 (p / 700 Pa)^-0.073` of the resonance for every partial; the player aims 3% high,
+  where notes speak fastest. `sounding_offset`: +75 cents (partials 2-5) / +55 (6+) plus 6 cents per
+  doubling of pressure - a first guess the ear refines.
+- **Guided attack.** Released from rest, the lips ring at their own resonance (about 0.8 of the note)
+  and the air column takes ~150 ms to pull them round. At `attack_skill` 1 the lips are guided
+  through a buzz at the note's pitch for six periods, then left to the physics: half level in
+  15-30 ms, 90% in 35-60 ms. At 0 there is no guide, the lip setting misses by up to 12%, and high
+  notes crack.
+- **What the listener hears.** A point source keeps getting brighter with frequency forever; above
+  the bell's cutoff (`ka ~ 1`, ~500 Hz for this bell) the radiated power per unit flow stops rising.
+  The output is the radiated power's pressure. An on-axis "bells toward you" beam arrives with the
+  bell-angle control (step 7).
+- **Shock fronts.** The nonlinear delay's read point may move at most half a sample per sample, so
+  where the wave would overtake itself the front is held at the steepest a sampled wave can carry.
+
+## How it is verified (no audio device needed)
+
+Run with `cargo test --release --lib brass` and `cargo test --release --test brass_no_alloc`.
+
+| Claim | Where |
+|---|---|
+| Trombone resonances 2-10 within 30 cents of the B♭ series; the first below 0.75 of the fundamental | `brass::tests` |
+| Seventh position lowers resonances 3-10 by 5.4-6.4 semitones; the second moves further | same |
+| Runtime waveguide's impedance peaks 2-8 within 12 cents of the transfer-matrix reference | same |
+| Quarter-wave cylinder check of the reference machinery (with boundary-layer slowing) within 3 cents | `brass::impedance::tests` |
+| A breath threshold exists (150-600 Pa for partials 2-8); partial 12 needs more than twice partial 4's | `brass::tests` |
+| In tune within 6 cents at *pp* and *mf*, 16 at *ff*, B♭2-C5 | same |
+| Partial and position a trombonist would use (B♭3 first, G3 fourth, C3 sixth, E3 second...) | same |
+| Skilled attacks at half level within 40 ms, 90% within 80 ms; an unskilled start blooms 2.5x slower | same |
+| Loose lips drop B♭3 to F3; pinched lips pop it up to D4 | same |
+| Unskilled attacks on high notes start 60+ cents off (cracks); skilled within 20 | same |
+| A glissando passes through the pitches between | same |
+| *ff* 12 dB+ louder than *mf*, centroid more than doubled; with the air's nonlinearity off the same breath is far duller (10th harmonic 15 dB+ weaker) | same |
+| The wavefront at the bell steepens 8x+ from *mf* to *ff* | same |
+| Slide vibrato swings the pitch by the depth asked | same |
+| Bounded output for impossible settings; released notes fall silent | same |
+| No allocation while notes arrive, slur, glide, re-tongue and release | `tests/brass_no_alloc.rs` |
+
+`brass::tests::listening_examples` (ignored by default) renders a scale, a *pp*-to-*fff* swell, a
+fanfare, a glissando and a vibrato note to `test-artifacts/brass/` for ears.
+
+## Known limits
+
+- One mouthpiece-to-bell DC flow resistance ~7x too high (the lumped loss filter can't reach unity at
+  DC): the mean mouthpiece pressure is somewhat high. It shifts the lips' operating point slightly;
+  tuning and the fitted laws already include it.
+- At the same breath the low register radiates ~15 dB less than the high (bell radiation efficiency
+  falls at low frequency; players compensate with more air). A register balance for the DAW is
+  still to do.
+- *ff* notes at the bottom of the range and far out on the slide are within ~15 cents, not 6.
+- Pedal tones (partial 1) are not played yet.
+- About 3.9% of one core per player in release builds (the scattering cells vectorize).

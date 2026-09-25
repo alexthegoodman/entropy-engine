@@ -1,0 +1,816 @@
+//! The brass instrument and its player: one air column, one pair of lips, and the small virtual
+//! player who turns notes into slide positions, lip settings, breath and tonguing.
+//!
+//! Every note has to be *found*. For a target pitch the player picks a resonance (a partial) and a
+//! slide position that together give it, from the instrument's own resonances (the reference
+//! impedance in `impedance`, computed once per instrument). They set their lips a little below that
+//! resonance - how far below depends on how hard they blow, by a law fitted from sweeps of this
+//! model (`lip_center`) - give the air column the breath, and let the tongue go. What sounds is up
+//! to the physics: a player who sets up badly (`attack_skill` low) can land on the neighbouring
+//! partial, as real players crack notes. Once the note speaks, the player listens to its pitch and
+//! eases the slide to put it in tune, as trombonists do.
+
+use std::sync::{Arc, Mutex, OnceLock};
+
+use super::airbore::AirBore;
+use super::bore::BoreProfile;
+use super::impedance::Reference;
+use super::lips::{LipSpec, Lips};
+use crate::audio::physmod::dsp::{DcBlock, Decimator2, Noise, OnePole};
+
+/// The model runs at twice the engine rate (cells then stand for ~3.9 mm of bore).
+pub const OVERSAMPLE: usize = 2;
+/// Player decisions every this many output samples.
+const CONTROL_EVERY: u32 = 32;
+/// Mouth pressure range of the breath control, Pa: the knob is logarithmic between them.
+pub const PRESSURE_MIN: f32 = 500.0;
+pub const PRESSURE_MAX: f32 = 16000.0;
+/// The radiated far-field pressure (Pa at 1 m) that maps to full scale before `gain`.
+pub const OUTPUT_REF: f32 = 12.0;
+/// Partials the player will use (the pedal, partial 1, is left out for now).
+const LOWEST_PARTIAL: usize = 2;
+const HIGHEST_PARTIAL: usize = 12;
+/// Cents first position is left sharp by the tuning slide (room to tune by extending).
+const FIRST_POSITION_HEADROOM: f32 = 25.0;
+/// How far above a first-position resonance a note can still be played there (lipped up).
+const FIRST_POSITION_LIP_UP: f32 = 1.03;
+/// How firmly the guide holds the lips each tick (at full strength, before fading).
+const GUIDE_STRENGTH: f32 = 0.05;
+/// Periods of the note the lips are guided through at the start (at `attack_skill` 1).
+const GUIDE_PERIODS: f32 = 6.0;
+/// Lips are bent this many cents per cent the note has to come up (the pitch follows the lips only
+/// weakly - about a sixth - which is why a note can only be lipped up a little).
+const LIP_BEND_RATIO: f32 = 6.0;
+/// A note counts as speaking once the mouthpiece's AC pressure is this fraction of the breath.
+const SPEAKING_LEVEL: f32 = 0.15;
+/// Slide positions in the resonance table.
+const TABLE_STEPS: usize = 25;
+
+// ------------------------------------------------------------------------------------------
+// Fitted laws
+// ------------------------------------------------------------------------------------------
+
+/// Where the player sets their lip resonance for a note on a resonance of `peak_hz`, blowing
+/// `pressure` Pa. Fitted from sweeps of this model over partials 2-12 and 0.7-12 kPa (with the lip
+/// mass following `lip_mass`): the lip frequencies that lock onto a resonance when a note starts
+/// form a window - the "slot" brass players talk about - roughly ±8% wide, centred at about 0.85 of
+/// the resonance at *pp* and moving down as `pressure^-0.073`, about the same for every partial.
+/// Notes speak fastest a little above the centre, so the player aims 3% high.
+pub fn lip_center(peak_hz: f32, pressure: f32) -> f32 {
+    peak_hz * 0.875 * (pressure.max(100.0) / 700.0).powf(-0.073)
+}
+
+/// How much of the lips vibrates for a note at `hz`, kg/m²: more lip in the mouthpiece for low
+/// notes, less for high ones (keeping the lips' stiffness about constant). With one mass for every
+/// note, low partials refuse to sound loudly and high ones softly; with the mass following
+/// `1 / f²` every partial of the trombone plays from *pp* to *fff*.
+pub fn lip_mass(hz: f32) -> f32 {
+    (3.0 * (233.0 / hz.max(20.0)).powi(2)).clamp(0.5, 20.0)
+}
+
+/// How far above its resonance a note sounds, cents (a first guess the player refines by ear).
+/// The one-mass outward-striking lip plays sharp of the air column, by about 80 cents on the low
+/// partials and 55 on the higher ones, a little more when blown harder.
+pub fn sounding_offset(partial: usize, pressure: f32) -> f32 {
+    let base = if partial <= 5 { 75.0 } else { 55.0 };
+    base + 6.0 * (pressure.max(100.0) / 700.0).log2()
+}
+
+/// Mouth pressure for a 0..1 breath knob, Pa.
+pub fn breath_pressure(knob: f32) -> f32 {
+    PRESSURE_MIN * (PRESSURE_MAX / PRESSURE_MIN).powf(knob.clamp(0.0, 1.0))
+}
+
+// ------------------------------------------------------------------------------------------
+// Parameters
+// ------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrassInstrument {
+    TenorTrombone,
+}
+
+impl BrassInstrument {
+    pub fn profile(self) -> BoreProfile {
+        match self {
+            Self::TenorTrombone => BoreProfile::tenor_trombone(),
+        }
+    }
+    pub fn lips(self) -> LipSpec {
+        match self {
+            Self::TenorTrombone => LipSpec::trombone(),
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "trombone" | "tenorTrombone" => Some(Self::TenorTrombone),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Articulation {
+    /// "ta": the tongue stops the air and lets it go.
+    Tongued,
+    /// A slur: no tongue. Between slide positions a soft "da" keeps it from sounding as a smear,
+    /// the way trombonists slur; between partials on one position it is a lip slur.
+    Legato,
+    /// A slur with no tongue at all: the slide's glide is heard.
+    Glissando,
+}
+
+impl Articulation {
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "tongued" => Some(Self::Tongued),
+            "legato" => Some(Self::Legato),
+            "glissando" | "gliss" => Some(Self::Glissando),
+            _ => None,
+        }
+    }
+}
+
+/// Everything a note is played with.
+#[derive(Clone, Copy, Debug)]
+pub struct BrassParams {
+    pub freq: f32,
+    /// 0..1: MIDI velocity, read as dynamics (it moves the breath around the `breath` setting).
+    pub velocity: f32,
+    pub gain: f32,
+    /// 0..1: mouth pressure on a logarithmic scale from 0.5 kPa (0) to 16 kPa (1); 0.5 is about
+    /// 2.8 kPa, a comfortable *mezzo*. Higher is louder and - past a few kPa, as the wave in the
+    /// bore steepens toward a shock - much brighter.
+    pub breath: f32,
+    /// -1..1: the lips' tension relative to where the player would set them for the note. Low is
+    /// loose and dark and falls toward the partial below; high is pinched and pops up to the next.
+    pub lip_tension: f32,
+    /// 0..1: the lips' rest opening; small is focused, large is airy and fat. 0.5 is normal.
+    pub aperture: f32,
+    pub vibrato_rate: f32,
+    /// Cents (slide vibrato on the trombone).
+    pub vibrato_depth: f32,
+    pub vibrato_delay: f32,
+    /// Seconds for the tongue to release the air: a few milliseconds is a clean "ta"; tens of
+    /// milliseconds a soft "da" or a breath attack.
+    pub attack: f32,
+    pub release: f32,
+    /// Seconds to hold before releasing. Ignored when the note has a gate.
+    pub duration: f32,
+    pub articulation: Articulation,
+    /// 0..1: how precisely the player starts a note. Two things, as with the bow's `attack_skill`:
+    /// a player who hears the note before playing it starts the lips buzzing at its pitch - at 1
+    /// the lips are guided through that buzz for the first few periods and then left entirely to
+    /// the physics, so the note speaks at once; at 0 they start from rest at their own resonance
+    /// and the air column has to pull them round (a slow bloom). And the lip setting: at 1 it is
+    /// in the note's slot; lower, it misses by up to ~12% and is corrected over the first tenth of
+    /// a second - enough, on high partials where slots are narrow, to crack onto the next one.
+    pub attack_skill: f32,
+    /// 0..1: turbulent noise in the breath.
+    pub breath_noise: f32,
+    /// Seconds for the slide to move to a new position.
+    pub slide_time: f32,
+    /// 0..2: the air's nonlinearity (1 is real air). A laboratory setting: 0 removes brassiness,
+    /// 2 doubles it.
+    pub brassiness: f32,
+    pub instrument: BrassInstrument,
+}
+
+impl Default for BrassParams {
+    fn default() -> Self {
+        Self {
+            freq: 233.08,
+            velocity: 0.8,
+            gain: 0.6,
+            breath: 0.5,
+            lip_tension: 0.0,
+            aperture: 0.5,
+            vibrato_rate: 5.0,
+            vibrato_depth: 0.0,
+            vibrato_delay: 0.3,
+            attack: 0.004,
+            release: 0.08,
+            duration: 0.6,
+            articulation: Articulation::Tongued,
+            attack_skill: 1.0,
+            breath_noise: 0.1,
+            slide_time: 0.07,
+            brassiness: 1.0,
+            instrument: BrassInstrument::TenorTrombone,
+        }
+    }
+}
+
+impl BrassParams {
+    /// Mouth pressure the note asks for, Pa: the breath knob moved by velocity.
+    pub fn mouth_pressure(&self) -> f32 {
+        breath_pressure(self.breath + 0.6 * (self.velocity.clamp(0.0, 1.0) - 0.75))
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// The instrument's resonances, per slide position
+// ------------------------------------------------------------------------------------------
+
+/// Impedance peaks of the air column at evenly spaced slide extensions, from the reference model.
+pub struct ResonanceTable {
+    pub extras: [f32; TABLE_STEPS],
+    /// `peaks[j][n - 1]`: partial `n` at `extras[j]`, Hz.
+    pub peaks: [[f32; HIGHEST_PARTIAL + 1]; TABLE_STEPS],
+}
+
+impl ResonanceTable {
+    fn build(profile: &BoreProfile, tuning: f32) -> Self {
+        let reference = Reference::new(profile, 20.0, 1100.0, 0.5);
+        let mut extras = [0.0; TABLE_STEPS];
+        let mut peaks = [[0.0; HIGHEST_PARTIAL + 1]; TABLE_STEPS];
+        for j in 0..TABLE_STEPS {
+            let e = profile.slide_max * j as f32 / (TABLE_STEPS - 1) as f32;
+            extras[j] = e;
+            for (n, pk) in reference.peaks(tuning + e).iter().take(HIGHEST_PARTIAL + 1).enumerate() {
+                peaks[j][n] = pk.freq;
+            }
+        }
+        Self { extras, peaks }
+    }
+
+    /// Resonance `n` (1-based) at slide extension `e`, interpolated.
+    pub fn peak(&self, n: usize, e: f32) -> f32 {
+        let n = n.clamp(1, HIGHEST_PARTIAL + 1) - 1;
+        let step = self.extras[1] - self.extras[0];
+        let x = (e / step).clamp(0.0, (TABLE_STEPS - 1) as f32);
+        let i = (x.floor() as usize).min(TABLE_STEPS - 2);
+        let t = x - i as f32;
+        let (a, b) = (self.peaks[i][n], self.peaks[i + 1][n]);
+        if a <= 0.0 || b <= 0.0 {
+            return a.max(b);
+        }
+        a * (b / a).powf(t)
+    }
+
+    /// The slide extension at which resonance `n` sits at `hz`, if the slide can reach it.
+    pub fn extension_for(&self, n: usize, hz: f32) -> Option<f32> {
+        let k = n.clamp(1, HIGHEST_PARTIAL + 1) - 1;
+        if self.peaks[0][k] <= 0.0 || self.peaks[TABLE_STEPS - 1][k] <= 0.0 {
+            return None;
+        }
+        // A little above first position is still playable: the player lips it up.
+        if hz > self.peaks[0][k] {
+            return (hz < self.peaks[0][k] * FIRST_POSITION_LIP_UP).then_some(0.0);
+        }
+        if hz < self.peaks[TABLE_STEPS - 1][k] {
+            return None;
+        }
+        for j in 0..TABLE_STEPS - 1 {
+            let (a, b) = (self.peaks[j][k], self.peaks[j + 1][k]);
+            if hz <= a && hz >= b {
+                let t = (a / hz).ln() / (a / b).ln().max(1.0e-9);
+                return Some(self.extras[j] + t * (self.extras[j + 1] - self.extras[j]));
+            }
+        }
+        None
+    }
+}
+
+/// Resonance tables for stock instruments, built once per process (a table takes a fraction of a
+/// second: many reference evaluations).
+fn table_for(instrument: BrassInstrument, profile: &BoreProfile, tuning: f32) -> Arc<ResonanceTable> {
+    static TABLES: OnceLock<Mutex<Vec<(BrassInstrument, Arc<ResonanceTable>)>>> = OnceLock::new();
+    let tables = TABLES.get_or_init(|| Mutex::new(Vec::new()));
+    let mut t = tables.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, table)) = t.iter().find(|(i, _)| *i == instrument) {
+        return table.clone();
+    }
+    let table = Arc::new(ResonanceTable::build(profile, tuning));
+    t.push((instrument, table.clone()));
+    table
+}
+
+// ------------------------------------------------------------------------------------------
+// The player
+// ------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Idle,
+    /// A note is held.
+    Playing,
+    /// The breath is stopping.
+    Releasing,
+}
+
+/// How the player means to play a note: which resonance, where the slide goes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fingering {
+    pub partial: usize,
+    /// Slide extension, metres beyond first position.
+    pub extension: f32,
+    /// The resonance the note sits on at that extension, Hz.
+    pub resonance: f32,
+}
+
+/// What the engine reports about the note in progress (for tests, analysis and the view).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BrassReport {
+    pub playing: bool,
+    pub partial: usize,
+    /// Slide extension beyond first position, metres, and as a position number 1..7.
+    pub extension: f32,
+    pub position: f32,
+    /// Mouth pressure now, Pa.
+    pub mouth_pressure: f32,
+    /// Lip resonance now, Hz, and the lips' opening, metres.
+    pub lip_freq: f32,
+    pub lip_opening: f32,
+    /// Sounding frequency the player hears, Hz (0 if not yet known).
+    pub sounding: f32,
+    /// Largest wavefront slope at the bell since the last report, Pa/s.
+    pub wave_steepness: f32,
+    /// AC level of the mouthpiece pressure, Pa (rms, smoothed).
+    pub mouthpiece_level: f32,
+}
+
+struct Player {
+    phase: Phase,
+    note_id: u64,
+    p: BrassParams,
+    fingering: Fingering,
+    hold_left: Option<u64>,
+    /// Mouth pressure applied, Pa (chasing its target).
+    p_mouth: f32,
+    /// Tongue opening: 0 stops the air, 1 lets it through.
+    tongue: f32,
+    /// Seconds for which the tongue stays shut before it releases (a re-articulation).
+    tongue_hold: f32,
+    t_note: f32,
+    t_release: f32,
+    vib_phase: f32,
+    /// Slide extension applied, metres (gliding toward the fingering's).
+    slide: f32,
+    /// Lip-setting error from an imprecise attack, as a factor, decaying toward 1.
+    lip_miss: f32,
+    /// Intonation correction, cents of slide (positive: longer).
+    fix: f32,
+    /// Cents the lips are bent up when the slide can't go any shorter (lipping a note up).
+    lip_bend: f32,
+    /// Extra breath (a factor) while a note that hasn't spoken is being coaxed out.
+    boost: f32,
+    /// Guided attack: strength now (0 once released to the physics), phase of the guiding buzz
+    /// (cycles), and oversampled ticks of guiding left.
+    guide: f32,
+    guide_phase: f32,
+    guide_left: u32,
+}
+
+impl Player {
+    fn new() -> Self {
+        Self {
+            phase: Phase::Idle,
+            note_id: 0,
+            p: BrassParams::default(),
+            fingering: Fingering { partial: 4, extension: 0.0, resonance: 233.0 },
+            hold_left: None,
+            p_mouth: 0.0,
+            tongue: 0.0,
+            tongue_hold: 0.0,
+            t_note: 0.0,
+            t_release: 0.0,
+            vib_phase: 0.0,
+            slide: 0.0,
+            lip_miss: 1.0,
+            fix: 0.0,
+            lip_bend: 0.0,
+            boost: 1.0,
+            guide: 0.0,
+            guide_phase: 0.0,
+            guide_left: 0,
+        }
+    }
+}
+
+/// Follows the sounding pitch the way the player hears it: upward zero crossings of the low-passed
+/// mouthpiece pressure, timed to a fraction of a sample.
+#[derive(Default)]
+struct PitchEar {
+    lp: OnePole,
+    lp2: OnePole,
+    dc: DcBlock,
+    last: f32,
+    since: f32,
+    period: f32,
+    confidence: u32,
+}
+
+impl PitchEar {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    #[inline]
+    fn listen(&mut self, x: f32, a: f32) {
+        let y = self.dc.process(x, 0.999);
+        let y = self.lp2.process(self.lp.process(y, a), a);
+        self.since += 1.0;
+        if self.last < 0.0 && y >= 0.0 {
+            let frac = -self.last / (y - self.last).max(1.0e-12);
+            let t = self.since - 1.0 + frac;
+            if t > 4.0 {
+                if self.period > 0.0 && (t / self.period - 1.0).abs() < 0.15 {
+                    self.period += (t - self.period) * 0.3;
+                    self.confidence = (self.confidence + 1).min(1000);
+                } else {
+                    self.period = t;
+                    self.confidence = 0;
+                }
+            }
+            self.since = 1.0 - frac;
+        }
+        self.last = y;
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// The engine
+// ------------------------------------------------------------------------------------------
+
+pub struct Engine {
+    sr: f32,
+    sr_os: f32,
+    instrument: BrassInstrument,
+    bore: AirBore,
+    lips: Lips,
+    lip_spec: LipSpec,
+    table: Arc<ResonanceTable>,
+    /// The player's tuning slide: extra tube (metres) so first position plays in tune.
+    tuning: f32,
+    player: Player,
+    ear: PitchEar,
+    dec: Decimator2,
+    dc: DcBlock,
+    noise: Noise,
+    noise_lp: OnePole,
+    control_countdown: u32,
+    gain: f32,
+    out_level: f32,
+    mp_level: f32,
+    /// Mean-square AC mouthpiece pressure (for "has the note spoken"), and its DC tracker.
+    mp_ac: f32,
+    mp_dc: DcBlock,
+    clock: u64,
+}
+
+impl Engine {
+    /// Builds the instrument (off the audio thread: the first build of an instrument computes its
+    /// resonance table).
+    pub fn new(sr: f32, p: &BrassParams) -> Self {
+        let instrument = p.instrument;
+        let profile = instrument.profile();
+        // The one-mass lip plays sharp of the air column (see `sounding_offset`); the player pulls
+        // the tuning slide out to allow for it - leaving first position a little sharp, so that
+        // every note can be put in tune by moving the slide out, the only way it can move.
+        let total = profile.total_length(0.0);
+        let pull = sounding_offset(4, breath_pressure(0.5)) - FIRST_POSITION_HEADROOM;
+        let tuning = total * (2f32.powf(pull / 1200.0) - 1.0);
+        let mut bore_profile = profile.clone();
+        bore_profile.cylinder_length += tuning;
+        let table = table_for(instrument, &profile, tuning);
+        let sr_os = sr * OVERSAMPLE as f32;
+        let lip_spec = instrument.lips();
+        Self {
+            sr,
+            sr_os,
+            instrument,
+            bore: AirBore::new(&bore_profile, sr_os),
+            lips: Lips::new(lip_spec),
+            lip_spec,
+            table,
+            tuning,
+            player: Player::new(),
+            ear: PitchEar::default(),
+            dec: Decimator2::new(),
+            dc: DcBlock::default(),
+            noise: Noise(0x2545_f491),
+            noise_lp: OnePole::default(),
+            control_countdown: 0,
+            gain: p.gain,
+            out_level: 0.0,
+            mp_level: 0.0,
+            mp_ac: 0.0,
+            mp_dc: DcBlock::default(),
+            clock: 0,
+        }
+    }
+
+    pub fn sample_rate(&self) -> f32 {
+        self.sr
+    }
+
+    pub fn instrument(&self) -> BrassInstrument {
+        self.instrument
+    }
+
+    pub fn table(&self) -> &ResonanceTable {
+        &self.table
+    }
+
+    pub fn bore(&self) -> &AirBore {
+        &self.bore
+    }
+
+    /// How the player would play `hz` blowing `pressure` Pa: the resonance (partial) and slide
+    /// position, preferring the position nearest the bell end of the slide (first), as players do.
+    pub fn choose_fingering(&self, hz: f32, pressure: f32) -> Fingering {
+        let mut best: Option<Fingering> = None;
+        let mut nearest: Option<(f32, Fingering)> = None;
+        for n in LOWEST_PARTIAL..=HIGHEST_PARTIAL {
+            let resonance = hz / 2f32.powf(sounding_offset(n, pressure) / 1200.0);
+            match self.table.extension_for(n, resonance) {
+                Some(e) => {
+                    if best.map_or(true, |b| e < b.extension) {
+                        best = Some(Fingering { partial: n, extension: e, resonance });
+                    }
+                }
+                None => {
+                    // Out of the slide's reach on this partial: remember how far, in case no
+                    // partial can reach the note (it is then played on the closest, out of tune).
+                    let (lo, hi) = (self.table.peak(n, self.table.extras[TABLE_STEPS - 1]), self.table.peak(n, 0.0));
+                    let (miss, e) = if resonance > hi { ((resonance / hi).ln(), 0.0) } else { ((lo / resonance).ln(), self.table.extras[TABLE_STEPS - 1]) };
+                    if nearest.map_or(true, |(m, _)| miss < m) {
+                        nearest = Some((miss, Fingering { partial: n, extension: e, resonance: self.table.peak(n, e) }));
+                    }
+                }
+            }
+        }
+        best.or(nearest.map(|(_, f)| f)).unwrap_or(Fingering { partial: 4, extension: 0.0, resonance: hz })
+    }
+
+    /// Starts a note. A note arriving while another is held is a slur (or a re-tongued note, for
+    /// `Tongued`).
+    pub fn note_on(&mut self, id: u64, p: BrassParams, gated: bool) {
+        let pressure = p.mouth_pressure();
+        let fingering = self.choose_fingering(p.freq, pressure);
+        let miss = (1.0 - p.attack_skill.clamp(0.0, 1.0)) * 0.12 * if self.noise.bipolar() >= 0.0 { 1.0 } else { -1.0 };
+        let pl = &mut self.player;
+        let was_playing = pl.phase == Phase::Playing;
+        pl.p = p;
+        pl.note_id = id;
+        pl.hold_left = if gated { None } else { Some((p.duration.max(0.0) * self.sr) as u64) };
+        pl.t_note = 0.0;
+        pl.t_release = 0.0;
+        let moved = (fingering.extension - pl.fingering.extension).abs();
+        // The player remembers where the last note sat: the same note again starts with the
+        // same slide correction (a repeated note is in tune from its first period).
+        let same_note = fingering.partial == pl.fingering.partial && moved < 0.001;
+        pl.fingering = fingering;
+        if !same_note {
+            pl.fix = 0.0;
+        }
+        // (Lips bent up to lip a note into tune are set afresh for each attack; a fresh attack
+        // from lips left bent would start them above the slot.)
+        if !same_note || !was_playing {
+            pl.lip_bend = 0.0;
+        }
+        pl.boost = 1.0;
+        pl.lip_miss = 1.0 + miss;
+        self.ear.reset();
+        if !was_playing {
+            // A fresh note: slide already in place, lips set, tongue shut; the breath builds
+            // behind the tongue and the tongue lets it go.
+            pl.slide = fingering.extension;
+            pl.tongue = 0.0;
+            pl.tongue_hold = 0.006;
+            pl.vib_phase = 0.0;
+            self.bore.set_extra(pl.slide);
+            self.lips.freq = lip_center(fingering.resonance, pressure) * pl.lip_miss;
+            self.lips.spec = LipSpec { mu: lip_mass(fingering.resonance), ..self.lip_spec };
+            self.lips.reset();
+            self.bore.clear();
+            self.mp_ac = 0.0;
+            pl.guide = 0.0;
+            pl.guide_phase = 0.0;
+            pl.guide_left = 0;
+        } else {
+            match p.articulation {
+                // Re-tongued: the tongue stops the air for a moment between the notes.
+                Articulation::Tongued => pl.tongue_hold = 0.012,
+                // A trombonist's slur across slide positions: a soft "da", just long enough to
+                // hide the slide's travel.
+                Articulation::Legato if moved > 0.01 => pl.tongue_hold = 0.004,
+                _ => {}
+            }
+        }
+        pl.phase = Phase::Playing;
+        self.bore.set_tuning(fingering.resonance);
+        self.bore.nonlinearity = p.brassiness.clamp(0.0, 4.0);
+        self.gain = p.gain;
+    }
+
+    pub fn note_off(&mut self, id: u64) {
+        if self.player.note_id == id && self.player.phase == Phase::Playing {
+            self.player.phase = Phase::Releasing;
+            self.player.t_release = 0.0;
+        }
+    }
+
+    pub fn all_notes_off(&mut self) {
+        if self.player.phase == Phase::Playing {
+            self.player.phase = Phase::Releasing;
+            self.player.t_release = 0.0;
+        }
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.player.phase != Phase::Idle
+    }
+
+    pub fn is_silent(&self) -> bool {
+        self.player.phase == Phase::Idle && self.out_level < 2.0e-5
+    }
+
+    fn control(&mut self, dt: f32) {
+        let pl = &mut self.player;
+        if pl.phase == Phase::Idle {
+            pl.p_mouth *= (-dt / 0.01).exp();
+            return;
+        }
+        pl.t_note += dt;
+        if let Some(left) = pl.hold_left.as_mut() {
+            *left = left.saturating_sub(CONTROL_EVERY as u64);
+            if *left == 0 && pl.phase == Phase::Playing {
+                pl.phase = Phase::Releasing;
+                pl.t_release = 0.0;
+            }
+        }
+        let p = pl.p;
+        let target = pl.fingering;
+
+        // Breath.
+        let pressure = p.mouth_pressure() * pl.boost;
+        // The breath builds behind the closed tongue, so it is there when the tongue lets go.
+        let (p_target, tau) = match pl.phase {
+            Phase::Playing if pl.tongue_hold > 0.0 => (pressure, 0.003),
+            Phase::Playing => (pressure, p.attack.max(0.002) * 1.5),
+            _ => (0.0, p.release.max(0.005) / 3.0),
+        };
+        pl.p_mouth += (p_target - pl.p_mouth) * (1.0 - (-dt / tau).exp());
+
+        // Tongue: held shut for a moment on a re-articulation, then released over the attack.
+        if pl.tongue_hold > 0.0 {
+            pl.tongue_hold -= dt;
+            pl.tongue *= (-dt / 0.002).exp();
+            if pl.tongue_hold <= 0.0 && pl.phase == Phase::Playing {
+                // The tongue lets go: a skilled player's lips are already buzzing the note - when
+                // they are set for it (lips deliberately set off with `lip_tension` aren't).
+                let set_for_it = (1.0 - 2.0 * p.lip_tension.abs()).max(0.0);
+                pl.guide = p.attack_skill.clamp(0.0, 1.0) * set_for_it;
+                pl.guide_left = (GUIDE_PERIODS * self.sr_os / p.freq.max(20.0)) as u32;
+            }
+        } else {
+            let k = 1.0 - (-dt / (p.attack.max(0.001) / 2.5)).exp();
+            pl.tongue += (1.0 - pl.tongue) * k;
+        }
+
+        // Slide: glide to the fingering's position plus the intonation fix, with slide vibrato.
+        let total = self.bore.profile().total_length(target.extension);
+        let vib_on = ((pl.t_note - p.vibrato_delay) / 0.3).clamp(0.0, 1.0);
+        pl.vib_phase = (pl.vib_phase + p.vibrato_rate.max(0.0) * dt).fract();
+        let vib = p.vibrato_depth * vib_on * (std::f32::consts::TAU * pl.vib_phase).sin();
+        // The slide travels to the fingering's position (at the speed asked); the ear's small
+        // corrections and the vibrato are the arm's quick adjustments around where it is.
+        let glide = if pl.phase == Phase::Playing { p.slide_time.max(0.005) / 3.0 } else { 0.05 };
+        pl.slide += (target.extension - pl.slide) * (1.0 - (-dt / glide).exp());
+        let arrived = (target.extension - pl.slide).abs() < 0.015;
+        let fix_len = (total + pl.slide) * (2f32.powf(pl.fix / 1200.0) - 1.0);
+        let vib_len = (total + pl.slide) * (2f32.powf(vib / 1200.0) - 1.0);
+        let slide_max = self.bore.profile().slide_max;
+        let at_stop = pl.slide + fix_len < 0.0;
+        self.bore.set_extra((pl.slide + fix_len + vib_len).clamp(0.0, slide_max));
+
+        // Lips: set for the resonance and the breath, the attack's miss fading as the player
+        // corrects it, bent by the tension control.
+        pl.lip_miss = 1.0 + (pl.lip_miss - 1.0) * (-dt / 0.08).exp();
+        let bend = 2f32.powf(pl.lip_bend * LIP_BEND_RATIO / 1200.0);
+        let lip = lip_center(target.resonance, pl.p_mouth.max(pressure * 0.3)) * pl.lip_miss * bend * 2f32.powf(p.lip_tension.clamp(-1.0, 1.0) * 0.35);
+        self.lips.freq += (lip - self.lips.freq) * (1.0 - (-dt / 0.02).exp());
+        self.lips.spec.mu += (lip_mass(target.resonance) - self.lips.spec.mu) * (1.0 - (-dt / 0.03).exp());
+
+        // Attack assist: a note that hasn't spoken a moment after the tongue let go gets a little
+        // more air, as much as the player's skill allows, easing off once it speaks. (The lips
+        // stay where they were set: moving them would leave the slot for the neighbouring one.)
+        let speaking = self.mp_ac.sqrt() > SPEAKING_LEVEL * pl.p_mouth.max(1.0);
+        if pl.phase == Phase::Playing && pl.t_note > 0.05 && pl.t_note < 0.6 && !speaking {
+            let k = p.attack_skill.clamp(0.0, 1.0) * dt / 0.1;
+            pl.boost = (pl.boost * (1.0 + 0.3 * k)).min(1.35);
+        } else if speaking {
+            pl.boost = 1.0 + (pl.boost - 1.0) * (-dt / 0.3).exp();
+        }
+
+        // Ear: once the note has spoken and the slide has arrived, ease the slide to put it in
+        // tune - and where the slide can go no shorter, bend the lips up a little instead. Only while the note is on the
+        // partial meant (a cracked note is not tuned onto the right pitch by the slide).
+        if pl.phase == Phase::Playing && pl.t_note > 0.06 && arrived && self.ear.confidence > 4 {
+            let heard = self.sr_os / self.ear.period;
+            // Measured against the note as meant, vibrato included (the player doesn't correct
+            // their own vibrato away).
+            let err = 1200.0 * (heard / p.freq).log2() + vib;
+            if err.abs() < 150.0 {
+                let k = (dt / 0.05).min(1.0);
+                if at_stop && err < 0.0 {
+                    pl.lip_bend = (pl.lip_bend - err * k).clamp(0.0, 60.0);
+                } else {
+                    pl.lip_bend = (pl.lip_bend - err.max(0.0) * k).max(0.0);
+                    pl.fix = (pl.fix + err * k).clamp(-300.0, 300.0);
+                }
+            }
+        }
+
+        if pl.phase == Phase::Releasing {
+            pl.t_release += dt;
+            if pl.t_release > p.release.max(0.005) * 2.0 {
+                pl.phase = Phase::Idle;
+            }
+        }
+    }
+
+    /// Renders one output frame (left, right).
+    pub fn next_frame(&mut self) -> [f32; 2] {
+        self.clock += 1;
+        if self.control_countdown == 0 {
+            self.control(CONTROL_EVERY as f32 / self.sr);
+            self.control_countdown = CONTROL_EVERY;
+        }
+        self.control_countdown -= 1;
+
+        let dt = 1.0 / self.sr_os;
+        let p = self.player.p;
+        let aperture = 2f32.powf((p.aperture.clamp(0.0, 1.0) - 0.5) * 2.0);
+        let ear_a = OnePole::coef_for(self.player.fingering.resonance * 1.6, self.sr_os);
+        let noise_a = OnePole::coef_for(3000.0, self.sr_os);
+        let mut out = [0.0f32; OVERSAMPLE];
+        for o in out.iter_mut() {
+            let incoming = self.bore.incoming();
+            let z0 = self.bore.z_in();
+            // The tongue behind the lips gates the flow; breath noise rides on it.
+            let turb = self.noise_lp.process(self.noise.bipolar(), noise_a);
+            let pm = self.player.p_mouth * (1.0 + p.breath_noise.clamp(0.0, 1.0) * 0.15 * turb);
+            let tongue = self.player.tongue;
+            let inject = self.lips.tick(pm * tongue, incoming, z0, dt, aperture);
+            self.bore.step(inject);
+            if self.player.guide_left > 0 {
+                // Guided attack: the lips follow a buzz at the note's pitch around the opening the
+                // breath holds them at, the guide fading out over its periods.
+                let pl = &mut self.player;
+                let total = (GUIDE_PERIODS * self.sr_os / p.freq.max(20.0)).max(1.0);
+                let fade = pl.guide_left as f32 / total;
+                let w = std::f32::consts::TAU * p.freq;
+                let wl = std::f32::consts::TAU * self.lips.freq;
+                let open = (self.lip_spec.h0 * aperture + pm * tongue / (self.lips.spec.mu * wl * wl)).max(0.0);
+                pl.guide_phase = (pl.guide_phase + p.freq * dt).fract();
+                let (s, c) = (std::f32::consts::TAU * pl.guide_phase).sin_cos();
+                let (h, v) = (open * (1.0 - c), open * w * s);
+                self.lips.steer(h, v, GUIDE_STRENGTH * pl.guide * fade);
+                pl.guide_left -= 1;
+            }
+            self.ear.listen(self.lips.pressure, ear_a);
+            *o = self.bore.radiated;
+        }
+        let y = self.dec.process(out[0], out[1]);
+        let y = self.dc.process(y, 0.9995) / OUTPUT_REF * self.gain;
+        let y = if y.is_finite() { y.clamp(-4.0, 4.0) } else { 0.0 };
+        let mp = self.mp_dc.process(self.lips.pressure, 0.999);
+        self.mp_level += (mp * mp - self.mp_level) * 0.001;
+        self.mp_ac += (mp * mp - self.mp_ac) * 0.004;
+        self.out_level += (y.abs() - self.out_level) * 0.001;
+        [y, y]
+    }
+
+    /// A snapshot of the note in progress.
+    pub fn report(&mut self) -> BrassReport {
+        let pl = &self.player;
+        let total0 = self.bore.profile().total_length(0.0);
+        let ext = self.bore.extra();
+        let semis = 12.0 * ((total0 + ext) / total0).log2();
+        BrassReport {
+            playing: pl.phase != Phase::Idle,
+            partial: pl.fingering.partial,
+            extension: ext,
+            position: 1.0 + semis,
+            mouth_pressure: pl.p_mouth,
+            lip_freq: self.lips.freq,
+            lip_opening: self.lips.h,
+            sounding: if self.ear.confidence > 2 { self.sr_os / self.ear.period } else { 0.0 },
+            wave_steepness: self.bore.take_peak_slope(),
+            mouthpiece_level: self.mp_level.sqrt(),
+        }
+    }
+
+    /// Output samples rendered so far.
+    pub fn clock(&self) -> u64 {
+        self.clock
+    }
+
+    /// The tuning slide's pull, metres.
+    pub fn tuning_slide(&self) -> f32 {
+        self.tuning
+    }
+}

@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod brass;
 pub mod character;
 pub mod physmod;
 pub mod samples;
