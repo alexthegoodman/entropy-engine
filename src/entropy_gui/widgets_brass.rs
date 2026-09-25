@@ -3,13 +3,18 @@
 //!
 //! The instrument is built from the same bore profile the acoustics use: every point of the tubing
 //! is where that length of air column is, as wide as the bore is there (widened for the eye), and
-//! the slide's legs lengthen as the slide moves out. What moves is what the audio engine publishes
-//! in `audio::brass::BrassShared`:
+//! the slide's legs lengthen as the slide moves out. Each instrument has its own layout (the
+//! trombone's slide, the trumpet's valves and bows, the horn's wrap with its bell facing back, the
+//! tuba's coils and upright bell); valves are loops as long as the tube they add, and the air goes
+//! round a loop when its valve is down. What moves is what the audio engine publishes in
+//! `audio::brass::BrassShared`:
 //!
 //! * the pressure in the air column, lips to bell, glowing along the tube;
 //! * the lips in the mouthpiece, opening and closing through one period of the real lip motion,
 //!   slowed down so the eye can follow it;
-//! * the slide where the player has put it (with the ear's corrections and the vibrato);
+//! * the slide where the player has put it (with the ear's corrections and the vibrato), or the
+//!   valves the player has down;
+//! * a mute, or the horn player's hand, in the bell, drawn where the model obstructs the bore;
 //! * the sound leaving the bell: its beam narrows as the wavefront steepens and the tone brightens.
 //!
 //! **Physics View** (`BrassViewOptions::physics_view`) adds what the eye can't normally see: the
@@ -22,7 +27,7 @@
 //! the playing map sets breath and lip tension. The PHYSICS chip toggles Physics View. The right
 //! mouse button, Alt, or a pen's barrel button orbit the camera, as in the other instrument views.
 
-use crate::audio::brass::{breath_pressure, lip_center, BrassInstrument, BrassShared, BrassState, BORE_POINTS, LADDER_POINTS, TRACE_POINTS};
+use crate::audio::brass::{breath_pressure, lip_center, obstruction, BrassInstrument, BrassShared, BrassState, Mechanism, Mute, BORE_POINTS, F_SIDE, LADDER_POINTS, TRACE_POINTS};
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Pos2, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
@@ -111,10 +116,9 @@ impl Camera {
     }
 }
 
-/// The centre the camera orbits, and the box the instrument is fitted into (world units: metres).
-const TARGET: V3 = [0.3, 0.14, 0.0];
-const FIT_MIN: V3 = [-0.42, -0.1, -0.12];
-const FIT_MAX: V3 = [1.05, 0.42, 0.12];
+/// The size of box the default camera distance was chosen for (a trombone's): larger instruments
+/// are seen from further away, so the perspective is the same.
+const FIT_DIAGONAL: f32 = 1.58;
 
 #[derive(Clone, Copy, Debug)]
 struct Projector {
@@ -127,18 +131,24 @@ struct Projector {
 }
 
 impl Projector {
-    fn new(cam: &Camera, rect: Rect) -> Self {
+    /// A camera orbiting the centre of `fit` (the instrument's box, world units: metres) and
+    /// fitting the box into `rect`.
+    fn new(cam: &Camera, rect: Rect, fit: (V3, V3)) -> Self {
+        let (fit_min, fit_max) = fit;
+        let target = scale(add(fit_min, fit_max), 0.5);
+        let diag = sub(fit_max, fit_min);
+        let dist = cam.dist * (dot(diag, diag).sqrt() / FIT_DIAGONAL).max(0.5);
         let (sy, cy) = cam.yaw.sin_cos();
         let (sp, cp) = cam.pitch.sin_cos();
-        let eye = [TARGET[0] + cam.dist * cp * sy, TARGET[1] + cam.dist * sp, TARGET[2] + cam.dist * cp * cy];
-        let fwd = norm(sub(TARGET, eye));
+        let eye = [target[0] + dist * cp * sy, target[1] + dist * sp, target[2] + dist * cp * cy];
+        let fwd = norm(sub(target, eye));
         let right = norm(cross(fwd, [0.0, 1.0, 0.0]));
         let up = cross(right, fwd);
         let mut p = Projector { eye, right, up, fwd, focal: 1.0, shift: pos2(0.0, 0.0) };
         let (mut lo, mut hi) = (pos2(f32::MAX, f32::MAX), pos2(f32::MIN, f32::MIN));
-        for &x in &[FIT_MIN[0], FIT_MAX[0]] {
-            for &y in &[FIT_MIN[1], FIT_MAX[1]] {
-                for &z in &[FIT_MIN[2], FIT_MAX[2]] {
+        for &x in &[fit_min[0], fit_max[0]] {
+            for &y in &[fit_min[1], fit_max[1]] {
+                for &z in &[fit_min[2], fit_max[2]] {
                     if let Some((q, _)) = p.project_raw([x, y, z]) {
                         lo = pos2(lo.x.min(q.x), lo.y.min(q.y));
                         hi = pos2(hi.x.max(q.x), hi.y.max(q.y));
@@ -170,6 +180,12 @@ impl Projector {
 // ------------------------------------------------------------------------------------------
 // The tubing, laid out from the bore
 // ------------------------------------------------------------------------------------------
+//
+// Each instrument is a path of straights, bends and coils, walked by a turtle from the mouthpiece
+// (at the origin, blowing along +x) to the bell. One piece of each path stretches to make the path
+// exactly as long as the air column, so every point sits where that length of bore is, and the
+// bore's radius there is the tube's. Valves are detours: each valve's loop is as long as the tube
+// it adds, and when the valve is down the path (and the air) goes round it.
 
 /// Length of each slide leg in first position, metres (a tenor trombone's slide is ~0.65 m).
 const SLIDE_LEG: f32 = 0.62;
@@ -182,69 +198,327 @@ const BACK_RUN: f32 = 0.30;
 /// this scale, so narrow tubing is widened more than the bell.
 const RADIUS_BASE: f32 = 0.012;
 const RADIUS_GAIN: f32 = 1.3;
+/// A valve loop: the bends into and out of it, and its U-turn.
+const VALVE_BEND: f32 = 0.012;
+const VALVE_TURN: f32 = 0.016;
+/// Straight between valve casings.
+const VALVE_GAP: f32 = 0.018;
 
-/// One sample along the tubing: where it is, which way the air goes, the in-plane normal, the
-/// bore's real radius, and how far along the air column (0 = lips, 1 = bell mouth).
+/// One sample along the tubing: where it is, which way the air goes, two directions across it,
+/// the bore's radius (and the radius left open by a mute or hand there), and how far along the
+/// air column (0 = lips, 1 = bell mouth).
 #[derive(Clone, Copy, Debug)]
 struct TubePoint {
     pos: V3,
+    dir: V3,
     normal: V3,
+    binormal: V3,
     radius: f32,
+    open: f32,
     along: f32,
 }
 
-/// The trombone's path for a slide `extension` (metres beyond first position): mouthpiece, down
-/// the inner slide leg, round the crook, back up the outer leg, back past the player to the tuning
-/// loop, then forward through the bell section to the mouth. The path is exactly as long as the air
-/// column, so each point sits where that part of the bore is.
-fn tube(instrument: BrassInstrument, extension: f32, tuning: f32, samples: usize) -> Vec<TubePoint> {
-    let profile = instrument.profile();
+#[derive(Clone, Copy, Debug)]
+enum Piece {
+    Straight(f32),
+    /// Turn by `angle` (radians, right-handed about `axis`) on a bend of radius `r`.
+    Arc { r: f32, angle: f32, axis: V3 },
+    /// The stretching piece, as a straight.
+    Stretch,
+    /// The stretching piece, as `turns` coils about `axis`, advancing `pitch` metres a turn.
+    Coil { turns: f32, axis: V3, pitch: f32 },
+    /// The valve cluster: loops turned about `axis` (a double horn's F loops about `-axis`).
+    Valves { axis: V3 },
+}
+
+/// A valve on the drawing: where its casing is, whether it is down, and its name.
+#[derive(Clone, Debug)]
+struct ValveMark {
+    pos: V3,
+    down: bool,
+    label: &'static str,
+}
+
+/// The instrument as drawn: the air's path, the valve loops the air isn't in (drawn dim), and the
+/// valve casings.
+struct Tubing {
+    pts: Vec<TubePoint>,
+    idle_loops: Vec<Vec<V3>>,
+    valves: Vec<ValveMark>,
+}
+
+fn frame_for(dir: V3) -> (V3, V3) {
+    let reference = if dir[2].abs() > 0.9 { [0.0, 1.0, 0.0] } else { [0.0, 0.0, 1.0] };
+    let normal = norm(cross(reference, dir));
+    (normal, cross(dir, normal))
+}
+
+fn rotate(v: V3, axis: V3, angle: f32) -> V3 {
+    // Rodrigues, for a unit axis.
+    let (s, c) = angle.sin_cos();
+    add(add(scale(v, c), scale(cross(axis, v), s)), scale(axis, dot(axis, v) * (1.0 - c)))
+}
+
+/// Walks pieces, recording a dense polyline of (position, heading).
+struct Turtle {
+    pos: V3,
+    dir: V3,
+    path: Vec<(V3, V3)>,
+}
+
+impl Turtle {
+    fn new(pos: V3, dir: V3) -> Self {
+        Self { pos, dir, path: vec![(pos, dir)] }
+    }
+
+    fn straight(&mut self, len: f32) {
+        let n = ((len / 0.02).ceil() as usize).max(1);
+        for k in 1..=n {
+            self.path.push((add(self.pos, scale(self.dir, len * k as f32 / n as f32)), self.dir));
+        }
+        self.pos = add(self.pos, scale(self.dir, len));
+    }
+
+    fn arc(&mut self, r: f32, angle: f32, axis: V3) {
+        let side = norm(cross(axis, self.dir));
+        let centre = add(self.pos, scale(side, r * angle.signum()));
+        let spoke = sub(self.pos, centre);
+        let n = ((angle.abs() * r / 0.01).ceil() as usize).clamp(4, 400);
+        for k in 1..=n {
+            let a = angle * k as f32 / n as f32;
+            self.path.push((add(centre, rotate(spoke, axis, a)), rotate(self.dir, axis, a)));
+        }
+        self.pos = add(centre, rotate(spoke, axis, angle));
+        self.dir = rotate(self.dir, axis, angle);
+    }
+
+    /// Coils `len` metres into `turns` turns about `axis`, advancing `pitch` a turn, and leaves
+    /// heading as it arrived.
+    fn coil(&mut self, len: f32, turns: f32, axis: V3, pitch: f32) {
+        let per_turn = len / turns.max(0.1);
+        let r = (per_turn * per_turn - pitch * pitch).max(1.0e-4).sqrt() / std::f32::consts::TAU;
+        let side = norm(cross(axis, self.dir));
+        let centre = add(self.pos, scale(side, r));
+        let spoke = sub(self.pos, centre);
+        let total = std::f32::consts::TAU * turns;
+        let n = ((len / 0.01).ceil() as usize).clamp(8, 4000);
+        for k in 1..=n {
+            let a = total * k as f32 / n as f32;
+            let lift = scale(axis, pitch * a / std::f32::consts::TAU);
+            self.path.push((add(add(centre, rotate(spoke, axis, a)), lift), rotate(self.dir, axis, a)));
+        }
+        self.pos = self.path.last().unwrap().0;
+        self.dir = rotate(self.dir, axis, total);
+    }
+
+    /// A loop of `len` metres turned out along `axis` and back; returns to the line it left,
+    /// `valve_width()` further on.
+    fn detour(&mut self, len: f32, axis: V3) {
+        let pi = std::f32::consts::PI;
+        let leg = ((len - pi * (VALVE_BEND + VALVE_TURN)) / 2.0).max(0.0);
+        self.arc(VALVE_BEND, pi / 2.0, axis);
+        self.straight(leg);
+        self.arc(VALVE_TURN, -pi, axis);
+        self.straight(leg);
+        self.arc(VALVE_BEND, pi / 2.0, axis);
+    }
+}
+
+/// How far along its line a valve's casing takes (straight through, or round the loop).
+fn valve_width() -> f32 {
+    2.0 * (VALVE_BEND + VALVE_TURN)
+}
+
+/// The valves' loops for an instrument whose open tube is `open` metres: for each valve, its loop
+/// on the B♭ (main) side and, on a double horn, on the F side; and the F side's own extra tube.
+fn valve_loops(instrument: BrassInstrument, open: f32) -> (Vec<(f32, Option<f32>)>, Option<f32>) {
+    let Mechanism::Valves { semitones, f_side } = instrument.mechanism() else { return (Vec::new(), None) };
+    let f_open = open * 2f32.powf(5.0 / 12.0);
+    let loops = semitones.iter().map(|&st| (open * (2f32.powf(st / 12.0) - 1.0), f_side.then(|| f_open * (2f32.powf(st / 12.0) - 1.0)))).collect();
+    (loops, f_side.then(|| f_open - open))
+}
+
+const Z: V3 = [0.0, 0.0, 1.0];
+const NEG_Z: V3 = [0.0, 0.0, -1.0];
+const Y: V3 = [0.0, 1.0, 0.0];
+
+/// The pieces of an instrument's path. On a trombone the slide's legs carry the extension.
+fn pieces(instrument: BrassInstrument, extension: f32) -> Vec<Piece> {
+    let pi = std::f32::consts::PI;
+    match instrument {
+        // Mouthpiece, down the inner slide leg, round the crook, back up the outer leg, back past
+        // the player to the tuning loop, then forward through the bell section to the mouth.
+        BrassInstrument::TenorTrombone => {
+            let leg = SLIDE_LEG + extension * 0.5;
+            vec![
+                Piece::Straight(leg),
+                Piece::Arc { r: CROOK_R, angle: pi, axis: Z },
+                Piece::Straight(leg + BACK_RUN),
+                Piece::Arc { r: TUNING_R, angle: -pi, axis: Z },
+                Piece::Stretch,
+            ]
+        }
+        // Leadpipe forward, the tuning slide's crook up and back, the three valves (their slides
+        // standing out from the instrument), round the back bow, and the bell forward above.
+        BrassInstrument::Trumpet => vec![
+            Piece::Straight(0.24),
+            Piece::Arc { r: 0.04, angle: pi, axis: Z },
+            Piece::Straight(0.03),
+            Piece::Valves { axis: Y },
+            Piece::Straight(0.03),
+            Piece::Arc { r: 0.05, angle: -pi, axis: Z },
+            Piece::Stretch,
+        ],
+        // Leadpipe into the round wrap, the valves (B♭ slides one side, F the other, the thumb
+        // valve's long loop), then the bell branch curling down and back: the horn's bell faces
+        // behind the player.
+        BrassInstrument::Horn => vec![
+            Piece::Straight(0.16),
+            Piece::Coil { turns: 1.0, axis: Z, pitch: 0.035 },
+            Piece::Straight(0.02),
+            Piece::Valves { axis: Y },
+            Piece::Straight(0.04),
+            Piece::Arc { r: 0.2, angle: -pi, axis: Z },
+            Piece::Straight(0.2),
+        ],
+        // Leadpipe, the four valves, the big coils (the bore widening all the way round), and the
+        // bell turned upward.
+        BrassInstrument::Tuba => vec![
+            Piece::Straight(0.14),
+            Piece::Valves { axis: NEG_Z },
+            Piece::Straight(0.04),
+            Piece::Coil { turns: 2.0, axis: Z, pitch: 0.09 },
+            Piece::Arc { r: 0.16, angle: pi / 2.0, axis: Z },
+            Piece::Straight(0.75),
+        ],
+    }
+}
+
+/// Lays the instrument out for the bore now: `extension` metres added (slide, or valves and
+/// their trim), the tuning slide pulled `tuning`, `valves` down (bits as `BrassState::valves`), and
+/// the mute or hand the bore carries.
+fn tubing(instrument: BrassInstrument, extension: f32, tuning: f32, valves: u32, mute: Mute, hand: f32, samples: usize) -> Tubing {
+    let base = instrument.profile();
+    let profile = base.clone().obstructed(obstruction(mute, hand, base.mouth_radius()));
     let extra = tuning + extension;
     let total = profile.total_length(extra);
-    let leg = SLIDE_LEG + extension * 0.5;
-    let pi = std::f32::consts::PI;
-    // Pieces: (length, kind) - straight along a heading, or a half turn about a centre.
-    let fixed = 2.0 * leg + pi * CROOK_R + BACK_RUN + pi * TUNING_R;
-    let forward = (total - fixed).max(0.2);
-    let at = |s: f32| -> (V3, V3) {
-        let mut s = s;
-        // Inner leg, +x.
-        if s <= leg {
-            return ([s, 0.0, 0.0], [1.0, 0.0, 0.0]);
+    let open = profile.total_length(tuning);
+    let (loops, f_loop) = valve_loops(instrument, open);
+    let f_side = valves & F_SIDE != 0;
+    let pieces = pieces(instrument, extension);
+    // How long each piece is, the stretch aside.
+    let valve_len = |down: bool, len: f32| if down { len } else { valve_width() };
+    let cluster = |loops: &[(f32, Option<f32>)]| -> f32 {
+        let mut s = VALVE_GAP * loops.len() as f32;
+        for (k, (b, f)) in loops.iter().enumerate() {
+            let len = if f_side { f.unwrap_or(*b) } else { *b };
+            s += valve_len(valves & (1 << k) != 0, len);
         }
-        s -= leg;
-        // Crook: a half turn up, centre (leg, CROOK_R).
-        let crook = pi * CROOK_R;
-        if s <= crook {
-            let a = -pi / 2.0 + s / CROOK_R;
-            return ([leg + CROOK_R * a.cos(), CROOK_R + CROOK_R * a.sin(), 0.0], [-a.sin(), a.cos(), 0.0]);
+        if let Some(fl) = f_loop {
+            s += VALVE_GAP + valve_len(f_side, fl);
         }
-        s -= crook;
-        // Outer leg and on back past the player, -x.
-        if s <= leg + BACK_RUN {
-            return ([leg - s, 2.0 * CROOK_R, 0.0], [-1.0, 0.0, 0.0]);
-        }
-        s -= leg + BACK_RUN;
-        // Tuning loop: a half turn up, centre (-BACK_RUN, 2 CROOK_R + TUNING_R).
-        let tl = pi * TUNING_R;
-        if s <= tl {
-            // Arriving heading -x below the centre, leaving heading +x above it.
-            let a = -pi / 2.0 - s / TUNING_R;
-            let c = [-BACK_RUN, 2.0 * CROOK_R + TUNING_R];
-            return ([c[0] + TUNING_R * a.cos(), c[1] + TUNING_R * a.sin(), 0.0], [a.sin(), -a.cos(), 0.0]);
-        }
-        s -= tl;
-        // Bell section, forward (+x).
-        ([-BACK_RUN + s.min(forward + 1.0), 2.0 * CROOK_R + 2.0 * TUNING_R, 0.0], [1.0, 0.0, 0.0])
+        s
     };
-    (0..samples)
+    let fixed: f32 = pieces
+        .iter()
+        .map(|p| match *p {
+            Piece::Straight(l) => l,
+            Piece::Arc { r, angle, .. } => r * angle.abs(),
+            Piece::Valves { .. } => cluster(&loops),
+            Piece::Stretch | Piece::Coil { .. } => 0.0,
+        })
+        .sum();
+    let stretch = (total - fixed).max(0.2);
+
+    let mut t = Turtle::new([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+    let mut idle_loops = Vec::new();
+    let mut marks = Vec::new();
+    for p in &pieces {
+        match *p {
+            Piece::Straight(l) => t.straight(l),
+            Piece::Arc { r, angle, axis } => t.arc(r, angle, axis),
+            Piece::Stretch => t.straight(stretch),
+            Piece::Coil { turns, axis, pitch } => t.coil(stretch, turns, axis, pitch),
+            Piece::Valves { axis } => {
+                const NAMES: [&str; 4] = ["1", "2", "3", "4"];
+                let mut casing = |t: &mut Turtle, down: bool, len: f32, axis: V3, label: &'static str, idle: Option<(f32, V3)>| {
+                    t.straight(VALVE_GAP);
+                    marks.push(ValveMark { pos: add(t.pos, scale(t.dir, valve_width() * 0.5)), down, label });
+                    // A loop the air isn't in is drawn where it hangs, from the same casing.
+                    let mut ghost = |len: f32, axis: V3| {
+                        let mut g = Turtle::new(t.pos, t.dir);
+                        g.detour(len, axis);
+                        idle_loops.push(g.path.iter().map(|q| q.0).collect::<Vec<_>>());
+                    };
+                    if !down {
+                        ghost(len, axis);
+                    }
+                    if let Some((len, axis)) = idle {
+                        ghost(len, axis);
+                    }
+                    if down {
+                        t.detour(len, axis);
+                    } else {
+                        t.straight(valve_width());
+                    }
+                };
+                let other = scale(axis, -1.0);
+                for (k, &(b, f)) in loops.iter().enumerate() {
+                    let down = valves & (1 << k) != 0;
+                    // A double horn's valve has a loop for each side; the air uses the side's own.
+                    let (len, ax, idle) = match f {
+                        Some(f) if f_side => (f, other, Some((b, axis))),
+                        Some(f) => (b, axis, Some((f, other))),
+                        None => (b, axis, None),
+                    };
+                    casing(&mut t, down, len, ax, NAMES[k.min(3)], idle);
+                }
+                if let Some(fl) = f_loop {
+                    casing(&mut t, f_side, fl, other, "T", None);
+                }
+            }
+        }
+    }
+    // Resample evenly along the path, which is `total` long.
+    let mut cum = Vec::with_capacity(t.path.len());
+    let mut acc = 0.0f32;
+    for (i, q) in t.path.iter().enumerate() {
+        if i > 0 {
+            let d = sub(q.0, t.path[i - 1].0);
+            acc += dot(d, d).sqrt();
+        }
+        cum.push(acc);
+    }
+    let path_len = acc.max(1.0e-6);
+    let mut j = 0;
+    let mut pts: Vec<TubePoint> = (0..samples)
         .map(|k| {
             let u = k as f32 / (samples - 1).max(1) as f32;
-            let s = u * total;
-            let (pos, dir) = at(s);
-            TubePoint { pos, normal: [-dir[1], dir[0], 0.0], radius: profile.radius_at(s, extra), along: u }
+            let s = u * path_len;
+            while j + 1 < cum.len() - 1 && cum[j + 1] < s {
+                j += 1;
+            }
+            let (a, b) = (t.path[j], t.path[(j + 1).min(t.path.len() - 1)]);
+            let span = (cum[(j + 1).min(cum.len() - 1)] - cum[j]).max(1.0e-9);
+            let f = ((s - cum[j]) / span).clamp(0.0, 1.0);
+            let pos = add(a.0, scale(sub(b.0, a.0), f));
+            let dir = norm(add(scale(a.1, 1.0 - f), scale(b.1, f)));
+            let (normal, binormal) = frame_for(dir);
+            let x = u * total;
+            TubePoint { pos, dir, normal, binormal, radius: profile.open_radius_at(x, extra), open: profile.radius_at(x, extra), along: u }
         })
-        .collect()
+        .collect();
+    // Carry the cross-section's frame along the tube (parallel transport), so it turns with the
+    // tube instead of flipping where the tube turns out of the instrument's plane.
+    for k in 1..pts.len() {
+        let (prev, dir) = (pts[k - 1].normal, pts[k].dir);
+        let n = sub(prev, scale(dir, dot(prev, dir)));
+        if dot(n, n) > 1.0e-8 {
+            pts[k].normal = norm(n);
+            pts[k].binormal = cross(dir, pts[k].normal);
+        }
+    }
+    Tubing { pts, idle_loops, valves: marks }
 }
 
 /// Where the slide's crook is (the handle) for an extension, world units.
@@ -254,6 +528,35 @@ fn crook_centre(extension: f32) -> V3 {
 
 fn drawn_radius(r: f32) -> f32 {
     RADIUS_BASE + RADIUS_GAIN * r
+}
+
+/// The box the camera fits for an instrument: its tubing with every loop, the slide all the way out.
+fn fit_box(instrument: BrassInstrument) -> (V3, V3) {
+    let reach = match instrument.mechanism() {
+        Mechanism::Slide => instrument.profile().slide_max,
+        Mechanism::Valves { .. } => 0.0,
+    };
+    let mut lo = [f32::MAX; 3];
+    let mut hi = [f32::MIN; 3];
+    let mut grow = |p: V3, r: f32| {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i] - r);
+            hi[i] = hi[i].max(p[i] + r);
+        }
+    };
+    for e in [0.0, reach] {
+        let t = tubing(instrument, e, 0.0, 0, Mute::Open, 0.0, 200);
+        for p in &t.pts {
+            grow(p.pos, drawn_radius(p.radius));
+        }
+        for l in &t.idle_loops {
+            for p in l {
+                grow(*p, RADIUS_BASE);
+            }
+        }
+    }
+    grow([-0.05, 0.0, 0.0], 0.03);
+    (lo, hi)
 }
 
 // ------------------------------------------------------------------------------------------
@@ -320,11 +623,13 @@ struct ViewState {
     beam_phase: f32,
     energy_ref: f32,
     last_time: f32,
+    /// The camera's box for the instrument last drawn.
+    fit: Option<(u32, (V3, V3))>,
 }
 
 impl Default for ViewState {
     fn default() -> Self {
-        Self { camera: Camera::default(), drag: None, last_pointer: None, scale_ref: 50.0, envelope: [0.0; BORE_POINTS], lip_phase: 0.0, beam_phase: 0.0, energy_ref: 1.0e-4, last_time: 0.0 }
+        Self { camera: Camera::default(), drag: None, last_pointer: None, scale_ref: 50.0, envelope: [0.0; BORE_POINTS], lip_phase: 0.0, beam_phase: 0.0, energy_ref: 1.0e-4, last_time: 0.0, fit: None }
     }
 }
 
@@ -367,6 +672,8 @@ impl Scene {
 
 /// Screen-space panels.
 struct Layout {
+    /// Where the instrument is fitted: the stage, less the Physics View's panels.
+    scene: Rect,
     chip: Rect,
     ladder: Option<Rect>,
     map: Option<Rect>,
@@ -384,7 +691,8 @@ impl Layout {
         let ladder = physics.then(|| Rect::from_min_size(pos2(x, chip.max.y + 8.0), vec2(w, h)));
         let map = physics.then(|| Rect::from_min_size(pos2(x, chip.max.y + 16.0 + h), vec2(w, h)));
         let traces = physics.then(|| Rect::from_min_size(pos2(x, chip.max.y + 24.0 + 2.0 * h), vec2(w, h)));
-        Self { chip, ladder, map, traces, readout: pos2(stage.min.x + 14.0, stage.min.y + 12.0) }
+        let scene = if physics { Rect::from_min_max(stage.min, pos2(x - 8.0, stage.max.y)) } else { stage };
+        Self { scene, chip, ladder, map, traces, readout: pos2(stage.min.x + 14.0, stage.min.y + 12.0) }
     }
 }
 
@@ -482,7 +790,12 @@ impl BrassView {
         let key_rect = Rect::from_min_max(pos2(rect.min.x, rect.max.y - key_h), rect.max);
         let key_rects = if opts.keyboard { key_layout(opts.first_key, opts.key_octaves, key_rect) } else { Vec::new() };
         let lay = Layout::new(stage, opts.physics_view);
-        let proj = Projector::new(&st.camera, stage);
+        let fit = match st.fit {
+            Some((i, f)) if i == scene.instrument.index() => f,
+            _ => fit_box(scene.instrument),
+        };
+        st.fit = Some((scene.instrument.index(), fit));
+        let proj = Projector::new(&st.camera, lay.scene, fit);
 
         // ---------------------------------------------------------------- input
         let velocity_at = |p: Pos2, kr: Rect| pointer.pen.map(|pn| pn.pressure.max(0.2)).unwrap_or(0.35 + 0.65 * ((p.y - kr.min.y) / kr.height()).clamp(0.0, 1.0));
@@ -573,9 +886,14 @@ impl BrassView {
             painter.rect_filled(band, 0u8, c32(mix3(BG_TOP, BG_BOTTOM, (t0 + t1) * 0.5), 1.0));
         }
         let clip = painter.with_clip_rect(stage);
-        let pts = tube(scene.instrument, scene.s.extension, scene.s.tuning, 260);
-        draw_beam(&clip, &proj, &pts, &scene, &st);
-        draw_tube(&clip, &proj, &pts, &scene, &st, opts);
+        let s = &scene.s;
+        let tubing = tubing(scene.instrument, s.extension, s.tuning, s.valves, s.mute, s.hand, 260);
+        let pts = &tubing.pts;
+        draw_beam(&clip, &proj, pts, &scene, &st);
+        draw_loops(&clip, &proj, &tubing);
+        draw_tube(&clip, &proj, pts, &scene, &st, opts);
+        draw_plug(&clip, &proj, pts, &scene);
+        draw_valves(&clip, &proj, &tubing);
         draw_lips(&clip, &proj, &scene, &st);
         draw_slide_handle(&clip, &proj, &scene, matches!(st.drag, Some(Drag::Slide)));
         draw_readout(&clip, &lay, &scene, opts);
@@ -607,12 +925,16 @@ impl BrassView {
 pub fn slide_handle_screen(rect: Rect, opts: &BrassViewOptions, shared: &BrassShared) -> Option<Pos2> {
     let key_h = if opts.keyboard { 60.0 } else { 0.0 };
     let stage = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - key_h));
-    let proj = Projector::new(&Camera::default(), stage);
-    slide_handle(&proj, &Scene::read(shared)).map(|(c, _)| c)
+    let scene = Scene::read(shared);
+    let proj = Projector::new(&Camera::default(), Layout::new(stage, opts.physics_view).scene, fit_box(scene.instrument));
+    slide_handle(&proj, &scene).map(|(c, _)| c)
 }
 
 /// The slide's handle on screen: its centre and grab radius.
 fn slide_handle(proj: &Projector, scene: &Scene) -> Option<(Pos2, f32)> {
+    if !matches!(scene.instrument.mechanism(), Mechanism::Slide) {
+        return None;
+    }
     proj.project(crook_centre(scene.s.extension)).map(|c| (c, 26.0))
 }
 
@@ -679,7 +1001,7 @@ fn draw_tube(painter: &Painter, proj: &Projector, pts: &[TubePoint], scene: &Sce
         let ring: Vec<Pos2> = (0..=14)
             .filter_map(|k| {
                 let a = std::f32::consts::TAU * k as f32 / 14.0;
-                proj.project(add(t.pos, add(scale(t.normal, r * a.cos()), [0.0, 0.0, r * a.sin()])))
+                proj.project(add(t.pos, add(scale(t.normal, r * a.cos()), scale(t.binormal, r * a.sin()))))
             })
             .collect();
         let v = if sounding { norm_p(pressure_at(&scene.bore, t.along)) } else { 0.0 };
@@ -694,7 +1016,7 @@ fn draw_tube(painter: &Painter, proj: &Projector, pts: &[TubePoint], scene: &Sce
             .iter()
             .filter_map(|t| {
                 let off = drawn_radius(t.radius) + 0.03 + gain * norm_p(pressure_at(&scene.bore, t.along));
-                proj.project(add(t.pos, [0.0, 0.0, off]))
+                proj.project(add(t.pos, scale(t.binormal, off)))
             })
             .collect();
         polyline(painter, &wave, 5.0, 1.6, TEAL, 0.9);
@@ -703,7 +1025,7 @@ fn draw_tube(painter: &Painter, proj: &Projector, pts: &[TubePoint], scene: &Sce
                 .iter()
                 .filter_map(|t| {
                     let off = drawn_radius(t.radius) + 0.03 + side * gain * (pressure_at(&st.envelope, t.along) / st.scale_ref).min(1.5);
-                    proj.project(add(t.pos, [0.0, 0.0, off]))
+                    proj.project(add(t.pos, scale(t.binormal, off)))
                 })
                 .collect();
             polyline(painter, &env, 0.0, 1.0, SKY, 0.45);
@@ -739,10 +1061,48 @@ fn draw_lips(painter: &Painter, proj: &Projector, scene: &Scene, st: &ViewState)
 }
 
 fn draw_slide_handle(painter: &Painter, proj: &Projector, scene: &Scene, dragging: bool) {
-    if let Some(c) = proj.project(crook_centre(scene.s.extension)) {
+    if let Some((c, _)) = slide_handle(proj, scene) {
         let colour = if dragging { TEAL } else { AMBER };
         painter.circle_stroke(c, 10.0, Stroke::new(1.6, c32(colour, 0.8)));
         painter.text(pos2(c.x, c.y + 14.0), Align2::CENTER_TOP, format!("pos {:.1}", scene.s.position), FontId::proportional(9.5), c32(colour, 0.9));
+    }
+}
+
+/// The valve loops the air isn't going round: brass, but dark.
+fn draw_loops(painter: &Painter, proj: &Projector, tubing: &Tubing) {
+    for l in &tubing.idle_loops {
+        let pts: Vec<Pos2> = l.iter().filter_map(|p| proj.project(*p)).collect();
+        polyline(painter, &pts, 4.0, 1.2, DIM, 0.55);
+    }
+}
+
+/// The valves: a piston on each casing, pushed down and lit when the valve is down.
+fn draw_valves(painter: &Painter, proj: &Projector, tubing: &Tubing) {
+    for v in &tubing.valves {
+        let travel = if v.down { 0.012 } else { 0.034 };
+        let (Some(base), Some(top)) = (proj.project(v.pos), proj.project(add(v.pos, [0.0, 0.02 + travel, 0.0]))) else { continue };
+        let colour = if v.down { TEAL } else { AMBER };
+        painter.line_segment([base, top], Stroke::new(5.0, c32(colour, 0.25)));
+        painter.line_segment([base, top], Stroke::new(1.6, c32(colour, 0.9)));
+        painter.circle_stroke(top, 4.0, Stroke::new(1.4, c32(colour, if v.down { 1.0 } else { 0.7 })));
+        painter.text(pos2(top.x, top.y - 6.0), Align2::CENTER_BOTTOM, v.label, FontId::proportional(9.0), c32(colour, 0.9));
+    }
+}
+
+/// A mute in the bell, or the horn player's hand: drawn where the bore is obstructed, as wide as
+/// it closes the bore.
+fn draw_plug(painter: &Painter, proj: &Projector, pts: &[TubePoint], scene: &Scene) {
+    let colour = if scene.s.mute == Mute::Open { ROSE } else { SKY };
+    for t in pts.iter().filter(|t| t.open < t.radius * 0.999) {
+        let closed = (1.0 - t.open / t.radius).clamp(0.0, 1.0);
+        let r = drawn_radius(t.radius) * closed.sqrt() * 0.9;
+        let ring: Vec<Pos2> = (0..=16)
+            .filter_map(|k| {
+                let a = std::f32::consts::TAU * k as f32 / 16.0;
+                proj.project(add(t.pos, add(scale(t.normal, r * a.cos()), scale(t.binormal, r * a.sin()))))
+            })
+            .collect();
+        polyline(painter, &ring, 3.0, 1.2, colour, 0.7);
     }
 }
 
@@ -759,13 +1119,14 @@ fn draw_beam(painter: &Painter, proj: &Projector, pts: &[TubePoint], scene: &Sce
     let half = (1.1 - 0.75 * steep).max(0.2);
     let reach = 0.25 + 0.55 * level;
     let r0 = drawn_radius(mouth.radius);
+    let (d, u) = (mouth.dir, mouth.normal);
     for k in 0..4 {
         let t = (st.beam_phase + k as f32 * 0.25).fract();
         let r = r0 + t * reach;
         let arc: Vec<Pos2> = (0..=16)
             .filter_map(|j| {
                 let a = -half + 2.0 * half * j as f32 / 16.0;
-                proj.project(add(mouth.pos, [r * a.cos(), r * a.sin(), 0.0]))
+                proj.project(add(mouth.pos, add(scale(d, r * a.cos()), scale(u, r * a.sin()))))
             })
             .collect();
         polyline(painter, &arc, 4.0, 1.2, mix3(AMBER, TEAL, steep), (1.0 - t) * 0.8);
@@ -779,14 +1140,33 @@ fn draw_readout(painter: &Painter, lay: &Layout, scene: &Scene, opts: &BrassView
         painter.text(pos2(lay.readout.x, *y), Align2::LEFT_TOP, txt, FontId::proportional(11.0), c);
         *y += 15.0;
     };
-    line(format!("{}", scene.instrument.name().to_uppercase()), &mut y, c32(BRASS, 0.9));
+    let slide = matches!(scene.instrument.mechanism(), Mechanism::Slide);
+    let mut dress = Vec::new();
+    if s.mute != Mute::Open {
+        dress.push(format!("{} mute", s.mute.name()));
+    }
+    if s.hand > 0.01 {
+        dress.push(if s.hand > 0.95 { "hand stopped".to_string() } else { format!("hand {:.0}% in", s.hand * 100.0) });
+    }
+    dress.push(format!("bell {}", if s.bell_facing > 0.66 { "toward you" } else if s.bell_facing > 0.33 { "to the side" } else { "away" }));
+    line(format!("{}  -  {}", scene.instrument.name().to_uppercase(), dress.join(", ")), &mut y, c32(BRASS, 0.9));
     if !s.playing {
-        line("play a key - drag the slide or the playing map to steer a held note".into(), &mut y, LABEL);
+        let hint = if slide { "play a key - drag the slide or the playing map to steer a held note" } else { "play a key - drag the playing map to steer a held note" };
+        line(hint.into(), &mut y, LABEL);
         return;
     }
     let cents = if s.sounding > 0.0 && s.target > 0.0 { 1200.0 * (s.sounding / s.target).log2() } else { 0.0 };
     line(format!("{}  ({:.1} Hz, {:+.0} cents)", note_name(s.target), s.sounding, cents), &mut y, c32(AMBER, 0.95));
-    line(format!("partial {}  -  slide position {:.1}", s.partial, s.position), &mut y, LABEL);
+    if slide {
+        line(format!("partial {}  -  slide position {:.1}", s.partial, s.position), &mut y, LABEL);
+    } else {
+        let mut down: Vec<String> = (0..7).filter(|i| s.valves & (1 << i) != 0).map(|i| (i + 1).to_string()).collect();
+        if s.valves & F_SIDE != 0 {
+            down.insert(0, "T".into());
+        }
+        let valves = if down.is_empty() { "open".to_string() } else { down.join("+") };
+        line(format!("partial {}  -  valves {}", s.partial, valves), &mut y, LABEL);
+    }
     line(format!("breath {:.1} kPa  -  lips {:.0} Hz, open {:.2} mm", s.mouth_pressure / 1000.0, s.lip_freq, s.lip_opening * 1000.0), &mut y, LABEL);
     let steep = s.wave_steepness;
     let (label, colour) = if steep > 2.0e7 {
@@ -924,16 +1304,56 @@ mod tests {
 
     #[test]
     fn the_tubing_is_as_long_as_the_air_column_and_the_slide_lengthens_it() {
-        let length = |pts: &[TubePoint]| pts.windows(2).map(|w| dot(sub(w[1].pos, w[0].pos), sub(w[1].pos, w[0].pos)).sqrt()).sum::<f32>();
         let profile = BrassInstrument::TenorTrombone.profile();
         for &e in &[0.0f32, 0.5, 1.1] {
-            let pts = tube(BrassInstrument::TenorTrombone, e, 0.1, 2000);
+            let pts = tubing(BrassInstrument::TenorTrombone, e, 0.1, 0, Mute::Open, 0.0, 2000).pts;
             let want = profile.total_length(0.1 + e);
             assert!((length(&pts) - want).abs() < 0.02 * want, "extension {e}: tube {} m, bore {want} m", length(&pts));
             // It starts at the lips and ends at the bell, whose drawn radius is the widest.
             assert!(pts.last().unwrap().radius > 5.0 * pts[pts.len() / 2].radius);
         }
         assert!(crook_centre(1.0)[0] > crook_centre(0.0)[0] + 0.45, "the slide travels out");
+    }
+
+    fn length(pts: &[TubePoint]) -> f32 {
+        pts.windows(2).map(|w| dot(sub(w[1].pos, w[0].pos), sub(w[1].pos, w[0].pos)).sqrt()).sum::<f32>()
+    }
+
+    #[test]
+    fn every_instrument_is_drawn_as_long_as_its_air_column_and_valves_add_their_loops() {
+        for inst in BrassInstrument::ALL {
+            let profile = inst.profile();
+            let open = tubing(inst, 0.0, 0.05, 0, Mute::Open, 0.0, 3000);
+            let want = profile.total_length(0.05);
+            assert!((length(&open.pts) - want).abs() < 0.02 * want, "{}: tube {} m, bore {want} m", inst.name(), length(&open.pts));
+            let (lo, hi) = fit_box(inst);
+            for p in &open.pts {
+                assert!((0..3).all(|i| p.pos[i] >= lo[i] - 1.0e-3 && p.pos[i] <= hi[i] + 1.0e-3), "{}: the camera box holds the tubing", inst.name());
+            }
+            if let Mechanism::Valves { semitones, .. } = inst.mechanism() {
+                assert_eq!(open.valves.len(), semitones.len() + usize::from(inst == BrassInstrument::Horn));
+                assert!(open.valves.iter().all(|v| !v.down));
+                // Valve 2 down: the air goes round its loop, and the path is as long as the bore with it.
+                let extra = open_len_loop(inst, 1);
+                let down = tubing(inst, extra, 0.05, 0b10, Mute::Open, 0.0, 3000);
+                assert!(down.valves[1].down);
+                assert!((length(&down.pts) - profile.total_length(0.05 + extra)).abs() < 0.02 * want);
+                assert_eq!(down.idle_loops.len() + 1, open.idle_loops.len(), "{}: one loop fewer idle", inst.name());
+            }
+        }
+    }
+
+    fn open_len_loop(inst: BrassInstrument, k: usize) -> f32 {
+        valve_loops(inst, inst.profile().total_length(0.05)).0[k].0
+    }
+
+    #[test]
+    fn a_mute_or_hand_is_where_the_bore_is_obstructed() {
+        let open = tubing(BrassInstrument::Horn, 0.0, 0.0, 0, Mute::Open, 0.0, 400);
+        let stopped = tubing(BrassInstrument::Horn, 0.0, 0.0, 0, Mute::Open, 1.0, 400);
+        assert!(open.pts.iter().all(|t| t.open >= t.radius * 0.999));
+        let closed: Vec<&TubePoint> = stopped.pts.iter().filter(|t| t.open < t.radius * 0.5).collect();
+        assert!(!closed.is_empty() && closed.iter().all(|t| t.along > 0.9), "the hand is in the bell");
     }
 
     #[test]

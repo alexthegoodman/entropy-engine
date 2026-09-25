@@ -38,7 +38,7 @@ pub mod lips;
 #[cfg(test)]
 mod tests;
 
-pub use engine::{breath_pressure, lip_center, lip_mass, Articulation, BrassInstrument, BrassLive, BrassParams, BrassReport, Engine, Fingering, Mechanism, Mute, ResonanceTable, F_SIDE};
+pub use engine::{breath_pressure, lip_center, lip_mass, obstruction, Articulation, BrassInstrument, BrassLive, BrassParams, BrassReport, Engine, Fingering, Mechanism, Mute, ResonanceTable, F_SIDE};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -150,6 +150,11 @@ pub struct BrassState {
     pub wave_steepness: f32,
     pub mouthpiece_level: f32,
     pub energy: f32,
+    /// Valves held (bit i is valve i+1; `F_SIDE` the horn's thumb valve).
+    pub valves: u32,
+    pub mute: Mute,
+    pub hand: f32,
+    pub bell_facing: f32,
 }
 
 pub struct BrassShared {
@@ -173,6 +178,10 @@ pub struct BrassShared {
     steepness: AtomicU32,
     mp_level: AtomicU32,
     energy: AtomicU32,
+    valves: AtomicU32,
+    mute: AtomicU32,
+    hand: AtomicU32,
+    bell_facing: AtomicU32,
     bore: [AtomicU32; BORE_POINTS],
     mp_trace: [AtomicU32; TRACE_POINTS],
     lip_trace: [AtomicU32; TRACE_POINTS],
@@ -203,6 +212,10 @@ impl Default for BrassShared {
             steepness: AtomicU32::new(0),
             mp_level: AtomicU32::new(0),
             energy: AtomicU32::new(0),
+            valves: AtomicU32::new(0),
+            mute: AtomicU32::new(0),
+            hand: AtomicU32::new(0),
+            bell_facing: AtomicU32::new(BrassInstrument::TenorTrombone.default_bell_facing().to_bits()),
             bore: atomics(),
             mp_trace: atomics(),
             lip_trace: atomics(),
@@ -258,6 +271,10 @@ impl BrassShared {
             wave_steepness: load(&self.steepness),
             mouthpiece_level: load(&self.mp_level),
             energy: load(&self.energy),
+            valves: self.valves.load(Ordering::Relaxed),
+            mute: Mute::from_index(self.mute.load(Ordering::Relaxed)),
+            hand: load(&self.hand),
+            bell_facing: load(&self.bell_facing),
         }
     }
 
@@ -303,6 +320,10 @@ impl BrassShared {
         store(&self.steepness, r.wave_steepness);
         store(&self.mp_level, r.mouthpiece_level);
         store(&self.energy, energy);
+        self.valves.store(r.valves, Ordering::Relaxed);
+        self.mute.store(r.mute.index(), Ordering::Relaxed);
+        store(&self.hand, r.hand);
+        store(&self.bell_facing, r.bell_facing);
         engine.bore_pressure(&mut scratch.bore);
         for (slot, v) in self.bore.iter().zip(scratch.bore.iter()) {
             store(slot, *v);

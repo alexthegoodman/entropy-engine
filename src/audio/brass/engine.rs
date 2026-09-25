@@ -227,8 +227,9 @@ impl BrassInstrument {
 /// A mute in the bell. Its cork seal narrows the bell (an `Obstruction`, so it moves the
 /// resonances as a real mute does); the mute's own body then colours what leaves it - that part is
 /// a filter on the radiated sound for now (see `docs/PHYS_MOD_BRASS.md`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mute {
+    #[default]
     Open,
     Straight,
     Cup,
@@ -716,6 +717,12 @@ pub struct BrassReport {
     /// The controls in effect (live values when the note has them): breath and lip tension knobs.
     pub breath: f32,
     pub lip_tension: f32,
+    /// Valves held down (bit i is valve i+1; `F_SIDE` the horn's thumb valve), the mute, the
+    /// horn player's hand in the bell (0 open .. 1 stopped) and where the bell points.
+    pub valves: u32,
+    pub mute: Mute,
+    pub hand: f32,
+    pub bell_facing: f32,
 }
 
 struct Player {
@@ -1405,6 +1412,10 @@ impl Engine {
             resonance: pl.fingering.resonance,
             breath: p.breath,
             lip_tension: p.lip_tension,
+            valves: pl.fingering.valves,
+            mute: self.construction.1,
+            hand: self.construction.2 as f32 / 20.0,
+            bell_facing: self.facing,
         }
     }
 

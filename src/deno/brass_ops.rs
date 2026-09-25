@@ -40,6 +40,11 @@ fn described(id: &str, shared: &brass::BrassShared) -> Json {
         "soundingHz": s.sounding,
         "waveSteepness": s.wave_steepness,
         "mouthpieceLevelPa": s.mouthpiece_level,
+        "valves": (0..7).filter(|i| s.valves & (1 << i) != 0).map(|i| i + 1).collect::<Vec<u32>>(),
+        "fSide": s.valves & brass::F_SIDE != 0,
+        "mute": s.mute.name(),
+        "hand": s.hand,
+        "bellFacing": s.bell_facing,
         "resonances": ladder,
     })
 }

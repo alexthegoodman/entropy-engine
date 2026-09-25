@@ -169,3 +169,35 @@ fn dragging_the_slide_asks_for_a_position() {
     let position2 = events.iter().find_map(|e| if let BrassViewEvent::SlideDrag { position } = e { Some(*position) } else { None }).expect("dragging keeps moving the slide");
     assert!(position2 > position + 1.5, "{position} then {position2}");
 }
+
+#[test]
+fn the_trumpet_horn_and_tuba_are_drawn_with_their_valves() {
+    use entropy_engine::audio::brass::{BrassInstrument, Mute};
+    let mut h = Harness::new(W, H);
+    let cases = [
+        ("trumpet-bb4-open", BrassParams { instrument: BrassInstrument::Trumpet, freq: 466.16, breath_noise: 0.0, ..Default::default() }),
+        ("trumpet-a4-valve-2", BrassParams { instrument: BrassInstrument::Trumpet, freq: 440.0, breath_noise: 0.0, ..Default::default() }),
+        ("trumpet-harmon", BrassParams { instrument: BrassInstrument::Trumpet, freq: 466.16, mute: Mute::Harmon, breath_noise: 0.0, ..Default::default() }),
+        ("horn-f3", BrassParams { instrument: BrassInstrument::Horn, freq: 174.61, breath_noise: 0.0, ..Default::default() }),
+        ("horn-a4-stopped", BrassParams { instrument: BrassInstrument::Horn, freq: 440.0, hand: Some(1.0), breath_noise: 0.0, ..Default::default() }),
+        ("tuba-f2", BrassParams { instrument: BrassInstrument::Tuba, freq: 87.31, breath_noise: 0.0, ..Default::default() }),
+    ];
+    let mut pictures = Vec::new();
+    for (name, p) in cases {
+        let (shared, _voice) = sounding(p, 0.6);
+        let s = shared.state();
+        let img = settled(&mut h, &opts(true), &shared);
+        img.save(artifacts().join(format!("{name}.png"))).unwrap();
+        assert!(s.playing, "{name} should be playing");
+        assert!(lit_pixels(&img) > 1500, "{name}: the instrument should be drawn ({} bright pixels)", lit_pixels(&img));
+        // No slide to grab on a valved instrument.
+        assert!(slide_handle_screen(Rect::from_min_size(pos2(10.0, 10.0), vec2(W as f32 - 20.0, H as f32 - 20.0)), &opts(true), &shared).is_none());
+        pictures.push((name, s, img));
+    }
+    let (open, valve2) = (&pictures[0], &pictures[1]);
+    assert_eq!(open.1.valves, 0, "B♭4 is played open");
+    assert_eq!(valve2.1.valves, 0b10, "A4 is played on the second valve");
+    assert!(difference(&open.2, &valve2.2) > 2000, "the valve going down shows ({} pixels differ)", difference(&open.2, &valve2.2));
+    assert_eq!(pictures[2].1.mute, Mute::Harmon);
+    assert!(pictures[4].1.hand > 0.95);
+}
