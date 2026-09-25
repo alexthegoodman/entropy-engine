@@ -8,10 +8,12 @@
 // saves) lives in daw_arrangement.ts so it can be tested without a window; this file wires it
 // to the engine and the UI.
 
-import type { ArrClip, NoteCell, Pattern, SnapMode } from "./daw_arrangement";
+import type { ArrClip, NoteCell, Pattern, PlacedNote, SnapMode } from "./daw_arrangement";
 import {
     activePattern,
     barSteps,
+    clipEnd,
+    clipLocalStep,
     clipsOfTrack,
     createClip,
     deleteClip,
@@ -35,6 +37,34 @@ import {
     triggersAt,
 } from "./daw_arrangement";
 import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
+import type { Character, HardCut, KickLockChange, MoveContext, StutterRate, VariationFocus } from "./daw_moves";
+import {
+    GATE_PATTERNS,
+    GATE_PATTERN_LABELS,
+    STUTTER_RATES,
+    VARIATION_FOCI,
+    VARIATION_LABELS,
+    answerPhrase,
+    applyAcid,
+    buildRoll,
+    busEffects,
+    carveRange,
+    echoRepeats,
+    grooveAt,
+    grooveVelocity,
+    isCut,
+    isKickPad,
+    kickLock,
+    makeVariation,
+    nearestBar,
+    octaveSpark,
+    phraseEnding,
+    repairCharacter,
+    repairCuts,
+    rollRows,
+    stutter,
+    thinOut,
+} from "./daw_moves";
 import type { WavetableSettings } from "./daw_wavetable";
 import type { IconName, IconStyle } from "../addon";
 import {
@@ -172,6 +202,11 @@ interface VoiceParams {
     reverbTime: number;
     reverbDamping: number;
     reverbMix: number;
+    // Filter envelope and drive, written by the Character panel's Acid knob (daw_moves.ts's
+    // applyAcid). Absent on older saves, which means off.
+    filterEnv?: number;
+    filterDecay?: number;
+    drive?: number;
 }
 
 // A hosted VST3 plugin standing in for the built-in voice. `state` is the plugin's own saved patch
@@ -214,6 +249,8 @@ interface Track {
     // each note getting its own fresh (and, for reverb, expensive) effect instance.
     delayEffectId?: string | null;
     reverbEffectId?: string | null;
+    // The Character knobs (daw_moves.ts). Created on first use; absent means all at zero.
+    character?: Character;
 }
 
 interface DAWProject {
@@ -227,6 +264,8 @@ interface DAWProject {
     activeTrackId: string | null;
     // Guitar Input settings (see daw_guitar.ts). Optional: a project saved before it existed has none.
     guitar?: GuitarPrefs;
+    // Stretches where Drop Gap (without tails) silences tracks outright - see daw_moves.ts's HardCut.
+    cuts?: HardCut[];
 }
 
 function defaultSynthVoice(waveform = "saw"): VoiceParams {
@@ -369,6 +408,9 @@ function loadSampleSong(index: number) {
     project = replacement;
     selectedClipId = null;
     arrangementStatus = "";
+    kickPreview = null;
+    undoStack.length = 0;
+    moveStatus = "";
     saveDueAt = 0;
     transport.mode = "song";
     project.tracks.forEach(syncTrackBus);
@@ -462,8 +504,14 @@ function saveTrackWavetable(track: Track) {
     scheduleSave();
 }
 
-function wavetableNote(track: Track, freq: number, velocity: number, duration: number) {
-    addon.Audio.playWavetableOnTrack(track.id, wavetableNoteConfig(track.id, track.voice, trackWavetable(track), { freq, velocity, duration }));
+function wavetableNote(track: Track, freq: number, velocity: number, duration: number, tone = 1) {
+    const voice = tone === 1 ? track.voice : { ...track.voice, cutoff: toneCutoff(track.voice.cutoff, tone) };
+    addon.Audio.playWavetableOnTrack(track.id, wavetableNoteConfig(track.id, voice, trackWavetable(track), { freq, velocity, duration }));
+}
+
+// A note's `tone` (Build's sweep, Echo Out's fade) scales the track's filter cutoff.
+function toneCutoff(cutoff: number, tone: number): number {
+    return Math.max(40, Math.min(20000, cutoff * tone));
 }
 
 function startHeldWavetableNote(track: Track, midi: number, velocity: number): number | null {
@@ -667,6 +715,116 @@ function ensureTrackEffects(track: Track) {
     }
 }
 
+// --- Character effects on the bus (see daw_moves.ts and src/audio/character.rs) -------------------
+//
+// Grit, Gate, Space and Pump are effects on the track's bus, after its delay and reverb, and a
+// fader at the very end silences the track through a Drop Gap hard cut. Runtime only: effect ids
+// are per-session handles, like the delay and reverb ids. An effect whose knob is at zero is left
+// out of the chain, so an untouched track costs nothing.
+
+type CharacterKind = "grit" | "gate" | "space" | "pump" | "fader";
+const characterIds: Record<string, Partial<Record<CharacterKind, string>>> = {};
+// Whether each track's cut fader is currently closed.
+const cutClosed: Record<string, boolean> = {};
+
+function trackCharacter(track: Track): Character {
+    if (!track.character) track.character = repairCharacter(null);
+    return track.character;
+}
+
+function projectCuts(): HardCut[] {
+    if (!project.cuts) project.cuts = [];
+    return project.cuts;
+}
+
+function characterEffect(track: Track, kind: CharacterKind, config: { amount: number; pattern?: number; bpm?: number; beat?: number }): string {
+    const ids = characterIds[track.id] ?? (characterIds[track.id] = {});
+    const full = { kind, amount: config.amount, pattern: config.pattern ?? 0, bpm: config.bpm ?? project.bpm, beat: config.beat };
+    const existing = ids[kind];
+    if (existing) {
+        addon.AudioEffect.setCharacterParams(existing, full);
+        return existing;
+    }
+    const id = addon.AudioEffect.createCharacter(full);
+    ids[kind] = id;
+    return id;
+}
+
+// The whole chain for a track's bus, creating whatever effects it needs.
+function busEffectIds(track: Track): string[] {
+    ensureTrackEffects(track);
+    const ids = [track.delayEffectId!, track.reverbEffectId!];
+    for (const fx of busEffects(trackCharacter(track), project.bpm)) {
+        ids.push(characterEffect(track, fx.kind, { amount: fx.amount, pattern: fx.pattern, bpm: fx.bpm }));
+    }
+    if (projectCuts().some(c => c.trackIds.includes(track.id))) {
+        ids.push(characterEffect(track, "fader", { amount: cutClosed[track.id] ? 0 : 1 }));
+    }
+    return ids;
+}
+
+// Where the song is in its bar, in beats (0..4) - what Pump and Gate's clocks are set to.
+function barBeat(): number {
+    const beats = currentStepFloat() / Math.max(1, project.stepsPerBeat);
+    return ((beats % 4) + 4) % 4;
+}
+
+// Puts every Pump and Gate on the beat: when the transport starts, seeks or changes tempo, and
+// once a bar while it runs (the audio clock and the frame clock drift apart very slowly).
+function syncTempoEffects() {
+    const beat = barBeat();
+    for (const track of project.tracks) {
+        const ids = characterIds[track.id];
+        if (!ids) continue;
+        const ch = trackCharacter(track);
+        const pattern = Math.max(0, GATE_PATTERNS.indexOf(ch.gatePattern));
+        if (ids.pump && ch.pump > 0) addon.AudioEffect.setCharacterParams(ids.pump, { kind: "pump", amount: ch.pump, pattern, bpm: project.bpm, beat });
+        if (ids.gate && ch.gate > 0) addon.AudioEffect.setCharacterParams(ids.gate, { kind: "gate", amount: ch.gate, pattern, bpm: project.bpm, beat });
+    }
+}
+
+// Opens or closes each track's cut fader for where the song is now. Only song playback cuts.
+function updateCuts(songStep: number | null) {
+    for (const track of project.tracks) {
+        const ids = characterIds[track.id];
+        const closed = songStep !== null && isCut(projectCuts(), track.id, songStep);
+        if (!!cutClosed[track.id] === closed) continue;
+        cutClosed[track.id] = closed;
+        if (ids?.fader) addon.AudioEffect.setCharacterParams(ids.fader, { kind: "fader", amount: closed ? 0 : 1 });
+    }
+}
+
+const BUILT_IN_OSCILLATORS = ["sine", "square", "saw", "triangle", "noise"];
+
+// Whether Acid's filter envelope and drive reach this track's sound: only the built-in oscillators
+// have them. A wavetable track still follows the cutoff and resonance Acid writes.
+function acidApplies(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && BUILT_IN_OSCILLATORS.includes(track.voice.waveform);
+}
+
+type KnobName = "pump" | "bounce" | "gate" | "acid" | "grit" | "space" | "humanize";
+const KNOB_NAMES: KnobName[] = ["pump", "bounce", "gate", "acid", "grit", "space", "humanize"];
+
+// One Character knob moved. Knobs report every step of a drag, so this updates only this track's
+// bus and leaves the save to the debounce (see scheduleSave).
+function setCharacterKnob(track: Track, knob: KnobName, value: number) {
+    if (!Number.isFinite(value)) return;
+    const ch = trackCharacter(track);
+    const v = Math.max(0, Math.min(1, value));
+    if (knob === "acid") applyAcid(track.voice, ch, v);
+    else ch[knob] = v;
+    syncTrackBus(track);
+    if (knob === "pump" || knob === "gate") syncTempoEffects();
+    scheduleSave();
+}
+
+function setGatePattern(track: Track, pattern: Character["gatePattern"]) {
+    trackCharacter(track).gatePattern = pattern;
+    syncTrackBus(track);
+    syncTempoEffects();
+    scheduleSave();
+}
+
 // Pushes one track's current gain/mute/solo/FX params into the engine's persistent bus for that
 // track - creating the bus (and its two effect instances) on first call. Cheap to call on every
 // edit: the DAW's sliders are click-to-set rather than continuous-drag, so this fires once per
@@ -684,7 +842,7 @@ function syncTrackBus(track: Track) {
     });
     addon.Audio.ensureTrackBus(track.id, {
         gain: track.gain, muted: track.muted, solo: track.solo,
-        effectIds: [track.delayEffectId!, track.reverbEffectId!]
+        effectIds: busEffectIds(track)
     });
 }
 
@@ -699,6 +857,9 @@ function removeTrackBus(track: Track) {
     addon.Audio.removeTrackBus(track.id);
     if (track.delayEffectId) addon.AudioEffect.destroy(track.delayEffectId);
     if (track.reverbEffectId) addon.AudioEffect.destroy(track.reverbEffectId);
+    for (const id of Object.values(characterIds[track.id] ?? {})) if (id) addon.AudioEffect.destroy(id);
+    delete characterIds[track.id];
+    delete cutClosed[track.id];
 }
 
 function removeTrack(track: Track) {
@@ -741,10 +902,9 @@ function scanVst3Plugins(refresh: boolean) {
 }
 
 function loadTrackInstrument(track: Track, instrument: Vst3Instrument) {
-    ensureTrackEffects(track);
     addon.Audio.ensureTrackBus(track.id, {
         gain: track.gain, muted: track.muted, solo: track.solo,
-        effectIds: [track.delayEffectId!, track.reverbEffectId!]
+        effectIds: busEffectIds(track)
     });
     const result = addon.Vst3.load(track.id, { path: instrument.path, state: instrument.state ?? null });
     if (result.ok) {
@@ -898,7 +1058,7 @@ function padGlow(track: Track, row: number): number {
 
 // Plays one hit of a pad: its sample if it has one, otherwise the built-in voice. Used by the
 // sequencer, the pad grid and the Preview buttons alike, so what you click is what the song plays.
-function playPad(track: Track, row: number, velocity: number, duration: number) {
+function playPad(track: Track, row: number, velocity: number, duration: number, tone = 1) {
     const pad = padAt(track, row);
     if (!pad) return;
     const hit = padHit(pad, velocity, duration, isSampleMissing);
@@ -913,7 +1073,7 @@ function playPad(track: Track, row: number, velocity: number, duration: number) 
     }
     addon.Audio.playNoteOnTrack(track.id, {
         freq: hit.freq, waveform: hit.voice, duration,
-        cutoff: track.voice.cutoff, resonance: track.voice.resonance, gain: velocity,
+        cutoff: toneCutoff(track.voice.cutoff, tone), resonance: track.voice.resonance, gain: velocity,
         attack: track.voice.attack, decay: track.voice.decay, sustain: track.voice.sustain, release: track.voice.release
     });
 }
@@ -1828,52 +1988,80 @@ function renderRackWindow(win: string) {
 }
 
 
-// Unlike the old per-note architecture, mute/solo are no longer pre-filtered here - every
-// track's bus (see syncTrackBus) applies them live, every sample, so toggling either one while
-// a note is already ringing takes effect immediately instead of only affecting the *next*
-// trigger. Track gain is likewise applied continuously by the bus, so only the note's own
+// The built-in oscillator voice for one note: the track's filter (scaled by the note's tone),
+// envelope, and the Acid knob's filter envelope and drive.
+function builtInNoteConfig(t: Track, freq: number, velocity: number, duration: number, tone = 1) {
+    return {
+        freq,
+        waveform: t.voice.waveform,
+        duration,
+        cutoff: toneCutoff(t.voice.cutoff, tone),
+        resonance: t.voice.resonance,
+        gain: velocity,
+        attack: t.voice.attack,
+        decay: t.voice.decay,
+        sustain: t.voice.sustain,
+        release: t.voice.release,
+        filterEnv: t.voice.filterEnv ?? 0,
+        filterDecay: t.voice.filterDecay ?? 0.2,
+        drive: t.voice.drive ?? 1
+    };
+}
+
+// Plays one note now. Unlike the old per-note architecture, mute/solo are no longer pre-filtered
+// here - every track's bus (see syncTrackBus) applies them live, every sample, so toggling either
+// one while a note is already ringing takes effect immediately instead of only affecting the
+// *next* trigger. Track gain is likewise applied continuously by the bus, so only the note's own
 // velocity is passed through here.
-function triggerStep(absStep: number) {
+function playTrigger(t: Track, note: NoteCell, velocity: number) {
     const sd = stepDuration();
+    const duration = Math.max(0.03, note.length * sd * 0.95);
+    const tone = note.tone ?? 1;
+    if (trackUsesVst3(t)) {
+        playVst3Note(t, note.row, velocity, duration);
+        return;
+    }
+    if (t.kind === "drum") {
+        playPad(t, note.row, velocity, duration, tone);
+        return;
+    }
+    const { freq } = noteVoiceAndFreq(t, note.row);
+    if (isWavetableTrack(t)) {
+        wavetableNote(t, freq, velocity, duration, tone);
+        return;
+    }
+    if (isPhysModTrack(t)) {
+        physModNote(t, freq, velocity, duration);
+        return;
+    }
+    addon.Audio.playNoteOnTrack(t.id, builtInNoteConfig(t, freq, velocity, duration, tone));
+}
+
+// Notes queued to play at an exact moment. A step is queued half a step before it begins, so a
+// note Humanize pulls early can still sound early; each note fires when the song reaches its time
+// (its step, plus its own offset, plus Bounce and Humanize - see daw_moves.ts's grooveAt).
+interface PendingNote { due: number; track: Track; note: NoteCell; velocity: number }
+let pendingNotes: PendingNote[] = [];
+const LOOKAHEAD_STEPS = 0.5;
+
+function queueStep(absStep: number) {
+    const wrapped = transport.mode === "pattern" ? absStep : absStep % songSteps(project);
     const triggers = transport.mode === "pattern"
         ? triggersAt(project, absStep, project.activeTrackId)
-        : triggersAt(project, absStep % songSteps(project));
-
+        : triggersAt(project, wrapped);
     for (const { track, note } of triggers) {
-        const { voice, freq } = noteVoiceAndFreq(track as Track, note.row);
-        const duration = Math.max(0.03, note.length * sd * 0.95);
-
-        if (trackUsesVst3(track as Track)) {
-            playVst3Note(track as Track, note.row, note.velocity, duration);
-            continue;
-        }
-
         const t = track as Track;
-        if (t.kind === "drum") {
-            playPad(t, note.row, note.velocity, duration);
-            continue;
-        }
-        if (isWavetableTrack(t)) {
-            wavetableNote(t, freq, note.velocity, duration);
-            continue;
-        }
-        if (isPhysModTrack(t)) {
-            physModNote(t, freq, note.velocity, duration);
-            continue;
-        }
-        addon.Audio.playNoteOnTrack(t.id, {
-            freq,
-            waveform: voice,
-            duration,
-            cutoff: t.voice.cutoff,
-            resonance: t.voice.resonance,
-            gain: note.velocity,
-            attack: t.voice.attack,
-            decay: t.voice.decay,
-            sustain: t.voice.sustain,
-            release: t.voice.release
-        });
+        const g = grooveAt(trackCharacter(t), wrapped, project.stepsPerBeat, note.row, `${t.id}|${wrapped}`);
+        pendingNotes.push({ due: absStep + (note.offset ?? 0) + g.offset, track: t, note, velocity: grooveVelocity(note.velocity, g) });
     }
+}
+
+function firePendingNotes(stepFloat: number) {
+    if (pendingNotes.length === 0) return;
+    const due = pendingNotes.filter(p => p.due <= stepFloat).sort((a, b) => a.due - b.due);
+    if (due.length === 0) return;
+    pendingNotes = pendingNotes.filter(p => p.due > stepFloat);
+    for (const p of due) playTrigger(p.track, p.note, p.velocity);
 }
 
 // The song position in steps right now (fractional), whether playing or parked.
@@ -1896,11 +2084,15 @@ function play() {
     transport.startedAt = nowSeconds() - transport.cursorStep * stepDuration();
     // ceil so a cursor parked exactly on a step plays that step, one parked mid-step waits for the next.
     transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
+    pendingNotes = [];
+    syncTempoEffects();
 }
 
 function stop() {
     if (transport.playing) transport.cursorStep = currentStepFloat() % transportLength();
     transport.playing = false;
+    pendingNotes = [];
+    updateCuts(null);
 }
 
 function seekToStep(step: number) {
@@ -1909,6 +2101,8 @@ function seekToStep(step: number) {
     if (transport.playing) {
         transport.startedAt = nowSeconds() - transport.cursorStep * stepDuration();
         transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
+        pendingNotes = [];
+        syncTempoEffects();
     }
 }
 
@@ -1927,11 +2121,35 @@ function setBpm(bpm: number) {
     const pos = currentStepFloat();
     project.bpm = clamped;
     if (transport.playing) transport.startedAt = nowSeconds() - pos * stepDuration();
+    syncTempoEffects();
 }
 
 // --- Offline WAV export -----------------------------------------------------
 
 let lastExportStatus: string | null = null;
+
+// When, and how hard, a placed note plays in an export: its own offset plus Bounce and Humanize,
+// worked out exactly as the live sequencer does (queueStep), so a bounce grooves like playback.
+function placedTiming(placed: PlacedNote): { startTime: number; velocity: number } {
+    const track = placed.track as Track;
+    const g = grooveAt(trackCharacter(track), placed.startStep, project.stepsPerBeat, placed.note.row, `${track.id}|${placed.startStep}`);
+    return {
+        startTime: Math.max(0, (placed.startStep + (placed.note.offset ?? 0) + g.offset) * stepDuration()),
+        velocity: grooveVelocity(placed.note.velocity, g)
+    };
+}
+
+// Every track's bus for an export: its gain (applied after its effects, as live), its character
+// chain, and its Drop Gap hard cuts in seconds. Each event names its track, so it is mixed there.
+function buildTrackBuses(): any[] {
+    const sd = stepDuration();
+    return project.tracks.map(t => ({
+        track: t.id,
+        gain: t.gain,
+        effects: busEffects(trackCharacter(t), project.bpm),
+        silences: projectCuts().filter(c => c.trackIds.includes(t.id)).map(c => [c.startStep * sd, c.endStep * sd])
+    }));
+}
 
 // Renders the arrangement: every clip's pattern tiled across the clip, notes cut where the clip ends.
 function buildPatternEvents(): any[] {
@@ -1948,15 +2166,17 @@ function buildPatternEvents(): any[] {
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
         const duration = Math.max(0.03, placed.lengthSteps * sd * 0.95);
+        const { startTime, velocity } = placedTiming(placed);
 
         events.push({
-            startTime: placed.startStep * sd,
+            track: track.id,
+            startTime,
             freq,
             waveform: voice,
             duration,
-            cutoff: track.voice.cutoff,
+            cutoff: toneCutoff(track.voice.cutoff, placed.note.tone ?? 1),
             resonance: track.voice.resonance,
-            gain: track.gain * placed.note.velocity,
+            gain: velocity,
             attack: track.voice.attack,
             decay: track.voice.decay,
             sustain: track.voice.sustain,
@@ -1967,15 +2187,19 @@ function buildPatternEvents(): any[] {
             reverbRoomSize: track.voice.reverbRoomSize,
             reverbTime: track.voice.reverbTime,
             reverbDamping: track.voice.reverbDamping,
-            reverbMix: track.voice.reverbMix
+            reverbMix: track.voice.reverbMix,
+            // Drum voices ignore these; the built-in oscillators take the Acid knob's settings.
+            filterEnv: track.kind === "synth" ? track.voice.filterEnv ?? 0 : 0,
+            filterDecay: track.voice.filterDecay ?? 0.2,
+            drive: track.kind === "synth" ? track.voice.drive ?? 1 : 1
         });
     }
 
     return events;
 }
 
-// The sample pads' hits, one per note, for the same render: the file to play and how, with the track's
-// gain folded in (an offline render has no live bus to apply it).
+// The sample pads' hits, one per note, for the same render: the file to play and how. The track's
+// gain is applied on its bus (buildTrackBuses), after its effects, as it is live.
 function buildSampleEvents(): any[] {
     const sd = stepDuration();
     const events: any[] = [];
@@ -1984,10 +2208,11 @@ function buildSampleEvents(): any[] {
         if (track.instrument || track.kind !== "drum") continue;
         const pad = padAt(track, placed.note.row);
         if (!pad?.sample) continue;
-        const hit = padHit(pad, placed.note.velocity, Math.max(0.03, placed.lengthSteps * sd * 0.95), isSampleMissing);
+        const { startTime, velocity } = placedTiming(placed);
+        const hit = padHit(pad, velocity, Math.max(0.03, placed.lengthSteps * sd * 0.95), isSampleMissing);
         if (!hit || hit.type !== "sample") continue;
         events.push({
-            startTime: placed.startStep * sd, path: hit.path, gain: hit.gain * track.gain,
+            track: track.id, startTime, path: hit.path, gain: hit.gain,
             semitones: hit.semitones, start: hit.start, end: hit.end, hold: hit.hold
         });
     }
@@ -1995,7 +2220,7 @@ function buildSampleEvents(): any[] {
 }
 
 // The wavetable tracks' notes for the same render. The offline renderer plays the table as it is now,
-// through the same voice the live path uses; the track's gain is folded in (no live bus to apply it).
+// through the same voice the live path uses; the track's gain is applied on its bus.
 function buildWavetableEvents(): any[] {
     const sd = stepDuration();
     const events: any[] = [];
@@ -2003,12 +2228,15 @@ function buildWavetableEvents(): any[] {
         const track = placed.track as Track;
         if (!isWavetableTrack(track)) continue;
         const { freq } = noteVoiceAndFreq(track, placed.note.row);
-        const config = wavetableNoteConfig(track.id, track.voice, trackWavetable(track), {
-            freq, velocity: placed.note.velocity,
+        const { startTime, velocity } = placedTiming(placed);
+        const tone = placed.note.tone ?? 1;
+        const voice = tone === 1 ? track.voice : { ...track.voice, cutoff: toneCutoff(track.voice.cutoff, tone) };
+        const config: any = wavetableNoteConfig(track.id, voice, trackWavetable(track), {
+            freq, velocity,
             duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
-            startTime: placed.startStep * sd,
+            startTime,
         });
-        config.gain *= track.gain;
+        config.trackId = track.id;
         events.push(config);
     }
     return events;
@@ -2022,12 +2250,13 @@ function buildPhysModEvents(): any[] {
         const track = placed.track as Track;
         if (!isPhysModTrack(track)) continue;
         const { freq } = noteVoiceAndFreq(track, placed.note.row);
-        const config = physModNoteConfig(track.id, trackPhysMod(track), {
-            freq, velocity: placed.note.velocity,
+        const { startTime, velocity } = placedTiming(placed);
+        const config: any = physModNoteConfig(track.id, trackPhysMod(track), {
+            freq, velocity,
             duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
-            startTime: placed.startStep * sd,
+            startTime,
         });
-        config.gain *= track.gain;
+        config.trackId = track.id;
         events.push(config);
     }
     return events;
@@ -2039,9 +2268,9 @@ function buildPhysModEvents(): any[] {
 // the plugin is currently loaded, so the bounce matches what is actually sounding rather than
 // whatever was last saved to the project. A track whose plugin was never successfully loaded this
 // session falls back to the state stored on the track (still correct for a project just reopened).
-function buildVst3Events(): { path: string; state: string | null; notes: any[] }[] {
+function buildVst3Events(): { path: string; state: string | null; notes: any[]; track: string }[] {
     const sd = stepDuration();
-    const byTrack = new Map<string, { path: string; state: string | null; notes: any[] }>();
+    const byTrack = new Map<string, { path: string; state: string | null; notes: any[]; track: string }>();
 
     for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
         const track = placed.track as Track;
@@ -2049,14 +2278,15 @@ function buildVst3Events(): { path: string; state: string | null; notes: any[] }
         let entry = byTrack.get(track.id);
         if (!entry) {
             const liveState = vst3Runtime[track.id]?.ok ? addon.Vst3.saveState(track.id) : null;
-            entry = { path: track.instrument.path, state: liveState ?? track.instrument.state ?? null, notes: [] };
+            entry = { path: track.instrument.path, state: liveState ?? track.instrument.state ?? null, notes: [], track: track.id };
             byTrack.set(track.id, entry);
         }
+        const { startTime, velocity } = placedTiming(placed);
         entry.notes.push({
-            startTime: placed.startStep * sd,
+            startTime,
             duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
             note: midiForRow(track, placed.note.row),
-            velocity: Math.max(1, Math.min(127, Math.round(placed.note.velocity * 127))),
+            velocity: Math.max(1, Math.min(127, Math.round(velocity * 127))),
             channel: 0
         });
     }
@@ -2070,7 +2300,7 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     const wavetableEvents = buildWavetableEvents();
     const physModEvents = buildPhysModEvents();
     const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events);
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses());
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -2255,6 +2485,8 @@ function applyCell(pattern: Pattern, row: number, step: number) {
 function handleNoteDown(row: number, step: number) {
     const track = getActiveTrack();
     if (!track) return;
+    // Painting over a Kick Lock preview keeps the preview: you are editing what you see.
+    if (kickPreview) applyKickPreview();
     const pattern = activePattern(track);
     dragMode = findNoteIndexAt(pattern, row, step) >= 0 ? "erase" : "add";
     lastCellKey = `${row}:${step}`;
@@ -2308,6 +2540,351 @@ function duplicatePattern(track: Track): Pattern {
     return copy;
 }
 
+// --- Quick moves (see daw_moves.ts) ------------------------------------------------------------
+//
+// The buttons in the Moves panel. Pattern moves (Variation, Thin Out, Stutter, Octave Spark, Kick
+// Lock) rewrite the pattern in the piano roll; arrangement moves (Build, Drop Gap, Echo Out,
+// Answer) write a new pattern and place it, clearing the span they need on that lane. Every move
+// first takes an undo snapshot of the patterns, the clips and the hard cuts.
+
+const moveOpts = {
+    amount: 0.5,
+    focus: "mixed" as VariationFocus,
+    variationAsNew: false,
+    stutterRate: "16th" as StutterRate,
+    kickAlign: true,
+    buildBars: 4,
+    buildSweep: true,
+    gapLength: "beat" as "beat" | "half",
+    gapScope: "drums" as "drums" | "all",
+    keepTails: true,
+    echoLength: "beat" as "beat" | "half",
+};
+let moveStatus = "";
+// Each Variation press is a new seed, so pressing again gives a different variation.
+let variationSeed = 1;
+
+interface MoveSnapshot {
+    label: string;
+    arrangement: ArrClip[];
+    tracks: { id: string; patterns: Pattern[]; activePatternId: string; rows: number }[];
+    cuts: HardCut[];
+}
+const undoStack: MoveSnapshot[] = [];
+const UNDO_LIMIT = 20;
+
+function takeSnapshot(label: string) {
+    cancelKickPreview();
+    undoStack.push(JSON.parse(JSON.stringify({
+        label,
+        arrangement: project.arrangement,
+        tracks: project.tracks.map(t => ({ id: t.id, patterns: t.patterns, activePatternId: t.activePatternId, rows: t.rows })),
+        cuts: projectCuts(),
+    })));
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+}
+
+function undoMove(): string {
+    cancelKickPreview();
+    const snap = undoStack.pop();
+    if (!snap) return moveStatus = "Nothing to undo.";
+    project.arrangement = snap.arrangement;
+    for (const saved of snap.tracks) {
+        const t = findTrack(saved.id);
+        if (!t) continue;
+        t.patterns = saved.patterns;
+        t.activePatternId = saved.activePatternId;
+        t.rows = saved.rows;
+    }
+    project.cuts = snap.cuts;
+    pruneArrangement(project);
+    if (selectedClipId && !project.arrangement.some(c => c.id === selectedClipId)) selectedClipId = null;
+    persist();
+    return moveStatus = `Undid ${snap.label}.`;
+}
+
+function patternStepsOf(clip: ArrClip): number {
+    return findTrack(clip.trackId)?.patterns.find(p => p.id === clip.patternId)?.steps ?? 1;
+}
+
+function rowsPerOctave(track: Track): number {
+    return track.kind === "drum" ? 12 : (SCALES[track.scale] ?? SCALES.chromatic).length;
+}
+
+function moveContext(track: Track, pattern: Pattern): MoveContext {
+    const rack = track.kind === "drum" ? ensureRack(track) : [];
+    return {
+        steps: pattern.steps,
+        stepsPerBeat: project.stepsPerBeat,
+        kind: track.kind,
+        rows: track.rows,
+        rowsPerOctave: rowsPerOctave(track),
+        kickRows: rack.map((p, i) => (isKickPad(p) ? i : -1)).filter(i => i >= 0),
+        fillRows: rollRows(rack),
+    };
+}
+
+// A synth track's rows grow to fit notes written above them (an octave spark, an answer).
+function fitRows(track: Track, pattern: Pattern) {
+    if (track.kind !== "synth") return;
+    const top = pattern.notes.reduce((m, n) => Math.max(m, n.row), -1);
+    if (top >= track.rows) track.rows = top + 1;
+}
+
+// Writes `pattern` onto `track`'s lane over [start, start + length), clearing that span first.
+function placePattern(track: Track, pattern: Pattern, start: number, length: number): ArrClip | null {
+    const total = songSteps(project);
+    const end = Math.min(total, start + length);
+    if (start < 0 || end <= start) return null;
+    carveRange(project.arrangement, new Set([track.id]), start, end, patternStepsOf, newId);
+    const clip = createClip(project.arrangement, { trackId: track.id, patternId: pattern.id, startStep: start, lengthSteps: end - start }, total, newId);
+    return clip;
+}
+
+const barLabel = (step: number) => {
+    const bar = barSteps(project.stepsPerBeat);
+    const beat = Math.floor((step % bar) / project.stepsPerBeat) + 1;
+    return beat === 1 ? `bar ${Math.floor(step / bar) + 1}` : `bar ${Math.floor(step / bar) + 1} beat ${beat}`;
+};
+
+// --- Pattern moves
+
+function variationMove(track: Track): string {
+    let pattern = activePattern(track);
+    if (pattern.notes.length === 0) return moveStatus = `${pattern.name} is empty: paint a few notes to vary first.`;
+    takeSnapshot("Make Variation");
+    if (moveOpts.variationAsNew) pattern = duplicatePattern(track);
+    const before = JSON.stringify(pattern.notes);
+    pattern.notes = makeVariation(pattern.notes, moveContext(track, pattern), { strength: moveOpts.amount, focus: moveOpts.focus, seed: variationSeed++ });
+    const changed = JSON.stringify(pattern.notes) !== before;
+    persist();
+    return moveStatus = changed
+        ? `${pattern.name}: ${VARIATION_LABELS[VARIATION_FOCI.indexOf(moveOpts.focus)].toLowerCase()} variation at ${Math.round(moveOpts.amount * 100)}%. Press again for another.`
+        : `${pattern.name}: that variation came out the same - press again.`;
+}
+
+function thinOutMove(track: Track): string {
+    const pattern = activePattern(track);
+    takeSnapshot("Thin Out");
+    const r = thinOut(pattern.notes, moveContext(track, pattern), moveOpts.amount);
+    if (r.removed === 0) { undoStack.pop(); return moveStatus = `${pattern.name}: nothing left to thin - only downbeats and phrase anchors remain.`; }
+    pattern.notes = r.notes;
+    persist();
+    return moveStatus = `${pattern.name}: removed ${r.removed} weaker note${r.removed === 1 ? "" : "s"}, kept the downbeats and anchors.`;
+}
+
+function stutterMove(track: Track): string {
+    const pattern = activePattern(track);
+    if (pattern.notes.length === 0) return moveStatus = `${pattern.name} is empty.`;
+    takeSnapshot("Stutter");
+    pattern.notes = stutter(pattern.notes, moveContext(track, pattern), moveOpts.stutterRate);
+    persist();
+    return moveStatus = `${pattern.name}: the last beat now stutters in ${moveOpts.stutterRate} notes.`;
+}
+
+function octaveSparkMove(track: Track): string {
+    if (track.kind !== "synth") return moveStatus = "Octave Spark is for a bass or lead: pick a synth track.";
+    const pattern = activePattern(track);
+    const r = octaveSpark(pattern.notes, moveContext(track, pattern));
+    if (r.added === 0) return moveStatus = `${pattern.name}: no free offbeat near the end for a spark.`;
+    takeSnapshot("Octave Spark");
+    pattern.notes = r.notes;
+    fitRows(track, pattern);
+    persist();
+    return moveStatus = `${pattern.name}: added ${r.added} octave-up spark${r.added === 1 ? "" : "s"} near the end.`;
+}
+
+function answerMove(track: Track): string {
+    if (track.kind !== "synth") return moveStatus = "Answer is for a melody or bassline: pick a synth track.";
+    const clip = selectedClip();
+    const onTrack = clip && clip.trackId === track.id ? clip : undefined;
+    const phrase = onTrack ? track.patterns.find(p => p.id === onTrack.patternId) ?? activePattern(track) : activePattern(track);
+    const notes = answerPhrase(phrase.notes, moveContext(track, phrase));
+    if (notes.length === 0) return moveStatus = `${phrase.name} is empty: there is nothing to answer.`;
+    takeSnapshot("Answer");
+    const answer = addPattern(track, `${phrase.name} answer`, phrase.steps, notes);
+    fitRows(track, answer);
+    if (!onTrack) {
+        persist();
+        return moveStatus = `Wrote ${answer.name}. Select a clip of ${track.name} to place the answer after it.`;
+    }
+    // A clip that loops its phrase is answered in its second pass; a single pass, right after it.
+    const at = onTrack.lengthSteps > phrase.steps ? onTrack.startStep + phrase.steps : clipEnd(onTrack);
+    const placed = placePattern(track, answer, at, phrase.steps);
+    persist();
+    return moveStatus = placed
+        ? `${answer.name} answers from ${barLabel(placed.startStep)}.`
+        : `Wrote ${answer.name}, but the song ends before there is room to place it.`;
+}
+
+// --- Kick Lock, with a preview: the proposed pattern plays and shows until Apply or Cancel.
+// The proposal sits in the pattern itself (that is what makes it audible), so a save that happens
+// during the preview - a knob, the frame loop's debounce - writes it; Cancel puts the original back.
+
+let kickPreview: { trackId: string; patternId: string; original: NoteCell[]; changes: KickLockChange[] } | null = null;
+
+// The kick's steps under one pass of `pattern`: from a clip that plays it (the selected one first)
+// and the drum clips beside it, or failing that the drum track's own pattern tiled across it.
+function kickStepsFor(track: Track, pattern: Pattern): number[] {
+    const drums = project.tracks.filter(t => t.kind === "drum");
+    const kickRowsOf = (t: Track) => ensureRack(t).map((p, i) => (isKickPad(p) ? i : -1)).filter(i => i >= 0);
+    const sel = selectedClip();
+    const clip = sel && sel.trackId === track.id && sel.patternId === pattern.id
+        ? sel
+        : clipsOfTrack(project.arrangement, track.id).find(c => c.patternId === pattern.id);
+    if (clip) {
+        const kicks: number[] = [];
+        const drumIds = new Set(drums.map(d => d.id));
+        for (const placed of expandArrangement(project, { respectMuteSolo: false })) {
+            const t = placed.track as Track;
+            if (!drumIds.has(t.id) || !kickRowsOf(t).includes(placed.note.row)) continue;
+            const rel = placed.startStep - clip.startStep;
+            if (rel < 0 || rel >= Math.min(pattern.steps, clip.lengthSteps)) continue;
+            kicks.push(clipLocalStep(clip, placed.startStep, pattern.steps));
+        }
+        if (kicks.length > 0) return kicks;
+    }
+    const drum = drums[0];
+    if (!drum) return [];
+    const dp = activePattern(drum);
+    const rows = kickRowsOf(drum);
+    const kicks: number[] = [];
+    for (const n of dp.notes) {
+        if (!rows.includes(n.row)) continue;
+        for (let at = n.step; at < pattern.steps; at += dp.steps) kicks.push(at);
+    }
+    return kicks;
+}
+
+function kickLockMove(track: Track): string {
+    cancelKickPreview();
+    if (track.kind !== "synth") return moveStatus = "Kick Lock works on a bassline: pick a synth track.";
+    const pattern = activePattern(track);
+    const kicks = kickStepsFor(track, pattern);
+    if (kicks.length === 0) return moveStatus = "No kick found: Kick Lock needs a drum track with a kick pad.";
+    const r = kickLock(pattern.notes, kicks, moveContext(track, pattern), moveOpts.kickAlign);
+    if (r.changes.length === 0) return moveStatus = `${pattern.name} already stays out of the kick's way.`;
+    kickPreview = { trackId: track.id, patternId: pattern.id, original: pattern.notes, changes: r.changes };
+    pattern.notes = r.notes;
+    return moveStatus = "";
+}
+
+function kickPreviewPattern(): Pattern | undefined {
+    if (!kickPreview) return undefined;
+    return findTrack(kickPreview.trackId)?.patterns.find(p => p.id === kickPreview!.patternId);
+}
+
+function cancelKickPreview() {
+    const pattern = kickPreviewPattern();
+    if (pattern && kickPreview) pattern.notes = kickPreview.original;
+    kickPreview = null;
+}
+
+function applyKickPreview(): string {
+    const pattern = kickPreviewPattern();
+    if (!pattern || !kickPreview) { kickPreview = null; return moveStatus; }
+    const proposed = pattern.notes;
+    const count = kickPreview.changes.length;
+    takeSnapshot("Kick Lock"); // restores the original, which is what the snapshot keeps
+    pattern.notes = proposed;
+    persist();
+    return moveStatus = `${pattern.name}: kick-locked ${count} note${count === 1 ? "" : "s"}.`;
+}
+
+function kickPreviewLines(): string[] {
+    if (!kickPreview) return [];
+    const track = findTrack(kickPreview.trackId);
+    if (!track) return [];
+    const name = (row: number) => midiToName(rowToMidi(row, track.rootNote, track.scale));
+    const pos = (step: number) => `${Math.floor(step / project.stepsPerBeat) + 1}.${(step % project.stepsPerBeat) + 1}`;
+    return kickPreview.changes.map(c => c.kind === "aligned"
+        ? `${name(c.row)} at ${pos(c.fromStep)} moves onto the kick at ${pos(c.toStep)}${c.toLength !== c.fromLength ? `, ${c.toLength} step${c.toLength === 1 ? "" : "s"} long` : ""}`
+        : `${name(c.row)} at ${pos(c.fromStep)} shortened from ${c.fromLength} to ${c.toLength} step${c.toLength === 1 ? "" : "s"}`);
+}
+
+// --- Arrangement moves, at a section boundary: the bar line nearest the playhead.
+
+function boundaryStep(): number {
+    return nearestBar(transport.cursorStep, project.stepsPerBeat);
+}
+
+function buildTargetDrums(): Track | undefined {
+    const active = getActiveTrack();
+    return active?.kind === "drum" ? active : project.tracks.find(t => t.kind === "drum");
+}
+
+function buildMove(): string {
+    const bar = barSteps(project.stepsPerBeat);
+    const boundary = boundaryStep();
+    const bars = moveOpts.buildBars;
+    const start = boundary - bars * bar;
+    if (start < 0) return moveStatus = `A ${bars}-bar build needs ${bars} bars before the boundary: park the playhead on the first bar of the new section (at bar ${bars + 1} or later).`;
+    const drums = buildTargetDrums();
+    if (!drums) return moveStatus = "Build writes a drum roll: add a drum track first.";
+    const rack = ensureRack(drums);
+    const row = rollRows(rack)[0] ?? Math.min(1, rack.length - 1);
+    const kickRow = rack.findIndex(p => isKickPad(p));
+    const kicks = kickRow < 0 ? [] : expandArrangement(project, { respectMuteSolo: false })
+        .filter(p => p.track.id === drums.id && p.note.row === kickRow && p.startStep >= start && p.startStep < boundary)
+        .map(p => p.startStep - start);
+    takeSnapshot("Build");
+    const notes = buildRoll(bars, project.stepsPerBeat, row, { sweep: moveOpts.buildSweep, kickRow: kickRow < 0 ? undefined : kickRow, kicks });
+    const pattern = addPattern(drums, `Build ${bars}`, bars * bar, notes);
+    placePattern(drums, pattern, start, bars * bar);
+    persist();
+    const sweepNote = moveOpts.buildSweep && rack[row]?.sample ? " (the filter sweep shapes built-in voices; this pad plays a sample, so it rises in level only)" : "";
+    return moveStatus = `${drums.name}: a ${bars}-bar build from ${barLabel(start)} into ${barLabel(boundary)}${sweepNote}.`;
+}
+
+function dropGapMove(): string {
+    const boundary = boundaryStep();
+    const gap = moveOpts.gapLength === "beat" ? project.stepsPerBeat : barSteps(project.stepsPerBeat) / 2;
+    const start = boundary - gap;
+    if (start < 0) return moveStatus = "Park the playhead on the first bar of the drop (click the ruler), then press Drop Gap.";
+    const tracks = moveOpts.gapScope === "drums" ? project.tracks.filter(t => t.kind === "drum") : project.tracks;
+    if (tracks.length === 0) return moveStatus = "There are no drum tracks to cut.";
+    takeSnapshot("Drop Gap");
+    const ids = new Set(tracks.map(t => t.id));
+    carveRange(project.arrangement, ids, start, boundary, patternStepsOf, newId);
+    if (!moveOpts.keepTails) {
+        project.cuts = projectCuts().filter(c => !(c.startStep === start && c.endStep === boundary));
+        project.cuts.push({ id: newId(), trackIds: [...ids], startStep: start, endStep: boundary });
+    }
+    if (selectedClipId && !project.arrangement.some(c => c.id === selectedClipId)) selectedClipId = null;
+    persist();
+    const what = moveOpts.gapScope === "drums" ? "the drums" : "everything";
+    const length = moveOpts.gapLength === "beat" ? "last beat" : "last half-bar";
+    return moveStatus = `Cut ${what} for the ${length} before ${barLabel(boundary)}` + (moveOpts.keepTails ? ", letting tails ring." : ", tails and all.");
+}
+
+function echoOutMove(): string {
+    const clip = selectedClip();
+    if (!clip) return moveStatus = "Select the clip whose ending should echo out.";
+    const track = findTrack(clip.trackId);
+    if (!track) return moveStatus;
+    const bar = barSteps(project.stepsPerBeat);
+    const slice = moveOpts.echoLength === "beat" ? project.stepsPerBeat : bar / 2;
+    const end = clipEnd(clip);
+    if (end + 1 > songSteps(project)) return moveStatus = "The clip ends the song: lengthen the song (Song bars) to leave room for the echo.";
+    const placed = expandArrangement(project, { respectMuteSolo: false })
+        .filter(p => p.track.id === track.id && p.startStep >= clip.startStep && p.startStep < end)
+        .map(p => ({ row: p.note.row, time: p.startStep + (p.note.offset ?? 0), length: p.lengthSteps, velocity: p.note.velocity, tone: p.note.tone }));
+    const ending = phraseEnding(placed, end, slice);
+    if (ending.length === 0) return moveStatus = "That clip plays no notes to echo.";
+    takeSnapshot("Echo Out");
+    const pattern = addPattern(track, "Echo", bar, echoRepeats(ending, slice, Math.round(bar / slice)));
+    const echo = placePattern(track, pattern, end, bar);
+    persist();
+    return moveStatus = `${track.name}: the phrase's last ${moveOpts.echoLength === "beat" ? "beat" : "half-bar"} echoes out from ${barLabel(echo?.startStep ?? end)}, fading and darkening`
+        + (track.kind === "drum" ? " (darkening shapes built-in voices; sample pads fade in level)." : ".");
+}
+
+function removeCut(id: string) {
+    takeSnapshot("Remove hard cut");
+    project.cuts = projectCuts().filter(c => c.id !== id);
+    persist();
+}
+
 // --- UI ----------------------------------------------------------------------
 
 function rowLabelsFor(track: Track): string[] {
@@ -2351,6 +2928,8 @@ function restoreSavedProject() {
     // A wavetable track's settings are clamped, and its saved table is checked when the engine is given it.
     for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
+    for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
+    saved.cuts = repairCuts(saved.cuts);
     project = saved as DAWProject;
     if (saved.guitar) project.guitar = readGuitarPrefs(saved.guitar);
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
@@ -2603,7 +3182,7 @@ addon.onInit(async () => {
                     durationMs: Math.max(1, stepToMs(c.lengthSteps, project.bpm, project.stepsPerBeat)),
                     color: trackRgba(track),
                     loopMs: Math.max(1, stepToMs(pattern.steps, project.bpm, project.stepsPerBeat)),
-                    notes: miniNotes(track, pattern)
+                    notes: miniNotes(track, pattern, c.offsetSteps ?? 0)
                 };
             })
         };
@@ -2943,6 +3522,48 @@ addon.onInit(async () => {
             });
         });
 
+        // Character: one knob per idea. Pump, Gate, Grit and Space are effects on this track's bus;
+        // Bounce and Humanize shape the notes as they play; Acid drives the built-in synth's filter.
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("lightning", `${track.name} - Character`), (tid: string) => {
+            const ch = trackCharacter(track);
+            const knob = (row: string, name: KnobName, label: string) => Entropy.UI.Widget.knob(row, {
+                id: "char_" + name, label, value: ch[name], min: 0, max: 1,
+                onChange: (v: string) => { setCharacterKnob(track, name, parseFloat(v)); }
+            });
+            Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                Entropy.UI.Widget.group(row, (g: string) => {
+                    Entropy.UI.Widget.label(g, { text: "Groove", bold: true });
+                    Entropy.UI.Widget.horizontal(g, (r: string) => {
+                        knob(r, "pump", "Pump");
+                        knob(r, "bounce", "Bounce");
+                        knob(r, "humanize", "Humanize");
+                    });
+                });
+                Entropy.UI.Widget.group(row, (g: string) => {
+                    Entropy.UI.Widget.label(g, { text: "Gate", bold: true });
+                    Entropy.UI.Widget.horizontal(g, (r: string) => {
+                        knob(r, "gate", "Depth");
+                        Entropy.UI.Widget.dropdown(r, {
+                            label: "Pattern", id: "char_gate_pattern", options: GATE_PATTERN_LABELS,
+                            selectedIndex: Math.max(0, GATE_PATTERNS.indexOf(ch.gatePattern)),
+                            onChange: (idx: string) => { setGatePattern(track, GATE_PATTERNS[parseInt(idx, 10)] ?? "sixteenths"); }
+                        });
+                    });
+                });
+                Entropy.UI.Widget.group(row, (g: string) => {
+                    Entropy.UI.Widget.label(g, { text: "Tone", bold: true });
+                    Entropy.UI.Widget.horizontal(g, (r: string) => {
+                        knob(r, "acid", "Acid");
+                        knob(r, "grit", "Grit");
+                        knob(r, "space", "Space");
+                    });
+                });
+            });
+            if (ch.acid > 0 && !acidApplies(track)) {
+                Entropy.UI.Widget.label(tid, { text: "Acid's filter envelope and drive belong to the built-in oscillators (sine, square, saw, triangle, noise); this track follows only the cutoff and resonance it sets." });
+            }
+        }, "character_panel", true);
+
         // Preview plays through this track's own persistent bus (ensureTrackBus/syncTrackBus),
         // so it's an honest preview of the track's actual gain/mute/solo/FX, not a bypassed
         // one-off - the tradeoff is a muted track previews silent too.
@@ -2950,7 +3571,7 @@ addon.onInit(async () => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 const previewRows = track.kind === "drum" ? ensureRack(track).length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
                 for (let r = 0; r < previewRows; r++) {
-                    const { voice, freq } = noteVoiceAndFreq(track, r);
+                    const { freq } = noteVoiceAndFreq(track, r);
                     const label = track.kind === "drum" ? (padAt(track, r)?.name || `Pad ${r + 1}`) : midiToName(rowToMidi(r, track.rootNote, track.scale));
                     Entropy.UI.Widget.button(tid2, {
                         text: label,
@@ -2968,17 +3589,105 @@ addon.onInit(async () => {
                                 wavetableNote(track, freq, 1.0, 0.5);
                                 return;
                             }
-                            addon.Audio.playNoteOnTrack(track.id, {
-                                freq, waveform: voice, duration: 0.5,
-                                cutoff: track.voice.cutoff, resonance: track.voice.resonance,
-                                gain: 1.0, attack: track.voice.attack, decay: track.voice.decay,
-                                sustain: track.voice.sustain, release: track.voice.release
-                            });
+                            addon.Audio.playNoteOnTrack(track.id, builtInNoteConfig(track, freq, 1.0, 0.5));
                         }
                     });
                 }
             });
         });
+
+        // Moves: one-click edits. The pattern row works on the pattern below; the arrangement row
+        // works at the section boundary nearest the playhead, or on the selected clip.
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("magic-wand", "Moves"), (tid: string) => {
+            const act = (fn: () => string) => () => { fn(); };
+            Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                Entropy.UI.Widget.knob(row, {
+                    id: "move_amount", label: "Amount", value: moveOpts.amount, min: 0, max: 1,
+                    onChange: (v: string) => { const x = parseFloat(v); if (Number.isFinite(x)) moveOpts.amount = Math.max(0, Math.min(1, x)); }
+                });
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Vary", id: "move_focus", options: VARIATION_LABELS,
+                    selectedIndex: Math.max(0, VARIATION_FOCI.indexOf(moveOpts.focus)),
+                    onChange: (idx: string) => { moveOpts.focus = VARIATION_FOCI[parseInt(idx, 10)] ?? "mixed"; }
+                });
+                Entropy.UI.Widget.checkbox(row, {
+                    label: "As new pattern", value: moveOpts.variationAsNew,
+                    onChange: (v: any) => { moveOpts.variationAsNew = v === true || v === "true"; }
+                });
+                Entropy.UI.Widget.button(row, { text: withIcon("shuffle", "Make Variation"), id: "move_variation", onClick: act(() => variationMove(track)) });
+                Entropy.UI.Widget.button(row, { text: "Thin Out", id: "move_thin", onClick: act(() => thinOutMove(track)) });
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Stutter", id: "move_stutter_rate", options: ["1/8", "1/16", "1/32"],
+                    selectedIndex: Math.max(0, STUTTER_RATES.indexOf(moveOpts.stutterRate)),
+                    onChange: (idx: string) => { moveOpts.stutterRate = STUTTER_RATES[parseInt(idx, 10)] ?? "16th"; }
+                });
+                Entropy.UI.Widget.button(row, { text: "Stutter", id: "move_stutter", onClick: act(() => stutterMove(track)) });
+                Entropy.UI.Widget.button(row, { text: "Octave Spark", id: "move_spark", onClick: act(() => octaveSparkMove(track)) });
+                Entropy.UI.Widget.button(row, { text: "Answer", id: "move_answer", onClick: act(() => answerMove(track)) });
+            });
+            Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                Entropy.UI.Widget.checkbox(row, {
+                    label: "Align attacks", value: moveOpts.kickAlign,
+                    onChange: (v: any) => { moveOpts.kickAlign = v === true || v === "true"; }
+                });
+                Entropy.UI.Widget.button(row, { text: "Kick Lock", id: "move_kick_lock", onClick: act(() => kickLockMove(track)) });
+                Entropy.UI.Widget.separator(row);
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Build", id: "move_build_bars", options: ["2 bars", "4 bars"],
+                    selectedIndex: moveOpts.buildBars === 2 ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.buildBars = idx === "0" ? 2 : 4; }
+                });
+                Entropy.UI.Widget.checkbox(row, {
+                    label: "Filter sweep", value: moveOpts.buildSweep,
+                    onChange: (v: any) => { moveOpts.buildSweep = v === true || v === "true"; }
+                });
+                Entropy.UI.Widget.button(row, { text: withIcon("fire", "Build"), id: "move_build", onClick: act(buildMove) });
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Gap", id: "move_gap_length", options: ["Last beat", "Half bar"],
+                    selectedIndex: moveOpts.gapLength === "beat" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.gapLength = idx === "0" ? "beat" : "half"; }
+                });
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Cut", id: "move_gap_scope", options: ["Drums", "Everything"],
+                    selectedIndex: moveOpts.gapScope === "drums" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.gapScope = idx === "0" ? "drums" : "all"; }
+                });
+                Entropy.UI.Widget.checkbox(row, {
+                    label: "Keep tails", value: moveOpts.keepTails,
+                    onChange: (v: any) => { moveOpts.keepTails = v === true || v === "true"; }
+                });
+                Entropy.UI.Widget.button(row, { text: "Drop Gap", id: "move_drop_gap", onClick: act(dropGapMove) });
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Echo", id: "move_echo_length", options: ["1 beat", "Half bar"],
+                    selectedIndex: moveOpts.echoLength === "beat" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.echoLength = idx === "0" ? "beat" : "half"; }
+                });
+                Entropy.UI.Widget.button(row, { text: withIcon("wave-sine", "Echo Out"), id: "move_echo_out", onClick: act(echoOutMove) });
+                Entropy.UI.Widget.button(row, {
+                    text: withIcon("arrow-counter-clockwise", undoStack.length ? `Undo ${undoStack[undoStack.length - 1].label}` : "Undo"),
+                    id: "move_undo", onClick: act(undoMove)
+                });
+            });
+            if (kickPreview) {
+                const lines = kickPreviewLines();
+                Entropy.UI.Widget.label(tid, { text: `Kick Lock preview (playing now): ${lines.length} note${lines.length === 1 ? "" : "s"} change.`, bold: true });
+                for (const line of lines) Entropy.UI.Widget.label(tid, { text: line });
+                Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                    Entropy.UI.Widget.button(row, { text: "Apply", id: "move_kick_apply", onClick: act(applyKickPreview) });
+                    Entropy.UI.Widget.button(row, { text: "Cancel", id: "move_kick_cancel", onClick: () => { cancelKickPreview(); moveStatus = "Kick Lock cancelled."; } });
+                });
+            }
+            for (const cut of projectCuts()) {
+                const names = cut.trackIds.map(id => findTrack(id)?.name).filter(Boolean).join(", ");
+                Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                    Entropy.UI.Widget.label(row, { text: `Hard cut: ${names || "no tracks"} silent from ${barLabel(cut.startStep)} to ${barLabel(cut.endStep)}` });
+                    Entropy.UI.Widget.button(row, { text: withIcon("trash", "Remove"), id: "move_cut_remove_" + cut.id, onClick: () => { removeCut(cut.id); } });
+                });
+            }
+            Entropy.UI.Widget.label(tid, {
+                text: moveStatus || `Build and Drop Gap work before the bar nearest the playhead (now ${barLabel(boundaryStep())}); Echo Out and Answer use the selected clip.`
+            });
+        }, "moves_panel", true);
 
         // The pattern the piano roll below is editing: pick, add, duplicate, resize, or send it
         // to the clip that is selected in the arrangement.
@@ -3031,10 +3740,11 @@ addon.onInit(async () => {
             });
         });
 
+        // The widget draws whole steps: a 32nd note (length 0.5) shows as one step.
         const displayCells = pattern.notes.map(n => ({
             row: toDisplayRow(track, n.row),
             step: n.step,
-            length: n.length,
+            length: Math.max(1, Math.round(n.length)),
             velocity: n.velocity
         }));
 
@@ -3152,17 +3862,22 @@ addon.onInit(async () => {
         if (!transport.playing) return;
 
         const stepFloat = currentStepFloat();
-        const absStep = Math.floor(stepFloat);
+        const absStep = Math.floor(stepFloat + LOOKAHEAD_STEPS);
         const total = transportLength();
         transport.cursorStep = ((stepFloat % total) + total) % total;
 
-        // Trigger every step that has passed since the last frame, not just the newest, so a slow
-        // frame cannot swallow a note. After a long stall (a plugin loading, say) skip ahead
-        // rather than fire the whole backlog at once.
+        // Queue every step that has come within reach since the last frame, not just the newest,
+        // so a slow frame cannot swallow a note. After a long stall (a plugin loading, say) skip
+        // ahead rather than fire the whole backlog at once.
         let from = transport.lastAbsStep + 1;
-        if (absStep - from > 32) from = absStep;
-        for (let s = from; s <= absStep; s++) triggerStep(s);
+        if (absStep - from > 32) { from = absStep; pendingNotes = []; }
+        for (let s = from; s <= absStep; s++) queueStep(s);
+        // Re-anchor Pump and Gate once a bar.
+        const bar = barSteps(project.stepsPerBeat);
+        if (Math.floor(absStep / bar) !== Math.floor(transport.lastAbsStep / bar)) syncTempoEffects();
         transport.lastAbsStep = Math.max(transport.lastAbsStep, absStep);
+        firePendingNotes(stepFloat);
+        updateCuts(transport.mode === "song" ? transport.cursorStep : null);
     };
 
     // The engine ticks exactly one addon name per frame: "DAW" while Studio has the DAW workspace
@@ -3228,6 +3943,7 @@ addon.onInit(async () => {
                 gain: t.gain,
                 instrument: t.instrument ? { name: t.instrument.name, loaded: vst3Runtime[t.id]?.ok === true } : null,
                 voice: t.voice,
+                character: trackCharacter(t),
                 wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
                 physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
                 rootNote: t.kind === "synth" ? t.rootNote : undefined,
@@ -3352,6 +4068,103 @@ addon.onInit(async () => {
 
         persist();
         return { success: true, track: { id: track.id, name: track.name, voice: track.voice, gain: track.gain, muted: track.muted, solo: track.solo } };
+    });
+
+    addon.registerTool({
+        name: "daw_character",
+        description: "Set a track's Character knobs, each 0-1 (0 = off). pump: beat-synced volume ducking, from gentle breathing to deep house pumping. bounce: a deliberate groove - offbeat sixteenths pushed late (up to a 66% swing) and softened, offbeat eighths accented - for house hats, garage percussion and basslines. gate: chops the sound into rhythmic pulses, with gatePattern eighths, sixteenths or syncopated (3+3+2). acid: the built-in synth's filter cutoff, resonance, filter envelope and drive swept together (sine/square/saw/triangle/noise voices; it also writes the track's cutoff and resonance, restored when acid returns to 0). grit: saturation turning into bit and sample-rate reduction, loudness-compensated. space: close and dry to distant and washed out (reverb, darker, less direct sound). humanize: small repeatable timing and velocity differences. Pump, gate, grit and space work on every kind of track, sample pads and plugins included, live and in the WAV export. Only fields given change.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                ...Object.fromEntries(KNOB_NAMES.map(k => [k, { type: "number", description: "0-1." }])),
+                gatePattern: { type: "string", enum: [...GATE_PATTERNS] }
+            },
+            required: ["trackId"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        for (const k of KNOB_NAMES) if (typeof args[k] === "number") setCharacterKnob(track, k, args[k]);
+        if (GATE_PATTERNS.includes(args.gatePattern)) setGatePattern(track, args.gatePattern);
+        persist();
+        return { success: true, character: trackCharacter(track), voice: track.voice };
+    });
+
+    addon.registerTool({
+        name: "daw_move",
+        description: "Apply a one-click Move. Pattern moves rewrite a track's active pattern (pass trackId): \"variation\" (amount 0-1, focus mixed|rhythm|notes|fill, asNewPattern to keep the original), \"thin_out\" (removes the weakest amount-share of notes, keeping downbeats and phrase anchors), \"stutter\" (rate 8th|16th|32nd: the last beat repeats its first slice), \"octave_spark\" (a few short octave-up notes near the end; synth tracks), \"kick_lock\" (shortens bass notes that ring over a kick; align moves attacks one step off a kick onto it; with preview true it only proposes and lists the changes - call kick_lock_apply or kick_lock_cancel after), \"answer\" (a response phrase from a synth pattern's own notes, placed after the clip given by clipId). Arrangement moves: \"build\" (bars 2|4 of accelerating drum roll ending at boundaryBar, with sweep for a rising filter), \"drop_gap\" (gap beat|half before boundaryBar, scope drums|all, keepTails false also silences reverb/delay tails), \"echo_out\" (the ending of clipId, echoLength beat|half, repeats fading and darkening for one bar after it). \"undo\" reverts the last move. boundaryBar is 1-based: the first bar of the new section. Returns a status message.",
+        parameters: {
+            type: "object",
+            properties: {
+                action: { type: "string", enum: ["variation", "thin_out", "stutter", "octave_spark", "kick_lock", "kick_lock_apply", "kick_lock_cancel", "answer", "build", "drop_gap", "echo_out", "undo"] },
+                trackId: { type: "string" },
+                clipId: { type: "string" },
+                boundaryBar: { type: "number" },
+                amount: { type: "number" },
+                focus: { type: "string", enum: VARIATION_FOCI },
+                asNewPattern: { type: "boolean" },
+                rate: { type: "string", enum: STUTTER_RATES },
+                align: { type: "boolean" },
+                preview: { type: "boolean" },
+                bars: { type: "number", enum: [2, 4] },
+                sweep: { type: "boolean" },
+                gap: { type: "string", enum: ["beat", "half"] },
+                scope: { type: "string", enum: ["drums", "all"] },
+                keepTails: { type: "boolean" },
+                echoLength: { type: "string", enum: ["beat", "half"] }
+            },
+            required: ["action"]
+        }
+    }, (args: any) => {
+        if (args.trackId !== undefined) {
+            if (!findTrack(args.trackId)) return { success: false, error: "Track not found: " + args.trackId };
+            project.activeTrackId = args.trackId;
+        }
+        if (args.clipId !== undefined) {
+            const clip = project.arrangement.find(c => c.id === args.clipId);
+            if (!clip) return { success: false, error: "Clip not found: " + args.clipId };
+            selectClip(clip);
+        }
+        if (typeof args.boundaryBar === "number") seekToStep((Math.round(args.boundaryBar) - 1) * barSteps(project.stepsPerBeat));
+        if (typeof args.amount === "number") moveOpts.amount = Math.max(0, Math.min(1, args.amount));
+        if (VARIATION_FOCI.includes(args.focus)) moveOpts.focus = args.focus;
+        if (typeof args.asNewPattern === "boolean") moveOpts.variationAsNew = args.asNewPattern;
+        if (STUTTER_RATES.includes(args.rate)) moveOpts.stutterRate = args.rate;
+        if (typeof args.align === "boolean") moveOpts.kickAlign = args.align;
+        if (args.bars === 2 || args.bars === 4) moveOpts.buildBars = args.bars;
+        if (typeof args.sweep === "boolean") moveOpts.buildSweep = args.sweep;
+        if (args.gap === "beat" || args.gap === "half") moveOpts.gapLength = args.gap;
+        if (args.scope === "drums" || args.scope === "all") moveOpts.gapScope = args.scope;
+        if (typeof args.keepTails === "boolean") moveOpts.keepTails = args.keepTails;
+        if (args.echoLength === "beat" || args.echoLength === "half") moveOpts.echoLength = args.echoLength;
+        const track = getActiveTrack();
+        const needTrack = () => { if (!track) throw new Error("no track"); return track; };
+        let status: string;
+        try {
+            switch (args.action) {
+                case "variation": status = variationMove(needTrack()); break;
+                case "thin_out": status = thinOutMove(needTrack()); break;
+                case "stutter": status = stutterMove(needTrack()); break;
+                case "octave_spark": status = octaveSparkMove(needTrack()); break;
+                case "answer": status = answerMove(needTrack()); break;
+                case "kick_lock":
+                    status = kickLockMove(needTrack());
+                    if (kickPreview && !args.preview) status = applyKickPreview();
+                    else if (kickPreview) status = "Preview: " + kickPreviewLines().join("; ");
+                    break;
+                case "kick_lock_apply": status = kickPreview ? applyKickPreview() : "No Kick Lock preview to apply."; break;
+                case "kick_lock_cancel": cancelKickPreview(); status = moveStatus = "Kick Lock cancelled."; break;
+                case "build": status = buildMove(); break;
+                case "drop_gap": status = dropGapMove(); break;
+                case "echo_out": status = echoOutMove(); break;
+                case "undo": status = undoMove(); break;
+                default: return { success: false, error: "Unknown action: " + args.action };
+            }
+        } catch {
+            return { success: false, error: "Add a track first." };
+        }
+        return { success: true, status };
     });
 
     addon.registerTool({

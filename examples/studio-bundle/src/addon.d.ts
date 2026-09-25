@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -398,6 +398,10 @@ export interface ScopedAPI {
   AudioEffect: {
     createDelay: (config?: DelayEffectConfig) => string;
     createReverb: (config?: ReverbEffectConfig) => string;
+    /** Pump, Gate, Grit, Space or Fader (see `CharacterEffectConfig`). Inline: the output
+     * replaces the signal, so put these after delay/reverb in a bus's `effectIds`. */
+    createCharacter: (config: CharacterEffectConfig) => string;
+    setCharacterParams: (effectId: string, config: CharacterEffectConfig) => void;
     /** Time/feedback/mix all update live, no rebuild. */
     setDelayParams: (effectId: string, config: DelayEffectConfig) => void;
     /** `mix` updates live; changing `roomSize`/`time`/`damping` rebuilds the effect's internal
@@ -842,6 +846,12 @@ export interface NoteConfig {
 export interface NoteEvent extends NoteConfig {
   /** When this note starts, in seconds from the start of the rendered pattern. */
   startTime: number;
+  /** See `PlayNoteOnTrackConfig`. */
+  filterEnv?: number;
+  filterDecay?: number;
+  drive?: number;
+  /** Routes the note through a `TrackBusRenderConfig` of this name. */
+  track?: string;
 }
 
 export interface RenderPatternWavResult {
@@ -877,6 +887,8 @@ export interface Vst3RenderNoteConfig {
 export interface Vst3RenderTrackConfig {
   /** A `.vst3` path, as returned by `Vst3.scan` or stored on the track's instrument. */
   path: string;
+  /** Routes the rendered plugin through a `TrackBusRenderConfig` of this name. */
+  track?: string;
   /** Base64 from `Vst3.saveState`/`Vst3.pollState`; omit to render the plugin's default patch. */
   state?: string | null;
   notes: Vst3RenderNoteConfig[];
@@ -1154,6 +1166,38 @@ export interface PlayNoteOnTrackConfig {
   decay?: number;
   sustain?: number;
   release?: number;
+  /** Built-in oscillators only: octaves above `cutoff` the filter opens at the note's start. 0 = static. */
+  filterEnv?: number;
+  /** Time constant (s) of the filter envelope's fall back to `cutoff`. Default 0.2. */
+  filterDecay?: number;
+  /** tanh drive after the filter, 1 (clean, default) and up. */
+  drive?: number;
+}
+
+/** A character effect for a track bus - see `AudioEffect.createCharacter`.
+ * - `pump`: beat-synced ducking; `amount` is depth and length of the duck.
+ * - `gate`: rhythmic chopping; `amount` is depth, `pattern` 0 = eighths, 1 = sixteenths, 2 = syncopated.
+ * - `grit`: saturation turning into bit/sample-rate reduction, loudness-compensated.
+ * - `space`: close and dry (0) to distant and washed out (1).
+ * - `fader`: a declicked gain that moves to `amount` (a hard cut is amount 0). */
+export interface CharacterEffectConfig {
+  kind: "pump" | "gate" | "grit" | "space" | "fader";
+  amount: number;
+  pattern?: number;
+  /** Tempo for pump and gate. Default 120. */
+  bpm?: number;
+  /** Puts pump/gate's bar clock at this many beats into the bar (0..4). Omit to leave it running. */
+  beat?: number | null;
+}
+
+/** A track bus in an offline render (`Audio.renderPatternToWav`'s last argument): every event
+ * whose `track` is this one is summed, run through `effects`, scaled by `gain` (apply the track's
+ * gain here rather than folding it into each event) and silenced over `silences` (seconds). */
+export interface TrackBusRenderConfig {
+  track: string;
+  gain?: number;
+  effects?: CharacterEffectConfig[];
+  silences?: [number, number][];
 }
 
 export interface PianoRollCell {
@@ -1465,6 +1509,8 @@ export interface SampleEvent extends SampleParams {
   /** Seconds from the start of the render. */
   startTime: number;
   path: string;
+  /** Routes the hit through a `TrackBusRenderConfig` of this name. */
+  track?: string;
 }
 
 export interface DirEntry {
@@ -2498,7 +2544,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2544,6 +2590,10 @@ export interface EntropyAPI {
   AudioEffect: {
     createDelay: (config?: DelayEffectConfig) => string;
     createReverb: (config?: ReverbEffectConfig) => string;
+    /** Pump, Gate, Grit, Space or Fader (see `CharacterEffectConfig`). Inline: the output
+     * replaces the signal, so put these after delay/reverb in a bus's `effectIds`. */
+    createCharacter: (config: CharacterEffectConfig) => string;
+    setCharacterParams: (effectId: string, config: CharacterEffectConfig) => void;
     setDelayParams: (effectId: string, config: DelayEffectConfig) => void;
     setReverbParams: (effectId: string, config: ReverbEffectConfig) => void;
     destroy: (effectId: string) => void;
