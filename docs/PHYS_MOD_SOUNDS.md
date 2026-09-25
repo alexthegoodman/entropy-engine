@@ -557,3 +557,31 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
   head) are not modelled yet.
 - A 25 m/s stick at the rim peaks at several hundred pascals at 1 m: physical for the speed (90 km/h),
   but the DAW will need gain staging (full scale is 20 Pa).
+
+## Picking up: Phase 2 (cymbals, gongs, bells)
+
+Where to start, from what exists:
+
+- **Reuse as is:** `ModalBody` (exact modes, SSE2 step, `predict`, `set_scale`, listening modes via
+  `set_coupled`), `contact` (a stick or mallet on a plate is the same solve; hard metal contacts are
+  short, so check resolution with the existing "resolved at 44.1 kHz" pattern), `render_hits`, and
+  the test helpers in `matter::tests` (`peak`, `centroid`, `above`, `spectrum`).
+- **New body: `plate.rs`.** Modes of a thin circular plate from `J_m` and the modified `I_m` (not yet
+  in `bessel.rs`); free edge, clamped (or on a felt washer) at the centre hole for a cymbal. Plates
+  are dispersive (`f ~ k^2`), so the complete band reaches much higher than a membrane's before the
+  sampled high band takes over - the same `MembraneOptions`-style sampling applies, with the plate's
+  modal density (constant in frequency) for `count`.
+- **The new physics is the nonlinearity:** a reduced von Karman model (cubic couplings between modes)
+  for the crash's delayed build-up and the gong's shimmer. That is the CPU risk; budget it separately,
+  and profile early.
+- **Measure first:** centroid rising after the strike then falling (energy cascade), a gong nearly
+  linear when soft and shimmering when hard, bell partials at their named ratios.
+
+Working in this container:
+
+- The library build needs `libasound2-dev libudev-dev` (and X11/xkb dev packages) from apt, and an
+  empty `examples/studio-bundle/dist/bundle.js` (it is `include_str!`'d; Deno isn't installed, the
+  real bundle is built with `npm run build` where Deno is). `dist` is git-ignored.
+- `perf` comes from apt `linux-tools-generic` (at `/usr/lib/linux-tools/*/perf`) and works here;
+  profile a test binary with `perf record <target/release/deps/entropy_engine-...> <test> --ignored`.
+- The matter tests take ~8 s in release; `cost` and `listening_examples` are `--ignored`.
