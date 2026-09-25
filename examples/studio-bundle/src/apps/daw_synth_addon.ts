@@ -92,6 +92,25 @@ import {
     noteConfig as physModNoteConfig,
     repairPhysMod,
 } from "./daw_physmod";
+import type { BrassSettings } from "./daw_brass";
+import {
+    BRASS_WAVEFORM,
+    BRASS_INSTRUMENTS,
+    BRASS_STYLES,
+    BRASS_ARTICULATIONS,
+    BRASS_MUTES,
+    applyInstrument as applyBrassInstrument,
+    applyMute as applyBrassMute,
+    brassInstrumentById,
+    handAndBell,
+    applyStyle as applyBrassStyle,
+    bendForSlide,
+    defaultBrass,
+    describeSettings as describeBrass,
+    heldSeconds as brassHeldSeconds,
+    noteConfig as brassNoteConfig,
+    repairBrass,
+} from "./daw_brass";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
 import {
@@ -245,6 +264,8 @@ interface Track {
     // Synth tracks whose waveform is "physmod": the bowed-string settings. No sculpted data - a
     // bowed string carries no persistent content the way a wavetable's table does.
     physmod?: PhysModSettings;
+    // Synth tracks whose waveform is "brass": the brass player's settings (no persistent data).
+    brass?: BrassSettings;
     rootNote: number;
     scale: string;
     rows: number;
@@ -706,6 +727,125 @@ function loadPhysModInstrument(track: Track, instrumentId: string) {
     savePhysMod(track);
 }
 
+// --- Brass tracks (see daw_brass.ts and src/audio/brass/) ------------------------------------
+//
+// A synth track whose waveform is "brass" is played by a physically modeled brass player: every note
+// of the track goes to one live player on the track's bus (the same lips, the same instrument), so a
+// note that starts before the last one ends slurs into it. Like the bowed string there is no data
+// to load or save beyond the settings.
+
+const brHeld: Record<string, Record<number, number>> = {};
+const brLatch: Record<string, number> = {};
+/** The pitch bend (cents) a slide drag has put on a track's held notes. */
+const brBend: Record<string, number> = {};
+let brStatus = "";
+
+function isBrassTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === BRASS_WAVEFORM;
+}
+
+function trackBrass(track: Track): BrassSettings {
+    if (!track.brass) track.brass = defaultBrass();
+    return track.brass;
+}
+
+function brassNote(track: Track, freq: number, velocity: number, stepSeconds: number) {
+    const b = trackBrass(track);
+    addon.Audio.playBrassOnTrack(track.id, brassNoteConfig(track.id, b, { freq, velocity, duration: brassHeldSeconds(b, stepSeconds) }));
+}
+
+function startHeldBrassNote(track: Track, midi: number, velocity: number): number | null {
+    const r = addon.Audio.brassNoteOn(track.id, brassNoteConfig(track.id, trackBrass(track), { freq: midiToFreq(midi), velocity }));
+    return r.ok && r.voice !== undefined ? r.voice : null;
+}
+
+function heldBrassVoices(track: Track): number[] {
+    const held = Object.values(brHeld[track.id] ?? {});
+    if (brLatch[track.id] !== undefined) held.push(brLatch[track.id]);
+    return held;
+}
+
+function releaseBrassVoices(track: Track) {
+    for (const v of heldBrassVoices(track)) addon.Audio.brassNoteOff(v);
+    brHeld[track.id] = {};
+    delete brLatch[track.id];
+    delete brBend[track.id];
+}
+
+function pressBrassKey(track: Track, midi: number, velocity: number) {
+    const v = startHeldBrassNote(track, midi, velocity);
+    if (v !== null) (brHeld[track.id] ??= {})[midi] = v;
+    delete brBend[track.id];
+}
+
+function releaseBrassKey(track: Track, midi: number) {
+    const v = brHeld[track.id]?.[midi];
+    if (v === undefined) return;
+    addon.Audio.brassNoteOff(v);
+    delete brHeld[track.id][midi];
+}
+
+function toggleBrassLatch(track: Track) {
+    const held = brLatch[track.id];
+    if (held !== undefined) {
+        addon.Audio.brassNoteOff(held);
+        delete brLatch[track.id];
+        return;
+    }
+    const v = startHeldBrassNote(track, trackBrass(track).auditionNote, 0.8);
+    if (v !== null) brLatch[track.id] = v;
+    delete brBend[track.id];
+}
+
+// Breath, lips, vibrato and bend move every note that is sounding, so a drag in the view or a
+// knob is heard at once - the convention the bowed string's setBowLive follows.
+function setBrassLive(track: Track, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) {
+    for (const v of heldBrassVoices(track)) addon.Audio.brassSetControl(v, which, value);
+}
+
+/** A drag on the slide in the view: bends the held notes to where the slide was put. */
+function dragBrassSlide(track: Track, position: number) {
+    const info = addon.Brass.info(track.id);
+    if (!info.ok || !info.playing || info.position === undefined) return;
+    // The note's own position is where the slide sits with no bend.
+    const notePosition = info.position + (brBend[track.id] ?? 0) / 100;
+    brBend[track.id] = bendForSlide(position, notePosition);
+    setBrassLive(track, "bend", brBend[track.id]);
+}
+
+function playBrassStyle(track: Track, id: string) {
+    const b = trackBrass(track);
+    if (!applyBrassStyle(b, id)) { brStatus = `Unknown style "${id}".`; return; }
+    brStatus = "";
+    setBrassLive(track, "breath", b.breath);
+    setBrassLive(track, "lipTension", b.lipTension);
+    setBrassLive(track, "vibratoDepth", b.vibratoDepth);
+    scheduleSave();
+}
+
+function loadBrassInstrument(track: Track, id: string) {
+    if (!applyBrassInstrument(trackBrass(track), id)) { brStatus = `Unknown instrument "${id}".`; return; }
+    brStatus = "";
+    rebuildBrass(track);
+}
+
+/** The instrument, its mute, the hand and the bell make the air column, which a note is built
+ *  with: a change is heard from the next note. A held "Hold a note" is played again at once, so the
+ *  change can be heard. */
+function rebuildBrass(track: Track) {
+    if (brLatch[track.id] !== undefined) {
+        toggleBrassLatch(track);
+        toggleBrassLatch(track);
+    }
+    scheduleSave();
+}
+
+function setBrassMute(track: Track, id: string) {
+    if (!applyBrassMute(trackBrass(track), id)) { brStatus = `Unknown mute "${id}".`; return; }
+    brStatus = "";
+    rebuildBrass(track);
+}
+
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
 
 function ensureTrackEffects(track: Track) {
@@ -839,6 +979,7 @@ function setGatePattern(track: Track, pattern: Character["gatePattern"]) {
 function syncTrackBus(track: Track) {
     if (isWavetableTrack(track)) trackWavetable(track);
     if (isPhysModTrack(track)) trackPhysMod(track);
+    if (isBrassTrack(track)) trackBrass(track);
     ensureTrackEffects(track);
     addon.AudioEffect.setDelayParams(track.delayEffectId!, {
         time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
@@ -859,6 +1000,8 @@ function removeTrackBus(track: Track) {
     delete wtLoaded[track.id];
     releasePhysModVoices(track);
     addon.PhysMod.remove(track.id);
+    releaseBrassVoices(track);
+    addon.Brass.remove(track.id);
     addon.Vst3.unload(track.id);
     delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
@@ -1977,6 +2120,155 @@ function renderPhysModWindow(win: string) {
     });
 }
 
+// --- The Brass window -----------------------------------------------------------------------
+//
+// The active synth track's brass player, drawn live by entropy_gui::BrassView (see
+// widgets_brass.rs), with the player's controls. The slide and the playing map in the view and the
+// knobs below reach the same live state - see setBrassLive.
+
+let brassWindowId: string | null = null;
+let brassVisible = false;
+let brassWindowHeight = 760;
+let brassWindowWidth = 1080;
+const BRASS_SIDE_COLUMN = 320;
+
+function setBrassVisible(visible: boolean) {
+    brassVisible = visible;
+    if (brassWindowId) Entropy.UI.setWindowVisible(brassWindowId, visible);
+}
+
+function renderBrassWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        W.label(win, { text: "The brass editor works on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isBrassTrack(track)) {
+        W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        W.button(win, {
+            text: "Make it brass", id: "br_make",
+            onClick: () => { track.voice.waveform = BRASS_WAVEFORM; persist(); }
+        });
+        return;
+    }
+    const b = trackBrass(track);
+    const latched = brLatch[track.id] !== undefined;
+    const heldMidis = Object.keys(brHeld[track.id] ?? {}).map(Number);
+    const knob = (row: string, label: string, key: keyof BrassSettings, min: number, max: number, live?: "breath" | "lipTension" | "vibratoDepth") =>
+        W.knob(row, {
+            label, value: b[key] as number, min, max,
+            onChange: (v: string) => { (b as any)[key] = parseFloat(v); if (live) setBrassLive(track, live, b[key] as number); scheduleSave(); },
+        });
+
+    W.horizontal(win, (columns: string) => {
+    W.vertical(columns, (left: string) => {
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: `${track.name} -`, bold: true });
+        for (const p of BRASS_INSTRUMENTS) {
+            W.button(row, { text: radio(b.instrument === p.id) + p.label, id: "br_instrument_" + p.id, onClick: () => { loadBrassInstrument(track, p.id); } });
+        }
+        W.button(row, {
+            text: latched ? withIcon("stop", "Release note") : withIcon("play", "Hold a note"), id: "br_latch",
+            onClick: () => { toggleBrassLatch(track); }
+        });
+        W.button(row, {
+            text: radio(b.physicsView) + "Physics View", id: "br_physics",
+            onClick: () => { b.physicsView = !b.physicsView; scheduleSave(); }
+        });
+    });
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: "Play it:" });
+        for (const st of BRASS_STYLES) {
+            W.button(row, { text: radio(b.style === st.id) + st.label, id: "br_style_" + st.id, onClick: () => { playBrassStyle(track, st.id); } });
+        }
+    });
+
+    W.brass(left, {
+        id: "br_" + track.id,
+        instrument: track.id,
+        breath: b.breath,
+        lipTension: b.lipTension,
+        physicsView: b.physicsView,
+        width: Math.max(380, brassWindowWidth - BRASS_SIDE_COLUMN),
+        height: Math.max(380, brassWindowHeight - 170),
+        held: [...heldMidis, ...(latched ? [b.auditionNote] : [])],
+        firstKey: brassInstrumentById(b.instrument)?.firstKey ?? 40,
+        onKeyDown: (midi: number, velocity: number) => { pressBrassKey(track, midi, velocity); },
+        onKeyUp: (midi: number) => { releaseBrassKey(track, midi); },
+        onSlideDrag: (position: number) => { dragBrassSlide(track, position); },
+        onPlayDrag: (breath: number, lipTension: number) => {
+            b.breath = breath; b.lipTension = lipTension;
+            setBrassLive(track, "breath", breath); setBrassLive(track, "lipTension", lipTension);
+            scheduleSave();
+        },
+        onPhysicsView: (on: boolean) => { b.physicsView = on; scheduleSave(); },
+    });
+    if (brStatus) W.label(left, { text: brStatus });
+    });
+    W.vertical(columns, (right: string) => {
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Breath and lips", bold: true });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Breath", "breath", 0, 1, "breath");
+                knob(row, "Lips", "lipTension", -1, 1, "lipTension");
+                knob(row, "Aperture", "aperture", 0, 1);
+                knob(row, "Skill", "attackSkill", 0, 1);
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Mute, hand and bell", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const m of BRASS_MUTES) {
+                    W.button(row, { text: radio(b.mute === m.id) + m.label, id: "br_mute_" + m.id, onClick: () => { setBrassMute(track, m.id); } });
+                }
+            });
+            const dress = handAndBell(b);
+            W.horizontal(g, (row: string) => {
+                W.knob(row, {
+                    label: "Hand", value: dress.hand, min: 0, max: 1,
+                    onChange: (v: string) => { b.hand = Math.min(1, Math.max(0, parseFloat(v))); scheduleSave(); },
+                });
+                W.knob(row, {
+                    label: "Bell", value: dress.bellFacing, min: 0, max: 1,
+                    onChange: (v: string) => { b.bellFacing = Math.min(1, Math.max(0, parseFloat(v))); scheduleSave(); },
+                });
+            });
+            W.label(g, { text: "They rebuild the air column, so they apply from the next note. Hand: 1 stops the bell (the horn's stopped note, brassy, played a semitone up). Bell: 1 points at the listener, brighter." });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: b.instrument === "trombone" ? "Tongue and slide" : "Tongue", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const a of BRASS_ARTICULATIONS) {
+                    W.button(row, { text: radio(b.articulation === a.id) + a.label, id: "br_art_" + a.id, onClick: () => { b.articulation = a.id; scheduleSave(); } });
+                }
+            });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Tongue", "tongue", 0.001, 0.08);
+                knob(row, "Release", "release", 0.01, 0.6);
+                if (b.instrument === "trombone") knob(row, "Slide", "slideTime", 0.01, 0.8);
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Vibrato", bold: true });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Rate", "vibratoRate", 0, 12);
+                knob(row, "Depth", "vibratoDepth", 0, 60, "vibratoDepth");
+                knob(row, "Delay", "vibratoDelay", 0, 1);
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Laboratory", bold: true });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Air noise", "breathNoise", 0, 1);
+                knob(row, "Brassiness", "brassiness", 0, 3);
+            });
+            W.label(g, { text: "Brassiness scales the air's own nonlinearity: 1 is real air, 0 a tube that never goes brassy." });
+        });
+    });
+    });
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -2041,6 +2333,10 @@ function playTrigger(t: Track, note: NoteCell, velocity: number) {
     }
     if (isPhysModTrack(t)) {
         physModNote(t, freq, velocity, duration);
+        return;
+    }
+    if (isBrassTrack(t)) {
+        brassNote(t, freq, velocity, note.length * sd);
         return;
     }
     addon.Audio.playNoteOnTrack(t.id, builtInNoteConfig(t, freq, velocity, duration, tone));
@@ -2170,7 +2466,7 @@ function buildPatternEvents(): any[] {
         // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
         // track is rendered by buildWavetableEvents from the table as it is now, and a physmod track
         // by buildPhysModEvents.
-        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track)) continue;
+        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -2271,6 +2567,21 @@ function buildPhysModEvents(): any[] {
     return events;
 }
 
+// The brass tracks' notes for the same render: one player per track, so slurs survive the bounce.
+function buildBrassEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isBrassTrack(track)) continue;
+        const b = trackBrass(track);
+        const { freq } = noteVoiceAndFreq(track, placed.note.row);
+        const { startTime, velocity } = placedTiming(placed);
+        events.push(brassNoteConfig(track.id, b, { freq, velocity, duration: brassHeldSeconds(b, placed.lengthSteps * sd), startTime }));
+    }
+    return events;
+}
+
 // The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
 // each track is rendered through its own fresh, temporary plugin instance - separate from whatever
 // the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
@@ -2308,8 +2619,9 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     const sampleEvents = buildSampleEvents();
     const wavetableEvents = buildWavetableEvents();
     const physModEvents = buildPhysModEvents();
+    const brassEvents = buildBrassEvents();
     const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses());
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents);
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -2931,6 +3243,7 @@ function repairProject(saved: any): DAWProject {
     // A wavetable track's settings are clamped, and its saved table is checked when the engine is given it.
     for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
+    for (const t of saved.tracks) if (t.brass || t.voice?.waveform === BRASS_WAVEFORM) t.brass = repairBrass(t.brass);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
     saved.cuts = repairCuts(saved.cuts);
     const repaired = saved as DAWProject;
@@ -3746,6 +4059,11 @@ addon.onInit(async () => {
                     onClick: () => { setPhysModVisible(!physModVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
+                    text: brassVisible ? "Hide Brass" : withIcon("megaphone", "Brass"),
+                    id: "toggle_brass",
+                    onClick: () => { setBrassVisible(!brassVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
                     text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
                     id: "toggle_guitar",
                     onClick: () => { setGuitarVisible(!guitarVisible); }
@@ -4430,6 +4748,19 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(physModWindowId, physModVisible);
 
+    // The brass editor, hidden until asked for.
+    brassWindowHeight = Math.max(520, Math.min(820, screenH - 72));
+    brassWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
+    brassWindowId = Entropy.UI.createWindow({
+        title: "Brass",
+        width: brassWindowWidth,
+        height: brassWindowHeight,
+        x: 16,
+        y: 56,
+        onRender: () => renderBrassWindow(brassWindowId!)
+    });
+    Entropy.UI.setWindowVisible(brassWindowId, brassVisible);
+
     // The song library and the open song's version history, hidden until asked for.
     songsWindowId = Entropy.UI.createWindow({
         title: "Songs",
@@ -4576,6 +4907,7 @@ addon.onInit(async () => {
                 character: trackCharacter(t),
                 wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
                 physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
+                brass: isBrassTrack(t) ? describeBrass(trackBrass(t)) : undefined,
                 rootNote: t.kind === "synth" ? t.rootNote : undefined,
                 scale: t.kind === "synth" ? t.scale : undefined,
                 rows: t.rows,
@@ -4977,6 +5309,89 @@ addon.onInit(async () => {
                     brightnessHz: r(a.centroidHz, 0), harmonicsDb: (a.harmonicsDb ?? []).slice(0, 8).map(v => r(v)),
                     bow: a.regime, slipsPerPeriod: r(a.slipsPerPeriod, 2), stickFraction: r(a.stickFraction, 2), attackSeconds: r(a.attackSeconds, 3),
                     string: a.string,
+                });
+            }
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
+    });
+
+    addon.registerTool({
+        name: "daw_brass",
+        description: "Play and shape a physically modeled brass instrument: a track whose waveform is \"brass\" (daw_set_track_params with waveform \"brass\" makes one). The sound comes from a physical model - the player's lips, blown open by the breath, driving an air column built from a real instrument's bore (trombone, trumpet, horn or tuba), radiating through its bell - so a brass player's controls behave physically: more breath is louder and, past mezzo, much brighter as the pressure wave in the tubing steepens toward a shock (the blazing fortissimo); looser lips fall to the partial below, tighter ones pop up to the next; a player with low attack skill blooms slowly and cracks high notes. The player picks the partial and slide position or valves a player would (the horn is a double horn and uses its F side low) and tunes by ear; a note that starts before the last ends slurs into it (legato: a soft tongue; glissando: the trombone's slide is heard). A mute in the bell, the horn player's hand (hand 1 is stopped horn: brassy and buzzing) and which way the bell faces all change the air column or the sound and apply from the next note. Actions: \"info\" (current settings), \"instrument\" (trombone, trumpet, horn, tuba), \"style\" (a way of playing: chorale, section, fanfare, blazing, glissando, rough), \"params\" (breath 0-1 (0.5 is about 2.8 kPa, a comfortable mezzo; 1 is 16 kPa), lipTension -1..1, aperture 0-1, articulation tongued|legato|glissando, attackSkill 0-1, tongue s (a few ms is 'ta'), release s, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slideTime s, breathNoise 0-1, brassiness 0-4 (the laboratory: 1 is real air), mute open|straight|cup|harmon, hand 0-1 (null for the instrument's usual), bellFacing 0-1 (1 at the listener; null for usual)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, how fast it spoke, the partial and slide position or valves the player used, the mouth pressure, and how steep the wavefront at the bell got - so a change can be checked without listening).",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "instrument", "style", "params", "hear"] },
+                instrument: { type: "string", enum: BRASS_INSTRUMENTS.map(p => p.id), description: "For action instrument." },
+                style: { type: "string", enum: BRASS_STYLES.map(s => s.id), description: "For action style." },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        breath: { type: "number" }, lipTension: { type: "number" }, aperture: { type: "number" },
+                        articulation: { type: "string", enum: BRASS_ARTICULATIONS.map(a => a.id) }, attackSkill: { type: "number" },
+                        tongue: { type: "number" }, release: { type: "number" },
+                        vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, vibratoDelay: { type: "number" },
+                        slideTime: { type: "number" }, breathNoise: { type: "number" }, brassiness: { type: "number" },
+                        mute: { type: "string", enum: BRASS_MUTES.map(m => m.id) },
+                        hand: { type: ["number", "null"] }, bellFacing: { type: ["number", "null"] }
+                    }
+                },
+                note: { type: "number", description: "For hear: MIDI note (default: the instrument's audition note, e.g. 58, B-flat 3, on the trombone)." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isBrassTrack(track)) return { success: false, error: `${track.name} is not a brass track. Use daw_set_track_params with waveform "brass" first.` };
+        const b = trackBrass(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describeBrass(b), ...extra });
+        switch (args.action) {
+            case "info":
+                return done();
+            case "instrument":
+                if (!BRASS_INSTRUMENTS.some(p => p.id === args.instrument)) return { success: false, error: "Unknown instrument. Choose one of: " + BRASS_INSTRUMENTS.map(p => p.id).join(", ") };
+                loadBrassInstrument(track, args.instrument);
+                return done();
+            case "style":
+                if (!BRASS_STYLES.some(s => s.id === args.style)) return { success: false, error: "Unknown style. Choose one of: " + BRASS_STYLES.map(s => s.id).join(", ") };
+                playBrassStyle(track, args.style);
+                return done();
+            case "params": {
+                const p = args.params ?? {};
+                const merged = repairBrass({ ...b, ...p });
+                for (const k of ["breath", "lipTension", "aperture", "attackSkill", "tongue", "release", "vibratoRate", "vibratoDepth", "vibratoDelay", "slideTime", "breathNoise", "brassiness"] as const) {
+                    if (typeof p[k] === "number") (b as any)[k] = merged[k];
+                }
+                if (typeof p.articulation === "string") b.articulation = merged.articulation;
+                let rebuilt = false;
+                if (typeof p.mute === "string") { b.mute = merged.mute; rebuilt = true; }
+                for (const k of ["hand", "bellFacing"] as const) {
+                    if (typeof p[k] === "number" || p[k] === null) { b[k] = merged[k]; rebuilt = true; }
+                }
+                if (rebuilt) rebuildBrass(track);
+                for (const k of ["breath", "lipTension", "vibratoDepth"] as const) {
+                    if (typeof p[k] === "number") setBrassLive(track, k, b[k]);
+                }
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const midi = typeof args.note === "number" ? args.note : b.auditionNote;
+                const config = brassNoteConfig(track.id, b, { freq: midiToFreq(midi), velocity: 0.8, duration: 0.7 });
+                const a = addon.Brass.analyzeNote(config, 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({
+                    note: midiToName(midi), pitchHz: r(a.pitchHz, 2), centsOff: r(a.centsOff), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb),
+                    brightnessHz: r(a.centroidHz, 0), harmonicsDb: (a.harmonicsDb ?? []).slice(0, 10).map(v => r(v)),
+                    partial: a.partial,
+                    ...(b.instrument === "trombone" ? { slidePosition: r(a.position, 2) } : { valves: a.valves ?? [], fSide: a.fSide ?? false }),
+                    mouthPressurePa: r(a.mouthPressurePa, 0),
+                    waveSteepness: a.waveSteepness, attackSeconds: r(a.attackSeconds, 3),
                 });
             }
             default:

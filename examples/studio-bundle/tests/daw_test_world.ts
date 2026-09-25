@@ -103,6 +103,15 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         physModHeld: new Map<number, { id: string; cfg: any; released: boolean; bow: Record<string, number> }>(),
         physModExports: [] as any[][],
         removedInstruments: [] as string[],
+        // Brass: the views as declared, timed notes, held notes (by voice id, with their live
+        // controls), what the export was handed, and removed player ids. `brassInfo` is what
+        // `Brass.info` answers per player id (a test sets it to say where the slide is).
+        brassViews: new Map<string, any>(),
+        brassNotes: [] as { id: string; cfg: any }[],
+        brassHeld: new Map<number, { id: string; cfg: any; released: boolean; live: Record<string, number> }>(),
+        brassExports: [] as any[][],
+        brassInfo: new Map<string, any>(),
+        removedBrass: [] as string[],
         // What the WAV export was handed for VST3 tracks, and the vst3Warnings the fake render
         // should hand back on the next export call (reset to [] after each export).
         vst3Exports: [] as any[][],
@@ -135,6 +144,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         padGrid: (_win: string, c: any) => { w.padGrids.set(c.id, c); },
         wavetable: (_win: string, c: any) => { w.wavetableViews.set(c.id ?? c.table, c); },
         physModString: (_win: string, c: any) => { w.physModViews.set(c.id ?? c.instrument, c); },
+        brass: (_win: string, c: any) => { w.brassViews.set(c.id ?? c.instrument, c); },
         treeView: (_win: string, c: any) => { w.trees.set(c.id, c); },
         tracks: (_win: string, c: any) => { if (c.id === "arrangement") w.arrangement = c; },
     };
@@ -188,7 +198,19 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 const n = w.physModHeld.get(voice);
                 if (n && !n.released) n.bow[which] = value;
             },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[]) => {
+            playBrassOnTrack: (id: string, cfg: any) => { w.brassNotes.push({ id, cfg }); return { ok: true }; },
+            brassNoteOn: (id: string, cfg: any) => {
+                const voice = w.nextVoice++;
+                w.brassHeld.set(voice, { id, cfg, released: false, live: { breath: cfg.breath, lipTension: cfg.lipTension, vibratoDepth: cfg.vibratoDepth, bend: 0 } });
+                return { ok: true, voice };
+            },
+            brassNoteOff: (voice: number) => { const n = w.brassHeld.get(voice); if (n) n.released = true; },
+            brassSetControl: (voice: number, which: string, value: number) => {
+                const n = w.brassHeld.get(voice);
+                if (n && !n.released) n.live[which] = value;
+            },
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[]) => {
+                w.brassExports.push(brassEvents ?? []);
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
                 w.wavetableExports.push(wavetableEvents ?? []);
@@ -276,6 +298,13 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             shape: () => ({ ok: true, version: 0, points: [] }),
             analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.7, peakDb: -12, rmsDb: -15, peakHz: cfg.freq, centroidHz: 300 + 4000 * cfg.bowForce }),
         },
+        // The engine's brass registry, reduced to what the addon can observe. `analyzeNote` gets
+        // brighter with breath, so a test can tell what breath a note was heard at.
+        Brass: {
+            info: (id: string) => w.brassInfo.get(id) ?? { ok: true, id, playing: false },
+            remove: (id: string) => { w.removedBrass.push(id); return true; },
+            analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.9, peakDb: -10, rmsDb: -14, pitchHz: cfg.freq, centsOff: 0.5, centroidHz: 400 + 3000 * cfg.breath, harmonicsDb: [0, -3, -6], partial: 4, position: 1, valves: cfg.instrument && cfg.instrument !== "trombone" ? [2] : [], fSide: false, mouthPressurePa: 500 * 32 ** cfg.breath, waveSteepness: 1e6, attackSeconds: 0.04 }),
+        },
         Guitar: {
             listInputs: () => ({ devices: [], hosts: [] }),
             start: (cfg: any) => {
@@ -333,7 +362,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
     const render = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear();
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
         windowRenders.forEach(fn => fn());

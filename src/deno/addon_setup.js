@@ -74,7 +74,9 @@ const audioAPI = {
     // trackBuses: [{track, gain?, effects?: [{kind, amount, pattern?, bpm?}], silences?: [[start, end]]}] -
     // an event (or VST3 track) whose `track` names one is mixed through that bus's character chain
     // first (see render_mix_to_wav); anything else goes straight to the master as before.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses) => {
+    // brassEvents: [{trackId, instrument?, freq, startTime, duration, breath, ...}] - brass notes
+    // (see Entropy.Brass); notes on one track are played by one player, so overlaps slur.
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -119,7 +121,7 @@ const audioAPI = {
             gain: b.gain ?? 1.0,
             effects: (b.effects || []).map(characterConfig),
             silences: b.silences || []
-        })));
+        })), brassEvents || []);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -174,6 +176,18 @@ const audioAPI = {
     physModNoteOff: (voice) => ops.op_audio_physmod_note_off(voice),
     // Moves a held note's bow while it sounds. which: "force", "velocity", "position" or "vibratoDepth".
     physModSetBow: (voice, which, value) => ops.op_audio_physmod_set_bow(voice, which, value),
+    // A physically modeled brass note on a track's bus (see Entropy.Brass). config: {instrument,
+    // freq, velocity, gain, breath, lipTension, aperture, vibratoRate, vibratoDepth, vibratoDelay,
+    // attack, release, duration, articulation ("tongued" | "legato" | "glissando"), attackSkill,
+    // breathNoise, slideTime, brassiness}. Notes on one track are played by one player: a note that
+    // starts before the last one ends slurs into it. Returns {ok, error?}.
+    playBrassOnTrack: (trackId, config) => ops.op_audio_play_brass_on_track({ ...config, trackId }),
+    // Starts a brass note that sounds until brassNoteOff(voice). Returns {ok, voice?, error?}.
+    brassNoteOn: (trackId, config) => ops.op_audio_brass_note_on({ ...config, trackId }),
+    brassNoteOff: (voice) => ops.op_audio_brass_note_off(voice),
+    // Moves a held brass note while it sounds. which: "breath" (0..1, a breath controller's home),
+    // "lipTension" (-1..1), "vibratoDepth" (cents) or "bend" (cents; on the trombone, the slide).
+    brassSetControl: (voice, which, value) => ops.op_audio_brass_set_control(voice, which, value),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -288,6 +302,21 @@ const physModAPI = {
     // config is a physmod note (see Audio.playPhysModOnTrack) plus `instrument`. No audio device is
     // used, so this is how to check what a bowed string sounds like.
     analyzeNote: (config, seconds) => ops.op_physmod_render_analyze(config, seconds || 0)
+};
+
+// Physically-modeled brass (see src/audio/brass and Widget.brass). A player is named by an id you
+// choose (the DAW uses the track's id); the widget, these calls and a playing note publish to and
+// read the same id.
+const brassAPI = {
+    // {ok, id, instrument, playing, partial, position, slideExtension, mouthPressurePa, breath,
+    //  lipTension, lipHz, lipOpeningMm, targetHz, resonanceHz, soundingHz, waveSteepness,
+    //  mouthpieceLevelPa, resonances: [{partial, hz, impedance}]}.
+    info: (id) => ops.op_brass_info(id),
+    remove: (id) => ops.op_brass_remove(id),
+    // Plays one note offline and reads it back: {ok, seconds, rmsDb, pitchHz, centsOff, centroidHz,
+    // harmonicsDb, partial, position, mouthPressurePa, waveSteepness, attackSeconds}. No audio
+    // device is used, so this is how to check what a brass note sounds like.
+    analyzeNote: (config, seconds) => ops.op_brass_render_analyze(config, seconds || 0)
 };
 
 const vst3API = {
@@ -930,6 +959,7 @@ globalThis.Entropy = {
                 Vst3: vst3API,
                 Wavetable: wavetableAPI,
                 PhysMod: physModAPI,
+                Brass: brassAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
     Guitar: guitarAPI,
@@ -1398,6 +1428,28 @@ globalThis.Entropy = {
                         else if (type === "PHYSMOD_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]));
                         else if (type === "PHYSMOD_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10));
                         else if (type === "PHYSMOD_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
+                    });
+                }
+            },
+            // A physically modeled brass instrument, drawn from its bore in the same neon way (see
+            // Entropy.Brass and entropy_gui::BrassView). The widget reads the engine's BrassShared
+            // directly. config: {instrument, height, width, breath, lipTension, keyboard, firstKey,
+            // octaves, held, physicsView, exaggeration}; the caller owns every field and hears about
+            // changes through the callbacks: onKeyDown(midi, velocity), onKeyUp(midi),
+            // onSlideDrag(position 1..7), onPlayDrag(breath, lipTension), onPhysicsView(on).
+            brass: (windowId, config) => {
+                const id = nextWidgetId(windowId, "brass", config?.id);
+                ops.op_ui_widget_brass(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "BRASS_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]));
+                        else if (type === "BRASS_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10));
+                        else if (type === "BRASS_SLIDE_DRAG" && config.onSlideDrag) config.onSlideDrag(parseFloat(parts[2]));
+                        else if (type === "BRASS_PLAY_DRAG" && config.onPlayDrag) config.onPlayDrag(parseFloat(parts[2]), parseFloat(parts[3]));
+                        else if (type === "BRASS_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
                     });
                 }
             },
@@ -1895,6 +1947,7 @@ globalThis.Entropy = {
     Vst3: vst3API,
     Wavetable: wavetableAPI,
     PhysMod: physModAPI,
+    Brass: brassAPI,
     Icons: iconsAPI,
     System: systemAPI,
     Video: videoAPI,

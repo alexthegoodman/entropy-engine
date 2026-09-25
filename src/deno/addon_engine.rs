@@ -45,6 +45,10 @@ use crate::deno::wavetable_ops::{
     op_wavetable_render_analyze, op_audio_play_wavetable_on_track, op_audio_wavetable_note_on,
     op_audio_wavetable_note_off, op_audio_wavetable_set_position,
 };
+use crate::deno::brass_ops::{
+    op_brass_info, op_brass_remove, op_audio_play_brass_on_track, op_audio_brass_note_on, op_audio_brass_note_off,
+    op_audio_brass_set_control, op_brass_render_analyze,
+};
 use crate::deno::physmod_ops::{
     op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
     op_audio_physmod_note_on, op_audio_physmod_note_off, op_audio_physmod_set_bow, op_physmod_render_analyze,
@@ -78,7 +82,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -240,6 +244,7 @@ extension!(
         op_audio_wavetable_note_off,
         op_audio_wavetable_set_position,
         op_ui_widget_physmod,
+        op_ui_widget_brass,
         op_physmod_info,
         op_physmod_shape,
         op_physmod_remove,
@@ -248,6 +253,13 @@ extension!(
         op_audio_physmod_note_off,
         op_audio_physmod_set_bow,
         op_physmod_render_analyze,
+        op_brass_info,
+        op_brass_remove,
+        op_audio_play_brass_on_track,
+        op_audio_brass_note_on,
+        op_audio_brass_note_off,
+        op_audio_brass_set_control,
+        op_brass_render_analyze,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4753,6 +4765,34 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             PhysModEvent::KeyDown { midi, velocity } => format!("PHYSMOD_KEY_DOWN|{}|{}|{:.3}", pm_id, midi, velocity),
                             PhysModEvent::KeyUp { midi } => format!("PHYSMOD_KEY_UP|{}|{}", pm_id, midi),
                             PhysModEvent::PhysicsView(on) => format!("PHYSMOD_PHYSICS_VIEW|{}|{}", pm_id, on as u8),
+                        });
+                    }
+                }
+                UiWidget::BrassView { id: br_id, config } => {
+                    use crate::audio::brass;
+                    use crate::entropy_gui::{BrassView, BrassViewEvent, BrassViewOptions};
+                    let shared = brass::shared_for(&config.instrument);
+                    let d = BrassViewOptions::default();
+                    let opts = BrassViewOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        keyboard: config.keyboard.unwrap_or(d.keyboard),
+                        first_key: config.first_key.map(|k| k.min(96) as u8).unwrap_or(d.first_key),
+                        key_octaves: config.octaves.map(|o| o.clamp(1, 5) as u8).unwrap_or(d.key_octaves),
+                        held: config.held.clone().unwrap_or_default().into_iter().map(|k| k.min(127) as u8).collect(),
+                        physics_view: config.physics_view.unwrap_or(d.physics_view),
+                        exaggeration: config.exaggeration.unwrap_or(d.exaggeration),
+                        breath: config.breath.unwrap_or(d.breath),
+                        lip_tension: config.lip_tension.unwrap_or(d.lip_tension),
+                    };
+                    let resp = BrassView::new(br_id.as_str()).show(ui, &opts, &shared);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            BrassViewEvent::KeyDown { midi, velocity } => format!("BRASS_KEY_DOWN|{}|{}|{:.3}", br_id, midi, velocity),
+                            BrassViewEvent::KeyUp { midi } => format!("BRASS_KEY_UP|{}|{}", br_id, midi),
+                            BrassViewEvent::SlideDrag { position } => format!("BRASS_SLIDE_DRAG|{}|{:.4}", br_id, position),
+                            BrassViewEvent::PlayDrag { breath, lip_tension } => format!("BRASS_PLAY_DRAG|{}|{:.4}|{:.4}", br_id, breath, lip_tension),
+                            BrassViewEvent::PhysicsView(on) => format!("BRASS_PHYSICS_VIEW|{}|{}", br_id, on as u8),
                         });
                     }
                 }

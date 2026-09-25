@@ -546,6 +546,27 @@ pub struct PhysModViewConfig {
     pub exaggeration: Option<f32>,
 }
 
+/// `Widget.brass` - see `entropy_gui::BrassView`. `instrument` names a player in the brass registry
+/// (`Entropy.Brass` publishes to it as notes play).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BrassViewConfig {
+    pub instrument: String,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// Breath (0..1) and lip tension (-1..1), shown on the playing map before a note sounds.
+    pub breath: Option<f32>,
+    pub lip_tension: Option<f32>,
+    pub keyboard: Option<bool>,
+    pub first_key: Option<u32>,
+    pub octaves: Option<u32>,
+    pub held: Option<Vec<u32>>,
+    /// Show the Physics View overlays (pressure wave and standing wave along the bore, resonance
+    /// ladder, playing map, one period of mouthpiece pressure and lip motion).
+    pub physics_view: Option<bool>,
+    pub exaggeration: Option<f32>,
+}
+
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -692,6 +713,7 @@ pub enum UiWidget {
     WavetableView { id: String, config: WavetableViewConfig },
     /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
     PhysModView { id: String, config: PhysModViewConfig },
+    BrassView { id: String, config: BrassViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -2856,6 +2878,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] physmod_events: Vec<crate::deno::physmod_ops::PhysModNoteConfig>,
     #[serde] vst3_events: Vec<Vst3RenderTrackConfig>,
     #[serde] track_buses: Vec<TrackBusRenderConfig>,
+    #[serde] brass_events: Vec<crate::deno::brass_ops::BrassNoteConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2896,6 +2919,7 @@ pub fn op_audio_render_pattern_wav(
     let sample_routes: Vec<Option<usize>> = sample_events.iter().map(|e| bus_of(&e.track)).collect();
     let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
     let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
+    let brass_routes: Vec<Option<usize>> = brass_events.iter().map(|e| bus_of(&e.track_id)).collect();
     let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
 
     let note_events: Vec<crate::audio::NoteEvent> = events
@@ -2934,6 +2958,7 @@ pub fn op_audio_render_pattern_wav(
 
     let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
     let physmod_hits: Vec<crate::audio::PhysModEvent> = physmod_events.iter().map(|e| e.to_event()).collect();
+    let brass_hits: Vec<crate::audio::BrassEvent> = brass_events.iter().map(|e| e.to_event()).collect();
 
     let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
         .into_iter()
@@ -2960,9 +2985,10 @@ pub fn op_audio_render_pattern_wav(
         samples: &sample_routes,
         wavetable: &wavetable_routes,
         physmod: &physmod_routes,
+        brass: &brass_routes,
         vst3: &vst3_routes,
     };
-    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &vst3_tracks, &routing, 44100, &output_path) {
+    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &vst3_tracks, &routing, 44100, &output_path) {
         Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
@@ -4064,6 +4090,18 @@ pub fn op_ui_widget_physmod(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PhysModView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_brass(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: BrassViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::BrassView { id, config });
     }
 }
 
