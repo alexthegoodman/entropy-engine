@@ -279,7 +279,7 @@ export interface PhysModNote {
 }
 
 /** How loud a bowed-string voice is at full velocity, before the track's own gain. */
-export const PHYSMOD_GAIN = 0.8;
+export const PHYSMOD_GAIN = 0.7;
 
 /** The engine call for one note of a physmod track. `instrument` is the track id, so every note of
  *  the track plays the same instrument (and slurs, double-stops and rings in sympathy on it). */

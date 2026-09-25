@@ -28,6 +28,11 @@ pub const MAX_SYMPATHETIC: usize = 6;
 pub const MAX_ALL_STRINGS: usize = MAX_STRINGS + MAX_SYMPATHETIC;
 /// Base-rate samples between control updates (finger position, vibrato, bow smoothing targets).
 const CONTROL_EVERY: u32 = 8;
+// The two arrays in `PhysModParams` are written with literal lengths: a named constant there
+// (`[f32; MAX_STRINGS]`) makes rustc 1.94 hit an internal compiler error whenever a caller builds
+// the struct with `..base` inside a closure. These keep the literals honest.
+const _: () = assert!(MAX_STRINGS == 4 && MAX_SYMPATHETIC == 6);
+
 /// Periods of guided stick-slip at the start of a stroke, and how many more to fade it over.
 const GUIDE_PERIODS: f32 = 3.0;
 const GUIDE_FADE: f32 = 2.0;
@@ -124,9 +129,9 @@ pub struct PhysModParams {
 
     // ---------------------------------------------------------------- construction
     /// Open-string pitches, low to high; unused slots are 0. All zero means a violin.
-    pub strings: [f32; MAX_STRINGS],
+    pub strings: [f32; 4],
     /// Sympathetic strings' pitches (0 = none).
-    pub sympathetic: [f32; MAX_SYMPATHETIC],
+    pub sympathetic: [f32; 6],
     /// 0..1: string mass/tension (impedance), 0.5 normal. A heavier string needs more bow force and
     /// speaks more slowly.
     pub string_mass: f32,
@@ -656,11 +661,11 @@ impl Engine {
                 if p.articulation == Articulation::Pizzicato {
                     // The finger pulls the string aside (force building over a few ms) then lets go.
                     pl.pluck_len = (0.006 * self.sr_os) as u32;
-                    pl.pluck_force = 6.0 * z * dyn_;
+                    pl.pluck_force = 2.5 * z * dyn_;
                 } else {
                     // The bow stick's wood: a hard, very short hit.
                     pl.pluck_len = (0.0006 * self.sr_os) as u32;
-                    pl.pluck_force = 30.0 * z * dyn_;
+                    pl.pluck_force = 12.0 * z * dyn_;
                 }
                 pl.pluck_t = 0;
             }
@@ -927,11 +932,13 @@ impl Engine {
         let r = mix * (cr * COUPLED_OUT + rr * RADIATING_OUT) + (1.0 - mix) * direct;
         // Bridge force grows with string impedance; normalise by the instrument's reference weight so
         // a bass is not 15 dB louder than a violin at the same settings.
-        let norm = self.gain * 0.23 / reference_impedance(self.instrument.body_size);
+        // A bigger body also radiates its low modes more strongly; `body_scale^-0.4` was measured to
+        // bring a default note of violin, cello, bass and octobass within ~3 dB of each other.
+        let norm = self.gain * 0.23 / reference_impedance(self.instrument.body_size) * body_scale(self.instrument.body_size).powf(-0.4);
         let l = self.dc_l.process(l, 0.9995) * norm;
         let r = self.dc_r.process(r, 0.9995) * norm;
         self.out_level += (l.abs().max(r.abs()) - self.out_level) * 0.002;
-        [l.clamp(-4.0, 4.0), r.clamp(-4.0, 4.0)]
+        [soft_knee(l), soft_knee(r)]
     }
 
     /// Per-string state for visualization and tests. Resets the contact statistics.
@@ -1012,6 +1019,15 @@ impl Engine {
     pub fn string_of(&self, id: u64) -> Option<usize> {
         self.players.iter().position(|p| p.note_id == id && id != 0)
     }
+}
+
+/// Output protection: transparent below 0.8, then a smooth knee that never exceeds 1.0. Normal
+/// playing stays under it (default notes sit around -20 dBFS RMS); it catches the peaks of a
+/// raucous crunch, a hard pluck, or several strings ringing together, so a bus can't clip on them.
+#[inline]
+pub fn soft_knee(x: f32) -> f32 {
+    let a = x.abs();
+    if a <= 0.8 { x } else { x.signum() * (0.8 + 0.2 * ((a - 0.8) / 0.2).tanh()) }
 }
 
 /// Schelleng's playable window for bow speed `v_b` (m/s) at relative position `beta` on a string of

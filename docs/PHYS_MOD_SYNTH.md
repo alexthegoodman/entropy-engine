@@ -179,3 +179,75 @@ And because it is virtual, its construction does not have to obey the practical 
 **Physical modeling provides the sound.
 3D provides the intuition.
 Entropy turns the instrument itself into the synthesizer.**
+
+---
+
+# Implementation Status
+
+What exists today, where it lives, and how each claim is checked. The model was built and tuned
+without anyone listening to it: every behaviour below is measured from rendered audio, and the
+tests keep those measurements in place.
+
+## The model (`src/audio/physmod/`)
+
+| Piece | File | What it is |
+|---|---|---|
+| String | `string.rs` | Four-segment digital waveguide (finger↔bow, bow↔bridge, both directions), cubic-Lagrange fractional delays, losses at bridge / nut / fingertip, optional stiffness dispersion solved per note for a target inharmonicity `B`. Rebuilds its own displacement shape for the view. |
+| Bow | `friction.rs` | McIntyre–Schumacher–Woodhouse friction: hyperbolic curve solved in closed form against the string impedance each sample, stick/slip hysteresis. Physical units underneath (N, m/s, fraction of string). |
+| Body | `body.rs` | 10 coupled modes (A0, CBR, B1±, …, the bridge hill) whose summed velocity is the bridge's motion, fed back into every string; 40 seeded radiating modes up to ~10 kHz, stereo. Scales continuously with instrument size. |
+| Instrument + player | `engine.rs` | Strings (4 bowed + up to 6 sympathetic), shared body, 2× oversampling. A virtual player per string: string choice, double stops vs slurs (40 ms chord window), bow reversal, guided attack and attack assist (`attack_skill`), intonation by ear, delayed vibrato, pizzicato, col legno, ring/damp on release. |
+| Measurement | `analysis.rs` | Pitch (cents), level, centroid, harmonics, bow regime, attack time. Shared by tests, `Entropy.PhysMod.analyzeNote`, and the DAW's AI tool. |
+| Runtime | `mod.rs` | `PhysModShared` (lock-free state for the view), `PhysModVoice` (one self-contained note), `PhysModInstrumentVoice` (one live instrument per track: notes share strings and body), `render_performance` (offline bounces through one instrument). |
+
+## Phase 1 — Playable modeled string: done
+
+- Player → bow → string → bridge/body → output, with bow force, speed, position, vibrato,
+  fingering, damping and dynamics as physical controls. More force changes the motion (brighter,
+  then raucous), not just the level.
+- Violin, viola, cello and bass presets; notes go to the string a player would use.
+- The 3D view (`src/entropy_gui/widgets_physmod.rs`) draws every string's simulated shape, the
+  finger, the bow coloured by friction regime, the body and sympathetic strings.
+
+## Phase 2 — Physics as the interface: largely done
+
+- **Physics View**: standing-wave envelopes with nodes, the travelling Helmholtz corner, body-mode
+  levels, a live Schelleng (playable-window) diagram, "ringing in sympathy" readout.
+- Dragging the bow in 3D or in the Schelleng diagram, the knobs, the AI tool and live automation
+  all move the same held note (`PhysModLive`).
+- Not yet: direct manipulation of body/bridge/string construction from the 3D view (those are knobs).
+
+## Phase 3 — Instrument laboratory: started
+
+- Continuous size axis (`body_size` -1 … 2.5) with optional tuning that follows it (violin →
+  viola → cello → bass and beyond); string mass, stiffness, rosin, bow grit, bridge coupling (up to
+  wolf notes), body resonance, "maker" seed, sympathetic strings.
+- Invented presets: Hardanger (understrings), glass violin, octobass, wolf cello.
+
+## How it is verified (no audio device needed)
+
+| Claim | Where |
+|---|---|
+| In tune within 6 cents across the violin; cello/bass low notes within 8–10 | `physmod::tests`, `physmod_synth.feature` |
+| Normal stroke = Helmholtz motion (1 release/period, stuck ≈ 1−β of it), settles < 0.2 s | same |
+| Schelleng window: surface sound below F_min, raucous above F_max; F_min rises steeply toward the bridge | same |
+| Faster bow louder (~6 dB per doubling); ponticello brighter than tasto | same |
+| Open strings / sympathetic strings ring when they share a harmonic; coupling controls it | same |
+| Wolf note on a strongly coupled cello, tamed by a firmer bow, absent at normal coupling | `physmod_synth.feature` |
+| Pizzicato decays; stiffness stretches partials; bounded output for impossible instruments | `physmod::tests` |
+| View draws the instrument, Physics View overlays, chip + diagram interactions | `tests/physmod_view.rs` (pictures in `test-artifacts/physmod-view/`) |
+| No allocation on the audio thread while notes arrive, slur and release | `tests/physmod_no_alloc.rs` |
+| DAW settings, presets, morph, repair of old songs | `examples/studio-bundle/tests/daw_physmod.test.ts` |
+
+The fitted laws the engine uses — `force_center` (where the middle of the force knob sits) and
+`schelleng_window` — come from sweeps of the model itself: 37 notes (bass E1 … violin G6) for the
+centre, 180 window edges at three bow positions for the window (fitted exponents: F_min ∝ β^-2.5,
+F_max ∝ β^-1.4, against Schelleng's -2 and -1).
+
+## Known limits
+
+- The bottom five or so bass notes take 0.3–0.5 s to settle into clean motion (25–35 periods).
+- The fitted window laws are good to about ×1.35; the view's diagram is an estimate, while the
+  sound is always the simulation itself.
+- Not modelled yet: bow width, torsional waves, thermal (temperature-dependent) friction, the
+  string's second polarisation.
+- A whole instrument costs about 4% of one core (plus ~1% per sympathetic string) in release builds.
