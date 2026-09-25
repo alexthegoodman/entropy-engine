@@ -1933,7 +1933,8 @@ export interface BrassNoteConfig {
   trackId?: string;
   /** The player id a widget reads; defaults to `trackId`. */
   instrumentId?: string;
-  instrument?: BrassInstrumentName;
+  /** A `BrassInstrumentName` ("trombone"); an unknown name plays the default. */
+  instrument?: string;
   freq?: number;
   /** 0..1, MIDI velocity read as dynamics (moves the breath around `breath`). */
   velocity?: number;
