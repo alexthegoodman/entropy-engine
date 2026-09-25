@@ -19,6 +19,8 @@ pub struct BrassAnalysis {
     /// The partial the player chose and the slide position (1..7) it was played in.
     pub partial: usize,
     pub position: f32,
+    /// The valves held (bits as `BrassState::valves`).
+    pub valves: u32,
     /// Mouth pressure (Pa) and mouthpiece AC level (Pa rms) while held.
     pub mouth_pressure: f32,
     pub mouthpiece_level: f32,
@@ -61,6 +63,7 @@ pub fn analyze_note(p: &BrassParams, seconds: f32, window: f32) -> BrassAnalysis
         harmonics_db: m.harmonics_db,
         partial: r.partial,
         position: r.position,
+        valves: r.valves,
         mouth_pressure: r.mouth_pressure,
         mouthpiece_level: r.mouthpiece_level,
         wave_steepness: r.wave_steepness,

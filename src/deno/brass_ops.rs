@@ -67,7 +67,7 @@ pub struct BrassNoteConfig {
     pub track_id: Option<String>,
     /// Names the `BrassShared` a widget reads. Defaults to `track_id`.
     pub instrument_id: Option<String>,
-    /// "trombone" (default).
+    /// "trombone" (default), "trumpet", "horn" or "tuba".
     pub instrument: Option<String>,
     pub freq: Option<f32>,
     pub velocity: Option<f32>,
@@ -197,6 +197,8 @@ pub fn op_brass_render_analyze(#[serde] config: BrassNoteConfig, seconds: f64) -
         "harmonicsDb": a.harmonics_db.to_vec(),
         "partial": a.partial,
         "position": a.position,
+        "valves": (0..7).filter(|i| a.valves & (1 << i) != 0).map(|i| i + 1).collect::<Vec<u32>>(),
+        "fSide": a.valves & brass::F_SIDE != 0,
         "mouthPressurePa": a.mouth_pressure,
         "mouthpieceLevelPa": a.mouthpiece_level,
         "waveSteepness": a.wave_steepness,

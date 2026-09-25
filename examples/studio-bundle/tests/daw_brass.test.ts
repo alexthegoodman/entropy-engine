@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-    BRASS_INSTRUMENTS, BRASS_STYLES, BRASS_WAVEFORM, applyInstrument, applyStyle, bendForSlide, defaultBrass,
-    describeSettings, heldSeconds, noteConfig, repairBrass,
+    BRASS_INSTRUMENTS, BRASS_MUTES, BRASS_STYLES, BRASS_WAVEFORM, applyInstrument, applyMute, applyStyle, bendForSlide,
+    defaultBrass, describeSettings, handAndBell, heldSeconds, noteConfig, repairBrass,
 } from "../src/apps/daw_brass";
 import { createWorld } from "./daw_test_world";
 
@@ -76,9 +76,44 @@ describe("The brass model", () => {
         expect(bendForSlide(2.5, 3)).toBe(50);
     });
 
+    it("switching instrument brings its own hand, bell and range; a mute stays in until taken out", () => {
+        const b = defaultBrass();
+        b.hand = 0.9; b.bellFacing = 1;
+        expect(applyInstrument(b, "horn")).toBe(true);
+        expect(b.hand).toBeNull();
+        expect(handAndBell(b)).toEqual({ hand: 0.35, bellFacing: 0.15 });
+        // B-flat 3 is in the horn's range, so the audition note stays; a note too high for the tuba
+        // moves to the tuba's own.
+        expect(b.auditionNote).toBe(58);
+        applyInstrument(b, "trumpet");
+        b.auditionNote = 80;
+        expect(applyMute(b, "harmon")).toBe(true);
+        expect(applyMute(b, "sock")).toBe(false);
+        applyInstrument(b, "tuba");
+        expect(b.mute).toBe("harmon");
+        expect(b.auditionNote).toBe(41);
+    });
+
+    it("sends the mute always and the hand and bell only when the track sets them", () => {
+        const b = defaultBrass("horn");
+        const usual = noteConfig("t", b, { freq: 349.2, velocity: 0.8 });
+        expect(usual).toMatchObject({ instrument: "horn", mute: "open" });
+        expect("hand" in usual || "bellFacing" in usual).toBe(false);
+        b.hand = 1; b.bellFacing = 0.9; b.mute = "straight";
+        expect(noteConfig("t", b, { freq: 349.2, velocity: 0.8 })).toMatchObject({ mute: "straight", hand: 1, bellFacing: 0.9 });
+        const saved = repairBrass(JSON.parse(JSON.stringify(b)));
+        expect(saved).toMatchObject({ instrument: "horn", mute: "straight", hand: 1, bellFacing: 0.9 });
+        expect(repairBrass({ ...b, mute: "sock", hand: 7, bellFacing: "up" })).toMatchObject({ mute: "open", hand: 1, bellFacing: null });
+    });
+
     it("lists what it offers", () => {
         expect(BRASS_WAVEFORM).toBe("brass");
-        expect(BRASS_INSTRUMENTS.map(p => p.id)).toContain("trombone");
+        expect(BRASS_INSTRUMENTS.map(p => p.id)).toEqual(["trombone", "trumpet", "horn", "tuba"]);
+        expect(BRASS_MUTES.map(m => m.id)).toEqual(["open", "straight", "cup", "harmon"]);
+        for (const p of BRASS_INSTRUMENTS) {
+            expect(p.audition).toBeGreaterThanOrEqual(p.range[0]);
+            expect(p.audition).toBeLessThanOrEqual(p.range[1]);
+        }
         expect(BRASS_STYLES.map(s => s.id)).toEqual(["chorale", "section", "fanfare", "blazing", "glissando", "rough"]);
         expect(Object.keys(describeSettings(defaultBrass()))).toContain("breath");
     });
@@ -214,6 +249,42 @@ describe("The DAW's brass (production addon callbacks)", () => {
         expect(events.length).toBeGreaterThan(1);
         expect(events[0].startTime + events[0].duration).toBeGreaterThan(events[1].startTime);
         void world;
+    });
+
+    it("the family: choose an instrument and a mute; a held note is played again on the new air column", async () => {
+        const { click, held, view, w } = await openDaw();
+        click("br_latch");
+        const first = held()[0];
+        expect(first.cfg.instrument).toBe("trombone");
+        click("br_instrument_horn");
+        expect(first.released).toBe(true);
+        expect(held().length).toBe(1);
+        expect(held()[0].cfg).toMatchObject({ instrument: "horn", mute: "open" });
+        expect(view().firstKey).toBe(41);
+        click("br_mute_straight");
+        expect(held()[0].cfg).toMatchObject({ instrument: "horn", mute: "straight" });
+        // The hand knob shows the horn's usual hand, and turning it applies from the next note.
+        const hand = w.knobs.find(k => k.label === "Hand")!;
+        expect(hand.value).toBeCloseTo(0.35);
+        hand.onChange("1");
+        click("br_latch");
+        click("br_latch");
+        expect(held()[0].cfg.hand).toBe(1);
+        // A trumpet has no slide to time.
+        click("br_instrument_trumpet");
+        expect(w.knobs.some(k => k.label === "Slide")).toBe(false);
+    });
+
+    it("the AI tool plays the family: instrument, mute, hand and bell, and hears the valves", async () => {
+        const { tool } = await openDaw();
+        expect(tool("daw_brass", { trackId: "trk-lead", action: "instrument", instrument: "trumpet" }).settings.instrument).toBe("trumpet");
+        const p = tool("daw_brass", { trackId: "trk-lead", action: "params", params: { mute: "cup", hand: 0.5, bellFacing: 2 } });
+        expect(p.settings).toMatchObject({ mute: "cup", hand: 0.5, bellFacing: 1 });
+        expect(tool("daw_brass", { trackId: "trk-lead", action: "params", params: { hand: null } }).settings.hand).toBe("usual");
+        const h = tool("daw_brass", { trackId: "trk-lead", action: "hear", note: 69 });
+        expect(h.valves).toEqual([2]);
+        expect("slidePosition" in h).toBe(false);
+        expect(tool("daw_brass", { trackId: "trk-lead", action: "instrument", instrument: "sousaphone" }).success).toBe(false);
     });
 
     it("deleting the track removes its player", async () => {

@@ -1925,7 +1925,8 @@ export interface PhysModNoteConfig {
 
 export interface BrassOk { ok: boolean; error?: string }
 
-export type BrassInstrumentName = "trombone";
+export type BrassInstrumentName = "trombone" | "trumpet" | "horn" | "tuba";
+export type BrassMute = "open" | "straight" | "cup" | "harmon";
 export type BrassArticulation = "tongued" | "legato" | "glissando";
 
 /** A physically modeled brass note (see `Entropy.Brass`). Anything left out keeps its default. */
@@ -1933,7 +1934,8 @@ export interface BrassNoteConfig {
   trackId?: string;
   /** The player id a widget reads; defaults to `trackId`. */
   instrumentId?: string;
-  /** A `BrassInstrumentName` ("trombone"); an unknown name plays the default. */
+  /** A `BrassInstrumentName` ("trombone", "trumpet", "horn", "tuba"); an unknown name plays the
+   *  trombone. */
   instrument?: string;
   freq?: number;
   /** 0..1, MIDI velocity read as dynamics (moves the breath around `breath`). */
@@ -1962,6 +1964,15 @@ export interface BrassNoteConfig {
   slideTime?: number;
   /** 0..4: the air's nonlinearity (1 is real air; 0 removes brassiness). */
   brassiness?: number;
+  /** A mute in the bell: it narrows the bell (moving the resonances, as a real mute does) and its
+   *  body colours the sound. */
+  mute?: BrassMute;
+  /** 0..1: how far the player's hand is in the bell; 1 stops it (the horn's stopped note, a
+   *  semitone up and brassy). Omitted, the instrument's usual hand (the horn's is in the bell). */
+  hand?: number;
+  /** 0 (the bell pointing away from the listener) .. 1 (straight at them): pointed at the listener
+   *  the tone is brighter. Omitted, the instrument's usual way (the horn's faces away). */
+  bellFacing?: number;
   /** Offline events only: seconds from the start of the render. */
   startTime?: number;
 }
@@ -1987,6 +1998,12 @@ export interface BrassInfo extends BrassOk {
   soundingHz?: number;
   waveSteepness?: number;
   mouthpieceLevelPa?: number;
+  /** Valves held down (1-based), and the double horn's thumb valve (the F side). */
+  valves?: number[];
+  fSide?: boolean;
+  mute?: BrassMute;
+  hand?: number;
+  bellFacing?: number;
   resonances?: BrassResonance[];
 }
 
@@ -2000,6 +2017,8 @@ export interface BrassNoteAnalysis extends BrassOk {
   harmonicsDb?: number[];
   partial?: number;
   position?: number;
+  valves?: number[];
+  fSide?: boolean;
   mouthPressurePa?: number;
   mouthpieceLevelPa?: number;
   waveSteepness?: number;

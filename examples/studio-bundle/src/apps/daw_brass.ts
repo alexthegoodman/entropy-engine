@@ -19,12 +19,30 @@ export interface BrassInstrumentPreset {
     label: string;
     /** The notes the instrument plays in its normal range, MIDI. */
     range: [number, number];
+    /** The note "Hold a note" plays when the instrument is chosen, and the keyboard's first key. */
+    audition: number;
+    firstKey: number;
+    /** How the instrument is usually played (the engine's defaults, for the knobs to show): the hand
+     *  in the bell (the horn's is), and which way the bell faces the listener. */
+    hand: number;
+    bellFacing: number;
 }
 
-/** The instruments the engine builds. More of the family (trumpet, horn, tuba) comes with the
- *  bore profiles for them (docs/PHYS_MOD_BRASS.md, step 7). */
+/** The instruments the engine builds, each from its own bore (docs/PHYS_MOD_BRASS.md). The
+ *  trombone has a slide; the others valves (the horn a double horn, with its F side). */
 export const BRASS_INSTRUMENTS: BrassInstrumentPreset[] = [
-    { id: "trombone", label: "Trombone", range: [40, 74] },
+    { id: "trombone", label: "Trombone", range: [40, 74], audition: 58, firstKey: 40, hand: 0, bellFacing: 0.55 },
+    { id: "trumpet", label: "Trumpet", range: [54, 84], audition: 70, firstKey: 53, hand: 0, bellFacing: 0.6 },
+    { id: "horn", label: "Horn", range: [41, 77], audition: 65, firstKey: 41, hand: 0.35, bellFacing: 0.15 },
+    { id: "tuba", label: "Tuba", range: [28, 60], audition: 41, firstKey: 28, hand: 0, bellFacing: 0.35 },
+];
+
+export type BrassMute = "open" | "straight" | "cup" | "harmon";
+export const BRASS_MUTES: { id: BrassMute; label: string }[] = [
+    { id: "open", label: "Open" },
+    { id: "straight", label: "Straight" },
+    { id: "cup", label: "Cup" },
+    { id: "harmon", label: "Harmon" },
 ];
 
 export function brassInstrumentById(id: string): BrassInstrumentPreset | undefined {
@@ -84,14 +102,21 @@ export interface BrassSettings {
     breathNoise: number;
     /** The laboratory: the air's nonlinearity, 1 real air, 0 none. */
     brassiness: number;
+    // The instrument's dress: these rebuild the air column, so they apply from the next note.
+    mute: BrassMute;
+    /** 0..1: how far the hand is in the bell (1 stops it); null, the instrument's usual. */
+    hand: number | null;
+    /** 0 (the bell away from the listener) .. 1 (at them); null, the instrument's usual. */
+    bellFacing: number | null;
     // Editor state.
     auditionNote: number;
     physicsView: boolean;
 }
 
 export function defaultBrass(instrument = "trombone"): BrassSettings {
+    const preset = brassInstrumentById(instrument) ?? BRASS_INSTRUMENTS[0];
     return {
-        instrument: brassInstrumentById(instrument)?.id ?? BRASS_INSTRUMENTS[0].id,
+        instrument: preset.id,
         style: "section",
         breath: 0.5,
         lipTension: 0,
@@ -106,7 +131,10 @@ export function defaultBrass(instrument = "trombone"): BrassSettings {
         slideTime: 0.07,
         breathNoise: 0.1,
         brassiness: 1,
-        auditionNote: 58,
+        mute: "open",
+        hand: null,
+        bellFacing: null,
+        auditionNote: preset.audition,
         physicsView: false,
     };
 }
@@ -137,6 +165,9 @@ export function repairBrass(saved: unknown): BrassSettings {
         slideTime: num(s.slideTime, d.slideTime, 0.005, 2),
         breathNoise: num(s.breathNoise, d.breathNoise, 0, 1),
         brassiness: num(s.brassiness, d.brassiness, 0, 4),
+        mute: BRASS_MUTES.some(m => m.id === s.mute) ? s.mute : d.mute,
+        hand: typeof s.hand === "number" && Number.isFinite(s.hand) ? num(s.hand, 0, 0, 1) : null,
+        bellFacing: typeof s.bellFacing === "number" && Number.isFinite(s.bellFacing) ? num(s.bellFacing, 0, 0, 1) : null,
         auditionNote: Math.round(num(s.auditionNote, d.auditionNote, 24, 96)),
         physicsView: s.physicsView === true,
     };
@@ -151,10 +182,31 @@ export function applyStyle(b: BrassSettings, id: string): boolean {
     return true;
 }
 
-/** Switches the instrument, keeping the player's settings. */
+/** Switches the instrument, keeping the player's settings. The hand and the bell go back to the
+ *  new instrument's usual (a horn player's hand is not a trumpeter's), and the audition note moves
+ *  into its range. */
 export function applyInstrument(b: BrassSettings, id: string): boolean {
-    if (!brassInstrumentById(id)) return false;
+    const preset = brassInstrumentById(id);
+    if (!preset) return false;
+    if (b.instrument !== id) {
+        b.hand = null;
+        b.bellFacing = null;
+        if (b.auditionNote < preset.range[0] || b.auditionNote > preset.range[1]) b.auditionNote = preset.audition;
+    }
     b.instrument = id;
+    return true;
+}
+
+/** The hand and bell in effect: the track's own, or the instrument's usual. */
+export function handAndBell(b: BrassSettings): { hand: number; bellFacing: number } {
+    const preset = brassInstrumentById(b.instrument) ?? BRASS_INSTRUMENTS[0];
+    return { hand: b.hand ?? preset.hand, bellFacing: b.bellFacing ?? preset.bellFacing };
+}
+
+/** Puts a mute in the bell (or takes it out). */
+export function applyMute(b: BrassSettings, id: string): boolean {
+    if (!BRASS_MUTES.some(m => m.id === id)) return false;
+    b.mute = id as BrassMute;
     return true;
 }
 
@@ -185,6 +237,9 @@ export interface BrassNote {
     slideTime: number;
     breathNoise: number;
     brassiness: number;
+    mute: BrassMute;
+    hand?: number;
+    bellFacing?: number;
     duration?: number;
     startTime?: number;
 }
@@ -219,6 +274,9 @@ export function noteConfig(
         slideTime: b.slideTime,
         breathNoise: b.breathNoise,
         brassiness: b.brassiness,
+        mute: b.mute,
+        ...(b.hand !== null ? { hand: b.hand } : {}),
+        ...(b.bellFacing !== null ? { bellFacing: b.bellFacing } : {}),
         ...(note.duration !== undefined ? { duration: note.duration } : {}),
         ...(note.startTime !== undefined ? { startTime: note.startTime } : {}),
     };
@@ -237,5 +295,6 @@ export function describeSettings(b: BrassSettings): Record<string, unknown> {
         articulation: b.articulation, attackSkill: b.attackSkill, tongue: b.tongue, release: b.release,
         vibratoRate: b.vibratoRate, vibratoDepth: b.vibratoDepth, vibratoDelay: b.vibratoDelay,
         slideTime: b.slideTime, breathNoise: b.breathNoise, brassiness: b.brassiness,
+        mute: b.mute, hand: b.hand ?? "usual", bellFacing: b.bellFacing ?? "usual",
     };
 }

@@ -98,7 +98,11 @@ import {
     BRASS_INSTRUMENTS,
     BRASS_STYLES,
     BRASS_ARTICULATIONS,
+    BRASS_MUTES,
     applyInstrument as applyBrassInstrument,
+    applyMute as applyBrassMute,
+    brassInstrumentById,
+    handAndBell,
     applyStyle as applyBrassStyle,
     bendForSlide,
     defaultBrass,
@@ -822,7 +826,24 @@ function playBrassStyle(track: Track, id: string) {
 function loadBrassInstrument(track: Track, id: string) {
     if (!applyBrassInstrument(trackBrass(track), id)) { brStatus = `Unknown instrument "${id}".`; return; }
     brStatus = "";
+    rebuildBrass(track);
+}
+
+/** The instrument, its mute, the hand and the bell make the air column, which a note is built
+ *  with: a change is heard from the next note. A held "Hold a note" is played again at once, so the
+ *  change can be heard. */
+function rebuildBrass(track: Track) {
+    if (brLatch[track.id] !== undefined) {
+        toggleBrassLatch(track);
+        toggleBrassLatch(track);
+    }
     scheduleSave();
+}
+
+function setBrassMute(track: Track, id: string) {
+    if (!applyBrassMute(trackBrass(track), id)) { brStatus = `Unknown mute "${id}".`; return; }
+    brStatus = "";
+    rebuildBrass(track);
 }
 
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
@@ -2172,6 +2193,7 @@ function renderBrassWindow(win: string) {
         width: Math.max(380, brassWindowWidth - BRASS_SIDE_COLUMN),
         height: Math.max(380, brassWindowHeight - 170),
         held: [...heldMidis, ...(latched ? [b.auditionNote] : [])],
+        firstKey: brassInstrumentById(b.instrument)?.firstKey ?? 40,
         onKeyDown: (midi: number, velocity: number) => { pressBrassKey(track, midi, velocity); },
         onKeyUp: (midi: number) => { releaseBrassKey(track, midi); },
         onSlideDrag: (position: number) => { dragBrassSlide(track, position); },
@@ -2195,7 +2217,27 @@ function renderBrassWindow(win: string) {
             });
         });
         W.group(right, (g: string) => {
-            W.label(g, { text: "Tongue and slide", bold: true });
+            W.label(g, { text: "Mute, hand and bell", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const m of BRASS_MUTES) {
+                    W.button(row, { text: radio(b.mute === m.id) + m.label, id: "br_mute_" + m.id, onClick: () => { setBrassMute(track, m.id); } });
+                }
+            });
+            const dress = handAndBell(b);
+            W.horizontal(g, (row: string) => {
+                W.knob(row, {
+                    label: "Hand", value: dress.hand, min: 0, max: 1,
+                    onChange: (v: string) => { b.hand = Math.min(1, Math.max(0, parseFloat(v))); scheduleSave(); },
+                });
+                W.knob(row, {
+                    label: "Bell", value: dress.bellFacing, min: 0, max: 1,
+                    onChange: (v: string) => { b.bellFacing = Math.min(1, Math.max(0, parseFloat(v))); scheduleSave(); },
+                });
+            });
+            W.label(g, { text: "They rebuild the air column, so they apply from the next note. Hand: 1 stops the bell (the horn's stopped note, brassy, played a semitone up). Bell: 1 points at the listener, brighter." });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: b.instrument === "trombone" ? "Tongue and slide" : "Tongue", bold: true });
             W.horizontal(g, (row: string) => {
                 for (const a of BRASS_ARTICULATIONS) {
                     W.button(row, { text: radio(b.articulation === a.id) + a.label, id: "br_art_" + a.id, onClick: () => { b.articulation = a.id; scheduleSave(); } });
@@ -2204,7 +2246,7 @@ function renderBrassWindow(win: string) {
             W.horizontal(g, (row: string) => {
                 knob(row, "Tongue", "tongue", 0.001, 0.08);
                 knob(row, "Release", "release", 0.01, 0.6);
-                knob(row, "Slide", "slideTime", 0.01, 0.8);
+                if (b.instrument === "trombone") knob(row, "Slide", "slideTime", 0.01, 0.8);
             });
         });
         W.group(right, (g: string) => {
@@ -5276,7 +5318,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_brass",
-        description: "Play and shape a physically modeled brass instrument: a track whose waveform is \"brass\" (daw_set_track_params with waveform \"brass\" makes one). The sound comes from a physical model - the player's lips, blown open by the breath, driving an air column built from a real trombone's bore, radiating through its bell - so a brass player's controls behave physically: more breath is louder and, past mezzo, much brighter as the pressure wave in the slide steepens toward a shock (the blazing fortissimo); looser lips fall to the partial below, tighter ones pop up to the next; a player with low attack skill blooms slowly and cracks high notes. The player picks the partial and slide position a trombonist would and tunes by ear; a note that starts before the last ends slurs into it (legato: a soft tongue; glissando: the slide is heard). Actions: \"info\" (current settings), \"instrument\" (trombone), \"style\" (a way of playing: chorale, section, fanfare, blazing, glissando, rough), \"params\" (breath 0-1 (0.5 is about 2.8 kPa, a comfortable mezzo; 1 is 16 kPa), lipTension -1..1, aperture 0-1, articulation tongued|legato|glissando, attackSkill 0-1, tongue s (a few ms is 'ta'), release s, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slideTime s, breathNoise 0-1, brassiness 0-4 (the laboratory: 1 is real air)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, how fast it spoke, the partial and slide position the player used, the mouth pressure, and how steep the wavefront at the bell got - so a change can be checked without listening).",
+        description: "Play and shape a physically modeled brass instrument: a track whose waveform is \"brass\" (daw_set_track_params with waveform \"brass\" makes one). The sound comes from a physical model - the player's lips, blown open by the breath, driving an air column built from a real instrument's bore (trombone, trumpet, horn or tuba), radiating through its bell - so a brass player's controls behave physically: more breath is louder and, past mezzo, much brighter as the pressure wave in the tubing steepens toward a shock (the blazing fortissimo); looser lips fall to the partial below, tighter ones pop up to the next; a player with low attack skill blooms slowly and cracks high notes. The player picks the partial and slide position or valves a player would (the horn is a double horn and uses its F side low) and tunes by ear; a note that starts before the last ends slurs into it (legato: a soft tongue; glissando: the trombone's slide is heard). A mute in the bell, the horn player's hand (hand 1 is stopped horn: brassy and buzzing) and which way the bell faces all change the air column or the sound and apply from the next note. Actions: \"info\" (current settings), \"instrument\" (trombone, trumpet, horn, tuba), \"style\" (a way of playing: chorale, section, fanfare, blazing, glissando, rough), \"params\" (breath 0-1 (0.5 is about 2.8 kPa, a comfortable mezzo; 1 is 16 kPa), lipTension -1..1, aperture 0-1, articulation tongued|legato|glissando, attackSkill 0-1, tongue s (a few ms is 'ta'), release s, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slideTime s, breathNoise 0-1, brassiness 0-4 (the laboratory: 1 is real air), mute open|straight|cup|harmon, hand 0-1 (null for the instrument's usual), bellFacing 0-1 (1 at the listener; null for usual)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, how fast it spoke, the partial and slide position or valves the player used, the mouth pressure, and how steep the wavefront at the bell got - so a change can be checked without listening).",
         parameters: {
             type: "object",
             properties: {
@@ -5292,10 +5334,12 @@ addon.onInit(async () => {
                         articulation: { type: "string", enum: BRASS_ARTICULATIONS.map(a => a.id) }, attackSkill: { type: "number" },
                         tongue: { type: "number" }, release: { type: "number" },
                         vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, vibratoDelay: { type: "number" },
-                        slideTime: { type: "number" }, breathNoise: { type: "number" }, brassiness: { type: "number" }
+                        slideTime: { type: "number" }, breathNoise: { type: "number" }, brassiness: { type: "number" },
+                        mute: { type: "string", enum: BRASS_MUTES.map(m => m.id) },
+                        hand: { type: ["number", "null"] }, bellFacing: { type: ["number", "null"] }
                     }
                 },
-                note: { type: "number", description: "For hear: MIDI note (default 58, B-flat 3)." }
+                note: { type: "number", description: "For hear: MIDI note (default: the instrument's audition note, e.g. 58, B-flat 3, on the trombone)." }
             },
             required: ["trackId", "action"]
         }
@@ -5323,6 +5367,12 @@ addon.onInit(async () => {
                     if (typeof p[k] === "number") (b as any)[k] = merged[k];
                 }
                 if (typeof p.articulation === "string") b.articulation = merged.articulation;
+                let rebuilt = false;
+                if (typeof p.mute === "string") { b.mute = merged.mute; rebuilt = true; }
+                for (const k of ["hand", "bellFacing"] as const) {
+                    if (typeof p[k] === "number" || p[k] === null) { b[k] = merged[k]; rebuilt = true; }
+                }
+                if (rebuilt) rebuildBrass(track);
                 for (const k of ["breath", "lipTension", "vibratoDepth"] as const) {
                     if (typeof p[k] === "number") setBrassLive(track, k, b[k]);
                 }
@@ -5330,7 +5380,7 @@ addon.onInit(async () => {
                 return done();
             }
             case "hear": {
-                const midi = typeof args.note === "number" ? args.note : 58;
+                const midi = typeof args.note === "number" ? args.note : b.auditionNote;
                 const config = brassNoteConfig(track.id, b, { freq: midiToFreq(midi), velocity: 0.8, duration: 0.7 });
                 const a = addon.Brass.analyzeNote(config, 0);
                 if (!a.ok) return { success: false, error: a.error };
@@ -5338,7 +5388,9 @@ addon.onInit(async () => {
                 return done({
                     note: midiToName(midi), pitchHz: r(a.pitchHz, 2), centsOff: r(a.centsOff), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb),
                     brightnessHz: r(a.centroidHz, 0), harmonicsDb: (a.harmonicsDb ?? []).slice(0, 10).map(v => r(v)),
-                    partial: a.partial, slidePosition: r(a.position, 2), mouthPressurePa: r(a.mouthPressurePa, 0),
+                    partial: a.partial,
+                    ...(b.instrument === "trombone" ? { slidePosition: r(a.position, 2) } : { valves: a.valves ?? [], fSide: a.fSide ?? false }),
+                    mouthPressurePa: r(a.mouthPressurePa, 0),
                     waveSteepness: a.waveSteepness, attackSeconds: r(a.attackSeconds, 3),
                 });
             }

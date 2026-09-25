@@ -303,7 +303,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         Brass: {
             info: (id: string) => w.brassInfo.get(id) ?? { ok: true, id, playing: false },
             remove: (id: string) => { w.removedBrass.push(id); return true; },
-            analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.9, peakDb: -10, rmsDb: -14, pitchHz: cfg.freq, centsOff: 0.5, centroidHz: 400 + 3000 * cfg.breath, harmonicsDb: [0, -3, -6], partial: 4, position: 1, mouthPressurePa: 500 * 32 ** cfg.breath, waveSteepness: 1e6, attackSeconds: 0.04 }),
+            analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.9, peakDb: -10, rmsDb: -14, pitchHz: cfg.freq, centsOff: 0.5, centroidHz: 400 + 3000 * cfg.breath, harmonicsDb: [0, -3, -6], partial: 4, position: 1, valves: cfg.instrument && cfg.instrument !== "trombone" ? [2] : [], fSide: false, mouthPressurePa: 500 * 32 ** cfg.breath, waveSteepness: 1e6, attackSeconds: 0.04 }),
         },
         Guitar: {
             listInputs: () => ({ devices: [], hosts: [] }),
