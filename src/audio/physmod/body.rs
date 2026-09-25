@@ -114,7 +114,11 @@ impl Body {
 
         for (i, &(f, q, y, rad)) in VIOLIN_LOW_MODES.iter().enumerate() {
             // Small seeded detune so two "makers" differ in the low modes too, not only up high.
-            let f = f * (1.0 + 0.04 * rng.bipolar()) / size;
+            // The bridge hill is the bridge's own resonance, and bridges grow far less than bodies
+            // do (a bass bridge is not four times a violin's in every dimension): it scales with the
+            // square root of the size, everything else with the size.
+            let is_bridge = i == COUPLED_MODES - 1;
+            let f = f * (1.0 + 0.04 * rng.bipolar()) / if is_bridge { size.sqrt() } else { size };
             self.coupled_freq[i] = f;
             self.coupled[i].set(f, q * q_scale, self.sr_os);
             // A larger body is heavier: its modes move less per newton, roughly with area.

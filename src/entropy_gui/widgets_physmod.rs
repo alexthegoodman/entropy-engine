@@ -22,7 +22,7 @@
 //! The PHYSICS chip toggles Physics View. The right mouse button, Alt, or a pen's barrel button orbit
 //! the camera, the convention `WavetableView` uses.
 
-use crate::audio::physmod::{BowRegime, PhysModShared, StringInfo, MAX_ALL_STRINGS, SHAPE_POINTS};
+use crate::audio::physmod::{BowRegime, PhysModShared, StringInfo, MAX_ALL_STRINGS, SCHELLENG_MAX_BETA_EXP, SCHELLENG_MIN_BETA_EXP, SHAPE_POINTS};
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Pos2, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
@@ -979,8 +979,9 @@ fn draw_schelleng(painter: &Painter, d: Rect, scene: &Scene, opts: &PhysModOptio
     painter.text(pos2(d.min.x + 8.0, d.min.y + 6.0), Align2::LEFT_TOP, "PLAYABLE WINDOW", FontId::proportional(9.5), LABEL);
     let plot = diagram_plot(d);
     let active = scene.active.map(|i| scene.strings[i]);
-    // The window at the current bow position, extrapolated along Schelleng's slopes: the minimum
-    // force goes as 1/beta^2, the maximum as 1/beta (in knob units: 0.5 * log10 of the ratio).
+    // The window at the current bow position, extrapolated along the model's measured slopes: the
+    // minimum force goes as beta^-2.5, the maximum as beta^-1.4 (Schelleng's -2 and -1, measured a
+    // little steeper). In knob units that is 0.5 * log10 of the force ratio.
     let (beta0, kmin0, kmax0) = match active {
         Some(s) if s.force_max_knob > s.force_min_knob && s.beta > 0.0 => (s.beta, s.force_min_knob, s.force_max_knob),
         _ => (opts.bow_position.max(0.02), 0.2, 0.75),
@@ -991,8 +992,8 @@ fn draw_schelleng(painter: &Painter, d: Rect, scene: &Scene, opts: &PhysModOptio
     for k in 0..=steps {
         let x = plot.min.x + plot.width() * k as f32 / steps as f32;
         let beta = x_to_beta(plot, x);
-        let kmin = kmin0 + 0.5 * (2.0 * (beta0 / beta).log10());
-        let kmax = kmax0 + 0.5 * (beta0 / beta).log10();
+        let kmin = kmin0 + 0.5 * SCHELLENG_MIN_BETA_EXP * (beta0 / beta).log10();
+        let kmax = kmax0 + 0.5 * SCHELLENG_MAX_BETA_EXP * (beta0 / beta).log10();
         bot.push(pos2(x, knob_to_y(plot, kmin)));
         top.push(pos2(x, knob_to_y(plot, kmax)));
     }

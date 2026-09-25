@@ -92,7 +92,15 @@ Feature: The bowed-string instrument behaves like a bowed string
     And the bow force is 0.3
     When I play the note for 1.6 seconds
     Then the bow is not in Helmholtz motion
-    Given the bow force is 0.5
+    Given the bow force is 0.7
+    When I play the note for 1.6 seconds
+    Then the bow is in Helmholtz motion
+
+  Scenario: The same light bow plays that note cleanly on a normally coupled cello
+    Given a cello
+    And the bridge coupling is 0.35
+    And a note of 163.6 Hz
+    And the bow force is 0.3
     When I play the note for 1.6 seconds
     Then the bow is in Helmholtz motion
 

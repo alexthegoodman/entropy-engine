@@ -209,16 +209,35 @@ pub fn bow_speed(knob: f32) -> f32 {
     0.03 * 25f32.powf(knob.clamp(0.0, 1.0))
 }
 
-/// Bow force in newtons for the 0..1 control on an instrument of reference impedance `z_ref`:
-/// two decades, logarithmic, centred on a normal playing force.
-pub fn bow_newtons(knob: f32, z_ref: f32) -> f32 {
-    FORCE_AT_MID * (z_ref / 0.23) * 10f32.powf((knob.clamp(0.0, 1.0) - 0.5) * 2.0)
+/// Bow force in newtons for the 0..1 control, around `center` (the force the middle of the control
+/// means - see `force_center`): two decades, logarithmic.
+pub fn bow_newtons(knob: f32, center: f32) -> f32 {
+    center * 10f32.powf((knob.clamp(0.0, 1.0) - 0.5) * 2.0)
 }
 
-/// Force (N) at the middle of the knob on a violin-weight string. Calibrated so that at the default
-/// bow speed and position it sits near the geometric middle of the measured playable window (see
-/// `tests/physmod_synth_bdd.rs` and the Schelleng measurement in this module's tests).
-pub const FORCE_AT_MID: f32 = 0.35;
+/// The inverse of `bow_newtons`.
+pub fn bow_knob(newtons: f32, center: f32) -> f32 {
+    if newtons > 0.0 && center > 0.0 { 0.5 + 0.5 * (newtons / center).log10() } else { 0.0 }
+}
+
+/// Where a player's "normal" bow force sits for a note: the middle of the playable window at a
+/// normal bow position (`NORMAL_BETA`) for this string's nominal weight, this pitch and this bow
+/// speed. The middle of the force control means this force, so it is a sensible force on every
+/// string of every instrument - the way a player's arm adjusts without thinking - while everything
+/// that is *not* normal still behaves physically: move the bow toward the bridge and the same knob
+/// setting falls into surface sound; make the string heavier (the `string_mass` laboratory
+/// setting) or change the rosin and the window moves under the knob.
+///
+/// Fitted to measurement, not derived: the playable window (steady one-slip-per-period motion) was
+/// found for 37 notes across violin, viola, cello and bass, from bass E1 to violin G6, and the
+/// geometric middle of each fits `0.744 Z^1.04 (f/440)^-0.33` to within about x1.25. The speed
+/// exponent follows Schelleng (both edges of the window scale roughly with bow speed).
+pub fn force_center(bow_speed: f32, nominal_impedance: f32, freq: f32) -> f32 {
+    0.744 * nominal_impedance.max(1.0e-3).powf(1.04) * (freq.max(10.0) / 440.0).powf(-0.33) * (bow_speed.max(1.0e-4) / 0.129).powf(1.2)
+}
+
+/// The bow position `force_center` assumes: a fraction of the vibrating length from the bridge.
+pub const NORMAL_BETA: f32 = 0.12;
 
 impl PhysModParams {
     pub fn open_strings(&self) -> ([f32; MAX_STRINGS], usize) {
@@ -336,6 +355,10 @@ struct Player {
     started_at: u64,
     /// The player's intonation correction: a factor on the finger's pitch (see `control`).
     intonation: f32,
+    /// Extra force (fraction) the player is leaning in with to get a stroke to speak, and the
+    /// (ticks, releases) mark it last measured from.
+    assist: f32,
+    assist_mark: (u64, u64),
     /// Low-passed noise for the bow-hair grit.
     grit_lp: OnePole,
     /// Whether the finger has been lifted after the note ended (the string is back to open).
@@ -364,6 +387,8 @@ impl Player {
             guide_t: u32::MAX,
             started_at: 0,
             intonation: 1.0,
+            assist: 0.0,
+            assist_mark: (0, 0),
             grit_lp: OnePole::default(),
             finger_lifted: true,
         }
@@ -732,7 +757,7 @@ impl Engine {
         // cents (up to ~10 at the top of the E string), heavy force flattens it.
         let wanted = p.freq * 2f32.powf(cents / 1200.0);
         // (Only for stopped notes: an open string has no finger to move.)
-        if pl.phase == Phase::Bowing && stopped_note && string.period_estimate > 0.0 && string.helmholtz_confidence > 0.9 {
+        if pl.phase == Phase::Bowing && stopped_note && string.period_estimate > 0.0 && string.helmholtz_confidence > 0.97 {
             let actual_freq = string.sample_rate() / string.period_estimate;
             let err = (wanted / actual_freq).ln();
             pl.intonation = (pl.intonation * (err * dt / INTONATION_TAU).exp()).clamp(0.97, 1.03);
@@ -751,7 +776,33 @@ impl Engine {
         // the E without thinking about it), but not by the `string_mass` construction setting - a
         // string made heavier in the lab genuinely needs more force, and should be heard to.
         let z_nominal = string_impedance(string.spec.open_freq, self.instrument.body_size, 0.5);
-        let f_target_mag = bow_newtons(force_knob, z_nominal) * dyn_;
+        let f_target_mag = bow_newtons(force_knob, force_center(v_target_mag, z_nominal, p.freq));
+
+        // Attack assist (part of `attack_skill`): early in a stroke, if the string is slipping more
+        // than once a period although the force asked for is inside the playable window - the
+        // stroke has fallen into multiple slipping on its way in, which low, heavy strings are
+        // prone to - lean into the string until it speaks, then ease back off: what a player does
+        // when a bass note doesn't start. Force asked for below the window is left alone (that
+        // surface sound is what was asked for).
+        if pl.phase == Phase::Bowing {
+            let (ticks, rels) = (string.ticks(), string.releases_total);
+            let period = string.sample_rate() / string.freq();
+            let span = ticks.saturating_sub(pl.assist_mark.0) as f32;
+            if span >= 2.0 * period {
+                let rpp = (rels - pl.assist_mark.1) as f32 / (span / period);
+                let (f_min, f_max) = schelleng_window(v_target_mag, beta, string.spec.impedance, &self.instrument.friction(), p.freq);
+                let asked_ok = f_target_mag > f_min * 1.2 && f_target_mag < f_max;
+                if rpp > 1.3 && asked_ok && pl.t_note < 1.5 {
+                    pl.assist = (pl.assist + 0.2 * p.attack_skill.clamp(0.0, 1.0)).min(1.0);
+                } else if (rpp - 1.0).abs() < 0.1 {
+                    pl.assist *= (-(span / string.sample_rate()) / 0.25).exp();
+                }
+                pl.assist_mark = (ticks, rels);
+            }
+        } else {
+            pl.assist = 0.0;
+        }
+        let f_target_mag = f_target_mag * (1.0 + pl.assist);
         let attack = p.attack.max(0.003);
         let release = p.release.max(0.01);
         let ring = p.ring.clamp(0.0, 1.0);
@@ -894,20 +945,28 @@ impl Engine {
             } else {
                 (false, 0.0, 0.0)
             };
-            // Knob units: invert `bow_newtons` for this string and the note's dynamics.
-            let (dyn_, knob_of) = if bowed {
+            // Knob units: invert `bow_newtons` around this note's force centre.
+            let center = if bowed {
                 let pl = &self.players[i];
                 let dyn_ = 0.3 + 0.7 * pl.p.velocity.clamp(0.0, 1.0);
-                let unit = bow_newtons(0.5, string_impedance(s.spec.open_freq, self.instrument.body_size, 0.5)) * dyn_;
-                (dyn_, unit)
+                let speed_knob = pl.controls().1;
+                force_center(bow_speed(speed_knob) * dyn_, string_impedance(s.spec.open_freq, self.instrument.body_size, 0.5), pl.p.freq)
             } else {
-                (1.0, 1.0)
+                1.0
             };
-            let _ = dyn_;
-            let to_knob = |f: f32| if f > 0.0 { 0.5 + 0.5 * (f / knob_of).log10() } else { 0.0 };
+            let to_knob = |f: f32| bow_knob(f, center);
+            // Contact statistics over at least four periods (a report window can be shorter than
+            // one period of a bass note); until then, the last full measurement stands.
             let st = s.stats;
             let secs = st.samples as f32 / self.sr_os;
-            let periods = (secs * s.freq()).max(1.0e-6);
+            if st.samples > 0 && secs * s.freq() >= 4.0 {
+                s.last_stick_fraction = st.stuck as f32 / st.samples as f32;
+                s.last_slips_per_period = st.releases as f32 / (secs * s.freq());
+                s.stats = Default::default();
+            } else if st.samples == 0 {
+                s.last_stick_fraction = 0.0;
+                s.last_slips_per_period = 0.0;
+            }
             let (fmin, fmax) = schelleng_window(v.abs().max(1.0e-4), s.beta(), s.spec.impedance, &curve, s.freq());
             out[i] = StringReport {
                 open_freq: s.spec.open_freq,
@@ -918,8 +977,8 @@ impl Engine {
                 phase_active: active,
                 bow_velocity: v,
                 bow_force: f,
-                stick_fraction: if st.samples > 0 { st.stuck as f32 / st.samples as f32 } else { 0.0 },
-                slips_per_period: if st.samples > 0 { st.releases as f32 / periods } else { 0.0 },
+                stick_fraction: s.last_stick_fraction,
+                slips_per_period: s.last_slips_per_period,
                 level: s.level,
                 force_min: fmin,
                 force_max: fmax,
@@ -927,7 +986,6 @@ impl Engine {
                 force_max_knob: to_knob(fmax),
                 bow_force_knob: if bowed { to_knob(f) } else { 0.0 },
             };
-            s.stats = Default::default();
         }
         self.stats_samples = 0;
         self.strings.len()
@@ -960,19 +1018,25 @@ impl Engine {
 /// impedance `z` sounding `freq`: the least bow force (N) that sustains Helmholtz motion, and the most
 /// before it breaks into raucous motion.
 ///
-/// The shapes are Schelleng's - `F_max ~ 2 Z v_b / (beta (mu_s - mu_d))`, `F_min ~ Z^2 v_b / (beta^2
-/// R (mu_s - mu_d))` - with the constants (and the frequency dependence standing in for the loss
-/// resistance `R`) fitted to what this model actually does: 90 measured windows across the four
-/// violin strings, five bow positions and three bow speeds (steady-state stick/slip classification,
-/// see the `window` sweep described in `docs/PHYS_MOD_SYNTH.md`). Fitting the exponents freely gave
-/// `F_min ~ beta^-1.9` and `F_max ~ beta^-1.2`, against Schelleng's -2 and -1. The fit is to within
-/// about x1.2 for the minimum and x1.6 for the maximum, which is what the view's diagram shows.
+/// Schelleng's theory gives `F_min ~ Z^2 v_b / (beta^2 R (mu_s - mu_d))` and `F_max ~ 2 Z v_b / (beta
+/// (mu_s - mu_d))`. The laws used here are fitted to what this model actually does instead:
+/// 180 measured window edges (steady one-slip-per-period motion, force swept at three bow positions)
+/// across violin, viola, cello and bass, from bass E1 to violin G6, plus the bow-speed exponents from
+/// a violin sweep at three speeds. The fitted bow-position exponents, -2.5 for the minimum and -1.4
+/// for the maximum, keep Schelleng's shape (the window narrows steeply toward the bridge) a little
+/// steeper than his idealisation; the fit is good to about x1.35 either way. The view's diagram and
+/// the player's attack assist both use it.
 pub fn schelleng_window(v_b: f32, beta: f32, z: f32, curve: &FrictionCurve, freq: f32) -> (f32, f32) {
-    let dmu = (curve.mu_s - curve.mu_d).max(0.05);
+    let rosin = 0.5 / (curve.mu_s - curve.mu_d).max(0.05);
     let beta = beta.clamp(0.01, 0.5);
-    let f = freq.max(10.0);
-    let v = v_b.max(1.0e-4);
-    let f_max = 0.5 * 2.0 * z * v / (beta * dmu) * (440.0 / f).powf(0.67);
-    let f_min = 0.0547 * z * z * v.powf(1.5) / (beta * beta * dmu) * (440.0 / f);
+    let f = (freq.max(10.0) / 440.0).max(1.0e-3);
+    let v = (v_b.max(1.0e-4) / 0.129).max(1.0e-4);
+    let z = z.max(1.0e-3);
+    let f_min = 0.0010 * z.powf(1.23) * f.powf(-0.67) * beta.powf(-SCHELLENG_MIN_BETA_EXP) * v.powf(1.46) * rosin;
+    let f_max = 0.1646 * z.powf(1.18) * f.powf(0.31) * beta.powf(-SCHELLENG_MAX_BETA_EXP) * v.powf(1.15) * rosin;
     (f_min, f_max)
 }
+
+/// How steeply the edges of the playable window move with bow position (`F ~ beta^-exp`).
+pub const SCHELLENG_MIN_BETA_EXP: f32 = 2.52;
+pub const SCHELLENG_MAX_BETA_EXP: f32 = 1.41;

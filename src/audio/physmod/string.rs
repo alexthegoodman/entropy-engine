@@ -156,6 +156,9 @@ pub struct BowedString {
     extra_damping: f32,
     pub contact: Contact,
     pub stats: ContactStats,
+    /// The last complete measurement from `stats` (see `Engine::report`).
+    pub last_stick_fraction: f32,
+    pub last_slips_per_period: f32,
     /// Contact velocity and free velocity at the bow last sample (m/s), for visualization/tests.
     pub last_v: f32,
     pub last_vh: f32,
@@ -170,6 +173,9 @@ pub struct BowedString {
     ticks: u64,
     last_release: u64,
     pub period_estimate: f32,
+    /// Stick-to-slip releases since the string was made (never reset), and oversampled ticks
+    /// likewise, for a player's own running count (see the engine's attack assist).
+    pub releases_total: u64,
     /// 0..1: how consistently recent releases have come once per period (clean Helmholtz motion).
     pub helmholtz_confidence: f32,
 }
@@ -201,6 +207,8 @@ impl BowedString {
             extra_damping: 0.0,
             contact: Contact::SlipBehind,
             stats: ContactStats::default(),
+            last_stick_fraction: 0.0,
+            last_slips_per_period: 0.0,
             last_v: 0.0,
             last_vh: 0.0,
             last_force: 0.0,
@@ -209,6 +217,7 @@ impl BowedString {
             ticks: 0,
             last_release: 0,
             period_estimate: 0.0,
+            releases_total: 0,
             helmholtz_confidence: 0.0,
         };
         s.retune(spec.open_freq, s.beta);
@@ -247,6 +256,11 @@ impl BowedString {
 
     pub fn sample_rate(&self) -> f32 {
         self.sr
+    }
+
+    /// Oversampled ticks since the string was made.
+    pub fn ticks(&self) -> u64 {
+        self.ticks
     }
 
     pub fn beta(&self) -> f32 {
@@ -297,7 +311,9 @@ impl BowedString {
             self.disp_key = (freq, b);
         }
 
-        let pd = OnePole::phase_delay(self.bridge_a, w) + OnePole::phase_delay(self.finger_a, w) + DISPERSION_STAGES as f32 * Allpass1::phase_delay(self.disp_c, w);
+        // (With no stiffness the allpasses are bypassed in `tick`, so they add no delay.)
+        let disp_pd = if self.disp_c != 0.0 { DISPERSION_STAGES as f32 * Allpass1::phase_delay(self.disp_c, w) } else { 0.0 };
+        let pd = OnePole::phase_delay(self.bridge_a, w) + OnePole::phase_delay(self.finger_a, w) + disp_pd;
         let one_way = ((sr / freq - pd) * 0.5).clamp(2.0 * MIN_SEG, self.a_r.max_delay() * 0.98);
         let beta = beta.clamp(MIN_SEG / one_way, 1.0 - MIN_SEG / one_way);
         self.beta = beta;
@@ -337,8 +353,10 @@ impl BowedString {
 
         // Bridge: stiffness dispersion, losses, inversion, plus the bridge's own motion.
         let mut x = b_r_out;
-        for ap in self.disp.iter_mut() {
-            x = ap.process(x, self.disp_c);
+        if self.disp_c != 0.0 {
+            for ap in self.disp.iter_mut() {
+                x = ap.process(x, self.disp_c);
+            }
         }
         let bridge_ref = -self.g_bridge * self.bridge_lp.process(x, self.bridge_a) + bridge_velocity;
 
@@ -363,6 +381,7 @@ impl BowedString {
                 self.stats.stuck += 1;
             } else if self.contact.is_stuck() {
                 self.stats.releases += 1;
+                self.releases_total += 1;
                 // Track the release-to-release interval while it looks like one period of
                 // Helmholtz motion (not a multiple slip or a long raucous stick).
                 let interval = (self.ticks - self.last_release) as f32;

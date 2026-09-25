@@ -29,7 +29,7 @@ pub mod friction;
 pub mod string;
 
 pub use engine::{
-    body_scale, bow_newtons, bow_speed, schelleng_window, string_impedance, Articulation, Engine, PhysModLive, PhysModParams, StringReport, MAX_ALL_STRINGS, MAX_STRINGS,
+    body_scale, bow_knob, bow_newtons, bow_speed, force_center, schelleng_window, SCHELLENG_MAX_BETA_EXP, SCHELLENG_MIN_BETA_EXP, string_impedance, Articulation, Engine, PhysModLive, PhysModParams, StringReport, MAX_ALL_STRINGS, MAX_STRINGS,
     MAX_SYMPATHETIC, VIOLIN_TUNING,
 };
 

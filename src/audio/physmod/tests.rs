@@ -41,7 +41,8 @@ fn cello_and_bass_registers_are_in_tune() {
     }
     let bass = [41.2, 55.0, 73.42, 98.0];
     let p = PhysModParams { strings: [bass[0], bass[1], bass[2], bass[3]], body_size: 1.0, ..plain(49.0) };
-    let a = analyze_note(&p, 1.2, 0.4);
+    // The bottom of the bass speaks slowly (as on a real bass): measured once it has.
+    let a = analyze_note(&p, 1.8, 0.5);
     assert!(a.cents.abs() < 10.0, "bass 49 Hz came out {:.2} Hz ({:+.1} cents)", a.f0, a.cents);
 }
 
@@ -90,8 +91,8 @@ fn the_minimum_bow_force_rises_steeply_as_the_bow_nears_the_bridge() {
             .unwrap_or(1.0)
     };
     let (near, far) = (min_knob(0.05), min_knob(0.13));
-    let z = string_impedance(293.66, 0.0, 0.5);
-    let (f_near, f_far) = (bow_newtons(near, z), bow_newtons(far, z));
+    let center = force_center(bow_speed(0.5) * 0.86, string_impedance(293.66, 0.0, 0.5), 293.66);
+    let (f_near, f_far) = (bow_newtons(near, center), bow_newtons(far, center));
     // beta ratio 2.6: 1/beta predicts x2.6, 1/beta^2 predicts x6.8.
     assert!(f_near / f_far > 3.5, "F_min near the bridge {f_near:.3} N vs further away {f_far:.3} N");
 }
