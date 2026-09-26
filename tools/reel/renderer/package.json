@@ -1,0 +1,13 @@
+{
+  "name": "entropy-daw-reel",
+  "private": true,
+  "type": "module",
+  "description": "Renders the Entropy DAW reel: the instrument views, drawn from the physical models' telemetry.",
+  "scripts": {
+    "stills": "node capture.mjs stills",
+    "video": "node capture.mjs video"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

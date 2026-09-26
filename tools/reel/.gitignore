@@ -1,0 +1,4 @@
+# Build output and everything the exporter and renderer write.
+/exporter/target
+/out
+/renderer/node_modules

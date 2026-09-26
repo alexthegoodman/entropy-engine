@@ -1,0 +1,18 @@
+[package]
+name = "entropy-reel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Its own workspace: the engine's physical models (src/audio/brass, matter, physmod) compiled on
+# their own, without the GPU, V8 and window dependencies of the full engine.
+[workspace]
+
+[dependencies]
+realfft = "3.5"
+rodio = { version = "0.21.1", default-features = false }
+hound = "3.5"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
