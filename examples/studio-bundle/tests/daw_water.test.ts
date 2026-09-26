@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-    DEFAULT_MIX, PITCHED_ROWS, RAIN_SURFACES, WATER_PLAYS, WATER_PRESETS, WATER_SOURCES, WATER_WAVEFORM, WEATHER_ROWS,
-    applyPreset, brookSpeed, defaultWater, describeSettings, dripPan, glassSpeed, noteConfig, rainRate, repairWater, rowsFor, sameBuild,
+    DEFAULT_MIX, PITCHED_ROWS, RACK_GLASSES, RAIN_SURFACES, VIEW_FILL_SECONDS, VIEW_HOLD_SECONDS, WATER_PLAYS, WATER_PRESETS, WATER_SOURCES, WATER_WAVEFORM, WEATHER_ROWS,
+    applyPreset, brookSpeed, defaultWater, describeSettings, dripPan, glassSpeed, noteConfig, rainRate, repairWater, rowsFor, sameBuild, viewNoteConfig, viewRow,
 } from "../src/apps/daw_water";
 import { createWorld } from "./daw_test_world";
 
@@ -74,6 +74,35 @@ describe("The water model", () => {
         expect(dripPan(262)).toBeLessThan(0);
         expect(dripPan(523.25)).toBeCloseTo(0);
         expect(dripPan(4186)).toBeCloseTo(0.8);
+    });
+
+    it("a click in the view plays as itself, up the track's scale", () => {
+        const w = defaultWater();
+        const freq = (row: number) => 100 * (row + 1);
+        expect(viewRow(0, 10)).toBe(0);
+        expect(viewRow(1, 10)).toBe(9);
+        expect(viewRow(NaN, 10)).toBe(0);
+        // Left to right across the basin goes up the scale; the drop lands where it was clicked.
+        const left = viewNoteConfig("t", w, { kind: "drip", x: -1, velocity: 0.5 }, freq, 10)!;
+        const right = viewNoteConfig("t", w, { kind: "drip", x: 0.8, velocity: 0.5 }, freq, 10)!;
+        expect(left).toMatchObject({ action: "drip", pitch: 100, x: -1 });
+        expect(right).toMatchObject({ action: "drip", pitch: 900, x: 0.8 });
+        // A glass is struck at its own pitch; an empty place in the rack takes its place's row.
+        expect(viewNoteConfig("t", w, { kind: "glass", index: 3, pitch: 440, velocity: 0.7 }, freq, 10)).toMatchObject({ action: "glass", pitch: 440 });
+        expect(viewNoteConfig("t", w, { kind: "glass", index: RACK_GLASSES - 1, pitch: 0, velocity: 0.7 }, freq, 10)).toMatchObject({ action: "glass", pitch: 1000 });
+        // Up a vessel is up the scale, poured for a moment.
+        expect(viewNoteConfig("t", w, { kind: "fill", height: 0.5, velocity: 0.7 }, freq, 5)).toMatchObject({ action: "fill", pitch: 300, duration: VIEW_FILL_SECONDS });
+        // Holding weather keeps it going a moment, whatever the track plays.
+        expect(viewNoteConfig("t", w, { kind: "hold", source: "surf", velocity: 1 }, freq, 10)).toMatchObject({ action: "surf", duration: VIEW_HOLD_SECONDS });
+        expect(viewNoteConfig("t", w, { kind: "hold", source: "slosh", velocity: 0.2 }, freq, 10)).toMatchObject({ action: "slosh" });
+        expect(viewNoteConfig("t", w, { kind: "hold", source: "glass", velocity: 0.2 }, freq, 10)).toBeNull();
+        // The track's own settings still apply (a spoon, the rain's surface).
+        expect(viewNoteConfig("t", { ...w, spoon: true, rain: "tent" }, { kind: "glass", index: 0, pitch: 523, velocity: 1 }, freq, 10)).toMatchObject({ spoon: true, water: { rain: "tent" } });
+    });
+
+    it("keeps Physics View through a save", () => {
+        expect(repairWater({ ...defaultWater(), physicsView: true }).physicsView).toBe(true);
+        expect(repairWater({ physicsView: "yes" }).physicsView).toBe(false);
     });
 
     it("describes itself for the AI", () => {
@@ -210,6 +239,36 @@ describe("The DAW's water (production addon callbacks)", () => {
         tool("daw_export_wav", {});
         const out = w.waterExports.at(-1)!.find((e: any) => e.action === "rain");
         expect(out.duration).toBeCloseTo(rain.cfg.duration, 3);
+    });
+
+    it("the window draws the track's water, and playing it plays the track", async () => {
+        const { w, world, click, state } = await openDaw();
+        const view = () => {
+            world.render();
+            const v = w.waterViews.get("wr_trk-lead");
+            if (!v) throw new Error(`no water view; have ${[...w.waterViews.keys()].join(", ")}`);
+            return v;
+        };
+        expect(view()).toMatchObject({ water: "trk-lead", physicsView: false });
+        view().onDrip(-1, 0.6);
+        view().onGlass(2, 0, 0.8);
+        view().onFill(1, 0.5);
+        view().onHold("rain", 0.9);
+        view().onPad("brook", 0.4);
+        const notes = w.waterNotes.map(n => n.cfg);
+        expect(notes.map(n => n.action)).toEqual(["drip", "glass", "fill", "rain", "brook"]);
+        expect(w.waterNotes.every(n => n.id === "trk-lead")).toBe(true);
+        // The drip is the scale's lowest row, where it was clicked; the fill its highest.
+        const t = state().tracks.find((t: any) => t.id === "trk-lead");
+        expect(notes[0].x).toBe(-1);
+        expect(notes[0].pitch).toBeLessThan(notes[2].pitch);
+        expect(notes[3].duration).toBe(VIEW_HOLD_SECONDS);
+        expect(t.water.play).toBe("glass");
+        // Physics View, from the chip or the button, is remembered.
+        view().onPhysicsView(true);
+        expect(view().physicsView).toBe(true);
+        click("wr_physics");
+        expect(view().physicsView).toBe(false);
     });
 
     it("deleting the track stops its water", async () => {

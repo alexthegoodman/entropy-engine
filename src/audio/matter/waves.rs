@@ -294,6 +294,19 @@ impl Waves {
         e * RHO_WATER * self.dx * self.spec.width
     }
 
+    /// Where the container is now: its displacement along the line (m) and its tilt (radians,
+    /// down to the right), as its motion moves it.
+    pub fn pose(&self) -> (f32, f32) {
+        let t = self.time as f32;
+        let tau = std::f32::consts::TAU;
+        match self.spec.motion {
+            Motion::Still => (0.0, 0.0),
+            Motion::Shake { amplitude, freq } => (amplitude * (tau * freq * t).sin() * (t * freq).min(1.0), 0.0),
+            Motion::Tilt { angle, time } => (0.0, angle * (t / time.max(1.0e-3)).min(1.0)),
+            Motion::Rock { angle, freq } => (0.0, angle * (tau * freq * t).sin()),
+        }
+    }
+
     /// Changes how the container moves (live).
     pub fn set_motion(&mut self, m: Motion) {
         self.spec.motion = m;

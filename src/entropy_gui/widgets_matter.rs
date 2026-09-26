@@ -42,23 +42,23 @@ use crate::entropy_gui::ui::Ui;
 // Palette (shared with the other instrument views)
 // ------------------------------------------------------------------------------------------
 
-const BG_TOP: [f32; 3] = [0.028, 0.032, 0.070];
-const BG_BOTTOM: [f32; 3] = [0.060, 0.050, 0.120];
-const BRASS: [f32; 3] = [1.0, 0.74, 0.30];
-const AMBER: [f32; 3] = [1.0, 0.78, 0.36];
-const TEAL: [f32; 3] = [0.28, 0.90, 0.84];
-const VIOLET: [f32; 3] = [0.58, 0.45, 1.0];
-const ROSE: [f32; 3] = [1.0, 0.36, 0.42];
-const SKY: [f32; 3] = [0.45, 0.62, 1.0];
-const HEAD: [f32; 3] = [0.70, 0.74, 0.90];
-const DIM: [f32; 3] = [0.34, 0.34, 0.46];
-const LABEL: Color32 = Color32::from_rgb(170, 176, 205);
+pub(crate) const BG_TOP: [f32; 3] = [0.028, 0.032, 0.070];
+pub(crate) const BG_BOTTOM: [f32; 3] = [0.060, 0.050, 0.120];
+pub(crate) const BRASS: [f32; 3] = [1.0, 0.74, 0.30];
+pub(crate) const AMBER: [f32; 3] = [1.0, 0.78, 0.36];
+pub(crate) const TEAL: [f32; 3] = [0.28, 0.90, 0.84];
+pub(crate) const VIOLET: [f32; 3] = [0.58, 0.45, 1.0];
+pub(crate) const ROSE: [f32; 3] = [1.0, 0.36, 0.42];
+pub(crate) const SKY: [f32; 3] = [0.45, 0.62, 1.0];
+pub(crate) const HEAD: [f32; 3] = [0.70, 0.74, 0.90];
+pub(crate) const DIM: [f32; 3] = [0.34, 0.34, 0.46];
+pub(crate) const LABEL: Color32 = Color32::from_rgb(170, 176, 205);
 
-fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+pub(crate) fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     let t = t.clamp(0.0, 1.0);
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
-fn c32(c: [f32; 3], a: f32) -> Color32 {
+pub(crate) fn c32(c: [f32; 3], a: f32) -> Color32 {
     Color32::from_rgba_f32([c[0], c[1], c[2], a.clamp(0.0, 1.0)])
 }
 
@@ -89,23 +89,23 @@ fn label(p: Piece) -> &'static str {
 // Camera
 // ------------------------------------------------------------------------------------------
 
-type V3 = [f32; 3];
-fn add(a: V3, b: V3) -> V3 {
+pub(crate) type V3 = [f32; 3];
+pub(crate) fn add(a: V3, b: V3) -> V3 {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
-fn sub(a: V3, b: V3) -> V3 {
+pub(crate) fn sub(a: V3, b: V3) -> V3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
-fn scale(a: V3, s: f32) -> V3 {
+pub(crate) fn scale(a: V3, s: f32) -> V3 {
     [a[0] * s, a[1] * s, a[2] * s]
 }
-fn dot(a: V3, b: V3) -> f32 {
+pub(crate) fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-fn cross(a: V3, b: V3) -> V3 {
+pub(crate) fn cross(a: V3, b: V3) -> V3 {
     [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
-fn norm(a: V3) -> V3 {
+pub(crate) fn norm(a: V3) -> V3 {
     let l = dot(a, a).sqrt().max(1.0e-9);
     scale(a, 1.0 / l)
 }
@@ -138,19 +138,26 @@ impl Camera {
 /// The box the kit stands in, metres.
 const FIT: (V3, V3) = ([-0.86, 0.15, -0.6], [0.95, 1.3, 0.3]);
 
+/// A perspective camera orbiting the middle of a box, framed so the whole box fits `rect` (shared by
+/// the instrument views that stand in a scene: the kit, the water).
 #[derive(Clone, Copy, Debug)]
-struct Projector {
+pub(crate) struct Projector {
     eye: V3,
     right: V3,
     up: V3,
     fwd: V3,
-    focal: f32,
+    pub(crate) focal: f32,
     shift: Pos2,
 }
 
 impl Projector {
     fn new(cam: &Camera, rect: Rect) -> Self {
-        let (fit_min, fit_max) = FIT;
+        Self::fit(cam, rect, FIT)
+    }
+
+    /// Orbiting the middle of `fit` (min and max corners, metres), from the `+z` side at yaw 0.
+    pub(crate) fn fit(cam: &Camera, rect: Rect, fit: (V3, V3)) -> Self {
+        let (fit_min, fit_max) = fit;
         let target = scale(add(fit_min, fit_max), 0.5);
         let diag = sub(fit_max, fit_min);
         let dist = cam.dist * dot(diag, diag).sqrt() / 2.0;
@@ -180,7 +187,7 @@ impl Projector {
         p
     }
 
-    fn project_raw(&self, w: V3) -> Option<(Pos2, f32)> {
+    pub(crate) fn project_raw(&self, w: V3) -> Option<(Pos2, f32)> {
         let v = sub(w, self.eye);
         let depth = dot(v, self.fwd);
         if depth < 0.05 {
@@ -189,11 +196,11 @@ impl Projector {
         Some((pos2(dot(v, self.right) / depth * self.focal + self.shift.x, -dot(v, self.up) / depth * self.focal + self.shift.y), depth))
     }
 
-    fn project(&self, w: V3) -> Option<Pos2> {
+    pub(crate) fn project(&self, w: V3) -> Option<Pos2> {
         self.project_raw(w).map(|(p, _)| p)
     }
 
-    fn depth(&self, w: V3) -> f32 {
+    pub(crate) fn depth(&self, w: V3) -> f32 {
         dot(sub(w, self.eye), self.fwd)
     }
 }
@@ -621,7 +628,7 @@ fn face_at(proj: &Projector, p: Pos2) -> Option<(Piece, f32, f32)> {
     best.map(|(_, p, r, a)| (p, r, a))
 }
 
-fn inside(poly: &[Pos2], p: Pos2) -> bool {
+pub(crate) fn inside(poly: &[Pos2], p: Pos2) -> bool {
     let mut c = false;
     let mut j = poly.len() - 1;
     for i in 0..poly.len() {
@@ -638,7 +645,7 @@ fn inside(poly: &[Pos2], p: Pos2) -> bool {
 // Drawing
 // ------------------------------------------------------------------------------------------
 
-fn polyline(painter: &Painter, pts: &[Pos2], glow: f32, core: f32, colour: [f32; 3], alpha: f32) {
+pub(crate) fn polyline(painter: &Painter, pts: &[Pos2], glow: f32, core: f32, colour: [f32; 3], alpha: f32) {
     if pts.len() < 2 {
         return;
     }
@@ -943,13 +950,13 @@ fn draw_readout(painter: &Painter, lay: &Layout, scene: &Scene, opts: &MatterVie
     }
 }
 
-fn panel(painter: &Painter, r: Rect, title: &str) {
+pub(crate) fn panel(painter: &Painter, r: Rect, title: &str) {
     painter.rect_filled(r, 6u8, c32([0.03, 0.03, 0.07], 0.82));
     painter.rect_stroke(r, 6u8, Stroke::new(1.0, c32(DIM, 0.6)), StrokeKind::Middle);
     painter.text(pos2(r.min.x + 8.0, r.min.y + 5.0), Align2::LEFT_TOP, title, FontId::proportional(9.5), LABEL);
 }
 
-fn inner(r: Rect) -> Rect {
+pub(crate) fn inner(r: Rect) -> Rect {
     Rect::from_min_max(pos2(r.min.x + 26.0, r.min.y + 20.0), pos2(r.max.x - 8.0, r.max.y - 16.0))
 }
 
@@ -1014,7 +1021,7 @@ fn draw_energy(painter: &Painter, r: Rect, scene: &Scene, st: &ViewState) {
     }
 }
 
-fn draw_chip(painter: &Painter, r: Rect, on: bool) {
+pub(crate) fn draw_chip(painter: &Painter, r: Rect, on: bool) {
     painter.rect_filled(r, 11u8, c32(if on { TEAL } else { [0.08, 0.08, 0.14] }, if on { 0.85 } else { 0.9 }));
     painter.rect_stroke(r, 11u8, Stroke::new(1.0, c32(TEAL, 0.8)), StrokeKind::Middle);
     painter.text(r.center(), Align2::CENTER_CENTER, "PHYSICS", FontId::proportional(10.0), if on { Color32::from_rgb(10, 20, 30) } else { c32(TEAL, 1.0) });

@@ -116,6 +116,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // prepare was asked for, and the kits removed. `matterStatus` is what prepare answers (a
         // test sets it to "building" to see hits dropped).
         matterViews: new Map<string, any>(),
+        waterViews: new Map<string, any>(),
         matterHits: [] as { id: string; cfg: any }[],
         matterHolds: [] as { id: string; cfg: any }[],
         matterPrepared: [] as { id: string; cfg: any }[],
@@ -165,6 +166,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         physModString: (_win: string, c: any) => { w.physModViews.set(c.id ?? c.instrument, c); },
         brass: (_win: string, c: any) => { w.brassViews.set(c.id ?? c.instrument, c); },
         matter: (_win: string, c: any) => { w.matterViews.set(c.id ?? c.kit, c); },
+        water: (_win: string, c: any) => { w.waterViews.set(c.id ?? c.water, c); },
         treeView: (_win: string, c: any) => { w.trees.set(c.id, c); },
         tracks: (_win: string, c: any) => { if (c.id === "arrangement") w.arrangement = c; },
     };
@@ -422,7 +424,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
     const render = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear();
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
         windowRenders.forEach(fn => fn());

@@ -126,7 +126,15 @@ pub struct Rain {
     rng: Rng,
     births: [Birth; 2],
     pub report: RainReport,
+    /// Where the last [`RECENT`] simulated drops landed, as fractions of the face's radius (the
+    /// lake's: of the water around the listener), oldest overwritten first; `landed_view` counts
+    /// them all (a slot is `landed_view % RECENT`).
+    pub recent: [[f32; 2]; RECENT],
+    pub landed_view: u64,
 }
+
+/// Landings remembered for the view.
+pub const RECENT: usize = 24;
 
 /// Marshall-Palmer drops per m^3 per mm at `d` m, for `rate` mm/h.
 fn marshall_palmer(d: f32, rate: f32) -> f32 {
@@ -158,7 +166,7 @@ impl Rain {
             Body::Drum(d) => (d.spec.batter.area(), 0.0),
             Body::Cymbal(c) => (std::f32::consts::PI * c.spec.plate.radius * c.spec.plate.radius, 0.0),
         };
-        let mut r = Self { target, sr, h: 1.0 / sr, body, rate: 0.0, flux: 0.0, cdf: [0.0; TABLE], area, distance: if lake_radius > 0.0 { 1.6 } else { distance }, lake_radius, next: 0.0, rng: Rng::new(seed), births: [Birth::new(1.0e-3, 1.0e-3); 2], report: RainReport::default() };
+        let mut r = Self { target, sr, h: 1.0 / sr, body, rate: 0.0, flux: 0.0, cdf: [0.0; TABLE], area, distance: if lake_radius > 0.0 { 1.6 } else { distance }, lake_radius, next: 0.0, rng: Rng::new(seed), births: [Birth::new(1.0e-3, 1.0e-3); 2], report: RainReport::default(), recent: [[0.0; 2]; RECENT], landed_view: 0 };
         // Enable the splashes now (mapping the face allocates).
         match &mut r.body {
             Body::Sheet(s) => s.enable_splashes(),
@@ -235,6 +243,8 @@ impl Rain {
         self.report.landed += count as f64;
         // Anywhere on the face, uniformly.
         let (r, theta) = (self.rng.uniform().sqrt(), self.rng.range(0.0, std::f32::consts::TAU));
+        self.recent[(self.landed_view % RECENT as u64) as usize] = [r * theta.cos(), r * theta.sin()];
+        self.landed_view += 1;
         match &mut self.body {
             Body::Lake { bubbles } => {
                 let (x, y) = (r * self.lake_radius * theta.cos(), r * self.lake_radius * theta.sin());
@@ -296,6 +306,17 @@ impl Rain {
 
     pub fn sample_rate(&self) -> f32 {
         self.sr
+    }
+
+    /// How much the body the rain falls on is ringing, J (0 for the lake), and the lake's bubbles
+    /// ringing (0 for a body).
+    pub fn body_state(&self) -> (f32, usize) {
+        match &self.body {
+            Body::Lake { bubbles } => (0.0, bubbles.ringing()),
+            Body::Sheet(s) => (s.energy(), 0),
+            Body::Drum(d) => (d.energy(), 0),
+            Body::Cymbal(c) => (c.energy(), 0),
+        }
     }
 }
 

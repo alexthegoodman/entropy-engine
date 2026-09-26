@@ -90,7 +90,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -282,6 +282,7 @@ extension!(
         op_audio_water_remove,
         op_water_render_analyze,
         op_ui_widget_matter,
+        op_ui_widget_water,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4838,6 +4839,31 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             MatterViewEvent::Pad { piece, velocity } => format!("MATTER_PAD|{}|{}|{:.3}", mt_id, piece.name(), velocity),
                             MatterViewEvent::Rub { piece, x, y, pressure } => format!("MATTER_RUB|{}|{}|{:.4}|{:.4}|{:.3}", mt_id, piece.name(), x, y, pressure),
                             MatterViewEvent::PhysicsView(on) => format!("MATTER_PHYSICS_VIEW|{}|{}", mt_id, on as u8),
+                        });
+                    }
+                }
+                UiWidget::WaterView { id: wv_id, config } => {
+                    use crate::audio::matter::water_voice;
+                    use crate::entropy_gui::{WaterView, WaterViewEvent, WaterViewOptions};
+                    let shared = water_voice::shared_for(&config.water);
+                    let d = WaterViewOptions::default();
+                    let opts = WaterViewOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        pads: config.pads.unwrap_or(d.pads),
+                        physics_view: config.physics_view.unwrap_or(d.physics_view),
+                        exaggeration: config.exaggeration.unwrap_or(d.exaggeration),
+                        status: config.status.clone(),
+                    };
+                    let resp = WaterView::new(wv_id.as_str()).show(ui, &opts, &shared);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            WaterViewEvent::Drip { x, velocity } => format!("WATER_DRIP|{}|{:.4}|{:.3}", wv_id, x, velocity),
+                            WaterViewEvent::Glass { index, pitch, velocity } => format!("WATER_GLASS|{}|{}|{:.3}|{:.3}", wv_id, index, pitch, velocity),
+                            WaterViewEvent::Fill { height, velocity } => format!("WATER_FILL|{}|{:.4}|{:.3}", wv_id, height, velocity),
+                            WaterViewEvent::Hold { source, velocity } => format!("WATER_HOLD|{}|{}|{:.3}", wv_id, source.name(), velocity),
+                            WaterViewEvent::Pad { source, velocity } => format!("WATER_PAD|{}|{}|{:.3}", wv_id, source.name(), velocity),
+                            WaterViewEvent::PhysicsView(on) => format!("WATER_PHYSICS_VIEW|{}|{}", wv_id, on as u8),
                         });
                     }
                 }

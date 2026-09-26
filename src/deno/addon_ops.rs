@@ -585,6 +585,24 @@ pub struct MatterViewConfig {
     pub status: Option<String>,
 }
 
+/// `Widget.water` - see `entropy_gui::WaterView`. `water` names a water instrument in the water
+/// registry (a water track's id: `Audio.playWaterOnTrack` publishes to it as notes play).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WaterViewConfig {
+    pub water: String,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// Show the row of pads. Default true.
+    pub pads: Option<bool>,
+    /// Show the Physics View overlays (the bubbles ringing, the glasses' wall modes and the
+    /// vessels' air columns, each source's level).
+    pub physics_view: Option<bool>,
+    pub exaggeration: Option<f32>,
+    /// A line shown over the scene (the water being built, say).
+    pub status: Option<String>,
+}
+
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -733,6 +751,7 @@ pub enum UiWidget {
     PhysModView { id: String, config: PhysModViewConfig },
     BrassView { id: String, config: BrassViewConfig },
     MatterView { id: String, config: MatterViewConfig },
+    WaterView { id: String, config: WaterViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -4133,6 +4152,18 @@ pub fn op_ui_widget_brass(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::BrassView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_water(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: WaterViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::WaterView { id, config });
     }
 }
 
