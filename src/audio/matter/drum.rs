@@ -11,6 +11,7 @@
 //! sounds - the kick's thump, a tom's pitch glide, the timpani's pitch - are what those quantities do.
 
 use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
+use super::drop::{Drop, SplashReport, Splashes};
 use super::cavity::{Cavity, MAX_CAVITY_ORDER};
 use super::membrane::{HeadSpec, Membrane, MembraneOptions};
 use super::modal::{dot, ModalBody};
@@ -127,6 +128,8 @@ pub enum DrumKind {
     FloorTom,
     RackTom,
     Timpani,
+    /// A stretched fabric with nothing behind it: a tent's fly.
+    Tent,
 }
 
 /// The physical description of a drum.
@@ -209,6 +212,15 @@ impl DrumSpec {
         let mut s = DrumSpec { kind: DrumKind::Timpani, batter, reso: None, volume: 0.14, depth: 0.0, striker: StrikerSpec::timpani_mallet(), max_modes: 400, high_band: HIGH_BAND, snares: None, surface: SurfaceKind::ClearHead, partners: false };
         s.batter.tension = Membrane::tension_for(s.batter, 1, 1, pitch, true);
         s
+    }
+
+    /// A tent's fly: about 1.2 m of coated nylon (70 g/m^2) pulled to 150 N/m, with nothing behind
+    /// it but the open air. The air it moves outweighs it several times over, which the membrane's
+    /// computed air loading carries. Woven fabric is lossy: a loss factor of about 0.08, so each
+    /// mode decays at `pi f eta`, 250/s per kHz.
+    pub fn tent() -> Self {
+        let fly = HeadSpec { radius: 0.6, tension: 150.0, thickness: 60.0e-6, young: 1.0e9, poisson: 0.3, density: 1150.0, loss: 12.0, loss_hf: 250.0, radiates: true };
+        DrumSpec { kind: DrumKind::Tent, batter: fly, reso: None, volume: 0.0, depth: 0.0, striker: StrikerSpec::stick(), max_modes: 300, high_band: 20.0, snares: None, surface: SurfaceKind::ClearHead, partners: false }
     }
 
     fn tuned(mut s: DrumSpec, batter: f32, reso: f32) -> Self {
@@ -353,6 +365,8 @@ pub struct Drum {
     outside: [f32; 2],
     /// A tool rubbing the batter (see `enable_rubbing`).
     rub: Option<Box<Rub>>,
+    /// Drops splashing on the batter (see `enable_splashes`).
+    wet: Option<Box<Splashes>>,
 }
 
 impl Drum {
@@ -399,7 +413,7 @@ impl Drum {
         // beater more energy than it brought.
         let c_l = (spec.batter.young / (spec.batter.density * (1.0 - spec.batter.poisson * spec.batter.poisson))).sqrt();
         let smoothing = 1.0 - (-(BLOCK as f32) / (spec.batter.radius / c_l * sr)).exp();
-        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0, report: StrikeReport::default(), newest: 0, outside: [0.0; 2], rub: None }
+        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0, report: StrikeReport::default(), newest: 0, outside: [0.0; 2], rub: None, wet: None }
     }
 
     /// Number of (cavity mode, head mode) couplings.
@@ -467,7 +481,34 @@ impl Drum {
 
     /// Whether anything is still in flight or in contact (a tool rubbing the head included).
     pub fn striking(&self) -> bool {
-        self.flights.iter().any(|f| f.active) || self.rub.as_ref().is_some_and(|r| r.active())
+        self.flights.iter().any(|f| f.active) || self.rub.as_ref().is_some_and(|r| r.active()) || self.wet.as_ref().is_some_and(|w| w.active())
+    }
+
+    /// Makes the batter ready for drops to land anywhere on it (maps its mode shapes, as for
+    /// rubbing). Call off the audio thread; `splash` then allocates nothing.
+    pub fn enable_splashes(&mut self) {
+        if self.wet.is_none() {
+            self.wet = Some(Box::new(Splashes::new(SurfaceMap::of_membrane(&self.heads[0].membrane), self.sr)));
+        }
+    }
+
+    /// A drop lands on the batter at `(x, y)` m from its centre. Enables splashes first if they
+    /// were not, which allocates.
+    pub fn splash(&mut self, drop: Drop, x: f32, y: f32) {
+        self.splash_many(drop, x, y, 1.0);
+    }
+
+    /// As `splash`, standing for `count` drops (see `Splashes::land_many`).
+    pub fn splash_many(&mut self, drop: Drop, x: f32, y: f32, count: f32) {
+        self.enable_splashes();
+        if let Some(w) = self.wet.as_mut() {
+            w.land_many(&self.heads[0].body, drop, x, y, count);
+        }
+    }
+
+    /// What the drops on the batter have done.
+    pub fn splash_report(&self) -> SplashReport {
+        self.wet.as_ref().map(|w| w.report).unwrap_or_default()
     }
 
     /// Makes the batter ready to be rubbed by `tool`: maps its mode shapes over the whole head (a
@@ -580,6 +621,9 @@ impl Drum {
         // A tool rubbing the batter.
         if let Some(r) = self.rub.as_mut() {
             r.tick(&mut self.heads[0].body);
+        }
+        if let Some(w) = self.wet.as_mut() {
+            self.last_force += w.tick(&mut self.heads[0].body);
         }
 
         // Snare wires against the resonant head. Everything here is the motion about the rest state,

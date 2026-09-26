@@ -12,6 +12,7 @@
 //! height and the metal's losses.
 
 use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
+use super::drop::{Drop, SplashReport, Splashes};
 use super::drum::{Strike, StrikerSpec, FULL_SCALE_PA, MAX_STRIKERS};
 use super::modal::ModalBody;
 use super::plate::{Plate, PlateOptions, PlateSpec};
@@ -123,6 +124,8 @@ pub struct Cymbal {
     u_decay: f32,
     /// A tool rubbing the plate (see `enable_rubbing`).
     rub: Option<Box<Rub>>,
+    /// Drops splashing on the plate (see `enable_splashes`).
+    wet: Option<Box<Splashes>>,
 }
 
 impl Cymbal {
@@ -136,7 +139,7 @@ impl Cymbal {
         let flights = (0..MAX_STRIKERS)
             .map(|_| Flight { striker: Striker { mass: 1.0, tip: spec.striker.tip, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw::between(spec.striker.tip, BRONZE, 0.5)), shape: vec![0.0; n], active: false, age: 0 })
             .collect();
-        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0, report: StrikeReport::default(), newest: 0, nonlinear_floor: 0.0, dormant: false, u_peak: 0.0, u_decay: (-1.0 / (0.05 * sr)).exp(), rub: None }
+        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0, report: StrikeReport::default(), newest: 0, nonlinear_floor: 0.0, dormant: false, u_peak: 0.0, u_decay: (-1.0 / (0.05 * sr)).exp(), rub: None, wet: None }
     }
 
     pub fn plate(&self) -> &Plate {
@@ -200,7 +203,35 @@ impl Cymbal {
     }
 
     fn rubbed(&self) -> bool {
-        self.rub.as_ref().is_some_and(|r| r.active())
+        self.rub.as_ref().is_some_and(|r| r.active()) || self.wet.as_ref().is_some_and(|w| w.active())
+    }
+
+    /// Makes the plate ready for drops to land anywhere on it (see `Drum::enable_splashes`; the
+    /// plate has only the cosine member of each mode pair, so a drop off the `theta = 0` diameter
+    /// lands as its mirror image would).
+    pub fn enable_splashes(&mut self) {
+        if self.wet.is_none() {
+            self.wet = Some(Box::new(Splashes::new(SurfaceMap::of_plate(&self.plate), self.sr)));
+        }
+    }
+
+    /// A drop lands on the plate at `(x, y)` m from its centre.
+    pub fn splash(&mut self, drop: Drop, x: f32, y: f32) {
+        self.splash_many(drop, x, y, 1.0);
+    }
+
+    /// As `splash`, standing for `count` drops (see `Splashes::land_many`).
+    pub fn splash_many(&mut self, drop: Drop, x: f32, y: f32, count: f32) {
+        self.enable_splashes();
+        if let Some(w) = self.wet.as_mut() {
+            w.land_many(&self.body, drop, x, y, count);
+            self.dormant = false;
+            self.u_peak = 0.0;
+        }
+    }
+
+    pub fn splash_report(&self) -> SplashReport {
+        self.wet.as_ref().map(|w| w.report).unwrap_or_default()
     }
 
     /// Makes the plate ready to be rubbed by `tool` (see `Drum::enable_rubbing`). The plate has only
@@ -283,6 +314,9 @@ impl Cymbal {
         self.last_force = total;
         if let Some(r) = self.rub.as_mut() {
             r.tick(&mut self.body);
+        }
+        if let Some(w) = self.wet.as_mut() {
+            self.last_force += w.tick(&mut self.body);
         }
         self.body.step() / FULL_SCALE_PA
     }

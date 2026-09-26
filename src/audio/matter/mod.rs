@@ -27,8 +27,10 @@
 //! not tuned by ear.
 
 pub mod bessel;
+pub mod bubble;
 pub mod cavity;
 pub mod contact;
+pub mod drop;
 pub mod cymbal;
 pub mod drum;
 pub mod friction;
@@ -37,10 +39,14 @@ pub mod live;
 pub mod membrane;
 pub mod modal;
 pub mod plate;
+pub mod rain;
 pub mod rub;
 pub mod sheet;
 pub mod surface;
+pub mod vessel;
 pub mod vonkarman;
+pub mod water;
+pub mod waves;
 
 #[cfg(test)]
 mod tests;
@@ -50,6 +56,8 @@ mod cymbal_tests;
 mod kit_tests;
 #[cfg(test)]
 mod rub_tests;
+#[cfg(test)]
+mod water_tests;
 
 pub use contact::{Contact, ContactLaw, Material, Striker, Tip};
 pub use cymbal::{Cymbal, CymbalKind, CymbalSpec};

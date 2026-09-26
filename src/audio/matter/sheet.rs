@@ -7,6 +7,7 @@
 //! one": what a tool rubs when it isn't a drum or a cymbal.
 
 use super::contact::{Contact, ContactLaw, StrikeReport, Striker};
+use super::drop::{Drop, SplashReport, Splashes};
 use super::drum::{Strike, FULL_SCALE_PA, MAX_STRIKERS};
 use super::modal::ModalBody;
 use super::plate::{Plate, PlateOptions, PlateSpec};
@@ -24,23 +25,32 @@ pub struct SheetSpec {
     pub loss_hf: f32,
     /// Modes kept: every mode to this frequency (Hz), then a sampled band to 16 kHz.
     pub complete_freq: f32,
+    /// Density, kg/m^3, if not the material's (0): for a sheet standing for a shaped one (see
+    /// `rain::roof`).
+    pub density: f32,
 }
 
 impl SheetSpec {
     /// A 30 cm disc of 4 mm float glass. Glass loses little to itself; most of a pane's damping is
     /// its mounting, here the soft support of a hand or a cloth.
     pub fn glass_pane() -> Self {
-        Self { surface: SurfaceKind::Glass, radius: 0.15, thickness: 0.004, loss: 1.5, loss_hf: 0.6, complete_freq: 4000.0 }
+        Self { surface: SurfaceKind::Glass, radius: 0.15, thickness: 0.004, loss: 1.5, loss_hf: 0.6, complete_freq: 4000.0, density: 0.0 }
     }
 
     /// A 40 cm disc of 1 mm mild steel.
     pub fn steel_sheet() -> Self {
-        Self { surface: SurfaceKind::Steel, radius: 0.2, thickness: 0.001, loss: 1.0, loss_hf: 0.4, complete_freq: 3000.0 }
+        Self { surface: SurfaceKind::Steel, radius: 0.2, thickness: 0.001, loss: 1.0, loss_hf: 0.4, complete_freq: 3000.0, density: 0.0 }
+    }
+
+    /// The same sheet with its density set.
+    pub fn with_density(self, density: f32) -> Self {
+        Self { density, ..self }
     }
 
     fn plate(&self) -> PlateSpec {
         let m = self.surface.material();
-        PlateSpec { radius: self.radius, thickness: self.thickness, young: m.young, poisson: m.poisson, density: m.density, dome_radius: 0.0, loss: self.loss, loss_hf: self.loss_hf, mount_freq: 0.0, rock_freq: 0.0, mount_q: 3.0 }
+        let density = if self.density > 0.0 { self.density } else { m.density };
+        PlateSpec { radius: self.radius, thickness: self.thickness, young: m.young, poisson: m.poisson, density, dome_radius: 0.0, loss: self.loss, loss_hf: self.loss_hf, mount_freq: 0.0, rock_freq: 0.0, mount_q: 3.0 }
     }
 
     fn options(&self, sr: f32) -> PlateOptions {
@@ -66,6 +76,7 @@ pub struct Sheet {
     body: ModalBody,
     flights: Vec<Flight>,
     rub: Rub,
+    wet: Option<Box<Splashes>>,
     pub report: StrikeReport,
     pub last_force: f32,
     counter: u32,
@@ -81,7 +92,7 @@ impl Sheet {
         let material = spec.surface.material();
         let flights = (0..MAX_STRIKERS).map(|_| Flight { striker: Striker { mass: 1.0, tip: super::contact::Tip::Solid { radius: 0.005, material }, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw { k: 1.0, alpha: 1.5, restitution: 0.5 }), shape: vec![0.0; n], active: false, age: 0 }).collect();
         let rub = Rub::new(SurfaceMap::of_plate(&plate), spec.surface, 0.5 * spec.thickness, tool, sr);
-        Self { spec, sr, h: 1.0 / sr, plate, body, flights, rub, report: StrikeReport::default(), last_force: 0.0, counter: 0 }
+        Self { spec, sr, h: 1.0 / sr, plate, body, flights, rub, wet: None, report: StrikeReport::default(), last_force: 0.0, counter: 0 }
     }
 
     pub fn plate(&self) -> &Plate {
@@ -134,7 +145,31 @@ impl Sheet {
     }
 
     pub fn striking(&self) -> bool {
-        self.flights.iter().any(|f| f.active) || self.rub.active()
+        self.flights.iter().any(|f| f.active) || self.rub.active() || self.wet.as_ref().is_some_and(|w| w.active())
+    }
+
+    /// Makes the sheet ready for drops to land anywhere on it (see `Drum::enable_splashes`).
+    pub fn enable_splashes(&mut self) {
+        if self.wet.is_none() {
+            self.wet = Some(Box::new(Splashes::new(SurfaceMap::of_plate(&self.plate), self.sr)));
+        }
+    }
+
+    /// A drop lands on the sheet at `(x, y)` m from its centre.
+    pub fn splash(&mut self, drop: Drop, x: f32, y: f32) {
+        self.splash_many(drop, x, y, 1.0);
+    }
+
+    /// As `splash`, standing for `count` drops (see `Splashes::land_many`).
+    pub fn splash_many(&mut self, drop: Drop, x: f32, y: f32, count: f32) {
+        self.enable_splashes();
+        if let Some(w) = self.wet.as_mut() {
+            w.land_many(&self.body, drop, x, y, count);
+        }
+    }
+
+    pub fn splash_report(&self) -> SplashReport {
+        self.wet.as_ref().map(|w| w.report).unwrap_or_default()
     }
 
     /// One sample of radiated sound, normalized so `FULL_SCALE_PA` at 1 m is 1.0.
@@ -157,6 +192,9 @@ impl Sheet {
         }
         self.last_force = total;
         self.rub.tick(&mut self.body);
+        if let Some(w) = self.wet.as_mut() {
+            self.last_force += w.tick(&mut self.body);
+        }
         self.counter = self.counter.wrapping_add(1);
         if self.counter % 64 == 0 {
             self.body.flush_quiet();
