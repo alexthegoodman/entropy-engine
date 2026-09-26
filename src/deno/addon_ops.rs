@@ -567,6 +567,24 @@ pub struct BrassViewConfig {
     pub exaggeration: Option<f32>,
 }
 
+/// `Widget.matter` - see `entropy_gui::MatterView`. `kit` names a kit in the matter registry
+/// (`Entropy.Matter` publishes to it as hits play).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MatterViewConfig {
+    pub kit: String,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// Show the row of pads. Default true.
+    pub pads: Option<bool>,
+    /// Show the Physics View overlays (the struck piece's modes, the contact force, the energy in
+    /// each piece).
+    pub physics_view: Option<bool>,
+    pub exaggeration: Option<f32>,
+    /// A line shown over the kit (a kit being built, say).
+    pub status: Option<String>,
+}
+
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -714,6 +732,7 @@ pub enum UiWidget {
     /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
     PhysModView { id: String, config: PhysModViewConfig },
     BrassView { id: String, config: BrassViewConfig },
+    MatterView { id: String, config: MatterViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -2879,6 +2898,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] vst3_events: Vec<Vst3RenderTrackConfig>,
     #[serde] track_buses: Vec<TrackBusRenderConfig>,
     #[serde] brass_events: Vec<crate::deno::brass_ops::BrassNoteConfig>,
+    #[serde] matter_events: Vec<crate::deno::matter_ops::MatterHitConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2920,6 +2940,10 @@ pub fn op_audio_render_pattern_wav(
     let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
     let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
     let brass_routes: Vec<Option<usize>> = brass_events.iter().map(|e| bus_of(&e.track_id)).collect();
+    // A hit that names no piece the kit has is left out (with its route, so the two stay parallel).
+    let matter_hits: Vec<(crate::audio::MatterEvent, Option<usize>)> = matter_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
+    let matter_routes: Vec<Option<usize>> = matter_hits.iter().map(|h| h.1).collect();
+    let matter_hits: Vec<crate::audio::MatterEvent> = matter_hits.into_iter().map(|h| h.0).collect();
     let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
 
     let note_events: Vec<crate::audio::NoteEvent> = events
@@ -2986,9 +3010,10 @@ pub fn op_audio_render_pattern_wav(
         wavetable: &wavetable_routes,
         physmod: &physmod_routes,
         brass: &brass_routes,
+        matter: &matter_routes,
         vst3: &vst3_routes,
     };
-    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &vst3_tracks, &routing, 44100, &output_path) {
+    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &vst3_tracks, &routing, 44100, &output_path) {
         Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
@@ -4102,6 +4127,18 @@ pub fn op_ui_widget_brass(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::BrassView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_matter(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: MatterViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::MatterView { id, config });
     }
 }
 

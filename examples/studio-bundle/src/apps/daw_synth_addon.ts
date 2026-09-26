@@ -111,6 +111,20 @@ import {
     noteConfig as brassNoteConfig,
     repairBrass,
 } from "./daw_brass";
+import type { MatterHit, MatterKit, MatterPiece, MatterSettings } from "./daw_matter";
+import {
+    MATTER_WAVEFORM,
+    MATTER_PIECES,
+    MATTER_PRESETS,
+    MATTER_ROWS,
+    KIT_RANGES,
+    applyPreset as applyMatterPreset,
+    defaultMatter,
+    describeSettings as describeMatter,
+    hitConfig as matterHitConfig,
+    repairMatter,
+    sameBuild as sameMatterBuild,
+} from "./daw_matter";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
 import {
@@ -269,6 +283,9 @@ interface Track {
     physmod?: PhysModSettings;
     // Synth tracks whose waveform is "brass": the brass player's settings (no persistent data).
     brass?: BrassSettings;
+    // Synth tracks whose waveform is "matter": the drum kit's tunings, mix and how it is played.
+    // Its rows are the kit's rows (daw_matter.ts), not a scale.
+    matter?: MatterSettings;
     rootNote: number;
     scale: string;
     rows: number;
@@ -852,6 +869,84 @@ function setBrassMute(track: Track, id: string) {
     rebuildBrass(track);
 }
 
+// --- Drum-kit tracks (see daw_matter.ts and src/audio/matter/) ------------------------------
+//
+// A synth track whose waveform is "matter" is a physically modeled drum kit. Its rows are the kit's
+// rows (kick at the top, like a drum track's pads), and every hit lands on one live kit on the
+// track's bus, so the pieces ring on and hear each other. The kit is built off the audio thread (a
+// second or so the first time, then from the cache), so it is prepared as soon as the track becomes
+// a kit or the song loads; hits sent while it is first being built are dropped. A retuned kit is
+// built while the old one keeps playing.
+
+/** The kit each track's hits go to: what was last handed to the engine. Knob drags change the
+ *  track's settings at once but are committed only when the knob has been still for a moment, so a
+ *  drag does not start a build per step. */
+const mtKit: Record<string, MatterKit> = {};
+const mtCommitDue: Record<string, number> = {};
+const mtBuild: Record<string, string> = {};
+let mtStatus = "";
+const MATTER_COMMIT_MS = 350;
+
+function isMatterTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === MATTER_WAVEFORM;
+}
+
+function trackMatter(track: Track): MatterSettings {
+    if (!track.matter) track.matter = defaultMatter();
+    if (track.rows !== MATTER_ROWS.length) track.rows = MATTER_ROWS.length;
+    return track.matter;
+}
+
+/** Hands the track's kit to the engine (building it if it is new) and notes where the build is. */
+function prepareMatter(track: Track) {
+    const m = trackMatter(track);
+    if (!mtKit[track.id]) mtKit[track.id] = { ...m.kit };
+    const r = addon.Audio.prepareMatter(track.id, { kitId: track.id, kit: mtKit[track.id] });
+    mtBuild[track.id] = r.ok ? (r.status ?? "building") : "error";
+    if (!r.ok) mtStatus = `${track.name}: the kit could not be prepared (${r.error}).`;
+}
+
+/** Commits the track's kit settings now (a preset, the AI tool) rather than after a knob settles. */
+function commitMatter(track: Track) {
+    const m = trackMatter(track);
+    const was = mtKit[track.id];
+    mtKit[track.id] = { ...m.kit };
+    delete mtCommitDue[track.id];
+    if (!was || !sameMatterBuild(was, m.kit) || was.sympathetic !== m.kit.sympathetic) prepareMatter(track);
+}
+
+/** A kit knob moved: heard once it has been still for a moment (see mtKit). */
+function touchMatterKit(track: Track) {
+    mtCommitDue[track.id] = Date.now() + MATTER_COMMIT_MS;
+    scheduleSave();
+}
+
+function commitDueMatter() {
+    const now = Date.now();
+    for (const id of Object.keys(mtCommitDue)) {
+        const t = findTrack(id);
+        if (!t || !isMatterTrack(t)) { delete mtCommitDue[id]; continue; }
+        if (now >= mtCommitDue[id]) commitMatter(t);
+    }
+}
+
+function playMatterHit(track: Track, hit: MatterHit) {
+    const r = addon.Audio.playMatterOnTrack(track.id, { ...hit, kit: mtKit[track.id] ?? hit.kit });
+    if (!r.ok) mtStatus = `${track.name}: ${r.error}`;
+    else if (r.played === false) mtBuild[track.id] = "building";
+}
+
+function matterRowHit(track: Track, row: number, velocity: number) {
+    playMatterHit(track, matterHitConfig(track.id, trackMatter(track), { row, velocity }));
+}
+
+function loadMatterPreset(track: Track, id: string) {
+    if (!applyMatterPreset(trackMatter(track), id)) { mtStatus = `Unknown kit "${id}".`; return; }
+    mtStatus = "";
+    commitMatter(track);
+    scheduleSave();
+}
+
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
 
 function ensureTrackEffects(track: Track) {
@@ -986,6 +1081,7 @@ function syncTrackBus(track: Track) {
     if (isWavetableTrack(track)) trackWavetable(track);
     if (isPhysModTrack(track)) trackPhysMod(track);
     if (isBrassTrack(track)) trackBrass(track);
+    if (isMatterTrack(track)) trackMatter(track);
     ensureTrackEffects(track);
     addon.AudioEffect.setDelayParams(track.delayEffectId!, {
         time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
@@ -998,6 +1094,8 @@ function syncTrackBus(track: Track) {
         gain: track.gain, muted: track.muted, solo: track.solo,
         effectIds: busEffectIds(track)
     });
+    // A kit needs the bus it plays on; it is built (once) as soon as there is one.
+    if (isMatterTrack(track)) prepareMatter(track);
 }
 
 function removeTrackBus(track: Track) {
@@ -1008,6 +1106,11 @@ function removeTrackBus(track: Track) {
     addon.PhysMod.remove(track.id);
     releaseBrassVoices(track);
     addon.Brass.remove(track.id);
+    addon.Audio.removeMatter(track.id);
+    addon.Matter.remove(track.id);
+    delete mtKit[track.id];
+    delete mtCommitDue[track.id];
+    delete mtBuild[track.id];
     addon.Vst3.unload(track.id);
     delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
@@ -2275,6 +2378,138 @@ function renderBrassWindow(win: string) {
     });
 }
 
+// --- The Kit window -------------------------------------------------------------------------
+//
+// The active synth track's drum kit, drawn live by entropy_gui::MatterView (see
+// widgets_matter.rs) from the modes it rings with, with the kit's tunings and the way it is
+// played. Clicking a head strikes it there; the pads strike each piece where it is usually played.
+
+let matterWindowId: string | null = null;
+let matterVisible = false;
+let matterWindowHeight = 760;
+let matterWindowWidth = 1120;
+const MATTER_SIDE_COLUMN = 340;
+
+function setMatterVisible(visible: boolean) {
+    matterVisible = visible;
+    if (matterWindowId) Entropy.UI.setWindowVisible(matterWindowId, visible);
+}
+
+/** A click in the view or a pad: struck now, with the kit's hands. */
+function strikeMatterFromView(track: Track, piece: MatterPiece, velocity: number, position?: number, angle?: number) {
+    const m = trackMatter(track);
+    const hit = position === undefined
+        ? matterHitConfig(track.id, m, { row: MATTER_ROWS.findIndex(r => r.piece === piece), velocity })
+        : matterHitConfig(track.id, m, { piece, position, angle, velocity });
+    playMatterHit(track, hit);
+}
+
+function renderMatterWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    commitDueMatter();
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        W.label(win, { text: "The kit works on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isMatterTrack(track)) {
+        W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        W.button(win, {
+            text: "Make it a drum kit", id: "mt_make",
+            onClick: () => { track.voice.waveform = MATTER_WAVEFORM; trackMatter(track); persist(); }
+        });
+        return;
+    }
+    const m = trackMatter(track);
+    // Keep the engine's kit in step (and pick up a finished build) while the window is open.
+    if (mtKit[track.id]) prepareMatter(track);
+    const build = mtBuild[track.id];
+    const kitKnob = (row: string, label: string, key: keyof typeof KIT_RANGES) =>
+        W.knob(row, {
+            label, value: m.kit[key] as number, min: KIT_RANGES[key][0], max: KIT_RANGES[key][1],
+            onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { (m.kit as any)[key] = n; touchMatterKit(track); } },
+        });
+
+    W.horizontal(win, (columns: string) => {
+    W.vertical(columns, (left: string) => {
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: `${track.name} -`, bold: true });
+        for (const p of MATTER_PRESETS) {
+            W.button(row, { text: radio(m.preset === p.id) + p.label, id: "mt_preset_" + p.id, onClick: () => { loadMatterPreset(track, p.id); } });
+        }
+        W.button(row, {
+            text: radio(m.physicsView) + "Physics View", id: "mt_physics",
+            onClick: () => { m.physicsView = !m.physicsView; scheduleSave(); }
+        });
+    });
+    W.matter(left, {
+        id: "mt_" + track.id,
+        kit: track.id,
+        physicsView: m.physicsView,
+        width: Math.max(380, matterWindowWidth - MATTER_SIDE_COLUMN),
+        height: Math.max(400, matterWindowHeight - 130),
+        status: build === "building" ? "building the kit (the first time takes a moment)..." : build === "rebuilding" ? "retuning: the new kit is being built, the old one plays meanwhile" : undefined,
+        onStrike: (piece: MatterPiece, position: number, angle: number, velocity: number) => { strikeMatterFromView(track, piece, velocity, position, angle); },
+        onPad: (piece: MatterPiece, velocity: number) => { strikeMatterFromView(track, piece, velocity); },
+        onPhysicsView: (on: boolean) => { m.physicsView = on; scheduleSave(); },
+    });
+    if (mtStatus) W.label(left, { text: mtStatus });
+    });
+    W.vertical(columns, (right: string) => {
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Tuning (Hz)", bold: true });
+            W.horizontal(g, (row: string) => {
+                kitKnob(row, "Kick", "kick");
+                kitKnob(row, "Snare", "snare");
+                kitKnob(row, "Rack", "rackTom");
+                kitKnob(row, "Floor", "floorTom");
+            });
+            W.label(g, { text: "Each head's fundamental: the tension is solved from it. A slacker head glides further when hit hard." });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Kick and snare", bold: true });
+            W.horizontal(g, (row: string) => {
+                kitKnob(row, "Muffling", "kickMuffling");
+                W.button(row, { text: radio(m.beater === "felt") + "Felt", id: "mt_beater_felt", onClick: () => { m.beater = "felt"; scheduleSave(); } });
+                W.button(row, { text: radio(m.beater === "plastic") + "Plastic", id: "mt_beater_plastic", onClick: () => { m.beater = "plastic"; scheduleSave(); } });
+            });
+            W.horizontal(g, (row: string) => {
+                W.button(row, { text: radio(m.kit.snares) + "Snares on", id: "mt_snares", onClick: () => { m.kit.snares = !m.kit.snares; commitMatter(track); scheduleSave(); } });
+                kitKnob(row, "Tension", "snareTension");
+            });
+            W.label(g, { text: "Snare tension is how hard the strainer presses the wires (N): looser wires lift off more easily and buzz longer." });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Playing", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.button(row, { text: radio(m.hands === "sticks") + "Sticks", id: "mt_hands_sticks", onClick: () => { m.hands = "sticks"; scheduleSave(); } });
+                W.button(row, { text: radio(m.hands === "mallets") + "Mallets", id: "mt_hands_mallets", onClick: () => { m.hands = "mallets"; scheduleSave(); } });
+                W.knob(row, {
+                    label: "Dynamics", value: m.dynamics, min: 1, max: 12,
+                    onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { m.dynamics = n; scheduleSave(); } },
+                });
+            });
+            W.label(g, { text: `A full-velocity hit lands at ${m.dynamics.toFixed(1)} m/s; a ghost note at 0.4.` });
+            W.button(g, { text: radio(m.kit.sympathetic) + "Pieces hear each other", id: "mt_sympathetic", onClick: () => { m.kit.sympathetic = !m.kit.sympathetic; commitMatter(track); scheduleSave(); } });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Mix", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const p of MATTER_PIECES.slice(0, 4)) {
+                    W.knob(row, { label: p.label.split(" ")[0], value: m.mix[p.id], min: 0, max: 6, onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { m.mix[p.id] = n; scheduleSave(); } } });
+                }
+            });
+            W.horizontal(g, (row: string) => {
+                for (const p of MATTER_PIECES.slice(4)) {
+                    W.knob(row, { label: p.label, value: m.mix[p.id], min: 0, max: 6, onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { m.mix[p.id] = n; scheduleSave(); } } });
+                }
+            });
+            W.label(g, { text: "The microphones: each piece's level, heard from the next hit. What the pieces hear of each other is unchanged." });
+        });
+    });
+    });
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -2330,6 +2565,10 @@ function playTrigger(t: Track, note: NoteCell, velocity: number) {
     }
     if (t.kind === "drum") {
         playPad(t, note.row, velocity, duration, tone);
+        return;
+    }
+    if (isMatterTrack(t)) {
+        matterRowHit(t, note.row, velocity);
         return;
     }
     const { freq } = noteVoiceAndFreq(t, note.row);
@@ -2472,7 +2711,7 @@ function buildPatternEvents(): any[] {
         // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
         // track is rendered by buildWavetableEvents from the table as it is now, and a physmod track
         // by buildPhysModEvents.
-        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track)) continue;
+        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track) || isMatterTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -2588,6 +2827,19 @@ function buildBrassEvents(): any[] {
     return events;
 }
 
+// The drum-kit tracks' hits for the same render: one kit per track, so the pieces ring on and hear
+// each other in the bounce as they do live.
+function buildMatterEvents(): any[] {
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isMatterTrack(track)) continue;
+        const { startTime, velocity } = placedTiming(placed);
+        events.push(matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime }));
+    }
+    return events;
+}
+
 // The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
 // each track is rendered through its own fresh, temporary plugin instance - separate from whatever
 // the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
@@ -2626,8 +2878,9 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     const wavetableEvents = buildWavetableEvents();
     const physModEvents = buildPhysModEvents();
     const brassEvents = buildBrassEvents();
+    const matterEvents = buildMatterEvents();
     const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents);
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents);
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -3218,6 +3471,7 @@ function rowLabelsFor(track: Track): string[] {
     if (track.kind === "drum") {
         return ensureRack(track).map((p, i) => p.name || `Pad ${i + 1}`);
     }
+    if (isMatterTrack(track)) return MATTER_ROWS.map(r => r.label);
     const labels: string[] = [];
     for (let r = track.rows - 1; r >= 0; r--) {
         labels.push(midiToName(rowToMidi(r, track.rootNote, track.scale)));
@@ -3229,7 +3483,7 @@ function rowLabelsFor(track: Track): string[] {
 // at the bottom like a real piano roll, so we flip rows for display; drum tracks keep
 // their natural Kick-at-top order, matching rowLabelsFor() below.
 function toDisplayRow(track: Track, row: number): number {
-    if (track.kind === "drum") return row;
+    if (track.kind === "drum" || isMatterTrack(track)) return row;
     return track.rows - 1 - row;
 }
 
@@ -3250,6 +3504,7 @@ function repairProject(saved: any): DAWProject {
     for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
     for (const t of saved.tracks) if (t.brass || t.voice?.waveform === BRASS_WAVEFORM) t.brass = repairBrass(t.brass);
+    for (const t of saved.tracks) if (t.matter || t.voice?.waveform === MATTER_WAVEFORM) t.matter = repairMatter(t.matter);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
     saved.cuts = repairCuts(saved.cuts);
     const repaired = saved as DAWProject;
@@ -4070,6 +4325,11 @@ addon.onInit(async () => {
                     onClick: () => { setBrassVisible(!brassVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
+                    text: matterVisible ? "Hide Kit" : withIcon("disc", "Kit"),
+                    id: "toggle_matter",
+                    onClick: () => { setMatterVisible(!matterVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
                     text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
                     id: "toggle_guitar",
                     onClick: () => { setGuitarVisible(!guitarVisible); }
@@ -4767,6 +5027,19 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(brassWindowId, brassVisible);
 
+    // The drum kit, hidden until asked for.
+    matterWindowHeight = Math.max(520, Math.min(820, screenH - 72));
+    matterWindowWidth = Math.max(700, Math.min(1120, screenW - 32));
+    matterWindowId = Entropy.UI.createWindow({
+        title: "Kit",
+        width: matterWindowWidth,
+        height: matterWindowHeight,
+        x: 16,
+        y: 56,
+        onRender: () => renderMatterWindow(matterWindowId!)
+    });
+    Entropy.UI.setWindowVisible(matterWindowId, matterVisible);
+
     // The song library and the open song's version history, hidden until asked for.
     songsWindowId = Entropy.UI.createWindow({
         title: "Songs",
@@ -4914,10 +5187,13 @@ addon.onInit(async () => {
                 wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
                 physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
                 brass: isBrassTrack(t) ? describeBrass(trackBrass(t)) : undefined,
-                rootNote: t.kind === "synth" ? t.rootNote : undefined,
-                scale: t.kind === "synth" ? t.scale : undefined,
+                matter: isMatterTrack(t) ? describeMatter(trackMatter(t)) : undefined,
+                rootNote: t.kind === "synth" && !isMatterTrack(t) ? t.rootNote : undefined,
+                scale: t.kind === "synth" && !isMatterTrack(t) ? t.scale : undefined,
                 rows: t.rows,
-                rowNotes: t.kind === "synth"
+                rowNotes: isMatterTrack(t)
+                    ? MATTER_ROWS.map(r => r.label)
+                    : t.kind === "synth"
                     ? Array.from({ length: t.rows }, (_, r) => midiToName(rowToMidi(r, t.rootNote, t.scale)))
                     : ensureRack(t).map(d => d.name),
                 rack: t.kind === "drum"
@@ -4994,7 +5270,7 @@ addon.onInit(async () => {
                 muted: { type: "boolean" },
                 solo: { type: "boolean" },
                 gain: { type: "number" },
-                waveform: { type: "string", enum: [...WAVEFORMS, "kick", "snare", "hihat", "clap", "tom"] },
+                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, MATTER_WAVEFORM, "kick", "snare", "hihat", "clap", "tom"], description: "\"physmod\" makes a bowed string, \"brass\" a brass instrument, \"matter\" a physically modeled drum kit (its rows become the kit's pieces)." },
                 cutoff: { type: "number" },
                 resonance: { type: "number" },
                 attack: { type: "number" },
@@ -5400,6 +5676,84 @@ addon.onInit(async () => {
                     waveSteepness: a.waveSteepness, attackSeconds: r(a.attackSeconds, 3),
                 });
             }
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
+    });
+
+    addon.registerTool({
+        name: "daw_matter",
+        description: "Play and shape a physically modeled drum kit: a track whose waveform is \"matter\" (daw_set_track_params with waveform \"matter\" makes one; its rows become the kit's: 0 Kick, 1 Snare, 2 Snare edge, 3 Rack tom, 4 Floor tom, 5 Crash, 6 Ride, 7 Ride bell, 8 Splash). The sound comes from a physical model, with no samples: drumheads as stretched membranes with the air loading them and the air inside the shell coupling both heads, snare wires that are thrown off the head and land again, cymbals as bronze domes whose modes couple when they bend past their thickness (the crash's swell into a wash), and sticks, beaters and mallets meeting them through a contact solved every sample - so the controls behave physically: velocity is the stick's speed (a harder hit is brighter, and a slack tom's pitch glides down after it), a hit near the rim rings different modes from one near the centre, a felt beater is darker than plastic, looser snare wires buzz longer, and the pieces hear each other through the air (a tom or a kick sets the snare wires buzzing). Tunings rebuild the kit (heard a moment later: the old kit plays meanwhile); the mix, hands, beater and dynamics apply from the next hit. Actions: \"info\" (settings and rows), \"preset\" (studio, jazz, rock, funk, mallets), \"params\" (kick/snare/rackTom/floorTom: the heads' fundamentals in Hz (kick 35-90, snare 140-360, rack 90-260, floor 55-160); kickMuffling 0-1 (1 a pillow in the kick); snares true|false; snareTension N (0.03-1.5, 0.15 usual); sympathetic true|false; hands sticks|mallets; beater felt|plastic; dynamics m/s at full velocity (1-12)), \"mix\" ({kick, snare, rack-tom, floor-tom, crash, ride, splash}: each piece's level, 0-8), \"hear\" (strikes one row offline, alone, and reports its loudness, brightness, crack (energy above 4 kHz), strongest partial, how long it rings, the contact time and force, how fast the stick rebounded, a drum's pitch glide and the snare wires' landings - so a change can be checked without listening), and \"strike\" (plays a row live on the track's kit now).",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "preset", "params", "mix", "hear", "strike"] },
+                preset: { type: "string", enum: MATTER_PRESETS.map(p => p.id), description: "For action preset." },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        kick: { type: "number" }, snare: { type: "number" }, rackTom: { type: "number" }, floorTom: { type: "number" },
+                        kickMuffling: { type: "number" }, snares: { type: "boolean" }, snareTension: { type: "number" },
+                        sympathetic: { type: "boolean" }, hands: { type: "string", enum: ["sticks", "mallets"] },
+                        beater: { type: "string", enum: ["felt", "plastic"] }, dynamics: { type: "number" }
+                    }
+                },
+                mix: { type: "object", description: "For action mix: piece -> level.", properties: Object.fromEntries(MATTER_PIECES.map(p => [p.id, { type: "number" }])) },
+                row: { type: "number", description: "For hear and strike: the kit row (0-8). Default 1, the snare." },
+                velocity: { type: "number", description: "For hear and strike: 0-1 (default 0.8)." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isMatterTrack(track)) return { success: false, error: `${track.name} is not a drum-kit track. Use daw_set_track_params with waveform "matter" first.` };
+        const m = trackMatter(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describeMatter(m), ...extra });
+        const rowOf = () => Math.min(MATTER_ROWS.length - 1, Math.max(0, Math.round(typeof args.row === "number" ? args.row : 1)));
+        const velocityOf = () => Math.min(1, Math.max(0, typeof args.velocity === "number" ? args.velocity : 0.8));
+        switch (args.action) {
+            case "info":
+                return done({ status: mtBuild[track.id] ?? "not built" });
+            case "preset":
+                if (!MATTER_PRESETS.some(p => p.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + MATTER_PRESETS.map(p => p.id).join(", ") };
+                loadMatterPreset(track, args.preset);
+                return done();
+            case "params": {
+                const p = args.params ?? {};
+                const merged = repairMatter({ ...m, kit: { ...m.kit, ...p }, ...(typeof p.hands === "string" ? { hands: p.hands } : {}), ...(typeof p.beater === "string" ? { beater: p.beater } : {}), ...(typeof p.dynamics === "number" ? { dynamics: p.dynamics } : {}) });
+                m.kit = merged.kit;
+                m.hands = merged.hands;
+                m.beater = merged.beater;
+                m.dynamics = merged.dynamics;
+                commitMatter(track);
+                scheduleSave();
+                return done();
+            }
+            case "mix": {
+                const merged = repairMatter({ ...m, mix: { ...m.mix, ...(args.mix ?? {}) } });
+                m.mix = merged.mix;
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const row = rowOf();
+                const a = addon.Matter.analyzeHit(matterHitConfig(track.id, m, { row, velocity: velocityOf() }), 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({
+                    row, name: MATTER_ROWS[row].label, piece: a.piece, striker: a.striker, speed: r(a.speed, 2),
+                    peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), brightnessHz: r(a.centroidHz, 0), crackDb: r(a.above4kDb), strongestHz: r(a.strongestHz, 0),
+                    decaySeconds: r(a.decaySeconds, 2), contactMs: r(a.contactMs, 2), peakForceN: r(a.peakForceN, 0), reboundSpeed: r(a.reboundSpeed, 2),
+                    ...(a.glideCents !== undefined ? { glideCents: r(a.glideCents) } : {}),
+                    ...(a.wireLandings !== undefined ? { wireLandings: a.wireLandings } : {}),
+                });
+            }
+            case "strike":
+                matterRowHit(track, rowOf(), velocityOf());
+                return done({ row: rowOf(), status: mtBuild[track.id] ?? "building" });
             default:
                 return { success: false, error: "Unknown action: " + args.action };
         }

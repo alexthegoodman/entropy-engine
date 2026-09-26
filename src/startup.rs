@@ -327,6 +327,7 @@ impl BrowserBddDriver {
                 Ok("wavetable") => include_str!("../tests/features/daw_wavetable_live.feature"),
                 Ok("physmod") => include_str!("../tests/features/daw_physmod_live.feature"),
                 Ok("brass") => include_str!("../tests/features/daw_brass_live.feature"),
+                Ok("matter") => include_str!("../tests/features/daw_matter_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {

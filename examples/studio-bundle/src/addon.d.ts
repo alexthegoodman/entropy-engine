@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -380,6 +380,13 @@ export interface ScopedAPI {
     brassNoteOff: (voice: number) => void;
     /** Moves a held brass note: breath (0..1), lip tension (-1..1), vibrato depth or bend (cents). */
     brassSetControl: (voice: number, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) => void;
+    /** Builds (off the audio thread) or checks the track's drum kit (see `Matter`). Hits sent while a
+     *  kit is first being built are dropped, so prepare it ahead of playing. Cheap every frame. */
+    prepareMatter: (trackId: string, config: MatterHitConfig) => MatterOk & { status?: MatterStatus };
+    /** Strikes a piece of the track's kit now. `played` is false while the kit is being built. */
+    playMatterOnTrack: (trackId: string, config: MatterHitConfig) => MatterOk & { played?: boolean };
+    /** Stops the track's kit. */
+    removeMatter: (trackId: string, kitId?: string) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -423,6 +430,7 @@ export interface ScopedAPI {
   Wavetable: WavetableAPI;
   PhysMod: PhysModAPI;
   Brass: BrassAPI;
+  Matter: MatterAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;
@@ -491,6 +499,8 @@ export interface ScopedAPI {
       physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
       brass: (windowId: string, config: BrassViewConfig) => void;
+      /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
+      matter: (windowId: string, config: MatterViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2025,6 +2035,124 @@ export interface BrassNoteAnalysis extends BrassOk {
   attackSeconds?: number | null;
 }
 
+export interface MatterOk { ok: boolean; error?: string }
+
+export type MatterPiece = "kick" | "snare" | "rack-tom" | "floor-tom" | "crash" | "ride" | "splash";
+export type MatterStriker = "stick" | "shoulder" | "felt" | "plastic" | "mallet" | "hard-mallet" | "yarn";
+export type MatterStatus = "ready" | "building" | "rebuilding";
+
+/** A drum kit as it is built: tunings and the settings that change the drums themselves. A change
+ *  builds a new kit (the old one plays meanwhile). Anything left out keeps its default. */
+export interface MatterKitConfig {
+  /** Batter-head fundamentals, Hz (defaults 55, 220, 140, 82). */
+  kick?: number;
+  snare?: number;
+  rackTom?: number;
+  floorTom?: number;
+  /** 0: an open kick; 1: a pillow against the batter. */
+  kickMuffling?: number;
+  snares?: boolean;
+  /** How hard the strainer presses the snare wires, N (0.15 usual; looser buzzes longer). */
+  snareTension?: number;
+  /** Whether the pieces hear each other through the air (a tom sets the snare buzzing). */
+  sympathetic?: boolean;
+}
+
+/** One hit on a kit (see `Entropy.Matter`). */
+export interface MatterHitConfig {
+  trackId?: string;
+  /** Names the kit a widget reads. Defaults to `trackId`. */
+  kitId?: string;
+  kit?: MatterKitConfig;
+  /** Each piece's level in the kit's mix, by piece (1 as it radiates). */
+  mix?: Partial<Record<MatterPiece, number>>;
+  piece?: MatterPiece;
+  /** Speed of the stick at impact, m/s (a ghost note ~0.5, a loud backbeat 4-6). */
+  speed?: number;
+  /** 0 the centre, 1 the edge; `angle` around the head, radians. */
+  position?: number;
+  angle?: number;
+  /** Omitted, what usually plays the piece. */
+  striker?: MatterStriker;
+  /** Offline events only: seconds from the start of the render. */
+  startTime?: number;
+}
+
+export interface MatterPieceInfo {
+  piece: MatterPiece;
+  awake: boolean;
+  energyJ: number;
+  level: number;
+  strikes: number;
+  position: number;
+  speedIn: number;
+  speedOut: number;
+  contactMs: number;
+  peakForceN: number;
+  mix: number;
+  glideCents?: number;
+  nonlinear?: boolean;
+  wiresLifted?: number;
+  wireLandings?: number;
+}
+
+export interface MatterInfo extends MatterOk {
+  id?: string;
+  activeKits?: number;
+  workers?: number;
+  focus?: MatterPiece;
+  kit?: Required<MatterKitConfig>;
+  pieces?: MatterPieceInfo[];
+}
+
+export interface MatterHitAnalysis extends MatterOk {
+  piece?: MatterPiece;
+  striker?: MatterStriker | "custom";
+  speed?: number;
+  position?: number;
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  centroidHz?: number;
+  /** The crack: the share of the attack's energy above 4 kHz, dB. */
+  above4kDb?: number;
+  strongestHz?: number;
+  /** Seconds to fall 40 dB below the peak. */
+  decaySeconds?: number;
+  contactMs?: number;
+  peakForceN?: number;
+  reboundSpeed?: number;
+  glideCents?: number;
+  wireLandings?: number;
+}
+
+export interface MatterAPI {
+  info: (id: string) => MatterInfo;
+  remove: (id: string) => boolean;
+  /** Strikes one piece offline, alone (no audio device), and measures it. */
+  analyzeHit: (config: MatterHitConfig, seconds?: number) => MatterHitAnalysis;
+}
+
+export interface MatterViewConfig {
+  id?: string;
+  /** The kit in the matter registry (`Entropy.Matter`) to show. */
+  kit: string;
+  height?: number;
+  width?: number;
+  /** Show the row of pads. Default true. */
+  pads?: boolean;
+  /** Show the Physics View overlays: the struck piece's modes, its contact force, the energy in
+   *  each piece. */
+  physicsView?: boolean;
+  exaggeration?: number;
+  /** A line shown over the kit (a kit being built, say). */
+  status?: string;
+  /** A head or cymbal was clicked: strike it there. */
+  onStrike?: (piece: MatterPiece, position: number, angle: number, velocity: number) => void;
+  onPad?: (piece: MatterPiece, velocity: number) => void;
+  onPhysicsView?: (on: boolean) => void;
+}
+
 export interface BrassAPI {
   info: (id: string) => BrassInfo;
   remove: (id: string) => boolean;
@@ -2433,6 +2561,8 @@ export interface EntropyAPI {
       physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
       brass: (windowId: string, config: BrassViewConfig) => void;
+      /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
+      matter: (windowId: string, config: MatterViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2719,7 +2849,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2751,6 +2881,13 @@ export interface EntropyAPI {
     brassNoteOff: (voice: number) => void;
     /** Moves a held brass note: breath (0..1), lip tension (-1..1), vibrato depth or bend (cents). */
     brassSetControl: (voice: number, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) => void;
+    /** Builds (off the audio thread) or checks the track's drum kit (see `Matter`). Hits sent while a
+     *  kit is first being built are dropped, so prepare it ahead of playing. Cheap every frame. */
+    prepareMatter: (trackId: string, config: MatterHitConfig) => MatterOk & { status?: MatterStatus };
+    /** Strikes a piece of the track's kit now. `played` is false while the kit is being built. */
+    playMatterOnTrack: (trackId: string, config: MatterHitConfig) => MatterOk & { played?: boolean };
+    /** Stops the track's kit. */
+    removeMatter: (trackId: string, kitId?: string) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -2785,6 +2922,7 @@ export interface EntropyAPI {
   Wavetable: WavetableAPI;
   PhysMod: PhysModAPI;
   Brass: BrassAPI;
+  Matter: MatterAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;

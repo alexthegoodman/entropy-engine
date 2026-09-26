@@ -30,6 +30,7 @@ pub mod widgets_color_picker;
 pub mod widgets_doc_editor;
 pub mod widgets_kanban;
 pub mod widgets_brass;
+pub mod widgets_matter;
 pub mod widgets_physmod;
 pub mod widgets_keyframe_timeline;
 pub mod widgets_node_graph;
@@ -73,6 +74,7 @@ pub use widgets_tracks::{MiniNote, Track, TrackClip, TrackView, TrackViewEvent, 
 pub use widgets_tree::{TreeEvent, TreeNode, TreeResponse, TreeView};
 pub use widgets_wavetable::{Camera as WavetableCamera, ViewTool, WavetableEvent, WavetableOptions, WavetableResponse, WavetableView};
 pub use widgets_brass::{BrassView, BrassViewEvent, BrassViewOptions, BrassViewResponse, Camera as BrassCamera};
+pub use widgets_matter::{Camera as MatterCamera, MatterView, MatterViewEvent, MatterViewOptions, MatterViewResponse};
 pub use widgets_physmod::{Camera as PhysModCamera, PhysModEvent, PhysModOptions, PhysModResponse, PhysModView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support

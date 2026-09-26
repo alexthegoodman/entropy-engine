@@ -431,7 +431,13 @@ head's own motion), and the tests keep those measurements in place.
 | Plate | `plate.rs` | A free-edge thin circular plate (modes `J_m + C I_m` from the free edge's moment and Kirchhoff-shear conditions), bent into a shallow spherical dome: the in-plane (Airy) stress expanded on the clamped-plate functions, the **von Karman couplings** `H^k_pq` and the dome's linear couplings `B^k_p` as radial quadratures with the angular selection rules in closed form, the dome's stiffness folded into **shell modes** (an eigen-solve per order), radiation from the Rayleigh integral with the Hankel transforms of `J_m` and `I_m` in closed form (Lommel), both faces. The stand as two rigid modes (bouncing, rocking on the felts). A sampled high band as for the membrane. Built plates are cached. |
 | Von Karman | `vonkarman.rs` | The stretching force on the shell modes, run with a **scalar auxiliary variable** so the modes' energy plus the stretching energy can never grow; couplings stored as dense blocks per pair of orders and evaluated with hand-written SSE2 |
 | Cymbals | `cymbal.rs` | Plate + strikers: 16" crash, 20" ride, 10" splash (bronze; size, weight, dome rise), stick bead, stick shoulder, yarn mallet |
+| Kit | `kit.rs` | Every drum and cymbal set up together (`placement`: one layout for the sound and the view), hearing each other through the air (each piece's sound reaches every drum's heads after the time it takes to cross the distance, as a pressure on their volume-changing modes), run in blocks of 32 samples on the audio thread and a few parked worker threads, pieces asleep when silent; `KitSpec` (tunings, kick muffling, snares, snare tension, sympathy) |
+| Live | `live.rs` | `MatterShared` (lock-free state for the view: each face's displacement on a grid, its lowest modes, each strike's measured contact, the snare wires, the latest force pulse), `KitVoice` / `KitHandle` (one kit per track), `render_performance` (a track's hits offline, for export), the registry by kit id |
 | Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head), `render_cymbal` |
+| Engine | `src/audio/mod.rs` | `matter_prepare` (a kit built off the audio thread, installed on the track's bus when ready; a retuned kit is built while the old one plays), `play_matter_on_track`, `matter_remove`; `MatterEvent` in `render_mix_to_wav` |
+| Ops | `src/deno/matter_ops.rs` | `Entropy.Matter` (`info`, `remove`, `analyzeHit`), `Audio.prepareMatter` / `playMatterOnTrack` / `removeMatter`, `Widget.matter` |
+| View | `src/entropy_gui/widgets_matter.rs` | `MatterView`: the kit in 3D, heads and plates drawn from the published modes, strikers replaying each contact, Physics View, click-to-strike and pads |
+| DAW | `examples/studio-bundle/src/apps/daw_matter.ts`, `daw_synth_addon.ts` | Kit tracks (waveform `"matter"`): kit rows, presets, tunings, mix, the Kit window and the `daw_matter` AI tool |
 
 ## Phase 1 progress
 
@@ -440,7 +446,9 @@ head's own motion), and the tests keep those measurements in place.
 - **1c Kick, toms, timpani - done** as offline models.
 - **1d Snare - done** (wires, the cavity's modes, and the high band it needed). The shell's own
   modes and the rim (rimshots, cross-stick) are not modelled yet.
-- **1e Runtime, view and DAW - not started.**
+- **1e Runtime, view and DAW - done.** A kit track (waveform `"matter"`) plays the whole kit - kick,
+  snare, rack and floor toms, crash, ride, splash - on one live kit per track, in the sequencer, from
+  the view and pads, from the AI tool, and in the export. See "The kit (1e)" below.
 
 ## Phase 2 progress
 
@@ -512,6 +520,99 @@ head's own motion), and the tests keep those measurements in place.
   one pass over the head's free motion plus a small cross-compliance table, and the contact solve uses
   its analytic slope. The snare went from 44% of a core to 13%.
 
+## The kit (1e)
+
+### What it is
+
+- **One kit per track, all pieces in one voice.** The pieces stand where a kit puts them, and the
+  same layout (`kit::placement`) is what the view draws and what sets how long each piece's sound
+  takes to reach the others. A piece's radiated sound arrives at every drum's batter and resonant
+  heads after `d / c`, weakened as `1 / d`, and presses on their volume-changing modes through the
+  same `add_pressure` path the air uses - so the snare wires buzz when a tom is hit, which is what
+  the plan asked of "the same wires sympathetically buzz". Cymbals radiate into the kit but don't
+  listen (a plate barely moves under a few pascals).
+- **Exact in blocks.** The kit runs in blocks of 32 samples. The closest pair of pieces is 54 samples
+  of sound travel apart (snare and rack tom, 0.42 m), so within a block no piece can hear another:
+  each depends only on earlier blocks, and the pieces can be rendered on different threads with the
+  same result sample for sample (tested with 0, 1 and 3 workers). Hits inside a block land on their
+  own sample (offline) or at the next block (live: under 0.73 ms).
+- **Pieces sleep.** A piece with nothing striking it, its output under -100 dB of full scale and its
+  energy under 1e-10 J for 50 ms stops being computed until something strikes it or sound louder
+  than 0.02 Pa reaches it. Drums sleep within a few seconds of a hit; cymbals ring 13-16 s first.
+- **Built off the audio thread.** A kit takes 1.6 s to build the first time (the pieces are built in
+  parallel; the drums' radiation integrals and the plates' couplings dominate) and 0.15 s after (the
+  cache). The engine builds it on a thread when the track becomes a kit or the song loads, and puts
+  it on the track's bus when it is ready; hits sent before that are dropped (`played: false`). A
+  retuned kit is built while the old one keeps playing. The DAW commits a tuning knob only once it
+  has been still for 350 ms, so a drag does not start a build per step.
+- **The view** draws each head and plate as rings and spokes displaced by the published field (the
+  lowest 64 modes of the struck face evaluated on a 145-point grid on the audio thread, about 85
+  times a second), the stick or beater replaying each strike from what the contact measured (it
+  lands where it landed, stays down for the contact time stretched 30x, and leaves at its measured
+  rebound speed), the snare wires glowing as they land, and in Physics View the struck piece's modes
+  (with the glide), its contact force over the strike, and every piece's energy (which shows the
+  sympathetic ringing). Each face is scaled by its own recent peak but never by less than a fifth of
+  the kit's loudest, so sympathetic motion is drawn at its true relative size. Clicking a head
+  strikes it there.
+- **The DAW's rows** are the kit's: kick, snare, snare edge (at 0.82 of the radius, where the
+  asymmetric modes ring), rack tom, floor tom, crash (the stick's shoulder), ride, ride bell (at 0.12),
+  splash, each with its General MIDI note. Velocity is the stick's speed, from 0.4 m/s up to the
+  kit's dynamics (6 m/s by default), log-spaced. Presets (studio, jazz, rock, funk, mallets) set
+  tunings, muffling, snare tension, hands and beater. The mix knobs are the microphones.
+
+### Decisions the kit's measurements made
+
+- **The sampled high band must not stretch the head.** Driving a slack kick hard exposed an energy
+  leak in 1b's tension modulation: a 6 m/s felt beater on the 55 Hz kick left at 19 m/s, and the kick
+  came out 60 times louder than with the stretch switched off. The sampled high band only listens to
+  contacts (its motion costs the striker nothing), yet its motion was raising the tension that pushes
+  the striker back. With only the contact-coupled modes in the stretch the beater leaves at 5.2 m/s
+  and the peak is 4x the linear head's (the stiffened head radiates better), not 60x. Every earlier
+  test still passes. The tension now also follows the stretch in the in-plane waves' crossing time
+  `a / c_L` (0.14 ms on the kick) rather than 1.5 ms: the slower lag's hysteresis still returned
+  more work on the way out than the beater put in (5.8 m/s against 5.2).
+- **A hard beater on a slack kick glides a lot.** At 4 m/s the beater presses the 55 Hz head about
+  2 cm in for 17 ms, and the head starts about 400 cents sharp. That is what uniform-tension
+  stretching gives for that deflection; a real pillowed kick is loaded unevenly around the beater.
+- **Sympathy, measured** (the snare's wire landings in the second after one hit on another piece;
+  default kit): rack tom 12 at 2 m/s, 152 at 4, 322 at 6; kick 0 at 2, 12 at 4, 76 at 6; floor tom
+  only at 6 m/s (24); a crash 8 at 2 m/s, 388 at 6. The rack tom is closest and tuned nearest the
+  snare; the floor tom is far and low. A stick on the snare itself at 0.3 m/s lands the wires 119
+  times.
+- **Where the time goes.** A groove (kick, snare, the ride on every beat and a crash) runs the audio
+  thread 100% of real time with every piece on it, and 68% with two workers on this four-core
+  container (69% with one, 75% with three: more threads to wake than work to share). The ride's von
+  Karman coupling on its own thread is the critical path.
+- **Resting a cymbal's coupling needs its peak, not a reading.** The stretching energy `U` swings
+  through zero every cycle; gated on a single reading at 1e-4 of the modes' energy, a crash's
+  coupling rested at 0.45 s - at a zero crossing - and its low bands lost 15 dB. Gated on the peak of
+  `|U|` over 50 ms at 3e-3, it rests after 5.7 s of a hard crash and no third-octave band of the
+  first 8 s moves measurably. It only helps a cymbal left to ring: a ride played on every beat never
+  rests (and should not: its coupling matters for seconds).
+- **What velocity changes.** A stick's contact on a head is set by the head's give, not the tip, so
+  a harder stick hit is louder but barely brighter by the spectral centroid (a snare at 1 and 5 m/s:
+  984 and 932 Hz; a rack tom 426 and 430 Hz); what brightens is the high band's share and, with a
+  felt beater, the felt stiffening under load. A plastic beater's attack has 6 dB+ more of its
+  energy above 4 kHz than felt's (`analyzeHit`'s `above4kDb`).
+- **The mix's defaults come from measured peaks.** At 6 m/s, against the snare, the kick peaks 15 dB
+  lower, the toms 18-21 dB, the crash 19 dB, the ride (at its edge) 27 dB, the splash 13 dB. The
+  default microphones (kick 3, snare 1, rack 2, floor 2.5, crash 2, ride 3, splash 1.5) bring them
+  within a few dB, as a kit is mic'd; what the pieces hear of each other is unchanged by them.
+
+### Known limits (the kit)
+
+- No hi-hat (two plates clamped together is its own model), no rim: no rimshot or cross-stick.
+- Sympathy is a uniform pressure on each head: the pressure gradient across a head (which would
+  drive its `m = 1` modes directly) and the doubling of pressure at a large surface are left out,
+  and cymbals don't listen.
+- Hits sent while a kit is first built (1.6 s cold) are dropped; the DAW prepares the kit when a track
+  becomes a kit or a song loads, so this only bites at the very start.
+- The view draws the lowest 64 modes of each face (the visible pattern); the Chladni pattern of a
+  hit's first milliseconds, when the high band carries much of the motion, is smoother than the
+  head's.
+- The live BDD (`tests/daw_matter_live.rs`) needs a desktop session and an audio device; it has not
+  been run in the container this was built in.
+
 ## How it is verified (no audio device needed)
 
 Run with `cargo test --release --lib matter`.
@@ -541,11 +642,29 @@ Run with `cargo test --release --lib matter`.
 | A harder hit rattles more and longer; looser snares buzz longer than tight ones | same |
 | `J_m'` zeros match tables | `matter::bessel::tests` |
 | Every drum (snare included) stays finite for a 25 m/s hit at the rim and falls silent | same |
+| Every piece answers a strike, and the whole kit falls asleep once silent | `matter::kit_tests` |
+| A kit's piece sounds as the same drum alone (sympathy off), panned where it stands | same |
+| Strikes are sample-accurate within a block; no two pieces are closer than a block of sound; the layout's sizes are the drums' own | same |
+| A rack tom sets the snare wires buzzing (10+ landings), not with the pieces deaf to each other or the snares off; the snare wakes only once the kick's sound has crossed the kit | same |
+| The pieces sound the same, sample for sample, on one thread or several | same |
+| Resting the crash's coupling moves its third-octave bands by under 0.5 dB on average | same |
+| The published field is flat at rest, axisymmetric after a centre hit; the modes and the force pulse are published | same |
+| A performance lands each hit on its sample, ends when the kit is silent, and follows the mix | same |
+| `analyzeHit`: louder when harder, felt brighter when harder, plastic cracks 6 dB+ more than felt, a slack tom glides, snares off never land, a crash rings a second+; hits are clamped into events | `deno::matter_ops::tests` |
+| A live kit allocates nothing on the audio thread (all pieces on it, and with workers) | `tests/matter_no_alloc.rs` |
+| The view draws the kit at rest and struck, Physics View adds to it, sympathy shows, clicks strike where they land, pads and the chip ask for what they should | `tests/matter_view.rs` (pictures in `test-artifacts/matter-view/`) |
+| DAW: settings repaired, presets, rows and strikers, speeds, GM notes, the window's view and pads, dropped hits while building, debounced tuning, the tool, save, sequencer and export, track removal | `examples/studio-bundle/tests/daw_matter.test.ts` |
+| The running DAW plays the kit from pads, clicks, the tool and the song | `tests/daw_matter_live.rs` (desktop session and audio device) |
 
 `matter::cymbal_tests::cymbal_listening_examples` (ignored) renders a crash soft, medium, hard and hard
 without the stretching, a ride pattern, a splash and a yarn-mallet swell on the crash;
 `matter::cymbal_tests::cymbal_cost` times each cymbal, and `cascade_report`, `rate_report`,
 `inplane_report` print the measurements behind the decisions below.
+
+`matter::kit_tests::kit_listening_examples` (ignored) renders a groove, a fill into a crash, tom hits
+with the pieces hearing each other and deaf to each other, and a jazz ride pattern;
+`matter::kit_tests::kit_report` prints the build times, peaks, the groove's cost and the measurements
+behind the kit's decisions.
 
 `matter::tests::listening_examples` (ignored) renders a kick pattern, a tom fill with a hard floor-tom
 glide, a snare groove with ghost notes and a roll, one snare hit with the snares off, loose, normal
@@ -656,7 +775,9 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
 - **Gongs and bells** (the rest of Phase 2): a gong is a flat plate with a turned rim (the plate
   code with `dome_radius: 0` already rings as one, with the cubic stretching alone); bells need a
   reference shell solve for hum, prime, tierce, quint and nominal.
-- Phase 1e (runtime, view, DAW) is still open, and cymbals would join the kit there.
+- Phase 1e is done, and the cymbals are in the kit. Next for the kit: a hi-hat (two plates and a
+  clutch), the rim (rimshots, cross-stick), the cymbals listening to the room, and the ride's cost -
+  the critical path of a groove.
 
 Working in this container:
 
