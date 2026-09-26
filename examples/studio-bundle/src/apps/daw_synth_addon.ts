@@ -148,6 +148,11 @@ import lowlight from "../../sample-songs/lowlight-hip-hop.json" with { type: "js
 import beacon from "../../sample-songs/the-beacon-cinematic.json" with { type: "json" };
 import shadow from "../../sample-songs/shadow-passage-cinematic.json" with { type: "json" };
 import homeward from "../../sample-songs/homeward-light-cinematic.json" with { type: "json" };
+import eventHorizon from "../../sample-songs/event-horizon-trap.json" with { type: "json" };
+import blackGlass from "../../sample-songs/black-glass-suspense.json" with { type: "json" };
+import ionRunner from "../../sample-songs/ion-runner-synthwave.json" with { type: "json" };
+import velvetSwitch from "../../sample-songs/velvet-switch-funk.json" with { type: "json" };
+import firstLight from "../../sample-songs/first-light-electronica.json" with { type: "json" };
 import {
     GUITAR_MODES,
     GUITAR_WAVEFORMS,
@@ -467,6 +472,11 @@ const SONG_TEMPLATES: SongTemplate[] = [
     { id: "beacon", label: "The Beacon - Cinematic (horn fanfare)", songName: "The Beacon", make: () => copyJson(beacon) as DAWProject },
     { id: "shadow", label: "Shadow Passage - Cinematic (suspense)", songName: "Shadow Passage", make: () => copyJson(shadow) as DAWProject },
     { id: "homeward", label: "Homeward Light - Cinematic (string theme)", songName: "Homeward Light", make: () => copyJson(homeward) as DAWProject },
+    { id: "event-horizon", label: "Event Horizon - Cinematic trap (bells and brass)", songName: "Event Horizon", make: () => copyJson(eventHorizon) as DAWProject },
+    { id: "black-glass", label: "Black Glass - Suspense (clockwork pursuit)", songName: "Black Glass", make: () => copyJson(blackGlass) as DAWProject },
+    { id: "ion-runner", label: "Ion Runner - Synthwave (night highway)", songName: "Ion Runner", make: () => copyJson(ionRunner) as DAWProject },
+    { id: "velvet-switch", label: "Velvet Switch - Funk (keys and brass)", songName: "Velvet Switch", make: () => copyJson(velvetSwitch) as DAWProject },
+    { id: "first-light", label: "First Light - Electronica (daybreak finale)", songName: "First Light", make: () => copyJson(firstLight) as DAWProject },
 ];
 
 function getActiveTrack(): Track | undefined {

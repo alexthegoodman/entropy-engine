@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import './generate-showcase.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const voice = (waveform, patch = {}) => ({
