@@ -125,6 +125,24 @@ import {
     repairMatter,
     sameBuild as sameMatterBuild,
 } from "./daw_matter";
+import type { WaterSettings, WaterSource } from "./daw_water";
+import {
+    WATER_WAVEFORM,
+    WATER_PLAYS,
+    WATER_PRESETS,
+    WATER_SOURCES,
+    RAIN_SURFACES,
+    WATER_VESSELS,
+    WEATHER_ROWS,
+    PITCHED_ROWS,
+    applyPreset as applyWaterPreset,
+    defaultWater,
+    describeSettings as describeWater,
+    isPitched as isPitchedWater,
+    noteConfig as waterNoteConfig,
+    repairWater,
+    sameBuild as sameWaterBuild,
+} from "./daw_water";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
 import {
@@ -291,6 +309,9 @@ interface Track {
     // Synth tracks whose waveform is "matter": the drum kit's tunings, mix and how it is played.
     // Its rows are the kit's rows (daw_matter.ts), not a scale.
     matter?: MatterSettings;
+    // Synth tracks whose waveform is "water": how it plays (glass harp, drips, fills, weather), what
+    // its rain falls on and its mix. Pitched plays use the scale; weather's rows are its own.
+    water?: WaterSettings;
     rootNote: number;
     scale: string;
     rows: number;
@@ -957,6 +978,78 @@ function holdMatterFromView(track: Track, piece: MatterPiece, x: number, y: numb
     else if (r.played === false) mtBuild[track.id] = "building";
 }
 
+// --- Water tracks (see daw_water.ts and src/audio/matter/water_voice.rs) ---------------------
+//
+// A synth track whose waveform is "water" plays water: glasses tuned by their water, drips tuned to
+// their notes, bottles filling to their notes, or weather (rain on the track's surface, a brook,
+// surf, a tub). Every note of the track goes to one live water instrument on its bus, so glasses
+// ring on and rain keeps falling across notes. It is built off the audio thread (a brook and a
+// beach are set flowing, the rain's surface is built), prepared as soon as the track becomes water
+// or the song loads; notes sent while it is first being built are dropped.
+
+/** What each track's water was last built with, and where its build is. */
+const wrBuilt: Record<string, WaterSettings> = {};
+const wrBuild: Record<string, string> = {};
+let wrStatus = "";
+
+function isWaterTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === WATER_WAVEFORM;
+}
+
+function trackWater(track: Track): WaterSettings {
+    if (!track.water) track.water = defaultWater();
+    // Weather has its own rows; a pitched play gets the scale's back.
+    if (!isPitchedWater(track.water)) {
+        if (track.rows !== WEATHER_ROWS.length) track.rows = WEATHER_ROWS.length;
+    } else if (track.rows === WEATHER_ROWS.length) {
+        track.rows = PITCHED_ROWS;
+    }
+    return track.water;
+}
+
+/** Hands the track's water to the engine (building it if it is new) and notes where the build is. */
+function prepareWater(track: Track) {
+    const w = trackWater(track);
+    if (!wrBuilt[track.id] || !sameWaterBuild(wrBuilt[track.id], w)) wrBuilt[track.id] = { ...w, mix: { ...w.mix } };
+    const r = addon.Audio.prepareWater(track.id, { waterId: track.id, water: { rain: w.rain, vessel: w.vessel } });
+    wrBuild[track.id] = r.ok ? (r.status ?? "building") : "error";
+    if (!r.ok) wrStatus = `${track.name}: the water could not be prepared (${r.error}).`;
+}
+
+function playWaterNote(track: Track, config: ReturnType<typeof waterNoteConfig>) {
+    const r = addon.Audio.playWaterOnTrack(track.id, config);
+    if (!r.ok) wrStatus = `${track.name}: ${r.error}`;
+    else if (r.played === false) wrBuild[track.id] = "building";
+}
+
+/** One note of a water track: a pitched play takes the row's pitch, weather its row. */
+function waterRowNote(track: Track, row: number, velocity: number, duration: number) {
+    const w = trackWater(track);
+    const freq = isPitchedWater(w) ? noteVoiceAndFreq(track, row).freq : undefined;
+    playWaterNote(track, waterNoteConfig(track.id, w, { freq, row, velocity, duration }));
+}
+
+function loadWaterPreset(track: Track, id: string) {
+    const w = trackWater(track);
+    if (!applyWaterPreset(w, id)) { wrStatus = `Unknown preset "${id}".`; return; }
+    wrStatus = "";
+    trackWater(track);
+    prepareWater(track);
+    scheduleSave();
+}
+
+function setWaterPlay(track: Track, play: WaterSettings["play"]) {
+    trackWater(track).play = play;
+    trackWater(track);
+    scheduleSave();
+}
+
+function setWaterRain(track: Track, rain: WaterSettings["rain"]) {
+    trackWater(track).rain = rain;
+    prepareWater(track);
+    scheduleSave();
+}
+
 function loadMatterPreset(track: Track, id: string) {
     if (!applyMatterPreset(trackMatter(track), id)) { mtStatus = `Unknown kit "${id}".`; return; }
     mtStatus = "";
@@ -1099,6 +1192,7 @@ function syncTrackBus(track: Track) {
     if (isPhysModTrack(track)) trackPhysMod(track);
     if (isBrassTrack(track)) trackBrass(track);
     if (isMatterTrack(track)) trackMatter(track);
+    if (isWaterTrack(track)) trackWater(track);
     ensureTrackEffects(track);
     addon.AudioEffect.setDelayParams(track.delayEffectId!, {
         time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
@@ -1111,8 +1205,9 @@ function syncTrackBus(track: Track) {
         gain: track.gain, muted: track.muted, solo: track.solo,
         effectIds: busEffectIds(track)
     });
-    // A kit needs the bus it plays on; it is built (once) as soon as there is one.
+    // A kit needs the bus it plays on; it is built (once) as soon as there is one. So does water.
     if (isMatterTrack(track)) prepareMatter(track);
+    if (isWaterTrack(track)) prepareWater(track);
 }
 
 function removeTrackBus(track: Track) {
@@ -1128,6 +1223,10 @@ function removeTrackBus(track: Track) {
     delete mtKit[track.id];
     delete mtCommitDue[track.id];
     delete mtBuild[track.id];
+    addon.Audio.removeWater(track.id);
+    addon.Water.remove(track.id);
+    delete wrBuilt[track.id];
+    delete wrBuild[track.id];
     addon.Vst3.unload(track.id);
     delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
@@ -2528,6 +2627,135 @@ function renderMatterWindow(win: string) {
     });
 }
 
+// --- The Water window --------------------------------------------------------------------------
+//
+// The active synth track's water: how it plays, what its rain falls on, what its fills pour into,
+// the mix, and pads that play each kind of water at once with the track's settings. What the
+// engine is doing (the last drip's pitch, the glasses in the rack and their water, the fills'
+// levels, the rain) is read back from Entropy.Water.info.
+
+let waterWindowId: string | null = null;
+let waterVisible = false;
+
+function setWaterVisible(visible: boolean) {
+    waterVisible = visible;
+    if (waterWindowId) Entropy.UI.setWindowVisible(waterWindowId, visible);
+}
+
+/** A pad in the window: each kind of water at the track's root note (or held a few seconds). */
+function auditionWater(track: Track, source: WaterSource) {
+    const w = trackWater(track);
+    const freq = midiToFreq(track.rootNote + 12);
+    const held: Record<WaterSource, number> = { drip: 0.3, glass: 1, fill: 1.5, rain: 3, brook: 4, surf: 8, slosh: 3 };
+    const as = { ...w, play: source === "drip" || source === "glass" || source === "fill" ? source : "weather" } as WaterSettings;
+    const row = WEATHER_ROWS.findIndex(r => r.id === source);
+    playWaterNote(track, waterNoteConfig(track.id, as, { freq, row: Math.max(0, row), velocity: 0.7, duration: held[source] }));
+}
+
+function renderWaterWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        W.label(win, { text: "Water plays on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isWaterTrack(track)) {
+        W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        W.button(win, {
+            text: "Make it water", id: "wr_make",
+            onClick: () => { track.voice.waveform = WATER_WAVEFORM; trackWater(track); syncTrackBus(track); persist(); }
+        });
+        return;
+    }
+    const w = trackWater(track);
+    // Keep the engine's water in step (and pick up a finished build) while the window is open.
+    prepareWater(track);
+    const build = wrBuild[track.id];
+    W.horizontal(win, (row: string) => {
+        W.label(row, { text: `${track.name} -`, bold: true });
+        for (const p of WATER_PRESETS.slice(0, 5)) {
+            W.button(row, { text: radio(w.preset === p.id) + p.label, id: "wr_preset_" + p.id, onClick: () => { loadWaterPreset(track, p.id); } });
+        }
+    });
+    W.horizontal(win, (row: string) => {
+        for (const p of WATER_PRESETS.slice(5)) {
+            W.button(row, { text: radio(w.preset === p.id) + p.label, id: "wr_preset_" + p.id, onClick: () => { loadWaterPreset(track, p.id); } });
+        }
+    });
+    if (build === "building") W.label(win, { text: "Building the water (a brook and a beach are set flowing)..." });
+    else if (build === "rebuilding") W.label(win, { text: "Moving the rain to its new surface; the old one plays meanwhile." });
+    W.group(win, (g: string) => {
+        W.label(g, { text: "Plays", bold: true });
+        W.horizontal(g, (row: string) => {
+            for (const p of WATER_PLAYS) {
+                W.button(row, { text: radio(w.play === p.id) + p.label, id: "wr_play_" + p.id, onClick: () => { setWaterPlay(track, p.id); } });
+            }
+        });
+        W.label(g, {
+            text: w.play === "glass" ? "Each note is struck on a glass whose water tunes it to the note (a rack of eight; the quietest is retuned)."
+                : w.play === "drip" ? "Each note is the drop whose bubble is born ringing at it; it glides up as the bubble rises."
+                : w.play === "fill" ? "Each note pours into a vessel scaled so its air column rises a fifth to the note over the note's length."
+                : "The rows are rain, a brook, surf and a sloshing tub, held as long as the note. Velocity is how hard.",
+        });
+    });
+    W.group(win, (g: string) => {
+        W.label(g, { text: "Rain falls on", bold: true });
+        W.horizontal(g, (row: string) => {
+            for (const r of RAIN_SURFACES) {
+                W.button(row, { text: radio(w.rain === r.id) + r.label, id: "wr_rain_" + r.id, onClick: () => { setWaterRain(track, r.id); } });
+            }
+        });
+        W.label(g, { text: "Fills pour into", bold: true });
+        W.horizontal(g, (row: string) => {
+            for (const v of WATER_VESSELS) {
+                W.button(row, { text: radio(w.vessel === v.id) + v.label, id: "wr_vessel_" + v.id, onClick: () => { w.vessel = v.id; scheduleSave(); } });
+            }
+        });
+        W.horizontal(g, (row: string) => {
+            W.button(row, { text: radio(!w.spoon) + "Soft mallet", id: "wr_mallet", onClick: () => { w.spoon = false; scheduleSave(); } });
+            W.button(row, { text: radio(w.spoon) + "Spoon", id: "wr_spoon", onClick: () => { w.spoon = true; scheduleSave(); } });
+            W.knob(row, {
+                label: "Dynamics", value: w.dynamics, min: 0, max: 1,
+                onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.dynamics = Math.min(1, Math.max(0, n)); scheduleSave(); } },
+            });
+        });
+    });
+    W.group(win, (g: string) => {
+        W.label(g, { text: "Play now", bold: true });
+        W.horizontal(g, (row: string) => {
+            for (const src of WATER_SOURCES) {
+                W.button(row, { text: src.label, id: "wr_pad_" + src.id, onClick: () => { auditionWater(track, src.id); } });
+            }
+        });
+    });
+    W.group(win, (g: string) => {
+        W.label(g, { text: "Mix", bold: true });
+        W.horizontal(g, (row: string) => {
+            for (const src of WATER_SOURCES) {
+                W.knob(row, { label: src.label, value: w.mix[src.id], min: 0, max: 16, onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.mix[src.id] = n; scheduleSave(); } } });
+            }
+        });
+        W.label(g, { text: "The microphones: each kind of water's level, heard from the next note." });
+    });
+    const info = addon.Water.info(track.id);
+    if (info.ok) {
+        W.group(win, (g: string) => {
+            W.label(g, { text: "Now", bold: true });
+            const lines: string[] = [];
+            if (info.drip && info.drip.drops > 0) lines.push(`Last drip rang at ${info.drip.lastHz.toFixed(0)} Hz (${info.drip.bubbles} bubbles ringing).`);
+            const glasses = (info.glasses ?? []).filter(x => x.pitchHz > 0);
+            if (glasses.length > 0) lines.push("Glasses: " + glasses.map(x => `${x.pitchHz.toFixed(0)} Hz (${x.levelMm.toFixed(0)} of ${x.heightMm.toFixed(0)} mm)`).join(", "));
+            for (const f of info.fills ?? []) if (f.pouring) lines.push(`Filling: ${(f.level * 100).toFixed(0)}% full, the air rings at ${f.airHz.toFixed(0)} Hz.`);
+            if (info.rain && info.rain.rateMmH > 0) lines.push(`Rain: ${info.rain.rateMmH.toFixed(1)} mm/h on the ${w.rain}.`);
+            if (info.brook && info.brook.speed > 0) lines.push(`Brook: ${info.brook.speed.toFixed(2)} m/s, its jumps dissipating ${info.brook.dissipationW.toFixed(1)} W.`);
+            if (info.surf && info.surf.heightM > 0) lines.push(`Surf: ${info.surf.heightM.toFixed(1)} m waves, ${info.surf.breakers} breakers so far.`);
+            if (info.slosh && info.slosh.strength > 0) lines.push(`The tub is being shaken (${info.slosh.bores} breaking).`);
+            W.label(g, { text: lines.length > 0 ? lines.join("\n") : "Still." });
+        });
+    }
+    if (wrStatus) W.label(win, { text: wrStatus });
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -2587,6 +2815,11 @@ function playTrigger(t: Track, note: NoteCell, velocity: number) {
     }
     if (isMatterTrack(t)) {
         matterRowHit(t, note.row, velocity, duration);
+        return;
+    }
+    if (isWaterTrack(t)) {
+        // A fill pours, and weather is held, for the whole note.
+        waterRowNote(t, note.row, velocity, Math.max(0.05, note.length * sd));
         return;
     }
     const { freq } = noteVoiceAndFreq(t, note.row);
@@ -2729,7 +2962,7 @@ function buildPatternEvents(): any[] {
         // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
         // track is rendered by buildWavetableEvents from the table as it is now, and a physmod track
         // by buildPhysModEvents.
-        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track) || isMatterTrack(track)) continue;
+        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track) || isMatterTrack(track) || isWaterTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -2859,6 +3092,22 @@ function buildMatterEvents(): any[] {
     return events;
 }
 
+// The water tracks' notes for the same render: one water instrument per track, so glasses ring on
+// and the rain keeps falling across notes in the bounce as they do live.
+function buildWaterEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isWaterTrack(track)) continue;
+        const w = trackWater(track);
+        const { startTime, velocity } = placedTiming(placed);
+        const freq = isPitchedWater(w) ? noteVoiceAndFreq(track, placed.note.row).freq : undefined;
+        events.push(waterNoteConfig(track.id, w, { freq, row: placed.note.row, velocity, duration: Math.max(0.05, placed.lengthSteps * sd), startTime }));
+    }
+    return events;
+}
+
 // The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
 // each track is rendered through its own fresh, temporary plugin instance - separate from whatever
 // the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
@@ -2898,8 +3147,9 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     const physModEvents = buildPhysModEvents();
     const brassEvents = buildBrassEvents();
     const matterEvents = buildMatterEvents();
+    const waterEvents = buildWaterEvents();
     const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents);
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents);
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -3491,6 +3741,7 @@ function rowLabelsFor(track: Track): string[] {
         return ensureRack(track).map((p, i) => p.name || `Pad ${i + 1}`);
     }
     if (isMatterTrack(track)) return MATTER_ROWS.map(r => r.label);
+    if (isWaterTrack(track) && !isPitchedWater(trackWater(track))) return WEATHER_ROWS.map(r => r.label);
     const labels: string[] = [];
     for (let r = track.rows - 1; r >= 0; r--) {
         labels.push(midiToName(rowToMidi(r, track.rootNote, track.scale)));
@@ -3503,6 +3754,7 @@ function rowLabelsFor(track: Track): string[] {
 // their natural Kick-at-top order, matching rowLabelsFor() below.
 function toDisplayRow(track: Track, row: number): number {
     if (track.kind === "drum" || isMatterTrack(track)) return row;
+    if (isWaterTrack(track) && !isPitchedWater(trackWater(track))) return row;
     return track.rows - 1 - row;
 }
 
@@ -3524,6 +3776,7 @@ function repairProject(saved: any): DAWProject {
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
     for (const t of saved.tracks) if (t.brass || t.voice?.waveform === BRASS_WAVEFORM) t.brass = repairBrass(t.brass);
     for (const t of saved.tracks) if (t.matter || t.voice?.waveform === MATTER_WAVEFORM) t.matter = repairMatter(t.matter);
+    for (const t of saved.tracks) if (t.water || t.voice?.waveform === WATER_WAVEFORM) t.water = repairWater(t.water);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
     saved.cuts = repairCuts(saved.cuts);
     const repaired = saved as DAWProject;
@@ -4349,6 +4602,11 @@ addon.onInit(async () => {
                     onClick: () => { setMatterVisible(!matterVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
+                    text: waterVisible ? "Hide Water" : withIcon("drop", "Water"),
+                    id: "toggle_water",
+                    onClick: () => { setWaterVisible(!waterVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
                     text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
                     id: "toggle_guitar",
                     onClick: () => { setGuitarVisible(!guitarVisible); }
@@ -5059,6 +5317,17 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(matterWindowId, matterVisible);
 
+    // Water, hidden until asked for.
+    waterWindowId = Entropy.UI.createWindow({
+        title: "Water",
+        width: Math.max(640, Math.min(900, screenW - 32)),
+        height: Math.max(480, Math.min(640, screenH - 72)),
+        x: 16,
+        y: 56,
+        onRender: () => renderWaterWindow(waterWindowId!)
+    });
+    Entropy.UI.setWindowVisible(waterWindowId, waterVisible);
+
     // The song library and the open song's version history, hidden until asked for.
     songsWindowId = Entropy.UI.createWindow({
         title: "Songs",
@@ -5207,11 +5476,14 @@ addon.onInit(async () => {
                 physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
                 brass: isBrassTrack(t) ? describeBrass(trackBrass(t)) : undefined,
                 matter: isMatterTrack(t) ? describeMatter(trackMatter(t)) : undefined,
+                water: isWaterTrack(t) ? describeWater(trackWater(t)) : undefined,
                 rootNote: t.kind === "synth" && !isMatterTrack(t) ? t.rootNote : undefined,
                 scale: t.kind === "synth" && !isMatterTrack(t) ? t.scale : undefined,
                 rows: t.rows,
                 rowNotes: isMatterTrack(t)
                     ? MATTER_ROWS.map(r => r.label)
+                    : isWaterTrack(t) && !isPitchedWater(trackWater(t))
+                    ? WEATHER_ROWS.map(r => r.label)
                     : t.kind === "synth"
                     ? Array.from({ length: t.rows }, (_, r) => midiToName(rowToMidi(r, t.rootNote, t.scale)))
                     : ensureRack(t).map(d => d.name),
@@ -5289,7 +5561,7 @@ addon.onInit(async () => {
                 muted: { type: "boolean" },
                 solo: { type: "boolean" },
                 gain: { type: "number" },
-                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, MATTER_WAVEFORM, "kick", "snare", "hihat", "clap", "tom"], description: "\"physmod\" makes a bowed string, \"brass\" a brass instrument, \"matter\" a physically modeled drum kit (its rows become the kit's pieces)." },
+                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, MATTER_WAVEFORM, WATER_WAVEFORM, "kick", "snare", "hihat", "clap", "tom"], description: "\"physmod\" makes a bowed string, \"brass\" a brass instrument, \"matter\" a physically modeled drum kit (its rows become the kit's pieces), \"water\" physically modeled water (a glass harp, drips, filling bottles, or weather - see daw_water)." },
                 cutoff: { type: "number" },
                 resonance: { type: "number" },
                 attack: { type: "number" },
@@ -5783,6 +6055,91 @@ addon.onInit(async () => {
             case "strike":
                 matterRowHit(track, rowOf(), velocityOf());
                 return done({ row: rowOf(), status: mtBuild[track.id] ?? "building" });
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
+    });
+
+    addon.registerTool({
+        name: "daw_water",
+        description: "Play and shape physically modeled water: a track whose waveform is \"water\" (daw_set_track_params with waveform \"water\" makes one). It plays one of four ways (\"play\"): \"glass\" - a glass harp: each note is struck on a drinking glass whose water level tunes it to the note (a mallet, or a spoon: brighter, with a ringing overtone); \"drip\" - each note is the water drop whose entrained bubble is born ringing at the note (a plink that glides up as the bubble rises); \"fill\" - each note pours water into a bottle, vase or jug scaled so its air column rises a fifth to the note over the note's length; \"weather\" - the rows become 0 Rain, 1 Brook, 2 Surf, 3 Slosh, held for as long as the note lasts, with velocity setting the rain rate, the brook's speed, the waves' height or how hard a tub is shaken. The sound is a physical model with no samples: bubbles ringing at their Minnaert frequency with heat-conduction damping, drops that entrain bubbles only in the size and speed bands real drops do, rain with real raindrop sizes falling on its surface (\"rain\": lake, window, roof, tent, cymbal or drum - each sounds like that body), the air column over rising water, and a simulated water surface whose breaking waves drag bubbles under. Pitched plays use the track's scale and root note. Actions: \"info\" (settings and rows), \"preset\" (glass-harp, spoon-glasses, drips, bottles, vases, lakeside, tent, tin-roof, window, cymbal-rain), \"params\" (play glass|drip|fill|weather; rain lake|window|roof|tent|cymbal|drum; vessel bottle|vase|jug; spoon true|false; dynamics 0-1), \"mix\" ({drip, glass, fill, rain, brook, surf, slosh}: levels 0-32), \"hear\" (plays one note offline and reports its loudness, brightness and strongest frequency, and what the physics made of it: the drop and its bubble, the glass and its water level, the vessel and the pitches its air column swept, so a change can be checked without listening) and \"play\" (plays one note live now).",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "preset", "params", "mix", "hear", "play"] },
+                preset: { type: "string", enum: WATER_PRESETS.map(p => p.id), description: "For action preset." },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        play: { type: "string", enum: WATER_PLAYS.map(p => p.id) },
+                        rain: { type: "string", enum: RAIN_SURFACES.map(r => r.id) },
+                        vessel: { type: "string", enum: WATER_VESSELS.map(v => v.id) },
+                        spoon: { type: "boolean" },
+                        dynamics: { type: "number" }
+                    }
+                },
+                mix: { type: "object", description: "For action mix: source -> level.", properties: Object.fromEntries(WATER_SOURCES.map(s => [s.id, { type: "number" }])) },
+                row: { type: "number", description: "For hear and play: the row (a pitched play's scale row, or weather's 0-3). Default 0." },
+                velocity: { type: "number", description: "For hear and play: 0-1 (default 0.8)." },
+                seconds: { type: "number", description: "For hear and play: how long the note lasts (a fill's pour, weather's hold). Default 1." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isWaterTrack(track)) return { success: false, error: `${track.name} is not a water track. Use daw_set_track_params with waveform "water" first.` };
+        const w = trackWater(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describeWater(w), ...extra });
+        const rowOf = () => Math.min(track.rows - 1, Math.max(0, Math.round(typeof args.row === "number" ? args.row : 0)));
+        const velocityOf = () => Math.min(1, Math.max(0, typeof args.velocity === "number" ? args.velocity : 0.8));
+        const secondsOf = () => Math.min(60, Math.max(0.05, typeof args.seconds === "number" ? args.seconds : 1));
+        const noteOf = () => {
+            const row = rowOf();
+            const freq = isPitchedWater(w) ? noteVoiceAndFreq(track, row).freq : undefined;
+            return waterNoteConfig(track.id, w, { freq, row, velocity: velocityOf(), duration: secondsOf() });
+        };
+        switch (args.action) {
+            case "info":
+                return done({ status: wrBuild[track.id] ?? "not built" });
+            case "preset":
+                if (!WATER_PRESETS.some(p => p.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + WATER_PRESETS.map(p => p.id).join(", ") };
+                loadWaterPreset(track, args.preset);
+                return done();
+            case "params": {
+                const merged = repairWater({ ...w, ...(args.params ?? {}) });
+                const rebuild = merged.rain !== w.rain;
+                w.play = merged.play;
+                w.rain = merged.rain;
+                w.vessel = merged.vessel;
+                w.spoon = merged.spoon;
+                w.dynamics = merged.dynamics;
+                trackWater(track);
+                if (rebuild) prepareWater(track);
+                scheduleSave();
+                return done();
+            }
+            case "mix": {
+                w.mix = repairWater({ ...w, mix: { ...w.mix, ...(args.mix ?? {}) } }).mix;
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const a = addon.Water.analyze(noteOf(), 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({
+                    row: rowOf(), action: a.action, peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), brightnessHz: r(a.centroidHz, 0), strongestHz: r(a.strongestHz, 0),
+                    ...(a.drop ? { drop: a.drop } : {}), ...(a.bubble ? { bubble: a.bubble } : {}), ...(a.glass ? { glass: a.glass } : {}),
+                    ...(a.vessel ? { vessel: a.vessel } : {}), ...(a.rain ? { rain: a.rain } : {}), ...(a.brook ? { brook: a.brook } : {}),
+                    ...(a.surf ? { surf: a.surf } : {}), ...(a.slosh ? { slosh: a.slosh } : {}),
+                });
+            }
+            case "play":
+                playWaterNote(track, noteOf());
+                return done({ row: rowOf(), status: wrBuild[track.id] ?? "building" });
             default:
                 return { success: false, error: "Unknown action: " + args.action };
         }

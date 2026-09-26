@@ -380,6 +380,10 @@ Staged, as the vision asks, rather than Navier–Stokes from the start:
 *Checks:* a bubble rings at its Minnaert frequency; a filling bottle's pitch rises as its air
 column shortens; rain on a membrane and rain on a plate have their bodies' spectra.
 
+(Built before Phases 4 and 5, which it turned out not to need: its containers are vessels with an
+air column, not particle containers, and its only rigid bodies are drops. See "Water (Phase 6)"
+in the status below.)
+
 ## Phase 7 — The scene
 
 The demo from the vision: objects placed in a scene, each a body; contacts, friction, particles,
@@ -442,6 +446,15 @@ head's own motion), and the tests keep those measurements in place.
 | Ops | `src/deno/matter_ops.rs` | `Entropy.Matter` (`info`, `remove`, `analyzeHit`, `analyzeStroke`), `Audio.prepareMatter` / `playMatterOnTrack` (strikes and strokes) / `holdMatterOnTrack` (a tool held live) / `removeMatter`, `Widget.matter` |
 | View | `src/entropy_gui/widgets_matter.rs` | `MatterView`: the kit in 3D, heads and plates drawn from the published modes, strikers replaying each contact, Physics View, click-to-strike, **shift-drag to rub** (the tool's hand and tips drawn where they touch, warm where friction holds them) and pads |
 | DAW | `examples/studio-bundle/src/apps/daw_matter.ts`, `daw_synth_addon.ts` | Kit tracks (waveform `"matter"`): kit rows (brush sweep and swirl rows that last as long as the note), presets (Brushes among them), tunings, mix, the Kit window (shift-drag to brush) and the `daw_matter` AI tool |
+| Bubbles | `bubble.rs` | A bubble's breathing mode from its radius and depth: Minnaert's spring with **Prosperetti's heat conduction** (the complex polytropic function, solved together with the frequency it softens), viscous and radiation damping, the free surface's image (Strasberg's pitch rise, `1 - sinc(2kh)` of the radiation); rise from rest at `2g` to terminal speed (Hadamard / Mendelson); birth at the capillary wall speed; heard in the air through the surface it moves (`rho_air V'' / 2 pi r`). `Resonators`: exact damped oscillators whose frequency and damping glide linearly every sample; `BubbleBank` (384 slots, each able to stand for many bubbles at `sqrt(count)`); Deane-Stokes `TurbulentSizes` |
+| Drops | `drop.rs` | Drops as strikers. On water: Oguz-Prosperetti **regular entrainment** band, quiet medium drops, irregular large ones (`We > 1000`); the crater's depth from the drop's energy; drops tuned to a note (`Drop::ringing_at`); terminal speeds (Atlas et al.), falling drops with drag, tap drips (Tate). On solids: `Splashes`, a momentum-flux force `rho pi (2rd - d^2) v_rel^2` solved in closed form against the body's one-step compliance every sample |
+| Vessels | `vessel.rs` | The air column above water, `cot(kL') = kV/S` (Helmholtz for a bottle, a quarter-wave tube for a glass, continuously as it fills), unflanged radiation and boundary-layer losses, driven by the water surface's volume acceleration; pouring (Rayleigh-Plateau drops, or a **plunging jet** entraining air by Bin's correlation); glass walls (French's ring modes, liquid loading `1 + C_m (h/H)^4`, a capped multipole radiation with its own damping), struck by a spoon or a mallet; `GlassSpec::tuned` (the glass and level for a note) |
+| Moving water | `waves.rs` | A 1D shallow-water simulation (HLL, Audusse's hydrostatic reconstruction, Manning friction; walls, inflow, outflow, an absorbing-generating sea) along a tub, a brook over rocks or a beach; **breaking bores** (`h2/h1 > 1.28` in the surface, flow converging) dissipate `rho g q (dh)^3 / 4 h1 h2`, 40% of it entraining Deane-Stokes bubbles; a crest that newly breaks traps an air pocket |
+| Rain | `rain.rs` | Marshall-Palmer drop sizes weighted by their terminal speeds, Poisson arrivals over a body's area, landing on a lake (bubbles), a window, a corrugated roof, a tent, a ride or a floor tom (splashes) |
+| Water | `water.rs`, `water_voice.rs` | `Pond` (open water to drip into) and offline renders; `Water` - one instrument per track for drips, glasses (a rack of eight), fills (two at once), rain, a brook, surf and a tub - with `WaterShared`, `WaterVoice` / `WaterHandle`, `render_water_performance` and the registry |
+| Engine (water) | `src/audio/mod.rs` | `water_prepare` (built off the audio thread, installed on the track's bus when ready), `play_water_on_track`, `water_remove`; `WaterEvent` in `render_mix_to_wav` |
+| Ops (water) | `src/deno/water_ops.rs` | `Audio.prepareWater` / `playWaterOnTrack` / `removeWater`, `Entropy.Water` (`info`, `remove`, `analyze`), `waterEvents` in the export |
+| DAW (water) | `examples/studio-bundle/src/apps/daw_water.ts`, `daw_synth_addon.ts` | Water tracks (waveform `"water"`): a glass harp, drips or fills on the scale's rows, or weather rows (rain, brook, surf, slosh) held as long as the note; presets, the rain's surface, the vessel, mallet or spoon, dynamics, mix, the Water window and the `daw_water` AI tool |
 
 ## Phase 1 progress
 
@@ -474,6 +487,24 @@ head's own motion), and the tests keep those measurements in place.
 - Not done: tools dragged across each other (both sides moving, Phase 7's scene), the bowed edge of a
   cymbal or a glass rim (the traction there is in the plate's own plane), and a 2D texture (see the
   limits).
+
+## Phase 6 progress
+
+Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
+
+- **1. Bubbles - done.** Minnaert with the heat flow computed, viscous and radiation damping, the
+  surface's image; rising and chirping.
+- **2. Droplets - done.** On water: the plink is the entrained bubble, in the bands real drops
+  entrain; the impact itself is (correctly) not a source in the air. On solids: a soft, splashing
+  striker solved against the body every sample.
+- **3. Pouring and filling - done.** The air column over the water (bottle and glass alike), filled by
+  a stream of drops or a plunging jet; and glasses tuned by their water.
+- **4. Sloshing, streams, surf - done.** Bubble populations driven by a shallow-water simulation of the
+  surface, through its breaking bores.
+- **5. Rain on things - done.** A lake, a window, a corrugated roof, a tent, a cymbal, a drum.
+- **Runtime, ops and DAW - done.** A water track (waveform `"water"`) plays a glass harp, drips or
+  fills on the scale, or weather rows; live, from the sequencer, the Water window, the AI tool and in
+  the export. No 3D view yet (see the limits).
 
 ## Decisions the measurements made
 
@@ -862,7 +893,191 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
 - Glancing strikes, chokes (a hand grabbing the edge) and the stick's shoulder as a line contact are
   not modelled.
 
+## Water (Phase 6)
+
+### What it is
+
+- **Water is bubbles.** Almost everything water says is a gas bubble ringing: a drip's plink, a
+  brook's babble, surf's hiss, rain's whisper on a lake. A bubble is one mode, its frequency and its
+  three losses computed from its radius and depth, and it is heard in the air through the water's
+  surface, which it moves by exactly its own change of volume (water is incompressible on a bubble's
+  scale), as a small piston in a large baffle. Every source of water sound below ends in a bubble
+  bank, except the bodies rain falls on and the glasses.
+- **Notes are physical actions, tuned by their physics.** A drip note is the drop whose bubble is
+  born ringing at the note (bisecting the regular band's drop size against the bubble's pitch at the
+  depth that drop's crater gives it); a glass note is the glass - radius from `f ~ h / R^2`, so the
+  note sits two thirds of the way down its range - and the water level that tunes it (`GlassSpec::
+  tuned`); a fill note is a bottle, vase or jug scaled so its air column reaches the note at 85% full,
+  poured from the level a fifth below over the note's length. All of that is solved on the caller's
+  thread; the audio thread gets drops, glasses and pours.
+- **One instrument per track** holds a basin for drips, a rack of eight glasses (the quietest is
+  retuned for a new pitch; a pitch already in the rack is struck again, ringing or not), two vessels
+  that can fill at once, the rain on the track's surface, a brook and a beach that are already
+  flowing when it is built (3 s and 20 s of pre-roll), and a tub. The brook and the surf are walked up
+  to and away from (a note fades them in over a quarter second and a second, out over one and a half
+  and six); rain and the tub start and stop physically - the drops already landed and the waves
+  already sloshing ring out.
+- **Default microphones from measured levels** (`water_mix_report`; dBFS at unity, full scale
+  0.5 Pa): a tuned drip peaks at -19 to -25, a mallet on a glass at -15 (0.5 m/s) and a spoon at +10
+  (0.3 m/s), a fill's fizz at -17 to -22 (rms near -30), rain at 8 mm/h at -28 (tent) to -58
+  (cymbal) rms, the brook, surf and tub at -15 to -18 rms. The mix (drip 5, glass 1.5, fill 4, rain 1,
+  brook 0.7, surf 0.5, slosh 0.5) and a per-surface rain gain (lake 5.6, window 22, roof 16, tent 1.6,
+  cymbal 50, drum 4) bring peaks near -6 dBFS and textures near -20 to -24; the DAW plays a spoon
+  gently (1-8 cm/s).
+- **The DAW's water track** plays one of four ways: a glass harp, drips or fills on the scale's rows
+  (velocity: the mallet's or spoon's speed; a fill pours for the note's length), or weather, whose
+  rows are rain (0.5 to 80 mm/h), a brook (0.15 to 1 m/s), surf (0.3 to 2 m waves) and a tub (shaken
+  0.3 to 1.3 times as hard as it takes to slop over), each held as long as the note; velocity maps
+  evenly in ratio, scaled by the track's dynamics. Presets: glass harp, spoon on glasses, drips,
+  filling bottles, filling vases, lakeside, rain on a tent, tin roof, rain on the window, rain on a
+  cymbal.
+
+### Decisions the water measurements made
+
+- **The heat flow is computed, and lands where Devin measured.** A millimetre bubble at the surface
+  rings at 3.1 kHz (Minnaert's adiabatic value is 3.26 kHz: the gas's effective polytropic exponent
+  is 1.35, not 1.4) with a damping constant of 0.03 - in Devin's measured range, thermal damping the
+  largest part, and within 35% of van den Doel's fit to Devin. Radiation takes over above a few
+  millimetres, viscosity only below tens of microns.
+- **A drip's glide is its bubble rising.** A tap's drip (2 mm nozzle, 2.37 mm drop) let go 7 cm up
+  lands at 1.17 m/s (We 89, Fr 29: regular); its bubble is born at 3.31 kHz half-way down the crater
+  (3.4 mm, from the drop's energy) and rises from rest at `2g`, so the surface's image lifts it to
+  4.19 kHz (+27%) within 14 ms, where it reaches the surface and rings on. The plink peaks near
+  0.016 Pa at 40 cm. From 1 cm it doesn't entrain (silent); from 50 cm it doesn't either (the quiet
+  band above the regular one).
+- **The impact of a drop is not a sound source in the air.** The first model heard a drop's crater
+  as a monopole (the surface pushed down by the Wagner-growing contact): it made rain on a lake peak
+  at 2 kHz. But the drop was already liquid, and the crater is paid for by water raised around it:
+  the air's volume doesn't change, so there is no monopole, only far weaker multipoles. Bubbles are
+  gas; they are the sound. With the impact removed, light rain peaks at 15.3 kHz.
+- **Medium raindrops are quiet.** Letting every drop above the regular band entrain "irregularly"
+  also put the peak at 2 kHz. Drops of 1.1-2.2 mm make no bubbles (Nystuen's quiet class); only large
+  drops (`We > 1000`, 2.2 mm and up at terminal speed) entrain irregularly. Rain on a lake at 2 mm/h
+  is then loudest in the 12.5-16 kHz third-octave, and at 40 mm/h below 8 kHz and 15 dB louder - the
+  shift hydrophones hear from drizzle to downpour.
+- **Rain on each body is that body.** Third-octave spectra of rain on the window and on the tent
+  each correlate with a tap on their own body 0.2+ better than with the other's. Two bodies needed
+  their physics corrected on the way: the tent's fabric had a metal's losses (a loss factor of 0.08
+  is a woven fabric's: 250/s per kHz; at 1.5 m it went from 94 dB SPL to 62 dB), and a 1 m disc of
+  flat 0.7 mm steel is nearly silent in rain (17 dB SPL at 1.5 m: its coincidence is 18 kHz, and
+  bending waves slower than sound radiate only from the edges). A roof is corrugated: a 0.5 mm sheet
+  with 18 mm corrugations, modelled as the isotropic plate with the geometric mean of its stiffnesses
+  along and across them and the sheet's own mass, has its coincidence at 3.8 kHz, and 10 mm/h reads
+  42 dB SPL at 1.5 m. At 10 mm/h and
+  1.5 m: window -57, roof -52, tent -32, ride -62, floor tom -40 dB re 1 Pa.
+- **A filling bottle's pitch is its air column's.** Poured at 0.1 l/s from 45 cm, the loudest line of
+  a 75 cl bottle's sound follows the computed lowest air mode within 2% from 105 Hz (empty: Helmholtz
+  with the neck's end corrections, within 5% of the textbook formula) to 178 Hz six seconds later,
+  rising ever faster; past the shoulder the same equation becomes the neck's quarter wave, continuous
+  to 10%.
+- **A thin stream is a plunging jet, not drops.** A stream that arrives whole (it falls less than the
+  `13 d sqrt(We)` it takes to break up) drags air under by Bin's correlation for plunging jets; before
+  that, a trickle into a small bottle arrived as drops in the quiet band and filled it silently.
+  Now a 5 ml/s trickle makes ~2000 simulated bubbles a second and the column sings.
+- **A glass must pay for what it radiates, and radiates no better than its wall.** The wall's modes
+  radiate as multipoles, `(kR)^m / (2^m m!)` of the moving wall, which at 10 kHz (`kR = 8`, `m = 7`)
+  is 3.3 - more than the wall moving as a whole - and the modes had no radiation damping: a spoon at
+  1 m/s peaked at 20 Pa. Capped at efficiency 1, with each mode losing what it radiates, a soft mallet
+  on the glass tuned to A4 sounds A4 with the next partial 35 dB down; a spoon (bright: its stiff
+  contact rings the higher modes, `m = 3` 4 dB above `m = 2`) is played at a few cm/s.
+- **Water tunes a glass by `(level / H)^4`.** The glass for A4 (43 mm radius, 2 mm wall) rings at
+  724 Hz empty and 343 Hz full; filled to 104 of 124 mm it is A4 (within 10 cents measured, 330-660 Hz); empty against full, the
+  measured ratio is `sqrt(1 + C)` within 1%.
+- **Bores are jumps in the surface, not the depth.** Over a rock the water is shallower and perfectly
+  still; detecting bores by depth made a still brook "break". With the surface, still water stays
+  still to 1e-5 m and makes nothing, and a brook's dissipation rises with its speed as a hydraulic
+  jump's does: at 0.3 m/s its jumps dissipate 1.0 W and it babbles at about 59 dB SPL on the bank; at
+  0.8 m/s, 18 W and 78 dB.
+- **What can't be simulated is carried, not dropped.** The bank simulates a few thousand bubbles a
+  second, each standing for its share; births skipped for the budget first lost their share (a brook
+  twice as fast came out only 2 dB louder); now the unsimulated bubbles are carried into the next
+  simulated ones.
+- **A crest breaks once.** A breaking bore flickers as it runs (a block without a detection); counting
+  a crest as new only when no bore has been near it for half a second, surf 1 m high with an 8 s
+  period breaks every 8.0, 8.2 and 7.8 s once it has settled, and its roar swells as each broken wave
+  runs up the beach toward the listener. It dissipates about 14 kW over 30 m of beach (~470 W per
+  metre of crest), entraining about 2.4e8 bubbles a second; 8 m up the beach it is about 80 dB SPL.
+- **A glide must end.** `Resonators` turn a slot's rotation a little every sample of a glide; a
+  vessel retuned in one sample kept turning for the next 128 (its air column blew up). Each slot now
+  counts its glide down.
+- **Cost** (one core, release): rain on a lake 1%, a window 1%, the roof 1-4%, the tent 3%, a ride 1%,
+  a floor tom 4-6%; a tub 2%, a brook 3-4%, surf 2%; a bottle filling 1%. A whole water track doing
+  everything at once (a drip every 100 ms, a glass every 250 ms, a fill, rain, brook, surf and tub):
+  23-30%. A water instrument builds in 0.35-0.6 s (the brook's and the beach's pre-roll; the rain's
+  body 0.1-0.7 s the first time, cached after).
+
+### Known limits (water)
+
+- **Bubbles are alone.** No interaction between bubbles, no collective oscillation of bubble clouds
+  (the low rumble under surf), no fragmentation or coalescence, and a bubble reaching the surface
+  rings on rather than bursting (no pop).
+- **Heard through the surface as a compact piston**, which holds while the bubble is within a
+  fraction of a wavelength in water of the surface (tens of centimetres at a few kHz); deeper
+  bubbles would spread over an area no longer small against the wavelength in air.
+- **Stand-ins, not laws**: the regular bubble's radius (0.45 of the drop's, from the 14 kHz raindrops),
+  its birth at half the crater's energy-balance depth, and irregular entrainment's statistics (a bubble
+  half the time, 0.25-1 of the drop's radius); a breaking crest's air pocket (a quarter of the jump
+  high); 40% of a bore's dissipation entraining air (Lamarre and Melville's range for breaking waves,
+  applied to hydraulic jumps too).
+- **Splashes**: normal impact only, no film of water left on the body (its mass and damping), no
+  secondary droplets; on cymbals and sheets drops off the `theta = 0` diameter land as their mirror
+  image (cosine members only).
+- **Glasses** are straight cylinders (a tumbler, not a wine glass's bowl), with an assumed wall shape
+  `(z/H)^(3/2)` and a capped multipole radiation; the water adds mass but no damping; a glass can't be
+  rubbed yet (the glass harmonica's wet finger needs the rim's in-plane traction, as the cymbal's bowed
+  edge does); the air in a glass isn't driven by its wall.
+- **Air columns** are plane waves: no transverse modes (above `1.84 c / 2 pi a`, 2.9 kHz in a 7 cm
+  glass), which the radiation damping of the high modes stands in for; a stream in a bottle's neck
+  doesn't block it; emptying's glug is not modelled.
+- **Moving water is shallow water in one dimension**: no dispersion (a 40 x 8 cm tub sloshes about 6%
+  off `sqrt(g k tanh(kd))`), no crest shape across the width, breaking only as bores; a brook and the
+  surf take seconds to establish a flow, so the DAW keeps them flowing and fades them in and out.
+- **Rain**: Marshall-Palmer's exponential sizes, no wind, round drops; drops beyond the simulation
+  rate are carried by weighted drops, which lumps the loudest (rare, large) ones slightly.
+- **No 3D view**: the Water window reports what the engine is doing in words (the last drip's pitch,
+  the glasses and their water, the fills' levels and air pitch, the rain, the brook, the surf), and
+  the kit's "one object, two representations" is still to come for water. The live BDD for a water
+  track (desktop session and audio device) is not written.
+
+### How water is verified (no audio device needed)
+
+| Claim | Where |
+|---|---|
+| A millimetre bubble rings near Minnaert (3.0-3.3 kHz, `kappa` 1.2-1.4), inversely with radius; its damping is in Devin's range and within 35% of van den Doel's fit; radiation dominates large bubbles, viscosity tiny ones | `matter::bubble::tests` |
+| The surface raises the pitch (Strasberg) and hushes the radiation; `radius_for` inverts the pitch; a glide is continuous and ends where asked | same |
+| A released bubble rings at its computed frequency (1%) and decays at its computed rate (15%) | `matter::water_tests` |
+| Raindrops of 0.95-1.05 mm entrain regularly (their bubble near 14 kHz), 0.6 and 1.6 mm don't, 3 mm irregularly; a tap drip is regular from 7 cm, silent from 1 and 50 cm; tuned drops are born at their note (1e-3) | `matter::drop::tests`, `matter::water_tests` |
+| A splash on a heavy body delivers the drop's momentum (2%), peaks at `0.8 rho v^2 D^2` (10%) over about `D / v` | `matter::drop::tests` |
+| A drip plinks at its born pitch and glides up 15%+ as its bubble rises; drops outside the bands are silent | `matter::water_tests` |
+| Light rain on a lake is loudest at 12.5-17 kHz, heavy rain below 8 kHz and 10 dB+ louder; Marshall-Palmer's flux integrates back to the rain rate (20%) | `matter::water_tests`, `matter::rain::tests` |
+| A glass's air column is a quarter-wave tube; a bottle is Helmholtz (5%), rising ever faster as it fills and passing into its neck continuously (10%) | `matter::vessel::tests` |
+| A filling bottle's loudest line follows its air column (3%) and rises 30%+ over five seconds | `matter::water_tests` |
+| A glass's overtone ratio is the ring's (2.83); it is tuned by its water (10 cents at 330-660 Hz); empty against full is `sqrt(1 + C)` (1%) | `matter::vessel::tests`, `matter::water_tests` |
+| Rain on the window and on the tent each has its own body's third-octave spectrum | `matter::water_tests` |
+| Still water over rocks stays still (1e-5 m) and silent; Deane-Stokes sizes follow their power laws; a still tub is silent and a shaken one breaks | `matter::waves::tests`, `matter::water_tests` |
+| A faster brook dissipates 1.8x+ more and is 1.5 dB+ louder | `matter::water_tests` |
+| Surf breaks once a wave period (within 1 s) and swells as it runs in | same |
+| A water track plays a glass, a drip and a fill at their pitches; rain stops when its note ends; the brook fades away after its note | same |
+| `analyze`: a tuned drip is regular and born at its note, a glass is tuned and a spoon brighter than a mallet, a fill rises a fifth to its note; unknown actions and surfaces are errors; a note becomes an offline event | `deno::water_ops::tests` |
+| A live water track allocates nothing on the audio thread (drips, glasses retuned past the rack, three fills, rain on a lake, a tent and a cymbal, the brook, the surf, the tub, mix changes) | `tests/water_no_alloc.rs` |
+| DAW: settings repaired, presets, plays and rows, velocity maps, the window's pads and surfaces, dropped notes while building, the tool, save, sequencer and export (weather held for the note), track removal | `examples/studio-bundle/tests/daw_water.test.ts` |
+
+`matter::water_tests::water_report` (ignored) prints a drip's glide, rain on each surface (level,
+centroid, cost), a bottle filling against its air column, the glass for A4, and the tub, brook and
+surf (dissipation, bubbles, breakers, level); `water_mix_report` the levels the mix defaults come
+from; `water_cost` a whole track at once on each surface. `water_listening_examples` renders a
+dripping tap and a pentatonic phrase of tuned drips, a glass-harp melody and chord, a spoon on
+glasses, a bottle and a vase filling, a shaken tub, a slow and a fast brook, surf, and light and heavy
+rain on each surface to `test-artifacts/matter/water_*.wav`.
+
 ## Picking up
+
+- **Water next**: a view (the basin's bubbles, the glasses' water, a fill's level, the tub's surface
+  from `Water::tub_surface`, the rain landing on its body); the glass harmonica (a wet finger rubbed
+  round the rim: the in-plane traction the cymbal's bowed edge needs too); bubble clouds' collective
+  modes (surf's low rumble); stones thrown in (a sphere's cavity pinching off a large bubble, the
+  vision's "throwing stones into water"); emptying a bottle (the glug: air bubbles entering through
+  the neck); Phase 4's containers of particles could share the vessel's air column.
 
 - **Friction next**: a 2D roughness texture; a tip's sideways motion; tools that are bodies too (a
   rod's own modes ringing as it scrapes, two plates rubbed together - Phase 7's scene); the bowed

@@ -463,6 +463,18 @@ pub struct MatterEvent {
     pub hit: matter::KitHit,
 }
 
+/// One note of a water track in an offline render (its action already solved into a command:
+/// `matter::water_voice::WaterAction::command`). Notes with the same `id` are played on one water
+/// instrument (the first note's `spec` and `mix` build it), so what they start rings on together.
+#[derive(Clone, Debug)]
+pub struct WaterEvent {
+    pub start_time: f64,
+    pub id: String,
+    pub spec: matter::water_voice::WaterSpec,
+    pub mix: [f32; matter::water_voice::SOURCES],
+    pub command: matter::water_voice::WaterCommand,
+}
+
 /// `render_events_to_wav` plus wavetable notes, physically-modeled bowed-string notes and VST3
 /// instrument tracks. A wavetable note is rendered by the same `WavetableVoice` the live path plays,
 /// from the table's current contents, so a bounce sounds like what was sculpted. A note whose table
@@ -479,7 +491,7 @@ pub fn render_events_full_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], &[], &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
 }
 
 /// Which track bus each event of an offline render plays through (see `render_mix_to_wav`). Each
@@ -495,6 +507,7 @@ pub struct MixRouting<'a> {
     pub physmod: &'a [Option<usize>],
     pub brass: &'a [Option<usize>],
     pub matter: &'a [Option<usize>],
+    pub water: &'a [Option<usize>],
     pub vst3: &'a [Option<usize>],
 }
 
@@ -516,6 +529,7 @@ pub fn render_mix_to_wav(
     physmod_events: &[PhysModEvent],
     brass_events: &[BrassEvent],
     matter_events: &[MatterEvent],
+    water_events: &[WaterEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
     routing: &MixRouting,
     sample_rate: u32,
@@ -586,7 +600,18 @@ pub fn render_mix_to_wav(
         }
     }
     let matter_bufs = by_kit.iter().map(|(_, bus, spec, mix, hits)| (*bus, matter::render_performance(*spec, *mix, hits, 20.0)));
-    for (bus, buf) in physmod_bufs.chain(brass_bufs).chain(matter_bufs) {
+    // Water likewise, one instrument per track, so what one note starts rings on under the next.
+    type WaterTrack<'a> = (&'a str, Option<usize>, matter::water_voice::WaterSpec, [f32; matter::water_voice::SOURCES], Vec<(f64, matter::water_voice::WaterCommand)>);
+    let mut by_water: Vec<WaterTrack> = Vec::new();
+    for (i, note) in water_events.iter().enumerate() {
+        let n = (note.start_time.max(0.0), note.command);
+        match by_water.iter_mut().find(|w| w.0 == note.id.as_str()) {
+            Some(w) => w.4.push(n),
+            None => by_water.push((note.id.as_str(), routing.bus(routing.water, i), note.spec, note.mix, vec![n])),
+        }
+    }
+    let water_bufs = by_water.iter().map(|(_, bus, spec, mix, notes)| (*bus, matter::water_voice::render_water_performance(*spec, *mix, notes, 20.0)));
+    for (bus, buf) in physmod_bufs.chain(brass_bufs).chain(matter_bufs).chain(water_bufs) {
         let mut buf = buf;
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
@@ -1068,6 +1093,18 @@ pub struct AudioEngine {
     brass_players: Mutex<HashMap<String, Arc<BrassHandle>>>,
     /// One live drum kit per (track, kit id), or the kit being built for it (see `matter_prepare`).
     matter_kits: Mutex<HashMap<String, MatterKit>>,
+    /// One live water instrument per (track, water id), or the one being built (see `water_prepare`).
+    water_tracks: Mutex<HashMap<String, WaterTrackState>>,
+}
+
+/// A track's water instrument: the one playing, and one being built to replace it (a different
+/// surface for its rain). The playing one keeps playing until its replacement is ready.
+#[derive(Default)]
+struct WaterTrackState {
+    playing: Option<Arc<matter::water_voice::WaterHandle>>,
+    building: Option<(matter::water_voice::WaterSpec, Arc<Mutex<Option<matter::water_voice::Water>>>)>,
+    /// The mix the live instrument was last told.
+    mix: Option<[f32; matter::water_voice::SOURCES]>,
 }
 
 /// A track's kit: the one playing, and one being built off the audio thread to replace it (a new
@@ -1165,6 +1202,7 @@ impl AudioEngine {
             next_brass_voice: AtomicU64::new(1),
             brass_players: Mutex::new(HashMap::new()),
             matter_kits: Mutex::new(HashMap::new()),
+            water_tracks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1569,6 +1607,79 @@ impl AudioEngine {
         }
     }
 
+    /// Makes sure `track_id` has a live water instrument of `spec` named `water_id` (the
+    /// `WaterShared` the ops read): builds one off the audio thread if there is none or it is a
+    /// different one, and puts a finished one on the track's bus. Cheap to call every frame.
+    pub fn water_prepare(&self, track_id: &str, water_id: &str, spec: matter::water_voice::WaterSpec) -> Result<MatterStatus, String> {
+        let key = format!("{track_id}\u{1}{water_id}");
+        let mut map = self.water_tracks.lock().unwrap();
+        let entry = map.entry(key).or_default();
+        if entry.playing.as_ref().is_some_and(|h| !h.is_alive()) {
+            entry.playing = None;
+            entry.mix = None;
+        }
+        let current = entry.playing.as_ref().is_some_and(|h| h.spec().same_build(&spec));
+        if entry.building.as_ref().is_some_and(|(b, _)| !b.same_build(&spec)) || current {
+            entry.building = None;
+        }
+        if !current && entry.building.is_none() {
+            let slot = Arc::new(Mutex::new(None));
+            let out = slot.clone();
+            std::thread::Builder::new()
+                .name("water-build".into())
+                .spawn(move || {
+                    let water = matter::water_voice::Water::new(spec, ENGINE_SAMPLE_RATE as f32);
+                    *out.lock().unwrap_or_else(|p| p.into_inner()) = Some(water);
+                })
+                .map_err(|e| format!("could not start building the water: {e}"))?;
+            entry.building = Some((spec, slot));
+        }
+        if let Some((_, slot)) = &entry.building {
+            let built = slot.lock().unwrap_or_else(|p| p.into_inner()).take();
+            if let Some(water) = built {
+                let buses = self.track_buses.lock().unwrap();
+                let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+                let (voice, handle) = matter::water_voice::WaterVoice::new(matter::water_voice::shared_for(water_id), water);
+                bus.note_mixer.add(voice);
+                if let Some(old) = entry.playing.replace(handle) {
+                    old.retire();
+                }
+                entry.building = None;
+                entry.mix = None;
+            }
+        }
+        Ok(match (entry.playing.is_some(), entry.building.is_some()) {
+            (true, false) => MatterStatus::Ready,
+            (true, true) => MatterStatus::Rebuilding,
+            (false, _) => MatterStatus::Building,
+        })
+    }
+
+    /// Plays a note on the track's water. `Ok(false)` while it is first being built (the note is
+    /// dropped: water is prepared ahead of playing - see `water_prepare`).
+    pub fn play_water_on_track(&self, track_id: &str, water_id: &str, spec: matter::water_voice::WaterSpec, mix: [f32; matter::water_voice::SOURCES], command: matter::water_voice::WaterCommand) -> Result<bool, String> {
+        if self.water_prepare(track_id, water_id, spec)? == MatterStatus::Building {
+            return Ok(false);
+        }
+        let mut map = self.water_tracks.lock().unwrap();
+        let Some(entry) = map.get_mut(&format!("{track_id}\u{1}{water_id}")) else { return Ok(false) };
+        let Some(h) = entry.playing.clone() else { return Ok(false) };
+        if entry.mix != Some(mix) {
+            let _ = h.send(matter::water_voice::WaterCommand::Mix(mix));
+            entry.mix = Some(mix);
+        }
+        Ok(h.send(command).is_ok())
+    }
+
+    /// Stops the track's water (a deleted track).
+    pub fn water_remove(&self, track_id: &str, water_id: &str) {
+        if let Some(entry) = self.water_tracks.lock().unwrap().remove(&format!("{track_id}\u{1}{water_id}")) {
+            if let Some(h) = entry.playing {
+                h.retire();
+            }
+        }
+    }
+
     /// Auditions a sample through `PREVIEW_BUS`, cutting off the one still playing from the last
     /// call.
     pub fn preview_sample(&self, path: &str, params: SampleParams) -> Result<(), String> {
@@ -1778,7 +1889,7 @@ mod character_path_tests {
         let events = [note(220.0), note(5_512.5)];
         let buses = [TrackBusRender { gain: 1.0, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
         let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
-        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
         let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();
         // Level over a 20 ms window at `t`, split by a crude filter: slow part = 220 Hz track.
         let window = |t: f32| {

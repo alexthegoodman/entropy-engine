@@ -191,6 +191,18 @@ impl ModalBody {
         self.scale = s;
     }
 
+    /// Replaces the modes' specifications (as many as the body has) while it rings - a glass whose
+    /// water changes, say - keeping every mode's displacement and velocity continuous.
+    pub fn set_specs(&mut self, specs: &[ModeSpec]) {
+        let n = self.specs.len().min(specs.len());
+        self.specs[..n].copy_from_slice(&specs[..n]);
+        let s = self.scale;
+        // A scale that can't be matched forces the exact recomputation of every mode.
+        self.scale = -1.0;
+        self.increments = 0;
+        self.set_scale(s);
+    }
+
     pub fn clear(&mut self) {
         self.re.iter_mut().for_each(|v| *v = 0.0);
         self.im.iter_mut().for_each(|v| *v = 0.0);

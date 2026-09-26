@@ -2899,6 +2899,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] track_buses: Vec<TrackBusRenderConfig>,
     #[serde] brass_events: Vec<crate::deno::brass_ops::BrassNoteConfig>,
     #[serde] matter_events: Vec<crate::deno::matter_ops::MatterHitConfig>,
+    #[serde] water_events: Vec<crate::deno::water_ops::WaterNoteConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2944,6 +2945,10 @@ pub fn op_audio_render_pattern_wav(
     let matter_hits: Vec<(crate::audio::MatterEvent, Option<usize>)> = matter_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
     let matter_routes: Vec<Option<usize>> = matter_hits.iter().map(|h| h.1).collect();
     let matter_hits: Vec<crate::audio::MatterEvent> = matter_hits.into_iter().map(|h| h.0).collect();
+    // Water notes likewise (an unknown action or surface is left out, with its route).
+    let water_notes: Vec<(crate::audio::WaterEvent, Option<usize>)> = water_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
+    let water_routes: Vec<Option<usize>> = water_notes.iter().map(|n| n.1).collect();
+    let water_notes: Vec<crate::audio::WaterEvent> = water_notes.into_iter().map(|n| n.0).collect();
     let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
 
     let note_events: Vec<crate::audio::NoteEvent> = events
@@ -3011,9 +3016,10 @@ pub fn op_audio_render_pattern_wav(
         physmod: &physmod_routes,
         brass: &brass_routes,
         matter: &matter_routes,
+        water: &water_routes,
         vst3: &vst3_routes,
     };
-    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &vst3_tracks, &routing, 44100, &output_path) {
+    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &output_path) {
         Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),

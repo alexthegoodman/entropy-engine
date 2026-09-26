@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -390,6 +390,13 @@ export interface ScopedAPI {
     holdMatterOnTrack: (trackId: string, config: MatterHoldConfig) => MatterOk & { played?: boolean };
     /** Stops the track's kit. */
     removeMatter: (trackId: string, kitId?: string) => void;
+    /** Builds (off the audio thread) or checks the track's water (see `Water`). Notes sent while it
+     *  is first being built are dropped, so prepare it ahead of playing. Cheap every frame. */
+    prepareWater: (trackId: string, config: WaterNoteConfig) => WaterOk & { status?: MatterStatus };
+    /** Plays a water note on the track now. `played` is false while it is being built. */
+    playWaterOnTrack: (trackId: string, config: WaterNoteConfig) => WaterOk & { played?: boolean };
+    /** Stops the track's water. */
+    removeWater: (trackId: string, waterId?: string) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -434,6 +441,7 @@ export interface ScopedAPI {
   PhysMod: PhysModAPI;
   Brass: BrassAPI;
   Matter: MatterAPI;
+  Water: WaterAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;
@@ -2194,6 +2202,79 @@ export interface MatterAPI {
   analyzeHit: (config: MatterHitConfig, seconds?: number) => MatterHitAnalysis;
   /** Rubs one piece - or a pane of "glass" or a "steel-sheet" - offline, alone, and measures it. */
   analyzeStroke: (config: Omit<MatterHitConfig, "piece"> & { piece?: MatterPiece | "glass" | "steel-sheet"; stroke: "sweep" | "swirl" }, seconds?: number) => MatterStrokeAnalysis;
+}
+
+export interface WaterOk { ok: boolean; error?: string }
+
+export type WaterAction = "drip" | "glass" | "fill" | "rain" | "brook" | "surf" | "slosh";
+export type WaterRainSurface = "lake" | "window" | "roof" | "tent" | "cymbal" | "drum";
+export type WaterVesselKind = "bottle" | "vase" | "jug";
+
+/** One water note (see `Entropy.Water`). */
+export interface WaterNoteConfig {
+  trackId?: string;
+  /** Names the water the ops read (defaults to trackId). */
+  waterId?: string;
+  /** What its rain falls on, and what its fills pour into. */
+  water?: { rain?: WaterRainSurface; vessel?: WaterVesselKind };
+  /** Each source's level (the microphones). */
+  mix?: Partial<Record<WaterAction, number>>;
+  action?: WaterAction;
+  /** Hz: drip (the drop whose bubble rings at it; none = a tap's own drip), glass (tuned by its
+   *  water), fill (where the air column rises to). */
+  pitch?: number;
+  /** Glass: the striker's speed (m/s). Brook: the water's speed (m/s). */
+  speed?: number;
+  spoon?: boolean;
+  /** Drip: across the basin, -1..1. */
+  x?: number;
+  /** Rain, mm/h. */
+  rate?: number;
+  /** Surf: wave height, m. */
+  height?: number;
+  /** Slosh: 0..1. */
+  strength?: number;
+  /** Seconds: a fill's pour, how long rain / brook / surf / slosh are held. */
+  duration?: number;
+  /** Offline events only. */
+  startTime?: number;
+}
+
+export interface WaterInfo extends WaterOk {
+  id?: string;
+  active?: number;
+  levels?: Record<WaterAction, number>;
+  drip?: { lastHz: number; drops: number; bubbles: number };
+  glasses?: { pitchHz: number; energyJ: number; levelMm: number; heightMm: number }[];
+  fills?: { level: number; airHz: number; pouring: boolean }[];
+  rain?: { rateMmH: number; drops: number };
+  brook?: { speed: number; dissipationW: number };
+  surf?: { heightM: number; breakers: number };
+  slosh?: { strength: number; bores: number };
+}
+
+export interface WaterAnalysis extends WaterOk {
+  action?: WaterAction;
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  centroidHz?: number;
+  strongestHz?: number;
+  drop?: { radiusMm: number; speed: number; fallCm: number; regime: "regular" | "irregular" | "none" };
+  bubble?: { radiusMm: number; bornHz: number; depthMm: number };
+  glass?: { radiusMm: number; heightMm: number; levelMm: number; emptyHz: number; fullHz: number; pitchHz: number; speed: number };
+  vessel?: { radiusMm: number; heightMm: number; neckRadiusMm: number; neckLengthMm: number; fromMm: number; toMm: number; startHz: number; endHz: number; flowMlPerS: number };
+  rain?: { surface: WaterRainSurface; rateMmH: number; duration: number };
+  brook?: { speed: number; duration: number };
+  surf?: { heightM: number; duration: number };
+  slosh?: { strength: number; duration: number };
+}
+
+export interface WaterAPI {
+  info: (id: string) => WaterInfo;
+  remove: (id: string) => boolean;
+  /** Plays one note offline on a fresh water instrument (no audio device) and measures it. */
+  analyze: (config: WaterNoteConfig, seconds?: number) => WaterAnalysis;
 }
 
 export interface MatterViewConfig {
