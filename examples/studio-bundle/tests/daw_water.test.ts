@@ -18,6 +18,9 @@ describe("The water model", () => {
         expect(w.mix.drip).toBe(32);
         expect(w.mix.rain).toBe(DEFAULT_MIX.rain);
         expect(w.preset).toBe("glass-harp");
+        expect(w.weatherSource).toBe("rain");
+        expect(repairWater({ weatherSource: "surf" }).weatherSource).toBe("surf");
+        expect(repairWater({ weatherSource: "hail" }).weatherSource).toBe("rain");
         expect(repairWater(null)).toEqual(defaultWater());
         expect(repairWater("garbage")).toEqual(defaultWater());
     });
@@ -38,7 +41,7 @@ describe("The water model", () => {
         expect(sameBuild(a, { ...a, rain: "tent" })).toBe(false);
     });
 
-    it("pitched plays take the note's pitch; weather has its own rows", () => {
+    it("all plays use note rows, with weather using its selected source", () => {
         const w = defaultWater();
         expect(rowsFor(w)).toBeNull();
         const glass = noteConfig("t", w, { freq: 440, velocity: 0.5 });
@@ -51,8 +54,8 @@ describe("The water model", () => {
         // A fill always pours for a moment, however short the note.
         expect(noteConfig("t", { ...w, play: "fill" }, { freq: 330, velocity: 1, duration: 0.01 }).duration).toBe(0.2);
         const weather = { ...w, play: "weather" as const };
-        expect(rowsFor(weather)).toEqual(WEATHER_ROWS);
-        expect(WEATHER_ROWS.map((_, row) => noteConfig("t", weather, { row, velocity: 0.5, duration: 2 }).action)).toEqual(["rain", "brook", "surf", "slosh"]);
+        expect(rowsFor(weather)).toBeNull();
+        expect(WEATHER_ROWS.map(source => noteConfig("t", { ...weather, weatherSource: source.id }, { freq: 440, velocity: 0.5, duration: 2 }).action)).toEqual(["rain", "brook", "surf", "slosh"]);
         expect(noteConfig("t", weather, { row: 0, velocity: 0.5, duration: 2, startTime: 1.5 })).toMatchObject({ rate: rainRate(0.5, weather), duration: 2, startTime: 1.5 });
     });
 
@@ -107,7 +110,7 @@ describe("The water model", () => {
 
     it("describes itself for the AI", () => {
         expect(describeSettings(defaultWater())).toMatchObject({ play: "glass", rain: "lake" });
-        expect(describeSettings({ ...defaultWater(), play: "weather" }).rows).toEqual(WEATHER_ROWS.map((r, i) => ({ row: i, name: r.label, note: r.note })));
+        expect(describeSettings({ ...defaultWater(), play: "weather", weatherSource: "surf" }).weatherSource).toBe("surf");
         expect(WATER_PLAYS.map(p => p.id)).toEqual(["glass", "drip", "fill", "weather"]);
         expect(WATER_SOURCES.length).toBe(7);
         expect(RAIN_SURFACES.length).toBe(6);
@@ -151,12 +154,20 @@ describe("The DAW's water (production addon callbacks)", () => {
         expect(t.rows).toBe(PITCHED_ROWS);
     });
 
-    it("weather has its own rows, and a pitched play gets the scale back", async () => {
-        const { click, state } = await openDaw();
+    it("weather keeps note rows and plays the source selected in the window", async () => {
+        const { click, state, w, tool } = await openDaw();
         click("wr_play_weather");
         let t = state().tracks.find((t: any) => t.id === "trk-lead");
-        expect(t.rows).toBe(WEATHER_ROWS.length);
-        expect(t.rowNotes).toEqual(WEATHER_ROWS.map(r => r.label));
+        expect(t.rows).toBe(PITCHED_ROWS);
+        expect(t.rowNotes).toHaveLength(PITCHED_ROWS);
+        expect(t.rowNotes).not.toContain("Rain");
+        click("wr_weather_surf");
+        tool("daw_water", { trackId: "trk-lead", action: "play", row: 8 });
+        expect(w.waterNotes.at(-1)!.cfg.action).toBe("surf");
+        tool("daw_set_notes", { trackId: "trk-lead", notes: [{ row: 8, step: 0, length: 4 }] });
+        tool("daw_export_wav", {});
+        expect(w.waterExports.at(-1)!.some((note: any) => note.trackId === "trk-lead" && note.action === "surf")).toBe(true);
+        expect(state().tracks.find((t: any) => t.id === "trk-lead").water.weatherSource).toBe("surf");
         click("wr_play_drip");
         t = state().tracks.find((t: any) => t.id === "trk-lead");
         expect(t.rows).toBe(PITCHED_ROWS);

@@ -4,7 +4,7 @@
 // A water track plays one of four ways. Three are pitched and use the track's scale like any synth
 // track: a glass harp (each note struck on a glass its water tunes to the note), drips (each note
 // the drop whose bubble rings at it), and fills (each note a bottle filling, its air column rising
-// a fifth to the note over the note's length). The fourth is weather: its rows are rain, a brook,
+// a fifth to the note over the note's length). The fourth is weather: its selected source is rain, a brook,
 // surf and a sloshing tub, held for as long as the note lasts. The physics is the engine's
 // (src/audio/matter/water_voice.rs); nothing here is a sample.
 
@@ -48,8 +48,7 @@ export const WATER_VESSELS: { id: WaterVessel; label: string }[] = [
     { id: "jug", label: "Jug" },
 ];
 
-/** A row of a weather track: what it holds for the length of the note, and its General MIDI
- *  sound-effect note. */
+/** Weather sources available in the Water window. */
 export interface WeatherRow {
     id: "rain" | "brook" | "surf" | "slosh";
     label: string;
@@ -63,13 +62,14 @@ export const WEATHER_ROWS: WeatherRow[] = [
     { id: "slosh", label: "Slosh", note: 65 },
 ];
 
-/** How many rows a pitched water track gets back when it leaves weather (a synth track's default). */
+/** The default number of note rows for a water track. */
 export const PITCHED_ROWS = 10;
 
 export interface WaterSettings {
     /** The preset last chosen (settings may have moved since). */
     preset: string;
     play: WaterPlay;
+    weatherSource: WeatherRow["id"];
     rain: RainSurface;
     vessel: WaterVessel;
     /** Glasses struck with a spoon rather than a soft mallet: brighter, a ringing overtone. */
@@ -110,7 +110,7 @@ export function waterPresetById(id: string): WaterPreset | undefined {
 }
 
 export function defaultWater(): WaterSettings {
-    return { preset: "glass-harp", play: "glass", rain: "lake", vessel: "bottle", spoon: false, dynamics: 0.7, mix: { ...DEFAULT_MIX }, physicsView: false };
+    return { preset: "glass-harp", play: "glass", weatherSource: "rain", rain: "lake", vessel: "bottle", spoon: false, dynamics: 0.7, mix: { ...DEFAULT_MIX }, physicsView: false };
 }
 
 const num = (v: unknown, fallback: number, lo: number, hi: number): number => {
@@ -130,6 +130,7 @@ export function repairWater(saved: unknown): WaterSettings {
     return {
         preset: WATER_PRESETS.some(p => p.id === s.preset) ? s.preset : d.preset,
         play: oneOf(s.play, WATER_PLAYS, d.play),
+        weatherSource: oneOf(s.weatherSource, WEATHER_ROWS, d.weatherSource),
         rain: oneOf(s.rain, RAIN_SURFACES, d.rain),
         vessel: oneOf(s.vessel, WATER_VESSELS, d.vessel),
         spoon: s.spoon === true,
@@ -158,9 +159,9 @@ export function isPitched(w: WaterSettings): boolean {
     return w.play !== "weather";
 }
 
-/** The rows a track of these settings has: the weather's, or `null` for the scale's own. */
+/** Water always uses the track's note rows. */
 export function rowsFor(w: WaterSettings): WeatherRow[] | null {
-    return isPitched(w) ? null : WEATHER_ROWS;
+    return null;
 }
 
 /** A value from `lo` (velocity 0) to `hi` (velocity 1 at full dynamics), evenly in ratio - evenly
@@ -221,7 +222,7 @@ export interface WaterNote {
 
 /** The engine call for one note on a water track. `waterId` is the track id, so every note of the
  *  track plays on the same water (glasses ring on, the rain keeps falling). A pitched play takes
- *  the note's `freq`; weather takes its `row`. */
+ *  the note's `freq`; weather uses the selected source. */
 export function noteConfig(
     trackId: string,
     w: WaterSettings,
@@ -234,8 +235,7 @@ export function noteConfig(
     const duration = Math.min(600, Math.max(0.05, typeof note.duration === "number" && Number.isFinite(note.duration) ? note.duration : 0.5));
     const v = note.velocity;
     if (w.play === "weather") {
-        const row = WEATHER_ROWS[Math.min(WEATHER_ROWS.length - 1, Math.max(0, Math.round(note.row ?? 0)))];
-        switch (row.id) {
+        switch (w.weatherSource) {
             case "rain": return { ...base, action: "rain", rate: rainRate(v, w), duration };
             case "brook": return { ...base, action: "brook", speed: brookSpeed(v, w), duration };
             case "surf": return { ...base, action: "surf", height: surfHeight(v, w), duration };
@@ -305,9 +305,8 @@ export function viewNoteConfig(
             return noteConfig(trackId, as("fill"), { freq, velocity: clamp01(a.velocity), duration: VIEW_FILL_SECONDS });
         }
         case "hold": {
-            const row = WEATHER_ROWS.findIndex(r => r.id === a.source);
-            if (row < 0) return null;
-            return noteConfig(trackId, as("weather"), { row, velocity: clamp01(a.velocity), duration: VIEW_HOLD_SECONDS });
+            if (!WEATHER_ROWS.some(r => r.id === a.source)) return null;
+            return noteConfig(trackId, { ...as("weather"), weatherSource: a.source as WeatherRow["id"] }, { velocity: clamp01(a.velocity), duration: VIEW_HOLD_SECONDS });
         }
     }
 }
@@ -315,7 +314,6 @@ export function viewNoteConfig(
 /** The bit of a track an AI tool reports. */
 export function describeSettings(w: WaterSettings): Record<string, unknown> {
     return {
-        preset: w.preset, play: w.play, rain: w.rain, vessel: w.vessel, spoon: w.spoon, dynamics: w.dynamics, mix: { ...w.mix },
-        ...(isPitched(w) ? {} : { rows: WEATHER_ROWS.map((r, i) => ({ row: i, name: r.label, note: r.note })) }),
+        preset: w.preset, play: w.play, weatherSource: w.weatherSource, rain: w.rain, vessel: w.vessel, spoon: w.spoon, dynamics: w.dynamics, mix: { ...w.mix },
     };
 }

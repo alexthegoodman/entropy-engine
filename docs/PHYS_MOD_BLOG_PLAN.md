@@ -21,6 +21,8 @@ have something to aim at. They are not publishable until re-run (see "Gates").
 - [ ] **Post 2 - Brass:** a tube, a pair of lips and a shock front
 - [ ] **Post 3 - Drums and cymbals:** from one contact law to a kit that hears itself
 
+- Also a Post 4 for the newly added physically modelled water audio
+
 Publish in that order (build order). Post 2 refers back to post 1 for the shared view and
 verification patterns; post 3 refers back to both. Suggested slugs: `entropy-physmod-strings`,
 `entropy-physmod-brass`, `entropy-physmod-drums`. Dates are set when each is written.
