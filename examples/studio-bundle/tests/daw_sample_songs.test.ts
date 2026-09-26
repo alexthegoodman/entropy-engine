@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import neon from '../sample-songs/neon-tide-edm.json';
 import house from '../sample-songs/afterhours-house.json';
 import hiphop from '../sample-songs/lowlight-hip-hop.json';
@@ -33,6 +35,7 @@ describe('bundled DAW sample songs', () => {
       world.w.buttons.get('new_song_create')!();
       expect(world.w.saved.bpm).toBe(expected.bpm);
       expect(world.w.saved.tracks.map((t: any) => t.id)).toEqual(expected.tracks.map(t => t.id));
+      expect(world.w.saved.tracks.map((t: any) => t.patterns)).toEqual(expected.tracks.map(t => t.patterns));
       expect(world.w.buses.size).toBe(expected.tracks.length);
       world.render();
     }
@@ -120,6 +123,15 @@ describe('bundled DAW sample songs', () => {
       expect(Number.isFinite(e.startTime)).toBe(true);
       expect(e.startTime).toBeGreaterThanOrEqual(0);
       if ('freq' in e) expect(e.freq).toBeGreaterThan(20);
+    }
+    // Optional handoff of the actual production export payload to the native audio test.
+    if (process.env.ENTROPY_SHOWCASE_FIXTURES) {
+      mkdirSync(process.env.ENTROPY_SHOWCASE_FIXTURES, {recursive:true});
+      writeFileSync(join(process.env.ENTROPY_SHOWCASE_FIXTURES, `${song.bpm}.json`), JSON.stringify({
+        bpm:song.bpm, notes:w.exports.at(-1), wavetable:w.wavetableExports.at(-1),
+        physmod:w.physModExports.at(-1), brass:w.brassExports.at(-1), matter:w.matterExports.at(-1),
+        buses:w.busExports.at(-1), tables:song.tracks.filter(t => 'wavetable' in t).map(t => ({id:t.id, preset:(t as any).wavetable.preset})),
+      }));
     }
   });
 

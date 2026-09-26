@@ -227,6 +227,15 @@ function compose(s) {
   }
   const cuts = [5,11].map(phrase => ({ id:`${s.slug}-breath-${phrase}`, trackIds:tracks.map(t => t.id),
     startStep:phrase*64+60, endStep:(phrase+1)*64 }));
+  // Keep each piano roll near its actual register instead of opening on empty bass octaves.
+  for (const t of tracks.filter(t => t.kind === 'synth' && t.voice.waveform !== 'matter')) {
+    const notes = t.patterns.flatMap(p => p.notes);
+    const pitches = notes.map(n => t.rootNote+n.row);
+    const root = Math.floor(Math.min(...pitches)/12)*12;
+    notes.forEach(n => { n.row += t.rootNote-root; });
+    t.rootNote = root;
+    t.rows = Math.max(25,Math.max(...pitches)-root+1);
+  }
   return { bpm:s.bpm, stepsPerBeat:4, songBars:64, snap:'bar', arrangement, tracks, cuts, activeTrackId:lead.id };
 }
 
