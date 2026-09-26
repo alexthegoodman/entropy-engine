@@ -1552,6 +1552,31 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A physically modeled water instrument drawn from its own state in the same neon style
+            // (see Audio.playWaterOnTrack and entropy_gui::WaterView). The widget reads the engine's
+            // WaterShared directly. config: {water, height, width, pads, physicsView, exaggeration,
+            // status}; the caller hears about clicks through the callbacks: onDrip(x, velocity) (the
+            // basin clicked, x -1..1 across it), onGlass(index, pitch, velocity) (a glass in the
+            // rack; pitch 0 for an empty place), onFill(height, velocity) (a vessel clicked, height
+            // 0..1 up it), onHold(source, velocity) (rain, brook, surf or slosh held: keep it going
+            // a moment longer - sent again while held), onPad(source, velocity), onPhysicsView(on).
+            water: (windowId, config) => {
+                const id = nextWidgetId(windowId, "water", config?.id);
+                ops.op_ui_widget_water(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "WATER_DRIP" && config.onDrip) config.onDrip(parseFloat(parts[2]), parseFloat(parts[3]));
+                        else if (type === "WATER_GLASS" && config.onGlass) config.onGlass(parseInt(parts[2], 10), parseFloat(parts[3]), parseFloat(parts[4]));
+                        else if (type === "WATER_FILL" && config.onFill) config.onFill(parseFloat(parts[2]), parseFloat(parts[3]));
+                        else if (type === "WATER_HOLD" && config.onHold) config.onHold(parts[2], parseFloat(parts[3]));
+                        else if (type === "WATER_PAD" && config.onPad) config.onPad(parts[2], parseFloat(parts[3]));
+                        else if (type === "WATER_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
+                    });
+                }
+            },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
             // treeView.
@@ -1774,7 +1799,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener

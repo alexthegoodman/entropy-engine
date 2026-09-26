@@ -30,15 +30,18 @@ pub struct Pond {
     /// Depth of the water, m, and the listener's height above it, m.
     pub depth: f32,
     pub listener: f32,
-    /// Drops landed so far.
+    /// Drops landed so far, and the last one: where it landed (m to the listener's right) and what
+    /// it was.
     pub drops: u64,
+    pub last_x: f32,
+    pub last_drop: Option<Drop>,
 }
 
 impl Pond {
     pub fn new(depth: f32, listener: f32, sr: f32) -> Self {
         let mut bubbles = BubbleBank::with_capacity(96, sr);
         bubbles.water_depth = depth;
-        Self { sr, bubbles, rng: Rng::new(11), births: [Birth::new(1.0e-3, 1.0e-3); 2], depth, listener, drops: 0 }
+        Self { sr, bubbles, rng: Rng::new(11), births: [Birth::new(1.0e-3, 1.0e-3); 2], depth, listener, drops: 0, last_x: 0.0, last_drop: None }
     }
 
     pub fn bubbles(&self) -> &BubbleBank {
@@ -55,6 +58,8 @@ impl Pond {
         let dist = (x * x + self.listener * self.listener).sqrt().max(0.05);
         let pan = x / dist;
         self.drops += 1;
+        self.last_x = x;
+        self.last_drop = Some(drop);
         let n = entrain(drop, self.depth, &mut self.rng, &mut self.births);
         let mut freq = None;
         for i in 0..n {
@@ -80,6 +85,13 @@ impl Pond {
 
     pub fn busy(&self) -> bool {
         !self.bubbles.is_silent()
+    }
+
+    /// Where a bubble born with `pan` is, m to the listener's right (the inverse of the pan a drop
+    /// landing at `x` is given).
+    pub fn x_of(&self, pan: f32) -> f32 {
+        let p = pan.clamp(-0.999, 0.999);
+        p * self.listener / (1.0 - p * p).sqrt()
     }
 
     /// One sample, `[left, right]` in pascals.

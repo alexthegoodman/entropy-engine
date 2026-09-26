@@ -489,6 +489,20 @@ impl Vessel {
         self.pour.is_some()
     }
 
+    /// The stream being poured in, if any.
+    pub fn pour_spec(&self) -> Option<Pour> {
+        self.pour
+    }
+
+    /// The wall's lowest modes as the view draws them: for orders `m = 2, 3, ...`, the rim's
+    /// amplitude (rms, m) and frequency (Hz).
+    pub fn wall_modes(&self, out: &mut [(f32, f32)]) {
+        let specs = self.walls.specs();
+        for (k, o) in out.iter_mut().enumerate() {
+            *o = if k < specs.len() { (self.walls.mean_square(k).sqrt() * self.wall_shape[k].abs(), specs[k].freq) } else { (0.0, 0.0) };
+        }
+    }
+
     pub fn sample_rate(&self) -> f32 {
         self.sr
     }

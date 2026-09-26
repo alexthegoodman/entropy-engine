@@ -78,6 +78,8 @@ export interface WaterSettings {
     dynamics: number;
     /** Each source's level - the microphones. */
     mix: Record<WaterSource, number>;
+    // Editor state.
+    physicsView: boolean;
 }
 
 /** The engine's measured default microphones (see water_voice.rs's DEFAULT_MIX): drips are a few
@@ -87,7 +89,7 @@ export const DEFAULT_MIX: Record<WaterSource, number> = { drip: 5, glass: 1.5, f
 export interface WaterPreset {
     id: string;
     label: string;
-    settings: Partial<Omit<WaterSettings, "mix" | "preset">>;
+    settings: Partial<Omit<WaterSettings, "mix" | "preset" | "physicsView">>;
 }
 
 export const WATER_PRESETS: WaterPreset[] = [
@@ -108,7 +110,7 @@ export function waterPresetById(id: string): WaterPreset | undefined {
 }
 
 export function defaultWater(): WaterSettings {
-    return { preset: "glass-harp", play: "glass", rain: "lake", vessel: "bottle", spoon: false, dynamics: 0.7, mix: { ...DEFAULT_MIX } };
+    return { preset: "glass-harp", play: "glass", rain: "lake", vessel: "bottle", spoon: false, dynamics: 0.7, mix: { ...DEFAULT_MIX }, physicsView: false };
 }
 
 const num = (v: unknown, fallback: number, lo: number, hi: number): number => {
@@ -133,6 +135,7 @@ export function repairWater(saved: unknown): WaterSettings {
         spoon: s.spoon === true,
         dynamics: num(s.dynamics, d.dynamics, 0, 1),
         mix,
+        physicsView: s.physicsView === true,
     };
 }
 
@@ -244,6 +247,68 @@ export function noteConfig(
         case "drip": return { ...base, action: "drip", pitch, x: dripPan(pitch) };
         case "fill": return { ...base, action: "fill", pitch, duration: Math.max(0.2, duration) };
         default: return { ...base, action: "glass", pitch, speed: glassSpeed(v, w), spoon: w.spoon };
+    }
+}
+
+// --- The Water view (entropy_gui::WaterView) --------------------------------------------------
+//
+// The window draws the track's water from the engine's own state, and it can be played: a click
+// on the basin drops a drip there, on a glass strikes it, on a vessel fills it to a note; a press
+// held on the rain, the brook, the beach or the tub keeps it going. Whatever the track plays, each
+// of these plays as itself (a drip is a drip on a glass-harp track), on the track's scale.
+
+/** How long one press held on the rain, the brook, the beach or the tub keeps it going, s. The
+ *  view sends it again every 0.12 s while it is held (see WaterView's HOLD_SECONDS). */
+export const VIEW_HOLD_SECONDS = 0.35;
+/** Glasses in the engine's rack (water_voice.rs's GLASSES), left to right in the view. */
+export const RACK_GLASSES = 8;
+/** How long a vessel clicked in the view pours, s. */
+export const VIEW_FILL_SECONDS = 2;
+
+/** What the view asked for. */
+export type WaterViewAction =
+    | { kind: "drip"; x: number; velocity: number }
+    | { kind: "glass"; index: number; pitch: number; velocity: number }
+    | { kind: "fill"; height: number; velocity: number }
+    | { kind: "hold"; source: WaterSource; velocity: number };
+
+/** A fraction `0..1` as one of `rows` scale rows (0 the lowest). */
+export function viewRow(fraction: number, rows: number): number {
+    const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0;
+    return Math.min(rows - 1, Math.max(0, Math.round(f * (rows - 1))));
+}
+
+/** The engine call for something clicked in the Water view, or `null` for nothing to play.
+ *  `freqOfRow` gives a scale row's pitch, `rows` how many scale rows there are: left to right
+ *  across the basin and up a vessel go up the scale, as an empty glass's place in the rack does. */
+export function viewNoteConfig(
+    trackId: string,
+    w: WaterSettings,
+    a: WaterViewAction,
+    freqOfRow: (row: number) => number,
+    rows: number,
+): WaterNote | null {
+    const as = (play: WaterPlay): WaterSettings => ({ ...w, play });
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0.7));
+    switch (a.kind) {
+        case "drip": {
+            const x = Math.min(1, Math.max(-1, Number.isFinite(a.x) ? a.x : 0));
+            const freq = freqOfRow(viewRow((x + 1) / 2, rows));
+            return { ...noteConfig(trackId, as("drip"), { freq, velocity: clamp01(a.velocity) }), x };
+        }
+        case "glass": {
+            const freq = a.pitch > 0 ? a.pitch : freqOfRow(viewRow(a.index / (RACK_GLASSES - 1), rows));
+            return noteConfig(trackId, as("glass"), { freq, velocity: clamp01(a.velocity) });
+        }
+        case "fill": {
+            const freq = freqOfRow(viewRow(a.height, rows));
+            return noteConfig(trackId, as("fill"), { freq, velocity: clamp01(a.velocity), duration: VIEW_FILL_SECONDS });
+        }
+        case "hold": {
+            const row = WEATHER_ROWS.findIndex(r => r.id === a.source);
+            if (row < 0) return null;
+            return noteConfig(trackId, as("weather"), { row, velocity: clamp01(a.velocity), duration: VIEW_HOLD_SECONDS });
+        }
     }
 }
 

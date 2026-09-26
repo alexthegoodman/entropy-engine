@@ -636,9 +636,26 @@ struct Life {
     /// Rise speed now, its terminal value, m/s.
     speed: f32,
     terminal: f32,
-    /// Squared amplitude below which it is done.
+    /// Squared amplitude below which it is done, and at birth.
     floor: f32,
+    start: f32,
+    /// Where it is, left (-1) to right (+1), as born.
+    pan: f32,
     age: u32,
+}
+
+/// A ringing bubble as the view draws it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BubbleDot {
+    /// Radius and depth of its centre below the surface, m.
+    pub radius: f32,
+    pub depth: f32,
+    /// Left (-1) to right (+1), as born.
+    pub pan: f32,
+    /// What it rings at now, Hz.
+    pub freq: f32,
+    /// Its amplitude against its amplitude at birth (1 at birth, falling as it rings out).
+    pub amp: f32,
 }
 
 /// Many bubbles ringing. See the module notes.
@@ -672,6 +689,15 @@ impl BubbleBank {
 
     pub fn is_silent(&self) -> bool {
         self.res.is_empty()
+    }
+
+    /// The bubbles ringing now, for the view (allocates nothing).
+    pub fn dots(&self, mut f: impl FnMut(BubbleDot)) {
+        for k in 0..self.res.len() {
+            let l = &self.life[k];
+            let amp = (self.res.amplitude2(k) / l.start.max(1.0e-30)).max(0.0).sqrt().min(1.0);
+            f(BubbleDot { radius: l.radius, depth: l.depth, pan: l.pan, freq: self.res.omega(k) / std::f32::consts::TAU, amp });
+        }
     }
 
     /// Makes a bubble ring. Returns false if it couldn't be made (too small to hear, or the bank
@@ -719,7 +745,7 @@ impl BubbleBank {
             return false;
         };
         let start = (v0 / damped(w0, sigma)).powi(2);
-        self.life[k] = Life { mode, radius: b.radius, depth, speed: 0.0, terminal: rise_speed(b.radius), floor: start * 1.0e-10, age: 0 };
+        self.life[k] = Life { mode, radius: b.radius, depth, speed: 0.0, terminal: rise_speed(b.radius), floor: start * 1.0e-10, start, pan: b.pan, age: 0 };
         self.born += 1;
         self.last_freq = w0 / std::f32::consts::TAU;
         true

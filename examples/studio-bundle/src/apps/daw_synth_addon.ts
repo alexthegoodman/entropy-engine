@@ -125,7 +125,7 @@ import {
     repairMatter,
     sameBuild as sameMatterBuild,
 } from "./daw_matter";
-import type { WaterSettings, WaterSource } from "./daw_water";
+import type { WaterSettings, WaterSource, WaterViewAction } from "./daw_water";
 import {
     WATER_WAVEFORM,
     WATER_PLAYS,
@@ -142,6 +142,7 @@ import {
     noteConfig as waterNoteConfig,
     repairWater,
     sameBuild as sameWaterBuild,
+    viewNoteConfig as waterViewNoteConfig,
 } from "./daw_water";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
@@ -2629,13 +2630,20 @@ function renderMatterWindow(win: string) {
 
 // --- The Water window --------------------------------------------------------------------------
 //
-// The active synth track's water: how it plays, what its rain falls on, what its fills pour into,
-// the mix, and pads that play each kind of water at once with the track's settings. What the
-// engine is doing (the last drip's pitch, the glasses in the rack and their water, the fills'
-// levels, the rain) is read back from Entropy.Water.info.
+// The active synth track's water, drawn live by entropy_gui::WaterView (see widgets_water.rs) from
+// the engine's own state - the basin's bubbles, the glasses' water and ringing rims, the vessels
+// filling, the rain on its surface, the brook, the surf and the tub - and played from it: a click
+// on the basin drips there, on a glass strikes it, on a vessel fills it to a note; a press held on
+// the rain, the brook, the beach or the tub keeps it going. Beside it: how the track plays, what
+// its rain falls on, what its fills pour into, the mix, and pads that play each kind of water at
+// once with the track's settings. What the engine is doing is also read back from
+// Entropy.Water.info, in words.
 
 let waterWindowId: string | null = null;
 let waterVisible = false;
+let waterWindowHeight = 760;
+let waterWindowWidth = 1120;
+const WATER_SIDE_COLUMN = 360;
 
 function setWaterVisible(visible: boolean) {
     waterVisible = visible;
@@ -2643,13 +2651,21 @@ function setWaterVisible(visible: boolean) {
 }
 
 /** A pad in the window: each kind of water at the track's root note (or held a few seconds). */
-function auditionWater(track: Track, source: WaterSource) {
+function auditionWater(track: Track, source: WaterSource, velocity = 0.7) {
     const w = trackWater(track);
     const freq = midiToFreq(track.rootNote + 12);
     const held: Record<WaterSource, number> = { drip: 0.3, glass: 1, fill: 1.5, rain: 3, brook: 4, surf: 8, slosh: 3 };
     const as = { ...w, play: source === "drip" || source === "glass" || source === "fill" ? source : "weather" } as WaterSettings;
     const row = WEATHER_ROWS.findIndex(r => r.id === source);
-    playWaterNote(track, waterNoteConfig(track.id, as, { freq, row: Math.max(0, row), velocity: 0.7, duration: held[source] }));
+    playWaterNote(track, waterNoteConfig(track.id, as, { freq, row: Math.max(0, row), velocity, duration: held[source] }));
+}
+
+/** Something clicked in the view, played now (each as itself, on the track's scale). */
+function playWaterFromView(track: Track, action: WaterViewAction) {
+    const w = trackWater(track);
+    const rows = isPitchedWater(w) ? track.rows : PITCHED_ROWS;
+    const config = waterViewNoteConfig(track.id, w, action, row => midiToFreq(rowToMidi(row, track.rootNote, track.scale)), rows);
+    if (config) playWaterNote(track, config);
 }
 
 function renderWaterWindow(win: string) {
@@ -2671,89 +2687,119 @@ function renderWaterWindow(win: string) {
     // Keep the engine's water in step (and pick up a finished build) while the window is open.
     prepareWater(track);
     const build = wrBuild[track.id];
-    W.horizontal(win, (row: string) => {
+    W.horizontal(win, (columns: string) => {
+    W.vertical(columns, (left: string) => {
+    W.horizontal(left, (row: string) => {
         W.label(row, { text: `${track.name} -`, bold: true });
         for (const p of WATER_PRESETS.slice(0, 5)) {
             W.button(row, { text: radio(w.preset === p.id) + p.label, id: "wr_preset_" + p.id, onClick: () => { loadWaterPreset(track, p.id); } });
         }
+        W.button(row, {
+            text: radio(w.physicsView) + "Physics View", id: "wr_physics",
+            onClick: () => { w.physicsView = !w.physicsView; scheduleSave(); }
+        });
     });
-    W.horizontal(win, (row: string) => {
+    W.horizontal(left, (row: string) => {
         for (const p of WATER_PRESETS.slice(5)) {
             W.button(row, { text: radio(w.preset === p.id) + p.label, id: "wr_preset_" + p.id, onClick: () => { loadWaterPreset(track, p.id); } });
         }
     });
-    if (build === "building") W.label(win, { text: "Building the water (a brook and a beach are set flowing)..." });
-    else if (build === "rebuilding") W.label(win, { text: "Moving the rain to its new surface; the old one plays meanwhile." });
-    W.group(win, (g: string) => {
-        W.label(g, { text: "Plays", bold: true });
-        W.horizontal(g, (row: string) => {
-            for (const p of WATER_PLAYS) {
-                W.button(row, { text: radio(w.play === p.id) + p.label, id: "wr_play_" + p.id, onClick: () => { setWaterPlay(track, p.id); } });
-            }
-        });
-        W.label(g, {
-            text: w.play === "glass" ? "Each note is struck on a glass whose water tunes it to the note (a rack of eight; the quietest is retuned)."
-                : w.play === "drip" ? "Each note is the drop whose bubble is born ringing at it; it glides up as the bubble rises."
-                : w.play === "fill" ? "Each note pours into a vessel scaled so its air column rises a fifth to the note over the note's length."
-                : "The rows are rain, a brook, surf and a sloshing tub, held as long as the note. Velocity is how hard.",
-        });
+    if (build === "building") W.label(left, { text: "Building the water (a brook and a beach are set flowing)..." });
+    else if (build === "rebuilding") W.label(left, { text: "Moving the rain to its new surface; the old one plays meanwhile." });
+    W.water(left, {
+        id: "wr_" + track.id,
+        water: track.id,
+        physicsView: w.physicsView,
+        width: Math.max(420, waterWindowWidth - WATER_SIDE_COLUMN),
+        height: Math.max(400, waterWindowHeight - 150),
+        status: build === "building" ? "building the water (the first time takes a moment)..." : undefined,
+        onDrip: (x: number, velocity: number) => { playWaterFromView(track, { kind: "drip", x, velocity }); },
+        onGlass: (index: number, pitch: number, velocity: number) => { playWaterFromView(track, { kind: "glass", index, pitch, velocity }); },
+        onFill: (height: number, velocity: number) => { playWaterFromView(track, { kind: "fill", height, velocity }); },
+        onHold: (source: WaterSource, velocity: number) => { playWaterFromView(track, { kind: "hold", source, velocity }); },
+        onPad: (source: WaterSource, velocity: number) => { auditionWater(track, source, velocity); },
+        onPhysicsView: (on: boolean) => { w.physicsView = on; scheduleSave(); },
     });
-    W.group(win, (g: string) => {
-        W.label(g, { text: "Rain falls on", bold: true });
-        W.horizontal(g, (row: string) => {
-            for (const r of RAIN_SURFACES) {
-                W.button(row, { text: radio(w.rain === r.id) + r.label, id: "wr_rain_" + r.id, onClick: () => { setWaterRain(track, r.id); } });
-            }
-        });
-        W.label(g, { text: "Fills pour into", bold: true });
-        W.horizontal(g, (row: string) => {
-            for (const v of WATER_VESSELS) {
-                W.button(row, { text: radio(w.vessel === v.id) + v.label, id: "wr_vessel_" + v.id, onClick: () => { w.vessel = v.id; scheduleSave(); } });
-            }
-        });
-        W.horizontal(g, (row: string) => {
-            W.button(row, { text: radio(!w.spoon) + "Soft mallet", id: "wr_mallet", onClick: () => { w.spoon = false; scheduleSave(); } });
-            W.button(row, { text: radio(w.spoon) + "Spoon", id: "wr_spoon", onClick: () => { w.spoon = true; scheduleSave(); } });
-            W.knob(row, {
-                label: "Dynamics", value: w.dynamics, min: 0, max: 1,
-                onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.dynamics = Math.min(1, Math.max(0, n)); scheduleSave(); } },
+    if (wrStatus) W.label(left, { text: wrStatus });
+    });
+    W.vertical(columns, (right: string) => {
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Plays", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const p of WATER_PLAYS) {
+                    W.button(row, { text: radio(w.play === p.id) + p.label, id: "wr_play_" + p.id, onClick: () => { setWaterPlay(track, p.id); } });
+                }
+            });
+            W.label(g, {
+                text: w.play === "glass" ? "Each note is struck on a glass whose water tunes it to the note (a rack of eight; the quietest is retuned)."
+                    : w.play === "drip" ? "Each note is the drop whose bubble is born ringing at it; it glides up as the bubble rises."
+                    : w.play === "fill" ? "Each note pours into a vessel scaled so its air column rises a fifth to the note over the note's length."
+                    : "The rows are rain, a brook, surf and a sloshing tub, held as long as the note. Velocity is how hard.",
             });
         });
-    });
-    W.group(win, (g: string) => {
-        W.label(g, { text: "Play now", bold: true });
-        W.horizontal(g, (row: string) => {
-            for (const src of WATER_SOURCES) {
-                W.button(row, { text: src.label, id: "wr_pad_" + src.id, onClick: () => { auditionWater(track, src.id); } });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Rain falls on", bold: true });
+            for (const part of [RAIN_SURFACES.slice(0, 3), RAIN_SURFACES.slice(3)]) {
+                W.horizontal(g, (row: string) => {
+                    for (const r of part) {
+                        W.button(row, { text: radio(w.rain === r.id) + r.label, id: "wr_rain_" + r.id, onClick: () => { setWaterRain(track, r.id); } });
+                    }
+                });
+            }
+            W.label(g, { text: "Fills pour into", bold: true });
+            W.horizontal(g, (row: string) => {
+                for (const v of WATER_VESSELS) {
+                    W.button(row, { text: radio(w.vessel === v.id) + v.label, id: "wr_vessel_" + v.id, onClick: () => { w.vessel = v.id; scheduleSave(); } });
+                }
+            });
+            W.horizontal(g, (row: string) => {
+                W.button(row, { text: radio(!w.spoon) + "Soft mallet", id: "wr_mallet", onClick: () => { w.spoon = false; scheduleSave(); } });
+                W.button(row, { text: radio(w.spoon) + "Spoon", id: "wr_spoon", onClick: () => { w.spoon = true; scheduleSave(); } });
+                W.knob(row, {
+                    label: "Dynamics", value: w.dynamics, min: 0, max: 1,
+                    onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.dynamics = Math.min(1, Math.max(0, n)); scheduleSave(); } },
+                });
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Play now", bold: true });
+            for (const part of [WATER_SOURCES.slice(0, 4), WATER_SOURCES.slice(4)]) {
+                W.horizontal(g, (row: string) => {
+                    for (const src of part) {
+                        W.button(row, { text: src.label, id: "wr_pad_" + src.id, onClick: () => { auditionWater(track, src.id); } });
+                    }
+                });
             }
         });
-    });
-    W.group(win, (g: string) => {
-        W.label(g, { text: "Mix", bold: true });
-        W.horizontal(g, (row: string) => {
-            for (const src of WATER_SOURCES) {
-                W.knob(row, { label: src.label, value: w.mix[src.id], min: 0, max: 16, onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.mix[src.id] = n; scheduleSave(); } } });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Mix", bold: true });
+            for (const part of [WATER_SOURCES.slice(0, 4), WATER_SOURCES.slice(4)]) {
+                W.horizontal(g, (row: string) => {
+                    for (const src of part) {
+                        W.knob(row, { label: src.label, value: w.mix[src.id], min: 0, max: 16, onChange: (v: string) => { const n = parseFloat(v); if (Number.isFinite(n)) { w.mix[src.id] = n; scheduleSave(); } } });
+                    }
+                });
             }
+            W.label(g, { text: "The microphones: each kind of water's level, heard from the next note." });
         });
-        W.label(g, { text: "The microphones: each kind of water's level, heard from the next note." });
+        const info = addon.Water.info(track.id);
+        if (info.ok) {
+            W.group(right, (g: string) => {
+                W.label(g, { text: "Now", bold: true });
+                const lines: string[] = [];
+                if (info.drip && info.drip.drops > 0) lines.push(`Last drip rang at ${info.drip.lastHz.toFixed(0)} Hz (${info.drip.bubbles} bubbles ringing).`);
+                const glasses = (info.glasses ?? []).filter(x => x.pitchHz > 0);
+                if (glasses.length > 0) lines.push("Glasses: " + glasses.map(x => `${x.pitchHz.toFixed(0)} Hz (${x.levelMm.toFixed(0)} of ${x.heightMm.toFixed(0)} mm)`).join(", "));
+                for (const f of info.fills ?? []) if (f.pouring) lines.push(`Filling: ${(f.level * 100).toFixed(0)}% full, the air rings at ${f.airHz.toFixed(0)} Hz.`);
+                if (info.rain && info.rain.rateMmH > 0) lines.push(`Rain: ${info.rain.rateMmH.toFixed(1)} mm/h on the ${w.rain}.`);
+                if (info.brook && info.brook.speed > 0) lines.push(`Brook: ${info.brook.speed.toFixed(2)} m/s, its jumps dissipating ${info.brook.dissipationW.toFixed(1)} W.`);
+                if (info.surf && info.surf.heightM > 0) lines.push(`Surf: ${info.surf.heightM.toFixed(1)} m waves, ${info.surf.breakers} breakers so far.`);
+                if (info.slosh && info.slosh.strength > 0) lines.push(`The tub is being shaken (${info.slosh.bores} breaking).`);
+                W.label(g, { text: lines.length > 0 ? lines.join("\n") : "Still." });
+            });
+        }
     });
-    const info = addon.Water.info(track.id);
-    if (info.ok) {
-        W.group(win, (g: string) => {
-            W.label(g, { text: "Now", bold: true });
-            const lines: string[] = [];
-            if (info.drip && info.drip.drops > 0) lines.push(`Last drip rang at ${info.drip.lastHz.toFixed(0)} Hz (${info.drip.bubbles} bubbles ringing).`);
-            const glasses = (info.glasses ?? []).filter(x => x.pitchHz > 0);
-            if (glasses.length > 0) lines.push("Glasses: " + glasses.map(x => `${x.pitchHz.toFixed(0)} Hz (${x.levelMm.toFixed(0)} of ${x.heightMm.toFixed(0)} mm)`).join(", "));
-            for (const f of info.fills ?? []) if (f.pouring) lines.push(`Filling: ${(f.level * 100).toFixed(0)}% full, the air rings at ${f.airHz.toFixed(0)} Hz.`);
-            if (info.rain && info.rain.rateMmH > 0) lines.push(`Rain: ${info.rain.rateMmH.toFixed(1)} mm/h on the ${w.rain}.`);
-            if (info.brook && info.brook.speed > 0) lines.push(`Brook: ${info.brook.speed.toFixed(2)} m/s, its jumps dissipating ${info.brook.dissipationW.toFixed(1)} W.`);
-            if (info.surf && info.surf.heightM > 0) lines.push(`Surf: ${info.surf.heightM.toFixed(1)} m waves, ${info.surf.breakers} breakers so far.`);
-            if (info.slosh && info.slosh.strength > 0) lines.push(`The tub is being shaken (${info.slosh.bores} breaking).`);
-            W.label(g, { text: lines.length > 0 ? lines.join("\n") : "Still." });
-        });
-    }
-    if (wrStatus) W.label(win, { text: wrStatus });
+    });
 }
 
 function renderRackWindow(win: string) {
@@ -5318,10 +5364,12 @@ addon.onInit(async () => {
     Entropy.UI.setWindowVisible(matterWindowId, matterVisible);
 
     // Water, hidden until asked for.
+    waterWindowHeight = Math.max(520, Math.min(820, screenH - 72));
+    waterWindowWidth = Math.max(760, Math.min(1120, screenW - 32));
     waterWindowId = Entropy.UI.createWindow({
         title: "Water",
-        width: Math.max(640, Math.min(900, screenW - 32)),
-        height: Math.max(480, Math.min(640, screenH - 72)),
+        width: waterWindowWidth,
+        height: waterWindowHeight,
         x: 16,
         y: 56,
         onRender: () => renderWaterWindow(waterWindowId!)

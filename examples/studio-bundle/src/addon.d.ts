@@ -512,6 +512,9 @@ export interface ScopedAPI {
       brass: (windowId: string, config: BrassViewConfig) => void;
       /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
       matter: (windowId: string, config: MatterViewConfig) => void;
+      /** A physically modeled water instrument, drawn from its own bubbles, glasses, vessels and
+       *  moving water in the same neon style, and played by clicking it. */
+      water: (windowId: string, config: WaterViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2277,6 +2280,33 @@ export interface WaterAPI {
   analyze: (config: WaterNoteConfig, seconds?: number) => WaterAnalysis;
 }
 
+export interface WaterViewConfig {
+  id?: string;
+  /** The water to show: a water track's id (`Audio.playWaterOnTrack` publishes to it). */
+  water: string;
+  height?: number;
+  width?: number;
+  /** Show the row of pads. Default true. */
+  pads?: boolean;
+  /** Show the Physics View overlays: the bubbles ringing, the glasses' wall modes and the vessels'
+   *  air columns, each source's level. */
+  physicsView?: boolean;
+  exaggeration?: number;
+  /** A line shown over the scene (the water being built, say). */
+  status?: string;
+  /** The basin was clicked: a drop there (`x` -1 left .. 1 right). */
+  onDrip?: (x: number, velocity: number) => void;
+  /** A glass in the rack was clicked; `pitch` is what its water tunes it to (0 for an empty place). */
+  onGlass?: (index: number, pitch: number, velocity: number) => void;
+  /** A vessel was clicked `height` of the way up it (0..1). */
+  onFill?: (height: number, velocity: number) => void;
+  /** The rain, the brook, the beach or the tub is held: keep it going a moment longer (sent again
+   *  while it is held). */
+  onHold?: (source: WaterAction, velocity: number) => void;
+  onPad?: (source: WaterAction, velocity: number) => void;
+  onPhysicsView?: (on: boolean) => void;
+}
+
 export interface MatterViewConfig {
   id?: string;
   /** The kit in the matter registry (`Entropy.Matter`) to show. */
@@ -2710,6 +2740,9 @@ export interface EntropyAPI {
       brass: (windowId: string, config: BrassViewConfig) => void;
       /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
       matter: (windowId: string, config: MatterViewConfig) => void;
+      /** A physically modeled water instrument, drawn from its own bubbles, glasses, vessels and
+       *  moving water in the same neon style, and played by clicking it. */
+      water: (windowId: string, config: WaterViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */

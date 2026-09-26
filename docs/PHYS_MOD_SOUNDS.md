@@ -504,7 +504,11 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
 - **5. Rain on things - done.** A lake, a window, a corrugated roof, a tent, a cymbal, a drum.
 - **Runtime, ops and DAW - done.** A water track (waveform `"water"`) plays a glass harp, drips or
   fills on the scale, or weather rows; live, from the sequencer, the Water window, the AI tool and in
-  the export. No 3D view yet (see the limits).
+  the export.
+- **View - done.** The Water window draws the track's water from the engine's own state (the basin's
+  bubbles, the glasses' water and rims, the vessels filling, the rain landing on its body, the
+  brook, the beach and the tub from their simulated surfaces) and is played by clicking it (see
+  "The view (water)").
 
 ## Decisions the measurements made
 
@@ -932,6 +936,54 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
   filling bottles, filling vases, lakeside, rain on a tent, tin roof, rain on the window, rain on a
   cymbal.
 
+### The view (water)
+
+`entropy_gui::WaterView` (`widgets_water.rs`), in the Water window, keeps the kit's "one object, two
+representations": everything it draws is what the audio thread publishes in a `WaterFrame`
+(`water_voice.rs`, packed into `WaterShared` with the state every 1024 samples, allocating nothing),
+and the same neon style, orbiting camera and PHYSICS chip as the kit, the string and the brass.
+Everything the track can do stands on one table:
+
+- **The basin** (front, middle): every bubble ringing in it, where it is - born under the drop that
+  made it, at its depth (drawn 18 times deeper: bubbles are born millimetres down), rising to the
+  surface - sized by its radius, coloured by its pitch (violet for large, low bubbles to near white
+  for rain's 14 kHz ones), pulsing and fading as it rings out (its amplitude against its birth's).
+  The tap's arm reaches over to where the last drop landed; the drop falls in and its ripples spread.
+- **The glass rack** (front, left): eight glasses, each with the water its note needed; the rim
+  bends in the wall modes the audio rings with (orders 2, 3, 4: their rms amplitudes from the modal
+  state, shaped as `cos(m theta)`, slowed for the eye, larger at the rim as the model's
+  `(z / H)^(3/2)` wall shape), and the mallet or spoon replays each strike from the contact's own
+  report - how long it stayed on the rim and how fast it came away.
+- **The vessels** (front, right): each drawn with the shape the note scaled it to (its real height
+  written under it), the water rising, the stream falling in as thick as its flow, the bubbles the
+  plunging jet drags under, and the air above the water glowing with its lowest mode - a quarter
+  wave, strongest at the water, nothing at the mouth - labelled with its pitch as it rises.
+- **The rain** (back, middle), on the track's surface drawn as itself (a lake, a pane, a corrugated
+  panel, a tent's fly, a ride, a floor tom): each of the last 24 simulated drops splashes where
+  `Rain` landed it, the streaks are as many as the rain is heavy, and the body is lit by how much it
+  rings (the lake: how many bubbles).
+- **The tub, the brook and the beach** (back left, back right, and behind everything): the
+  shallow-water simulation's surface and bed along each line, extruded across its width, flecks
+  carried at the water's own speed, each wave's crest drawn across, and foam on every jump whose
+  depths are in a ratio past `BREAKING` (the model's own criterion) - where their bubbles, and
+  their sound, come from. The tub moves as it is shaken (drawn 4 times larger). The brook is drawn
+  at 0.225 of its length, the beach at 1/100.
+- **Physics View** adds the bubbles ringing (pitch against amplitude, the last drip's birth pitch
+  marked), the glasses' wall modes and the vessels' air columns on one axis, and each source's level.
+
+**Playing it.** A click on the basin drops a drip there (left to right goes up the track's scale,
+and the drop lands where it was clicked); on a glass strikes it at its pitch (an empty place in the
+rack takes its place's row); on a vessel fills one to a note (the higher the click, the higher the
+note, poured for 2 s); a press held on the rain, the brook or the beach keeps it going (renewed
+every 0.12 s for 0.35 s; dragging up plays harder); dragging the tub from side to side shakes it
+as hard as it is dragged. Each plays as itself whatever the track plays. The pads along the bottom
+play each kind of water; the right button, Alt or a pen's barrel orbit the camera.
+
+**What the view found.** Four glasses struck together (a chord: the sequencer's notes arrive in the
+same block) all went to the first glass: each note looked for the quietest glass, and none had rung
+yet, so each retuned glass 0 over the last and only the chord's top note sounded. A glass just
+struck is now never retuned, and of equally quiet glasses the longest unused is taken.
+
 ### Decisions the water measurements made
 
 - **The heat flow is computed, and lands where Devin measured.** A millimetre bubble at the surface
@@ -1034,10 +1086,11 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
   surf take seconds to establish a flow, so the DAW keeps them flowing and fades them in and out.
 - **Rain**: Marshall-Palmer's exponential sizes, no wind, round drops; drops beyond the simulation
   rate are carried by weighted drops, which lumps the loudest (rare, large) ones slightly.
-- **No 3D view**: the Water window reports what the engine is doing in words (the last drip's pitch,
-  the glasses and their water, the fills' levels and air pitch, the rain, the brook, the surf), and
-  the kit's "one object, two representations" is still to come for water. The live BDD for a water
-  track (desktop session and audio device) is not written.
+- **The view** draws the vessels one size (their real heights written under them), the brook, the
+  beach and the tub far smaller than the glasses, and moving water's heights exaggerated; the glasses'
+  rims and the bubbles' pulses are slowed for the eye (their shapes, sizes and amplitudes are the
+  model's). A clicked vessel fills whichever vessel is free, not necessarily the one clicked. The
+  live BDD for a water track (desktop session and audio device) is not written.
 
 ### How water is verified (no audio device needed)
 
@@ -1060,7 +1113,9 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
 | A water track plays a glass, a drip and a fill at their pitches; rain stops when its note ends; the brook fades away after its note | same |
 | `analyze`: a tuned drip is regular and born at its note, a glass is tuned and a spoon brighter than a mallet, a fill rises a fifth to its note; unknown actions and surfaces are errors; a note becomes an offline event | `deno::water_ops::tests` |
 | A live water track allocates nothing on the audio thread (drips, glasses retuned past the rack, three fills, rain on a lake, a tent and a cymbal, the brook, the surf, the tub, mix changes) | `tests/water_no_alloc.rs` |
-| DAW: settings repaired, presets, plays and rows, velocity maps, the window's pads and surfaces, dropped notes while building, the tool, save, sequencer and export (weather held for the note), track removal | `examples/studio-bundle/tests/daw_water.test.ts` |
+| A chord of glasses struck at once lands on as many glasses | `tests/water_view.rs` |
+| The view: at rest and busy it is drawn from the model's published frame (bubbles, strikes, a vessel filling, the brook and surf flowing, rain landing, the tub moving); Physics View adds its panels; each rain surface looks like itself; clicking the basin drips where it was clicked, a glass strikes that glass at its pitch, a vessel fills to the height clicked; holding the rain, brook and beach renews them (harder dragged up) and stops when let go; dragging the tub shakes it harder than holding it; the pads and the chip | `tests/water_view.rs` (pictures in `test-artifacts/water-view/`), `entropy_gui::widgets_water::tests` |
+| DAW: settings repaired, presets, plays and rows, velocity maps, the window's view (drip, glass, fill, hold and pad callbacks as notes, Physics View kept) and pads and surfaces, dropped notes while building, the tool, save, sequencer and export (weather held for the note), track removal | `examples/studio-bundle/tests/daw_water.test.ts` |
 
 `matter::water_tests::water_report` (ignored) prints a drip's glide, rain on each surface (level,
 centroid, cost), a bottle filling against its air column, the glass for A4, and the tub, brook and
@@ -1072,8 +1127,7 @@ rain on each surface to `test-artifacts/matter/water_*.wav`.
 
 ## Picking up
 
-- **Water next**: a view (the basin's bubbles, the glasses' water, a fill's level, the tub's surface
-  from `Water::tub_surface`, the rain landing on its body); the glass harmonica (a wet finger rubbed
+- **Water next**: the glass harmonica (a wet finger rubbed
   round the rim: the in-plane traction the cymbal's bowed edge needs too); bubble clouds' collective
   modes (surf's low rumble); stones thrown in (a sphere's cavity pinching off a large bubble, the
   vision's "throwing stones into water"); emptying a bottle (the glug: air bubbles entering through

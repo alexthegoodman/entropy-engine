@@ -19,9 +19,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use rodio::Source as RodioSource;
 
+use super::bubble::BubbleDot;
 use super::drop::Drop as Droplet;
 use super::drum::StrikerSpec;
-use super::rain::{Rain, RainTarget};
+use super::rain::{Rain, RainTarget, RECENT};
 use super::vessel::{air_modes, soft_mallet, spoon, AirMode, GlassSpec, Pour, Vessel, VesselSpec};
 use super::water::{Pond, WATER_FULL_SCALE_PA};
 use super::waves::{Motion, Waves, WavesSpec};
@@ -305,6 +306,10 @@ pub struct Water {
     pond: Pond,
     glasses: Vec<Vessel>,
     glass_pitch: [f32; GLASSES],
+    glass_spoon: [bool; GLASSES],
+    /// Glass strikes so far, and the strike each glass was last used for.
+    strikes: u64,
+    glass_used: [u64; GLASSES],
     fills: Vec<Vessel>,
     rain: Rain,
     brook: Waves,
@@ -341,6 +346,9 @@ impl Water {
             pond: Pond::new(0.1, 0.4, sr),
             glasses,
             glass_pitch: [0.0; GLASSES],
+            glass_spoon: [false; GLASSES],
+            strikes: 0,
+            glass_used: [0; GLASSES],
             fills,
             rain: Rain::new(spec.rain, 0.0, if spec.rain == RainTarget::Lake { 6.0 } else { 1.5 }, 17, sr),
             brook,
@@ -378,8 +386,16 @@ impl Water {
                 let k = match self.glass_pitch.iter().position(|&p| p == pitch) {
                     Some(k) => k,
                     None => {
-                        // The quietest glass in the rack is retuned (emptied and refilled).
-                        let k = (0..GLASSES).min_by(|&a, &b| self.glasses[a].wall_energy().total_cmp(&self.glasses[b].wall_energy())).unwrap_or(0);
+                        // The quietest glass in the rack is retuned (emptied and refilled) - never one
+                        // just struck that hasn't rung yet (a chord's notes arrive together, all
+                        // glasses silent), and of equally quiet ones the longest unused.
+                        let key = |k: usize| (self.glasses[k].busy(), self.glasses[k].wall_energy(), self.glass_used[k]);
+                        let k = (0..GLASSES)
+                            .min_by(|&a, &b| {
+                                let (x, y) = (key(a), key(b));
+                                x.0.cmp(&y.0).then(x.1.total_cmp(&y.1)).then(x.2.cmp(&y.2))
+                            })
+                            .unwrap_or(0);
                         let g = &mut self.glasses[k];
                         g.pan = ((pitch.max(1.0).log2() - 9.0) * 0.35).clamp(-0.8, 0.8);
                         g.reshape(vessel, level);
@@ -387,6 +403,9 @@ impl Water {
                         k
                     }
                 };
+                self.glass_spoon[k] = matches!(striker.tip, super::contact::Tip::Solid { .. });
+                self.strikes += 1;
+                self.glass_used[k] = self.strikes;
                 self.glasses[k].strike(speed, striker);
             }
             WaterCommand::Fill { vessel, from, pour } => {
@@ -542,6 +561,304 @@ impl Water {
             *o = self.tub.surface(c) - self.tub.spec.depth;
         }
     }
+
+    /// Everything the view draws (see [`WaterFrame`]), written into `out` (allocates nothing).
+    pub fn frame(&self, out: &mut WaterFrame) {
+        // The basin's bubbles, loudest kept when there are more than the view shows.
+        out.n_bubbles = 0;
+        let pond = &self.pond;
+        let put = |slots: &mut [BubbleDot], n: &mut usize, d: BubbleDot| {
+            if *n < slots.len() {
+                slots[*n] = d;
+                *n += 1;
+            } else if let Some((q, _)) = slots.iter().enumerate().min_by(|a, b| a.1.amp.total_cmp(&b.1.amp)) {
+                if slots[q].amp < d.amp {
+                    slots[q] = d;
+                }
+            }
+        };
+        let mut n = 0;
+        pond.bubbles().dots(|mut d| {
+            d.pan = pond.x_of(d.pan);
+            put(&mut out.bubbles, &mut n, d);
+        });
+        out.n_bubbles = n;
+        out.drip_x = pond.last_x;
+        if let Some(d) = pond.last_drop {
+            out.drip_radius = d.radius;
+            out.drip_speed = d.speed;
+            out.drip_height = d.fall_height();
+        }
+        out.pond_depth = pond.depth;
+        for (k, g) in self.glasses.iter().enumerate() {
+            g.wall_modes(&mut out.glass_modes[k]);
+            out.glass_radius[k] = g.spec.radius;
+            let r = &g.report;
+            out.glass_strikes[k] = r.count;
+            out.glass_speed_in[k] = r.speed_in;
+            out.glass_speed_out[k] = r.speed_out;
+            out.glass_contact_ms[k] = r.contact_samples as f32 / self.sr * 1000.0;
+            out.glass_force[k] = r.peak_force;
+            out.glass_spoon[k] = self.glass_spoon[k];
+        }
+        for (k, f) in self.fills.iter().enumerate() {
+            let s = f.spec;
+            out.fill_shape[k] = [s.radius, s.height, s.neck_radius, s.neck_length];
+            out.fill_level_m[k] = f.level();
+            (out.fill_flow[k], out.fill_from[k]) = f.pour_spec().map_or((0.0, 0.0), |p| (p.flow, p.height));
+            let mut n = 0;
+            f.bubbles().dots(|d| put(&mut out.fill_bubbles[k], &mut n, d));
+            out.n_fill_bubbles[k] = n;
+            let air = f.air_modes();
+            out.fill_air[k] = std::array::from_fn(|i| air.get(i).map_or(0.0, |m| m.freq));
+        }
+        out.rain_target = self.rain.target;
+        out.rain_recent = self.rain.recent;
+        out.rain_landed = self.rain.landed_view;
+        (out.rain_energy, out.rain_bubbles) = self.rain.body_state();
+        let profile = |w: &Waves, surface: &mut [f32; PROFILE], bed: &mut [f32; PROFILE], speed: &mut [f32; PROFILE]| {
+            let cells = w.cells();
+            for i in 0..PROFILE {
+                let c = (i * (cells - 1) / (PROFILE - 1)).min(cells - 1);
+                surface[i] = w.surface(c);
+                bed[i] = w.bed(c);
+                speed[i] = w.velocity(c);
+            }
+        };
+        profile(&self.brook, &mut out.brook_surface, &mut out.brook_bed, &mut out.brook_speed);
+        out.brook_fader = self.brook_held.fader;
+        out.brook_bores = self.brook.report.bores;
+        profile(&self.surf, &mut out.surf_surface, &mut out.surf_bed, &mut out.surf_speed);
+        out.surf_fader = self.surf_held.fader;
+        out.surf_bores = self.surf.report.bores;
+        profile(&self.tub, &mut out.tub_surface, &mut out.tub_bed, &mut out.tub_speed);
+        out.tub_pose = self.tub.pose();
+        out.tub_bores = self.tub.report.bores;
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// What the view draws
+// ------------------------------------------------------------------------------------------
+
+/// Bubbles the view shows in the basin, and in each vessel being filled.
+pub const VIEW_BUBBLES: usize = 48;
+pub const VIEW_FILL_BUBBLES: usize = 16;
+/// A glass's wall modes shown (orders 2, 3, 4), and a fill's air modes.
+pub const VIEW_WALL_MODES: usize = 3;
+pub const VIEW_AIR_MODES: usize = 4;
+/// Points along the brook, the beach and the tub.
+pub const PROFILE: usize = 64;
+
+/// What the water is doing, in the detail the view draws it: the same state the sound comes from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaterFrame {
+    /// The basin: its bubbles (`pan` here is metres to the listener's right), the last drop (where
+    /// it landed, m; its radius, m; its speed, m/s; the height it fell from, m) and its depth.
+    pub bubbles: [BubbleDot; VIEW_BUBBLES],
+    pub n_bubbles: usize,
+    pub drip_x: f32,
+    pub drip_radius: f32,
+    pub drip_speed: f32,
+    pub drip_height: f32,
+    pub pond_depth: f32,
+    /// Each glass: its wall's lowest modes (rim amplitude rms m, frequency Hz), its radius, and its
+    /// latest strike (a count, speeds in and out m/s, the contact's length ms and its peak force N,
+    /// and whether a spoon struck it).
+    pub glass_modes: [[(f32, f32); VIEW_WALL_MODES]; GLASSES],
+    pub glass_radius: [f32; GLASSES],
+    pub glass_strikes: [u32; GLASSES],
+    pub glass_speed_in: [f32; GLASSES],
+    pub glass_speed_out: [f32; GLASSES],
+    pub glass_contact_ms: [f32; GLASSES],
+    pub glass_force: [f32; GLASSES],
+    pub glass_spoon: [bool; GLASSES],
+    /// Each vessel: its shape (body radius and height, neck radius and length, m), its water (m),
+    /// the stream (flow m^3/s, 0 when not pouring, and the height it falls from, m), its bubbles
+    /// and its air column's modes (Hz).
+    pub fill_shape: [[f32; 4]; FILLS],
+    pub fill_level_m: [f32; FILLS],
+    pub fill_flow: [f32; FILLS],
+    pub fill_from: [f32; FILLS],
+    pub fill_bubbles: [[BubbleDot; VIEW_FILL_BUBBLES]; FILLS],
+    pub n_fill_bubbles: [usize; FILLS],
+    pub fill_air: [[f32; VIEW_AIR_MODES]; FILLS],
+    /// The rain: what it falls on, where its last drops landed (see `Rain::recent`), and how much
+    /// its body rings (J) or, on the lake, how many bubbles.
+    pub rain_target: RainTarget,
+    pub rain_recent: [[f32; 2]; RECENT],
+    pub rain_landed: u64,
+    pub rain_energy: f32,
+    pub rain_bubbles: usize,
+    /// The brook, the beach and the tub along their lines: the surface and the bed (m), the
+    /// water's speed (m/s), and how many bores are breaking; how near the listener is (0..1) for the
+    /// brook and the surf, and where the tub is (displacement m, tilt rad).
+    pub brook_surface: [f32; PROFILE],
+    pub brook_bed: [f32; PROFILE],
+    pub brook_speed: [f32; PROFILE],
+    pub brook_fader: f32,
+    pub brook_bores: u32,
+    pub surf_surface: [f32; PROFILE],
+    pub surf_bed: [f32; PROFILE],
+    pub surf_speed: [f32; PROFILE],
+    pub surf_fader: f32,
+    pub surf_bores: u32,
+    pub tub_surface: [f32; PROFILE],
+    pub tub_bed: [f32; PROFILE],
+    pub tub_speed: [f32; PROFILE],
+    pub tub_pose: (f32, f32),
+    pub tub_bores: u32,
+}
+
+impl Default for WaterFrame {
+    fn default() -> Self {
+        Self {
+            bubbles: [BubbleDot::default(); VIEW_BUBBLES],
+            n_bubbles: 0,
+            drip_x: 0.0,
+            drip_radius: 0.0,
+            drip_speed: 0.0,
+            drip_height: 0.0,
+            pond_depth: 0.1,
+            glass_modes: [[(0.0, 0.0); VIEW_WALL_MODES]; GLASSES],
+            glass_radius: [VesselSpec::tumbler().radius; GLASSES],
+            glass_strikes: [0; GLASSES],
+            glass_speed_in: [0.0; GLASSES],
+            glass_speed_out: [0.0; GLASSES],
+            glass_contact_ms: [0.0; GLASSES],
+            glass_force: [0.0; GLASSES],
+            glass_spoon: [false; GLASSES],
+            fill_shape: [{
+                let b = VesselSpec::bottle();
+                [b.radius, b.height, b.neck_radius, b.neck_length]
+            }; FILLS],
+            fill_level_m: [0.0; FILLS],
+            fill_flow: [0.0; FILLS],
+            fill_from: [0.0; FILLS],
+            fill_bubbles: [[BubbleDot::default(); VIEW_FILL_BUBBLES]; FILLS],
+            n_fill_bubbles: [0; FILLS],
+            fill_air: [[0.0; VIEW_AIR_MODES]; FILLS],
+            rain_target: RainTarget::Lake,
+            rain_recent: [[0.0; 2]; RECENT],
+            rain_landed: 0,
+            rain_energy: 0.0,
+            rain_bubbles: 0,
+            brook_surface: [0.0; PROFILE],
+            brook_bed: [0.0; PROFILE],
+            brook_speed: [0.0; PROFILE],
+            brook_fader: 0.0,
+            brook_bores: 0,
+            surf_surface: [0.0; PROFILE],
+            surf_bed: [0.0; PROFILE],
+            surf_speed: [0.0; PROFILE],
+            surf_fader: 0.0,
+            surf_bores: 0,
+            tub_surface: [0.0; PROFILE],
+            tub_bed: [0.0; PROFILE],
+            tub_speed: [0.0; PROFILE],
+            tub_pose: (0.0, 0.0),
+            tub_bores: 0,
+        }
+    }
+}
+
+impl WaterFrame {
+    /// Visits every number in a fixed order (to pack into and unpack from the shared atomics).
+    fn walk(&mut self, mut f: impl FnMut(&mut f32)) {
+        let int = |v: &mut u32, f: &mut dyn FnMut(&mut f32)| {
+            let mut x = *v as f32;
+            f(&mut x);
+            *v = x.max(0.0) as u32;
+        };
+        let mut n_b = self.n_bubbles as u32;
+        int(&mut n_b, &mut f);
+        self.n_bubbles = (n_b as usize).min(VIEW_BUBBLES);
+        let dot = |d: &mut BubbleDot, f: &mut dyn FnMut(&mut f32)| {
+            f(&mut d.radius);
+            f(&mut d.depth);
+            f(&mut d.pan);
+            f(&mut d.freq);
+            f(&mut d.amp);
+        };
+        for d in self.bubbles.iter_mut() {
+            dot(d, &mut f);
+        }
+        for v in [&mut self.drip_x, &mut self.drip_radius, &mut self.drip_speed, &mut self.drip_height, &mut self.pond_depth] {
+            f(v);
+        }
+        for k in 0..GLASSES {
+            for m in self.glass_modes[k].iter_mut() {
+                f(&mut m.0);
+                f(&mut m.1);
+            }
+            f(&mut self.glass_radius[k]);
+            int(&mut self.glass_strikes[k], &mut f);
+            f(&mut self.glass_speed_in[k]);
+            f(&mut self.glass_speed_out[k]);
+            f(&mut self.glass_contact_ms[k]);
+            f(&mut self.glass_force[k]);
+            let mut sp = self.glass_spoon[k] as u32;
+            int(&mut sp, &mut f);
+            self.glass_spoon[k] = sp != 0;
+        }
+        for k in 0..FILLS {
+            for v in self.fill_shape[k].iter_mut() {
+                f(v);
+            }
+            f(&mut self.fill_level_m[k]);
+            f(&mut self.fill_flow[k]);
+            f(&mut self.fill_from[k]);
+            for d in self.fill_bubbles[k].iter_mut() {
+                dot(d, &mut f);
+            }
+            let mut n = self.n_fill_bubbles[k] as u32;
+            int(&mut n, &mut f);
+            self.n_fill_bubbles[k] = (n as usize).min(VIEW_FILL_BUBBLES);
+            for v in self.fill_air[k].iter_mut() {
+                f(v);
+            }
+        }
+        let mut t = RainTarget::ALL.iter().position(|&r| r == self.rain_target).unwrap_or(0) as u32;
+        int(&mut t, &mut f);
+        self.rain_target = RainTarget::ALL[(t as usize).min(RainTarget::ALL.len() - 1)];
+        for p in self.rain_recent.iter_mut() {
+            f(&mut p[0]);
+            f(&mut p[1]);
+        }
+        // The count in two halves (an f32 holds integers exactly only to 2^24).
+        let (mut lo, mut hi) = ((self.rain_landed & 0xFFFF) as u32, (self.rain_landed >> 16).min(0xFF_FFFF) as u32);
+        int(&mut lo, &mut f);
+        int(&mut hi, &mut f);
+        self.rain_landed = ((hi as u64) << 16) | (lo as u64 & 0xFFFF);
+        f(&mut self.rain_energy);
+        let mut rb = self.rain_bubbles as u32;
+        int(&mut rb, &mut f);
+        self.rain_bubbles = rb as usize;
+        for (surface, bed, speed, fader, bores) in [
+            (&mut self.brook_surface, &mut self.brook_bed, &mut self.brook_speed, Some(&mut self.brook_fader), &mut self.brook_bores),
+            (&mut self.surf_surface, &mut self.surf_bed, &mut self.surf_speed, Some(&mut self.surf_fader), &mut self.surf_bores),
+            (&mut self.tub_surface, &mut self.tub_bed, &mut self.tub_speed, None, &mut self.tub_bores),
+        ] {
+            for i in 0..PROFILE {
+                f(&mut surface[i]);
+                f(&mut bed[i]);
+                f(&mut speed[i]);
+            }
+            if let Some(v) = fader {
+                f(v);
+            }
+            int(bores, &mut f);
+        }
+        f(&mut self.tub_pose.0);
+        f(&mut self.tub_pose.1);
+    }
+
+    /// How many numbers [`WaterFrame::walk`] visits.
+    fn len() -> usize {
+        let mut n = 0;
+        WaterFrame::default().walk(|_| n += 1);
+        n
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -571,6 +888,17 @@ pub struct WaterShared {
     brook: [AtomicU32; 2],
     surf: [AtomicU32; 2],
     slosh: [AtomicU32; 2],
+    /// The view's [`WaterFrame`], packed.
+    frame: FrameAtomics,
+}
+
+/// A [`WaterFrame`]'s numbers, one atomic each.
+struct FrameAtomics(Box<[AtomicU32]>);
+
+impl Default for FrameAtomics {
+    fn default() -> Self {
+        Self((0..WaterFrame::len()).map(|_| AtomicU32::new(0)).collect())
+    }
 }
 
 impl WaterShared {
@@ -608,6 +936,31 @@ impl WaterShared {
         store(&self.slosh[0], s.slosh);
         store(&self.slosh[1], s.slosh_bores as f32);
         self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// Publishes what the view draws (allocates nothing: `frame` is the caller's).
+    pub fn publish_frame(&self, frame: &mut WaterFrame) {
+        let mut i = 0;
+        let atoms = &self.frame.0;
+        frame.walk(|v| {
+            store(&atoms[i], *v);
+            i += 1;
+        });
+    }
+
+    /// What the view draws, as last published (all zeros and still water before anything was).
+    pub fn frame(&self) -> WaterFrame {
+        let mut frame = WaterFrame::default();
+        if self.version() == 0 {
+            return frame;
+        }
+        let mut i = 0;
+        let atoms = &self.frame.0;
+        frame.walk(|v| {
+            *v = load(&atoms[i]);
+            i += 1;
+        });
+        frame
     }
 
     /// What was last published.
@@ -678,6 +1031,7 @@ pub struct WaterVoice {
     shared: Arc<WaterShared>,
     handle: Arc<WaterHandle>,
     pending: Vec<WaterCommand>,
+    frame: Box<WaterFrame>,
     countdown: u32,
     buf: [f32; 2],
     idx: u8,
@@ -688,7 +1042,7 @@ impl WaterVoice {
     pub fn new(shared: Arc<WaterShared>, water: Water) -> (Self, Arc<WaterHandle>) {
         shared.active.fetch_add(1, Ordering::Relaxed);
         let handle = Arc::new(WaterHandle { queue: Mutex::new((Vec::with_capacity(256), true)), spec: water.spec });
-        (Self { water, shared, handle: handle.clone(), pending: Vec::with_capacity(256), countdown: 0, buf: [0.0; 2], idx: 0, done: false }, handle)
+        (Self { water, shared, handle: handle.clone(), pending: Vec::with_capacity(256), frame: Box::default(), countdown: 0, buf: [0.0; 2], idx: 0, done: false }, handle)
     }
 
     fn next_frame(&mut self) -> Option<[f32; 2]> {
@@ -708,6 +1062,8 @@ impl WaterVoice {
         }
         let frame = self.water.next_frame();
         if self.countdown == 0 {
+            self.water.frame(&mut self.frame);
+            self.shared.publish_frame(&mut self.frame);
             self.shared.publish(&self.water.state());
             self.countdown = PUBLISH_EVERY;
         }
