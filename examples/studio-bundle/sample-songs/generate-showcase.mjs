@@ -218,14 +218,16 @@ function compose(s) {
       if ([5,11].includes(phrase)) {
         hit(fx,72,32,27,0.64,{tone:2});
         // Remove all onsets in the final beat before the drop, including the fill.
-        // Clip lengths below also cut any still-held notes at that beat.
+        // Saved bus cuts below also silence effect tails at that beat.
         for (const [t,ns] of buckets) buckets.set(t,ns.filter(n => n.step < 60)
           .map(n => ({...n,length:Math.min(n.length,60-n.step)})));
       }
     }
     for (const [t,ns] of buckets) add(t,phrase,ns);
   }
-  return { bpm:s.bpm, stepsPerBeat:4, songBars:64, snap:'bar', arrangement, tracks, activeTrackId:lead.id };
+  const cuts = [5,11].map(phrase => ({ id:`${s.slug}-breath-${phrase}`, trackIds:tracks.map(t => t.id),
+    startStep:phrase*64+60, endStep:(phrase+1)*64 }));
+  return { bpm:s.bpm, stepsPerBeat:4, songBars:64, snap:'bar', arrangement, tracks, cuts, activeTrackId:lead.id };
 }
 
 for (const score of scores) {

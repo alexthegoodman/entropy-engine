@@ -11933,5 +11933,41 @@
       }
     }
   ],
+  "cuts": [
+    {
+      "id": "event-horizon-trap-breath-5",
+      "trackIds": [
+        "event-horizon-trap-drums",
+        "event-horizon-trap-bass",
+        "event-horizon-trap-keys",
+        "event-horizon-trap-arp",
+        "event-horizon-trap-lead",
+        "event-horizon-trap-counter",
+        "event-horizon-trap-wide",
+        "event-horizon-trap-horn",
+        "event-horizon-trap-fx",
+        "event-horizon-trap-matter"
+      ],
+      "startStep": 380,
+      "endStep": 384
+    },
+    {
+      "id": "event-horizon-trap-breath-11",
+      "trackIds": [
+        "event-horizon-trap-drums",
+        "event-horizon-trap-bass",
+        "event-horizon-trap-keys",
+        "event-horizon-trap-arp",
+        "event-horizon-trap-lead",
+        "event-horizon-trap-counter",
+        "event-horizon-trap-wide",
+        "event-horizon-trap-horn",
+        "event-horizon-trap-fx",
+        "event-horizon-trap-matter"
+      ],
+      "startStep": 764,
+      "endStep": 768
+    }
+  ],
   "activeTrackId": "event-horizon-trap-lead"
 }

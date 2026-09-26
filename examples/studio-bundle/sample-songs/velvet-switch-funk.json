@@ -14298,5 +14298,41 @@
       }
     }
   ],
+  "cuts": [
+    {
+      "id": "velvet-switch-funk-breath-5",
+      "trackIds": [
+        "velvet-switch-funk-drums",
+        "velvet-switch-funk-bass",
+        "velvet-switch-funk-keys",
+        "velvet-switch-funk-arp",
+        "velvet-switch-funk-lead",
+        "velvet-switch-funk-counter",
+        "velvet-switch-funk-wide",
+        "velvet-switch-funk-horn",
+        "velvet-switch-funk-fx",
+        "velvet-switch-funk-matter"
+      ],
+      "startStep": 380,
+      "endStep": 384
+    },
+    {
+      "id": "velvet-switch-funk-breath-11",
+      "trackIds": [
+        "velvet-switch-funk-drums",
+        "velvet-switch-funk-bass",
+        "velvet-switch-funk-keys",
+        "velvet-switch-funk-arp",
+        "velvet-switch-funk-lead",
+        "velvet-switch-funk-counter",
+        "velvet-switch-funk-wide",
+        "velvet-switch-funk-horn",
+        "velvet-switch-funk-fx",
+        "velvet-switch-funk-matter"
+      ],
+      "startStep": 764,
+      "endStep": 768
+    }
+  ],
   "activeTrackId": "velvet-switch-funk-lead"
 }

@@ -10704,5 +10704,43 @@
       }
     }
   ],
+  "cuts": [
+    {
+      "id": "black-glass-suspense-breath-5",
+      "trackIds": [
+        "black-glass-suspense-drums",
+        "black-glass-suspense-bass",
+        "black-glass-suspense-keys",
+        "black-glass-suspense-arp",
+        "black-glass-suspense-lead",
+        "black-glass-suspense-counter",
+        "black-glass-suspense-wide",
+        "black-glass-suspense-horn",
+        "black-glass-suspense-cello",
+        "black-glass-suspense-fx",
+        "black-glass-suspense-matter"
+      ],
+      "startStep": 380,
+      "endStep": 384
+    },
+    {
+      "id": "black-glass-suspense-breath-11",
+      "trackIds": [
+        "black-glass-suspense-drums",
+        "black-glass-suspense-bass",
+        "black-glass-suspense-keys",
+        "black-glass-suspense-arp",
+        "black-glass-suspense-lead",
+        "black-glass-suspense-counter",
+        "black-glass-suspense-wide",
+        "black-glass-suspense-horn",
+        "black-glass-suspense-cello",
+        "black-glass-suspense-fx",
+        "black-glass-suspense-matter"
+      ],
+      "startStep": 764,
+      "endStep": 768
+    }
+  ],
   "activeTrackId": "black-glass-suspense-lead"
 }

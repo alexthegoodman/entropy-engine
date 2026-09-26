@@ -12365,5 +12365,41 @@
       }
     }
   ],
+  "cuts": [
+    {
+      "id": "first-light-electronica-breath-5",
+      "trackIds": [
+        "first-light-electronica-drums",
+        "first-light-electronica-bass",
+        "first-light-electronica-keys",
+        "first-light-electronica-arp",
+        "first-light-electronica-lead",
+        "first-light-electronica-counter",
+        "first-light-electronica-wide",
+        "first-light-electronica-horn",
+        "first-light-electronica-fx",
+        "first-light-electronica-matter"
+      ],
+      "startStep": 380,
+      "endStep": 384
+    },
+    {
+      "id": "first-light-electronica-breath-11",
+      "trackIds": [
+        "first-light-electronica-drums",
+        "first-light-electronica-bass",
+        "first-light-electronica-keys",
+        "first-light-electronica-arp",
+        "first-light-electronica-lead",
+        "first-light-electronica-counter",
+        "first-light-electronica-wide",
+        "first-light-electronica-horn",
+        "first-light-electronica-fx",
+        "first-light-electronica-matter"
+      ],
+      "startStep": 764,
+      "endStep": 768
+    }
+  ],
   "activeTrackId": "first-light-electronica-lead"
 }

@@ -12872,5 +12872,39 @@
       }
     }
   ],
+  "cuts": [
+    {
+      "id": "ion-runner-synthwave-breath-5",
+      "trackIds": [
+        "ion-runner-synthwave-drums",
+        "ion-runner-synthwave-bass",
+        "ion-runner-synthwave-keys",
+        "ion-runner-synthwave-arp",
+        "ion-runner-synthwave-lead",
+        "ion-runner-synthwave-counter",
+        "ion-runner-synthwave-wide",
+        "ion-runner-synthwave-fx",
+        "ion-runner-synthwave-matter"
+      ],
+      "startStep": 380,
+      "endStep": 384
+    },
+    {
+      "id": "ion-runner-synthwave-breath-11",
+      "trackIds": [
+        "ion-runner-synthwave-drums",
+        "ion-runner-synthwave-bass",
+        "ion-runner-synthwave-keys",
+        "ion-runner-synthwave-arp",
+        "ion-runner-synthwave-lead",
+        "ion-runner-synthwave-counter",
+        "ion-runner-synthwave-wide",
+        "ion-runner-synthwave-fx",
+        "ion-runner-synthwave-matter"
+      ],
+      "startStep": 764,
+      "endStep": 768
+    }
+  ],
   "activeTrackId": "ion-runner-synthwave-lead"
 }
