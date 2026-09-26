@@ -1163,6 +1163,9 @@ impl ApplicationHandler<UserEvent> for Application {
                                 winit::keyboard::NamedKey::ArrowRight => Some("ArrowRight"),
                                 winit::keyboard::NamedKey::Space => Some(" "),
                                 winit::keyboard::NamedKey::Delete => Some("Delete"),
+                                winit::keyboard::NamedKey::Escape => Some("Escape"),
+                                winit::keyboard::NamedKey::Tab => Some("Tab"),
+                                winit::keyboard::NamedKey::Backspace => Some("Backspace"),
                                 _ => None,
                             }
                         },

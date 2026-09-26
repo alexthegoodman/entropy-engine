@@ -64,10 +64,51 @@ function loadBoard() {
     board = loaded && Array.isArray(loaded.columns) ? loaded : defaultBoard();
 }
 
+let saveFailed = false;
+
 function saveBoard() {
     // This board is deliberately maintained by both the app and coding agents. Keep every
     // subsequent GUI save readable and straightforward to patch by hand.
-    addon.IO.save(board, { pretty: true });
+    try {
+        addon.IO.save(board, { pretty: true });
+        if (saveFailed) {
+            saveFailed = false;
+            Entropy.UI.toast?.({ id: "cc-save", message: "Saved tasks.json again.", kind: "success", durationMs: 2500 });
+        }
+    } catch (e) {
+        // The board only lives in memory until a save works: say so, and offer to try again.
+        saveFailed = true;
+        Entropy.UI.toast?.({
+            id: "cc-save",
+            message: `Could not save tasks.json: ${e instanceof Error ? e.message : String(e)}`,
+            kind: "error",
+            actionLabel: "Retry",
+            onAction: () => saveBoard(),
+            durationMs: 0,
+        });
+    }
+}
+
+/** Removes a card, and offers to put it back where it was. */
+function deleteCard(columnId: string, cardId: string) {
+    const found = findCard(columnId, cardId);
+    if (!found) return;
+    const [removed] = found.column.cards.splice(found.index, 1);
+    const at = found.index;
+    saveBoard();
+    if (selected && selected.column === columnId && selected.card === cardId) selected = null;
+    Entropy.UI.toast?.({
+        id: "cc-delete",
+        message: `Deleted "${removed.title}".`,
+        actionLabel: "Undo",
+        durationMs: 8000,
+        onAction: () => {
+            const column = board.columns.find((c) => c.id === columnId);
+            if (!column || column.cards.some((c) => c.id === removed.id)) return;
+            column.cards.splice(Math.min(at, column.cards.length), 0, removed);
+            saveBoard();
+        },
+    });
 }
 
 function findCard(columnId: string, cardId: string): { column: Column; card: Card; index: number } | null {
@@ -187,11 +228,8 @@ function renderUI(win: string) {
             Entropy.UI.Widget.button(win, { text: "Close", onClick: () => { selected = null; } });
             Entropy.UI.Widget.button(win, {
                 text: "Delete Card",
-                onClick: () => {
-                    found.column.cards.splice(found.index, 1);
-                    saveBoard();
-                    selected = null;
-                },
+                tooltip: "Remove this card (you can undo it)",
+                onClick: () => deleteCard(found.column.id, found.card.id),
             });
             Entropy.UI.Widget.separator(win);
         }
@@ -223,14 +261,7 @@ function renderUI(win: string) {
                 editTags = found.card.tags.join(", ");
             }
         },
-        onCardDelete: (column, card) => {
-            const found = findCard(column, card);
-            if (found) {
-                found.column.cards.splice(found.index, 1);
-                saveBoard();
-            }
-            if (selected && selected.column === column && selected.card === card) selected = null;
-        },
+        onCardDelete: (column, card) => deleteCard(column, card),
         onAddCard: (column) => {
             addingToColumn = column;
             newCardTitle = "";

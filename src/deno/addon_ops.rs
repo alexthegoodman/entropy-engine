@@ -656,6 +656,61 @@ pub struct LevelMeterConfig {
     pub show_scale: Option<bool>,
 }
 
+/// Optional presentation for one addon widget - see `UiWidget::Extras`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetExtras {
+    /// Shown after the pointer rests on the widget (or while it has keyboard focus).
+    pub tooltip: Option<String>,
+    /// The keyboard shortcut that does the same thing, shown in the tooltip ("Ctrl+S").
+    pub shortcut: Option<String>,
+    /// Knob/slider/numeric input: shown after the value ("Hz", "dB", "%").
+    pub unit: Option<String>,
+    /// Knob/slider/numeric input: what Ctrl+click or Delete returns to.
+    pub default_value: Option<f32>,
+    /// Knob/slider/numeric input: one arrow-key step.
+    pub step: Option<f32>,
+    pub decimals: Option<u32>,
+    /// Numeric input: clamps typing, dragging and the arrow keys.
+    pub min: Option<f32>,
+    pub max: Option<f32>,
+    /// Numeric input: value change per pixel dragged.
+    pub speed: Option<f32>,
+    /// Button: greyed out and ignores clicks and keys.
+    pub disabled: Option<bool>,
+    /// Button: drawn pressed-in (a toggle that is on, the current tool).
+    pub selected: Option<bool>,
+}
+
+/// `Entropy.UI.toast(...)`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ToastConfig {
+    pub id: String,
+    pub message: String,
+    /// "info" | "success" | "warning" | "error".
+    pub kind: Option<String>,
+    pub action_label: Option<String>,
+    /// 0..1, or negative for an indeterminate bar.
+    pub progress: Option<f32>,
+    /// Milliseconds on screen; 0 keeps it until dismissed. Default 4000 (errors: until dismissed).
+    pub duration_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ToastCommand {
+    Show(ToastConfig),
+    Dismiss(String),
+}
+
+/// `Entropy.UI.setPreferences(...)`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UiPreferencesConfig {
+    pub reduce_motion: Option<bool>,
+    pub tooltip_delay_ms: Option<f32>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
@@ -672,6 +727,10 @@ pub enum UiWidget {
     NumericInput { id: String, label: String, value: f32 },
     Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
     Checkbox { id: String, label: String, value: bool },
+    /// Options for the widget that follows it in the list: a tooltip, a shortcut hint, a unit,
+    /// a default value and so on (see `WidgetExtras`). Emitted by addon_setup.js just before
+    /// the widget's own op, so the widget ops keep their fast signatures.
+    Extras { extras: WidgetExtras },
     CodeEditor { id: String, label: String, content: String, language: String },
     MiniMap { 
         id: String, 
@@ -1194,6 +1253,14 @@ pub struct AddonContext {
     /// Set by `op_ui_set_theme`, applied (and left in place, not drained) by `AddonEngine::
     /// render_ui`/`render_tabs` each frame - see those functions for why it isn't cleared here.
     pub pending_theme: Option<crate::entropy_gui::style::ThemeDescriptor>,
+    /// `Entropy.UI.setPreferences(...)` - applied to the GUI context like `pending_theme`.
+    pub pending_ui_prefs: Option<UiPreferencesConfig>,
+    /// Toasts to show or dismiss, drained into the GUI context at the start of the next frame.
+    pub pending_toasts: Vec<ToastCommand>,
+    /// Last frame's keyboard ownership, for `Entropy.Input.isTypingInUI()` and for holding back
+    /// app shortcuts while a text field has focus (see `_dispatch_input_events` in addon_setup.js).
+    pub ui_wants_keyboard: bool,
+    pub ui_keyboard_navigating: bool,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     /// Pending `DocEditorCommand`s per `DocEditor` widget id - pushed by `op_doc_editor_*` ops
     /// (called whenever an addon's own toolbar button is clicked) and drained once per frame,
@@ -4456,6 +4523,54 @@ pub fn op_http_poll_text(state: &mut OpState, #[string] id: String) -> TextFetch
 pub fn op_http_cancel_text(state: &mut OpState, #[string] id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.net_text_fetches.remove(&id);
+    }
+}
+
+/// Options for the next widget drawn into `window_id` - see `UiWidget::Extras`.
+#[op2]
+pub fn op_ui_widget_extras(state: &mut OpState, #[string] window_id: String, #[serde] extras: WidgetExtras) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Extras { extras });
+    }
+}
+
+/// `Entropy.UI.toast(config)`: shows (or updates, by id) a toast - see `entropy_gui::toast`.
+#[op2]
+pub fn op_ui_toast(state: &mut OpState, #[serde] config: ToastConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_toasts.push(ToastCommand::Show(config));
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_dismiss_toast(state: &mut OpState, #[string] id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_toasts.push(ToastCommand::Dismiss(id));
+    }
+}
+
+#[op2]
+pub fn op_ui_set_preferences(state: &mut OpState, #[serde] prefs: UiPreferencesConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let mut merged = ctx.pending_ui_prefs.clone().unwrap_or_default();
+        if prefs.reduce_motion.is_some() {
+            merged.reduce_motion = prefs.reduce_motion;
+        }
+        if prefs.tooltip_delay_ms.is_some() {
+            merged.tooltip_delay_ms = prefs.tooltip_delay_ms;
+        }
+        ctx.pending_ui_prefs = Some(merged);
+    }
+}
+
+/// `{ typing, navigating }`: whether a GUI text field (or other text entry) has keyboard focus,
+/// and whether the keyboard is moving focus between GUI controls - as of the last frame.
+#[op2]
+#[serde]
+pub fn op_ui_keyboard_state(state: &mut OpState) -> serde_json::Value {
+    match state.try_borrow::<AddonContext>() {
+        Some(ctx) => serde_json::json!({ "typing": ctx.ui_wants_keyboard, "navigating": ctx.ui_keyboard_navigating }),
+        None => serde_json::json!({ "typing": false, "navigating": false }),
     }
 }
 

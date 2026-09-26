@@ -39,6 +39,8 @@ pub struct Response {
     pub(crate) drag_delta: Vec2,
     pub(crate) interact_pointer_pos: Option<Pos2>,
     pub(crate) changed: bool,
+    /// Has keyboard focus (set by `Ui::focus` for widgets that take part in Tab traversal).
+    pub(crate) focused: bool,
 }
 
 impl Response {
@@ -70,6 +72,16 @@ impl Response {
         self.interact_pointer_pos
     }
 
+    /// Whether this widget has keyboard focus.
+    pub fn has_focus(&self) -> bool {
+        self.focused
+    }
+
+    /// Gives this widget keyboard focus (with a visible ring when `visible`).
+    pub fn request_focus(&self, visible: bool) {
+        self.ctx.request_focus(self.id, visible);
+    }
+
     pub(crate) fn mark_changed(&mut self) {
         self.changed = true;
     }
@@ -84,6 +96,7 @@ impl Response {
         self.drag_started |= other.drag_started;
         self.drag_stopped |= other.drag_stopped;
         self.changed |= other.changed;
+        self.focused |= other.focused;
         if other.interact_pointer_pos.is_some() {
             self.interact_pointer_pos = other.interact_pointer_pos;
         }
@@ -94,11 +107,27 @@ impl Response {
         self
     }
 
-    /// Shows a tooltip while hovered. Drawn immediately (into the overlay layer) since we
-    /// already know this frame's hover state by the time a widget returns its `Response`.
+    /// Shows a tooltip once the pointer has rested on the widget (or while it has keyboard
+    /// focus) - see `containers::tooltip` for the timing rules.
     pub fn on_hover_text(self, text: impl Into<String>) -> Self {
+        self.tooltip(text.into(), None)
+    }
+
+    /// `on_hover_text` plus the keyboard shortcut that does the same thing, drawn dimmer on the
+    /// right: `on_hover_text_with_shortcut("Save version", "Ctrl+S")`.
+    pub fn on_hover_text_with_shortcut(self, text: impl Into<String>, shortcut: impl Into<String>) -> Self {
+        let shortcut = shortcut.into();
+        self.tooltip(text.into(), if shortcut.is_empty() { None } else { Some(shortcut) })
+    }
+
+    fn tooltip(self, text: String, shortcut: Option<String>) -> Self {
+        if text.is_empty() && shortcut.is_none() {
+            return self;
+        }
         if self.hovered {
-            crate::entropy_gui::containers::tooltip::show_tooltip(&self.ctx, self.rect, text.into());
+            crate::entropy_gui::containers::tooltip::request(&self.ctx, self.id, self.rect, text, shortcut, false);
+        } else if self.focused && self.ctx.focus_visible() {
+            crate::entropy_gui::containers::tooltip::request(&self.ctx, self.id, self.rect, text, shortcut, true);
         }
         self
     }

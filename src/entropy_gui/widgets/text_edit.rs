@@ -53,16 +53,20 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
     };
     let height = if multiline { ui.available_size().y.max(60.0) } else { ui.style().spacing.interact_size.y };
     let (rect, response) = ui.allocate_response(vec2(width, height), Sense::click());
+    // Focus is keyed by the field's own id (not the auto id `allocate_response` made), so a
+    // caller-supplied id keeps it attached across frames.
+    let mut response = crate::entropy_gui::response::Response { id, ..response };
 
     let mut state = ui.ctx().memory(|m| m.get_text_edit(id));
-    if response.clicked() {
-        ui.ctx().memory_mut(|m| m.focused = Some(id));
+    let was_focused = ui.ctx().has_focus(id);
+    let is_focused = ui.focus_with(&mut response, crate::entropy_gui::ui::FocusOptions { activate: false, text: true, selected: false, ring: false });
+    if is_focused && (!was_focused || response.clicked()) {
+        // Tabbing in or clicking puts the caret at the end, ready to type.
         state.cursor = text.len();
         state.selection_anchor = None;
         state.blink_on = true;
         state.blink_timer = 0.0;
     }
-    let is_focused = ui.ctx().memory(|m| m.focused) == Some(id);
 
     let mut changed = false;
     if is_focused {
@@ -72,6 +76,21 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
             text.insert_str(state.cursor, &typed);
             state.cursor += typed.len();
             changed = true;
+        }
+        // Escape leaves the field (and nothing else reacts to it); Tab moves to the next
+        // control, except in a multiline field, where it indents.
+        if ui.ctx().consume_key(Key::Escape) {
+            ui.ctx().surrender_focus(id);
+        }
+        if multiline && ui.ctx().consume_key(Key::Tab) {
+            state.cursor = state.cursor.min(text.len());
+            text.insert_str(state.cursor, "    ");
+            state.cursor += 4;
+            changed = true;
+        }
+        for key in [Key::Enter, Key::Space, Key::ArrowLeft, Key::ArrowRight, Key::ArrowUp, Key::ArrowDown, Key::Home, Key::End, Key::Backspace, Key::Delete, Key::PageUp, Key::PageDown] {
+            // Typing belongs to the field: a button elsewhere must not also see Enter or Space.
+            ui.ctx().consume_key(key);
         }
         for ev in key_events {
             if !ev.pressed {
@@ -110,6 +129,7 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
     }
 
     let visuals = ui.interactive_visuals(response.hovered(), is_focused);
+    let is_focused = is_focused && ui.ctx().has_focus(id);
     let painter = ui.painter();
     painter.rect_filled(rect, visuals.corner_radius, visuals.bg_fill);
     let border = if is_focused { ui.visuals().selection.stroke } else { visuals.bg_stroke };

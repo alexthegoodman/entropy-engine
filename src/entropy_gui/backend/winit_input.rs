@@ -28,6 +28,7 @@ pub struct State {
     prev_secondary_down: bool,
     modifiers: Modifiers,
     scroll_accum: Vec2,
+    scroll_in_lines: bool,
     text_accum: String,
     key_accum: Vec<KeyEvent>,
     ime_preedit: Option<String>,
@@ -112,6 +113,7 @@ impl State {
             prev_secondary_down: false,
             modifiers: Modifiers::default(),
             scroll_accum: Vec2::ZERO,
+            scroll_in_lines: false,
             text_accum: String::new(),
             key_accum: Vec::new(),
             ime_preedit: None,
@@ -210,7 +212,10 @@ impl State {
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (*x * 24.0, *y * 24.0),
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        self.scroll_in_lines = true;
+                        (*x * 24.0, *y * 24.0)
+                    }
                     MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
                 };
                 self.scroll_accum += vec2(dx, dy);
@@ -272,6 +277,7 @@ impl State {
                 pen: self.pen,
             },
             scroll_delta: self.scroll_accum,
+            scroll_in_lines: std::mem::take(&mut self.scroll_in_lines),
             modifiers: self.modifiers,
             text_input: std::mem::take(&mut self.text_accum),
             ime_preedit: self.ime_preedit.clone(),
@@ -310,6 +316,10 @@ fn map_key(logical_key: &WinitKey) -> Option<GuiKey> {
         WinitKey::Named(NamedKey::Enter) => Some(GuiKey::Enter),
         WinitKey::Named(NamedKey::Escape) => Some(GuiKey::Escape),
         WinitKey::Named(NamedKey::Tab) => Some(GuiKey::Tab),
+        WinitKey::Named(NamedKey::Space) => Some(GuiKey::Space),
+        WinitKey::Named(NamedKey::PageUp) => Some(GuiKey::PageUp),
+        WinitKey::Named(NamedKey::PageDown) => Some(GuiKey::PageDown),
+        WinitKey::Named(NamedKey::F6) => Some(GuiKey::F6),
         WinitKey::Character(s) => match s.as_str() {
             "a" | "A" => Some(GuiKey::A),
             "c" | "C" => Some(GuiKey::C),

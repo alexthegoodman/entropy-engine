@@ -16,6 +16,7 @@ impl Ui {
         let extra = if text.0.text.is_empty() { 0.0 } else { spacing + text_size.x };
         let h = box_size.max(text_size.y).max(self.style().spacing.interact_size.y);
         let (rect, mut response) = self.allocate_response(vec2(box_size + extra, h), Sense::click());
+        self.focus(&mut response);
 
         let box_rect = Rect::from_min_size(pos2(rect.min.x, rect.center().y - box_size / 2.0), vec2(box_size, box_size));
         let visuals = self.interactive_visuals(response.hovered(), *value);

@@ -2161,29 +2161,29 @@ function renderWavetableWindow(win: string) {
             // window (test-artifacts/daw-wavetable-*), not just reasoned about.
             Entropy.UI.Widget.horizontal(g, (row: string) => {
                 Entropy.UI.Widget.knob(row, { label: "Position", value: wt.position, min: 0, max: 1, onChange: (v: string) => { setWavetablePosition(track, parseFloat(v)); } });
-                Entropy.UI.Widget.knob(row, { label: "LFO rate", value: wt.lfoRate, min: 0, max: 20, onChange: (v: string) => { wt.lfoRate = parseFloat(v); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "LFO depth", value: wt.lfoDepth, min: 0, max: 1, onChange: (v: string) => { wt.lfoDepth = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "LFO rate", value: wt.lfoRate, min: 0, max: 20, unit: "Hz", defaultValue: 0, onChange: (v: string) => { wt.lfoRate = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "LFO depth", value: wt.lfoDepth, min: 0, max: 1, defaultValue: 0, onChange: (v: string) => { wt.lfoDepth = parseFloat(v); scheduleSave(); } });
             });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
-                Entropy.UI.Widget.knob(row, { label: "Sweep", value: wt.sweep, min: -1, max: 1, onChange: (v: string) => { wt.sweep = parseFloat(v); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "Sweep time", value: wt.sweepTime, min: 0.02, max: 6, onChange: (v: string) => { wt.sweepTime = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Sweep", value: wt.sweep, min: -1, max: 1, defaultValue: 0, onChange: (v: string) => { wt.sweep = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Sweep time", value: wt.sweepTime, min: 0.02, max: 6, unit: "s", onChange: (v: string) => { wt.sweepTime = parseFloat(v); scheduleSave(); } });
             });
         });
         Entropy.UI.Widget.group(right, (g: string) => {
             Entropy.UI.Widget.label(g, { text: "Voice", bold: true });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
-                Entropy.UI.Widget.knob(row, { label: "Unison", value: wt.unison, min: 1, max: 7, onChange: (v: string) => { wt.unison = Math.round(parseFloat(v)); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "Detune", value: wt.detuneCents, min: 0, max: 60, onChange: (v: string) => { wt.detuneCents = parseFloat(v); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "Spread", value: wt.spread, min: 0, max: 1, onChange: (v: string) => { wt.spread = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Unison", value: wt.unison, min: 1, max: 7, step: 1, decimals: 0, defaultValue: 1, onChange: (v: string) => { wt.unison = Math.round(parseFloat(v)); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Detune", value: wt.detuneCents, min: 0, max: 60, unit: "ct", defaultValue: 0, onChange: (v: string) => { wt.detuneCents = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Spread", value: wt.spread, min: 0, max: 1, defaultValue: 0, onChange: (v: string) => { wt.spread = parseFloat(v); scheduleSave(); } });
             });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
-                Entropy.UI.Widget.knob(row, { label: "Vel->Pos", value: wt.velToPosition, min: -1, max: 1, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "Cutoff", value: track.voice.cutoff, min: 100, max: 20000, onChange: (v: string) => { track.voice.cutoff = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Vel->Pos", value: wt.velToPosition, min: -1, max: 1, defaultValue: 0, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Cutoff", value: track.voice.cutoff, min: 100, max: 20000, unit: "Hz", onChange: (v: string) => { track.voice.cutoff = parseFloat(v); saveTrackWavetable(track); } });
                 Entropy.UI.Widget.knob(row, { label: "Resonance", value: track.voice.resonance, min: 0.1, max: 10, onChange: (v: string) => { track.voice.resonance = parseFloat(v); saveTrackWavetable(track); } });
             });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
-                Entropy.UI.Widget.knob(row, { label: "Attack", value: track.voice.attack, min: 0.0005, max: 4, onChange: (v: string) => { track.voice.attack = parseFloat(v); saveTrackWavetable(track); } });
-                Entropy.UI.Widget.knob(row, { label: "Release", value: track.voice.release, min: 0.01, max: 3, onChange: (v: string) => { track.voice.release = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Attack", value: track.voice.attack, min: 0.0005, max: 4, unit: "s", decimals: 3, onChange: (v: string) => { track.voice.attack = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Release", value: track.voice.release, min: 0.01, max: 3, unit: "s", onChange: (v: string) => { track.voice.release = parseFloat(v); saveTrackWavetable(track); } });
             });
         });
     });
@@ -3851,6 +3851,21 @@ const TOAST_MS = 12_000;
 
 function toast(text: string, undo?: { label: string; run: () => void }) {
     libraryToast = { text, at: Date.now(), undo };
+    // The Songs and History windows show the message inline, beside what was just done. With
+    // both closed (Ctrl+S from the arrangement, say) it goes to the app-wide toast instead, so
+    // there is still a clear confirmation - one that never takes keyboard focus.
+    let inlineShown = false;
+    try { inlineShown = songsVisible || historyVisible; } catch { /* before the window state exists */ }
+    if (!inlineShown) {
+        Entropy.UI.toast?.({
+            id: "daw-library",
+            message: text,
+            kind: text.startsWith("Could not") ? "error" : "success",
+            actionLabel: undo?.label,
+            onAction: undo ? () => { libraryToast = null; undo.run(); } : undefined,
+            durationMs: undo ? 8000 : 3500,
+        });
+    }
 }
 
 function errorText(e: unknown): string {
@@ -3865,10 +3880,26 @@ function writeProject() {
         if (id) library.saveSong(id, project);
         if (!libraryPersistent) addon.IO.save(project);
         saveState.at = Date.now();
+        if (saveState.error) {
+            // Recovered: replace the error toast with a confirmation.
+            Entropy.UI.toast?.({ id: "daw-save", message: "Saved. Your changes are safe again.", kind: "success", durationMs: 3000 });
+        }
         saveState.error = "";
     } catch (e) {
+        const first = !saveState.error;
         saveState.error = errorText(e);
         Entropy.println("DAW: could not save the song: " + saveState.error);
+        // Stays until it is dealt with: the song is only in memory until a save succeeds.
+        if (first) {
+            Entropy.UI.toast?.({
+                id: "daw-save",
+                message: `Could not save "${currentSongName()}": ${saveState.error}`,
+                kind: "error",
+                actionLabel: "Retry",
+                onAction: () => writeProject(),
+                durationMs: 0,
+            });
+        }
     }
 }
 
@@ -4179,11 +4210,13 @@ function renderSongBar(win: string) {
     W.horizontal(win, (row: string) => {
         W.label(row, { text: withIcon("music-notes", currentSongName()), bold: true });
         W.label(row, { text: saveStatusText() });
-        W.button(row, { text: withIcon("folder-open", songsVisible ? "Hide Songs" : "Songs"), id: "songs_toggle", onClick: () => { setSongsVisible(!songsVisible); } });
-        W.button(row, { text: withIcon("clock-counter-clockwise", historyVisible ? "Hide History" : "History"), id: "history_toggle", onClick: () => { setHistoryVisible(!historyVisible); } });
-        W.button(row, { text: withIcon("floppy-disk", "Save version"), id: "song_save_version", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
+        W.button(row, { text: withIcon("folder-open", songsVisible ? "Hide Songs" : "Songs"), id: "songs_toggle", selected: songsVisible, tooltip: "Your songs: open, copy, rename or delete", shortcut: "Ctrl+O", onClick: () => { setSongsVisible(!songsVisible); } });
+        W.button(row, { text: withIcon("clock-counter-clockwise", historyVisible ? "Hide History" : "History"), id: "history_toggle", selected: historyVisible, tooltip: "Earlier versions of this song", onClick: () => { setHistoryVisible(!historyVisible); } });
+        W.button(row, { text: withIcon("floppy-disk", "Save version"), id: "song_save_version", tooltip: "Keep a version of the song as it is now (it is always saved)", shortcut: "Ctrl+S", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
     });
-    renderToast(win);
+    // The outcome of a library action shows as an app-wide toast (see `toast`), which does not
+    // push the layout down the way an inline row here did. The Songs and History windows still
+    // show it inline, next to what was done.
 }
 
 function renderToast(win: string) {
@@ -4591,6 +4624,7 @@ addon.onInit(async () => {
                 Entropy.UI.Widget.button(tid2, {
                     text: withIcon("skip-back", "Rewind"),
                     id: "transport_rewind",
+                    tooltip: "Back to the start of the song",
                     onClick: () => { rewind(); }
                 });
                 Entropy.UI.Widget.textInput(tid2, {
@@ -4600,8 +4634,8 @@ addon.onInit(async () => {
                     width: 64,
                     onChange: (v: string) => { commitBpmText(v); }
                 });
-                Entropy.UI.Widget.button(tid2, { text: "-", id: "bpm_down", onClick: () => { nudgeBpm(-1); } });
-                Entropy.UI.Widget.button(tid2, { text: "+", id: "bpm_up", onClick: () => { nudgeBpm(1); } });
+                Entropy.UI.Widget.button(tid2, { text: "-", id: "bpm_down", tooltip: "Slower: 1 BPM down", onClick: () => { nudgeBpm(-1); } });
+                Entropy.UI.Widget.button(tid2, { text: "+", id: "bpm_up", tooltip: "Faster: 1 BPM up", onClick: () => { nudgeBpm(1); } });
                 Entropy.UI.Widget.label(tid2, { text: positionReadout(), bold: true });
                 Entropy.UI.Widget.dropdown(tid2, {
                     label: "Play",
@@ -5306,7 +5340,9 @@ addon.onInit(async () => {
         height: 590,
         x: 16,
         y: 56,
-        onRender: () => renderRackWindow(rackWindowId!)
+        onRender: () => renderRackWindow(rackWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { rackVisible = false; }
     });
     Entropy.UI.setWindowVisible(rackWindowId, rackVisible);
 
@@ -5319,7 +5355,9 @@ addon.onInit(async () => {
         height: wavetableWindowHeight,
         x: 16,
         y: 56,
-        onRender: () => renderWavetableWindow(wavetableWindowId!)
+        onRender: () => renderWavetableWindow(wavetableWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { wavetableVisible = false; }
     });
     Entropy.UI.setWindowVisible(wavetableWindowId, wavetableVisible);
 
@@ -5332,7 +5370,9 @@ addon.onInit(async () => {
         height: physModWindowHeight,
         x: 16,
         y: 56,
-        onRender: () => renderPhysModWindow(physModWindowId!)
+        onRender: () => renderPhysModWindow(physModWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { physModVisible = false; }
     });
     Entropy.UI.setWindowVisible(physModWindowId, physModVisible);
 
@@ -5345,7 +5385,9 @@ addon.onInit(async () => {
         height: brassWindowHeight,
         x: 16,
         y: 56,
-        onRender: () => renderBrassWindow(brassWindowId!)
+        onRender: () => renderBrassWindow(brassWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { brassVisible = false; }
     });
     Entropy.UI.setWindowVisible(brassWindowId, brassVisible);
 
@@ -5358,7 +5400,9 @@ addon.onInit(async () => {
         height: matterWindowHeight,
         x: 16,
         y: 56,
-        onRender: () => renderMatterWindow(matterWindowId!)
+        onRender: () => renderMatterWindow(matterWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { matterVisible = false; }
     });
     Entropy.UI.setWindowVisible(matterWindowId, matterVisible);
 
@@ -5371,7 +5415,9 @@ addon.onInit(async () => {
         height: waterWindowHeight,
         x: 16,
         y: 56,
-        onRender: () => renderWaterWindow(waterWindowId!)
+        onRender: () => renderWaterWindow(waterWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { waterVisible = false; }
     });
     Entropy.UI.setWindowVisible(waterWindowId, waterVisible);
 
@@ -5382,7 +5428,9 @@ addon.onInit(async () => {
         height: Math.max(520, Math.min(760, screenH - 72)),
         x: 16,
         y: 56,
-        onRender: () => renderSongsWindow(songsWindowId!)
+        onRender: () => renderSongsWindow(songsWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { songsVisible = false; }
     });
     Entropy.UI.setWindowVisible(songsWindowId, songsVisible);
     historyWindowId = Entropy.UI.createWindow({
@@ -5391,7 +5439,9 @@ addon.onInit(async () => {
         height: Math.max(520, Math.min(760, screenH - 72)),
         x: Math.max(16, screenW - 616),
         y: 56,
-        onRender: () => renderHistoryWindow(historyWindowId!)
+        onRender: () => renderHistoryWindow(historyWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { historyVisible = false; }
     });
     Entropy.UI.setWindowVisible(historyWindowId, historyVisible);
 
@@ -5410,7 +5460,9 @@ addon.onInit(async () => {
         height: 590,
         x: Math.max(16, screenW - 636),
         y: 56,
-        onRender: () => renderGuitarWindow(guitarWindowId!)
+        onRender: () => renderGuitarWindow(guitarWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { guitarVisible = false; }
     });
     Entropy.UI.setWindowVisible(guitarWindowId, guitarVisible);
 

@@ -130,6 +130,11 @@ pub struct Memory {
     /// to the innermost one under the pointer instead of scrolling both.
     scroll_regions: Vec<(Id, f32, Rect)>,
     prev_scroll_regions: Vec<(Id, f32, Rect)>,
+    /// The numeric widget whose value is being typed, and the text so far - see
+    /// `widgets::value_entry`. One at a time, like `popup_open`.
+    pub(crate) value_entry: crate::entropy_gui::widgets::value_entry::ValueEntry,
+    /// The last primary press on a numeric widget and when (`Context::time`), for double-clicks.
+    pub(crate) last_click: Option<(Id, f32)>,
 }
 
 impl Memory {

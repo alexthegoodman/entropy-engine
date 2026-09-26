@@ -12,7 +12,8 @@ impl Ui {
         let padding = self.style().spacing.button_padding;
         let text_size = Painter::measure_text(self.ctx(), font, &text.0.text);
         let size = vec2(text_size.x + padding.x * 2.0, text_size.y.max(font.size) + padding.y * 2.0).max(self.style().spacing.interact_size);
-        let (rect, response) = self.allocate_response(size, Sense::click());
+        let (rect, mut response) = self.allocate_response(size, Sense::click());
+        self.focus_with(&mut response, crate::entropy_gui::ui::FocusOptions { selected, ..Default::default() });
 
         let visuals = self.interactive_visuals(response.hovered(), selected);
         let painter = self.painter();

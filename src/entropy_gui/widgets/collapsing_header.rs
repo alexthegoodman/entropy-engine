@@ -38,8 +38,17 @@ impl CollapsingHeader {
 
         let font = FontId::proportional(DEFAULT_FONT_SIZE);
         let h = ui.style().spacing.interact_size.y;
-        let (header_rect, header_resp) =
+        let (header_rect, mut header_resp) =
             ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
+        if ui.focus(&mut header_resp) {
+            // Right opens and Left closes, like a tree row.
+            let open_now = ui.ctx().memory(|m| m.get_open(id, default_open));
+            if (!open_now && ui.ctx().consume_key(crate::entropy_gui::context::Key::ArrowRight))
+                || (open_now && ui.ctx().consume_key(crate::entropy_gui::context::Key::ArrowLeft))
+            {
+                header_resp.clicked = true;
+            }
+        }
         if header_resp.clicked() {
             ui.ctx().memory_mut(|m| m.toggle_open(id, default_open));
         }

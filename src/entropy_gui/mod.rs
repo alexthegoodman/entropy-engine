@@ -11,6 +11,7 @@ pub mod containers;
 pub mod context;
 pub mod dock;
 pub mod draw_list;
+pub mod focus;
 pub mod fonts;
 pub mod geometry;
 pub mod icon_table;
@@ -22,6 +23,7 @@ pub mod response;
 pub mod shape;
 pub mod style;
 pub mod text_layout;
+pub mod toast;
 pub mod ui;
 pub mod widgets;
 pub mod widgets_analysis;
@@ -47,7 +49,7 @@ pub use containers::context_menu::context_menu;
 pub use containers::panel::{CentralPanel, Frame, SidePanel, TopBottomPanel};
 pub use containers::window::Window;
 pub use context::{
-    Context, FullOutput, Key, KeyEvent, Modifiers, PlatformOutput, RawInput, TexturesDelta, ViewportId,
+    Context, FullOutput, Key, KeyEvent, Modifiers, PlatformOutput, RawInput, TexturesDelta, UiPrefs, ViewportId,
 };
 pub use draw_list::{DrawCommand, DrawTexture, TextureId};
 pub use geometry::{
@@ -58,8 +60,9 @@ pub use id::{Id, IdMap};
 pub use painter::Painter;
 pub use response::{Response, Sense};
 pub use shape::Shape;
+pub use toast::{Toast, ToastEvent, ToastKind};
 pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widgets, slate_style, style_from_theme};
-pub use ui::{InnerResponse, Ui};
+pub use ui::{FocusOptions, InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, Knob, ScrollArea, Slider};
 pub use widgets_analysis::{LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, ScopeMode, ScopeOptions, ScopeResponse, SpectrumHover, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView};

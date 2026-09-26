@@ -11,6 +11,7 @@
 //! never clips a label.
 
 use crate::entropy_gui::color::Color32;
+use crate::entropy_gui::context::Key;
 use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Rect};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::Painter;
@@ -81,8 +82,28 @@ impl TabBar {
         for (tab, slot) in tabs.iter().zip(&slots) {
             let min = pos2(origin.x + slot.x, origin.y + slot.row as f32 * (TAB_H + TAB_GAP));
             let rect = Rect::from_min_size(min, vec2(slot.width, TAB_H));
-            let resp = interact(&ctx, rect, bar_id.with(("tab", &tab.id)), Sense::click());
+            let mut resp = interact(&ctx, rect, bar_id.with(("tab", &tab.id)), Sense::click());
             let is_selected = tab.id == selected;
+            // Roving focus: only the selected tab is a Tab stop; the arrows move between tabs.
+            let tab_stop = is_selected || (!tabs.iter().any(|t| t.id == selected) && std::ptr::eq(tab, &tabs[0]));
+            if tab_stop && ui.focus(&mut resp) {
+                let index = tabs.iter().position(|t| t.id == tab.id).unwrap_or(0);
+                let target = if ctx.consume_key(Key::ArrowRight) || ctx.consume_key(Key::ArrowDown) {
+                    Some((index + 1) % tabs.len())
+                } else if ctx.consume_key(Key::ArrowLeft) || ctx.consume_key(Key::ArrowUp) {
+                    Some((index + tabs.len() - 1) % tabs.len())
+                } else if ctx.consume_key(Key::Home) {
+                    Some(0)
+                } else if ctx.consume_key(Key::End) {
+                    Some(tabs.len() - 1)
+                } else {
+                    None
+                };
+                if let Some(t) = target.filter(|t| *t != index) {
+                    events.push(TabBarEvent::Selected(tabs[t].id.clone()));
+                    ctx.request_focus(bar_id.with(("tab", &tabs[t].id)), true);
+                }
+            }
 
             if is_selected {
                 painter.rect_filled(rect, 3u8, accent.linear_multiply(0.22));

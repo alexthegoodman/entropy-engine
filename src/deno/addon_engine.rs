@@ -113,7 +113,7 @@ use crate::deno::addon_ops::{
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
     op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text, op_http_fetch_text, op_http_poll_text, op_http_cancel_text,
-    op_ui_set_theme, op_visual_load, op_window_get_size, op_window_set_fullscreen, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
+    op_ui_set_theme, op_ui_widget_extras, op_ui_toast, op_ui_dismiss_toast, op_ui_set_preferences, op_ui_keyboard_state, op_visual_load, op_window_get_size, op_window_set_fullscreen, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick,
     op_ml_graph_train, op_ml_graph_poll, op_ml_architecture_train, op_ml_architecture_poll
 };
@@ -222,6 +222,11 @@ extension!(
         op_ui_widget_color_input,
         op_ui_widget_slider,
         op_ui_widget_knob,
+        op_ui_widget_extras,
+        op_ui_toast,
+        op_ui_dismiss_toast,
+        op_ui_set_preferences,
+        op_ui_keyboard_state,
         op_ui_widget_numeric_input,
         op_ui_widget_dropdown,
         op_ui_widget_checkbox,
@@ -730,6 +735,10 @@ impl AddonEngine {
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
             pointer_over_ui: false,
+            pending_ui_prefs: None,
+            pending_toasts: Vec::new(),
+            ui_wants_keyboard: false,
+            ui_keyboard_navigating: false,
             bdd_pointer_in_viewport: false,
             modifiers: Modifiers::default(),
             window_size: [1920, 1080],
@@ -3690,6 +3699,54 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         if let Some(theme) = theme {
             ctx.set_style(egui::style_from_theme(&theme));
         }
+        self.sync_gui_services(ctx);
+    }
+
+    /// Per-frame hand-off between the addon context and the GUI context's shared services:
+    /// preferences, queued toasts, toast button presses (sent back as UI events), and who owns
+    /// the keyboard (read by `Entropy.Input.isTypingInUI` and the key-event dispatch).
+    fn sync_gui_services(&mut self, ctx: &egui::Context) {
+        let op_state = self.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        let Some(context) = op_state.try_borrow_mut::<AddonContext>() else { return };
+        if let Some(p) = &context.pending_ui_prefs {
+            let mut prefs = ctx.prefs();
+            if let Some(r) = p.reduce_motion {
+                prefs.reduce_motion = r;
+            }
+            if let Some(ms) = p.tooltip_delay_ms {
+                prefs.tooltip_delay = (ms / 1000.0).max(0.0);
+            }
+            ctx.set_prefs(prefs);
+        }
+        for command in std::mem::take(&mut context.pending_toasts) {
+            match command {
+                crate::deno::addon_ops::ToastCommand::Show(c) => {
+                    let kind = crate::entropy_gui::ToastKind::parse(c.kind.as_deref().unwrap_or("info"));
+                    let duration = match c.duration_ms {
+                        Some(ms) if ms <= 0.0 => None,
+                        Some(ms) => Some((ms / 1000.0) as f32),
+                        None if kind == crate::entropy_gui::ToastKind::Error || c.progress.is_some() => None,
+                        None => Some(4.0),
+                    };
+                    ctx.show_toast(crate::entropy_gui::Toast { id: c.id, message: c.message, kind, action: c.action_label, progress: c.progress, duration });
+                }
+                crate::deno::addon_ops::ToastCommand::Dismiss(id) => ctx.dismiss_toast(&id),
+            }
+        }
+        let events = ctx.take_toast_events();
+        if !events.is_empty() {
+            if let Ok(mut ui_events) = context.ui_events.lock() {
+                for e in events {
+                    ui_events.push(match e {
+                        crate::entropy_gui::ToastEvent::Action(id) => format!("__toast_action:{id}"),
+                        crate::entropy_gui::ToastEvent::Dismissed(id) => format!("__toast_dismissed:{id}"),
+                    });
+                }
+            }
+        }
+        context.ui_wants_keyboard = ctx.wants_keyboard_input();
+        context.ui_keyboard_navigating = ctx.keyboard_navigating();
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
@@ -3824,6 +3881,14 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                  }
                              });
                         });
+                    // The close button or Escape closed it: hide it (it can be shown again with
+                    // `setWindowVisible`) and tell the addon (`onClose`).
+                    if !open {
+                        if let Some((config, _)) = context.ui_windows.get_mut(&id) {
+                            config.visible = false;
+                        }
+                        events_to_push.push(format!("__window_closed:{id}"));
+                    }
                 }
             }
         }
@@ -4001,8 +4066,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         egui_renderer: &mut egui_wgpu::Renderer,
     ) {
         let mut i = 0;
+        let mut pending_extras: Option<crate::deno::addon_ops::WidgetExtras> = None;
         while i < widgets.len() {
+            // `Extras` configures the widget right after it; anything else consumes it.
+            if let UiWidget::Extras { extras } = &widgets[i] {
+                pending_extras = Some(extras.clone());
+                i += 1;
+                continue;
+            }
+            let extras = pending_extras.take().unwrap_or_default();
+            let tooltip = extras.tooltip.clone().unwrap_or_default();
+            let shortcut = extras.shortcut.clone().unwrap_or_default();
             match &widgets[i] {
+                UiWidget::Extras { .. } => {}
                 UiWidget::Label { text, bold, font_size, alpha } => {
                     let mut txt = egui::RichText::new(text).alpha(*alpha);
                     if bold.unwrap_or(false) {
@@ -4025,7 +4101,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if let Some(size) = font_size {
                         txt = txt.font_size(*size);
                     }
-                    if ui.add(egui::Button::new(txt).frame(*frame)).clicked() {
+                    let button = egui::Button::new(txt)
+                        .frame(*frame)
+                        .enabled(!extras.disabled.unwrap_or(false))
+                        .selected(extras.selected.unwrap_or(false));
+                    if ui.add(button).on_hover_text_with_shortcut(tooltip.clone(), shortcut.clone()).clicked() {
                         events_to_push.push(btn_id.clone());
                     }
                 }
@@ -4063,9 +4143,14 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     ui.horizontal(|ui| {
                         ui.label(label);
                         let mut current_value = *value;
-                        if ui
-                            .add(egui::Slider::new(&mut current_value, *min..=*max))
-                            .changed()
+                        let mut slider = egui::Slider::new(&mut current_value, *min..=*max);
+                        if let Some(unit) = &extras.unit { slider = slider.unit(unit.clone()); }
+                        if let Some(d) = extras.default_value { slider = slider.default_value(d); }
+                        if let Some(st) = extras.step { slider = slider.step(st); }
+                        if let Some(dp) = extras.decimals { slider = slider.decimals(dp as usize); }
+                        let mut resp = ui.add(slider);
+                        if !tooltip.is_empty() { resp = resp.on_hover_text_with_shortcut(tooltip.clone(), shortcut.clone()); }
+                        if resp.changed()
                         {
                             let payload = format!("{}|{}", slider_id, current_value);
                             events_to_push.push(payload);
@@ -4080,7 +4165,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     max,
                 } => {
                     let mut current_value = *value;
-                    if ui.add(egui::Knob::new(&mut current_value, *min..=*max).text(label.clone())).changed() {
+                    let mut knob = egui::Knob::new(&mut current_value, *min..=*max).text(label.clone());
+                    if let Some(unit) = &extras.unit { knob = knob.unit(unit.clone()); }
+                    if let Some(d) = extras.default_value { knob = knob.default_value(d); }
+                    if let Some(st) = extras.step { knob = knob.step(st); }
+                    if let Some(dp) = extras.decimals { knob = knob.decimals(dp as usize); }
+                    if ui.add(knob).changed() {
                         let payload = format!("{}|{}", knob_id, current_value);
                         events_to_push.push(payload);
                     }
@@ -4093,7 +4183,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     ui.horizontal(|ui| {
                         ui.label(label);
                         let mut current_value = *value;
-                        if ui.add(egui::DragValue::new(&mut current_value)).changed() {
+                        let mut drag = egui::DragValue::new(&mut current_value);
+                        if extras.min.is_some() || extras.max.is_some() {
+                            drag = drag.range(extras.min.unwrap_or(f32::NEG_INFINITY)..=extras.max.unwrap_or(f32::INFINITY));
+                        }
+                        if let Some(unit) = &extras.unit { drag = drag.suffix(unit.clone()); }
+                        if let Some(d) = extras.default_value { drag = drag.default_value(d); }
+                        if let Some(st) = extras.step { drag = drag.step(st); }
+                        if let Some(dp) = extras.decimals { drag = drag.decimals(dp as usize); }
+                        if let Some(sp) = extras.speed { drag = drag.speed(sp); }
+                        let mut resp = ui.add(drag);
+                        if !tooltip.is_empty() { resp = resp.on_hover_text_with_shortcut(tooltip.clone(), shortcut.clone()); }
+                        if resp.changed() {
                             let payload = format!("{}|{}", num_id, current_value);
                             events_to_push.push(payload);
                         }
@@ -4131,7 +4232,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     value,
                 } => {
                     let mut current_value = *value;
-                    if ui.checkbox(&mut current_value, label).changed() {
+                    if ui.checkbox(&mut current_value, label).on_hover_text_with_shortcut(tooltip.clone(), shortcut.clone()).changed() {
                         let payload = format!("{}|{}", check_id, current_value);
                         events_to_push.push(payload);
                     }
