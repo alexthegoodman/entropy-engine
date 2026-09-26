@@ -471,3 +471,535 @@ fn a_rendered_performance_slurs_overlapping_notes_on_one_instrument() {
     let steady = rms_db(&out[(0.3 * SR) as usize..(0.45 * SR) as usize]);
     assert!(seam > steady - 10.0, "seam {seam:.1} dB vs {steady:.1} dB");
 }
+
+// ---------------------------------------------------------------- reports (ignored)
+//
+// These print the numbers, and write the pictures, that the Indie Machine strings post quotes. They
+// assert almost nothing. Run one with
+//   cargo test --release --lib physmod::tests::strings_tuning_report -- --ignored --nocapture
+// (names: strings_tuning_report, strings_waveforms_report, strings_schelleng_report,
+// strings_schelleng_no_player_report, strings_schelleng_uncoupled_report, strings_behaviour_report,
+// strings_cost_report). Pictures land in `test-artifacts/physmod-strings/`.
+
+fn profile() -> &'static str {
+    if cfg!(debug_assertions) { "debug" } else { "release" }
+}
+
+fn art_dir() -> std::path::PathBuf {
+    let d = std::env::current_dir().unwrap().join("test-artifacts").join("physmod-strings");
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn cello() -> PhysModParams {
+    PhysModParams { strings: [65.41, 98.0, 146.83, 220.0], body_size: 0.72, ..plain(220.0) }
+}
+
+fn bass() -> PhysModParams {
+    PhysModParams { strings: [41.2, 55.0, 73.42, 98.0], body_size: 1.0, ..plain(98.0) }
+}
+
+/// (seconds rendered, seconds analysed) that give a note of this pitch time to settle.
+fn timing(freq: f32) -> (f32, f32) {
+    if freq < 100.0 {
+        (1.8, 0.5)
+    } else if freq < 150.0 {
+        (1.0, 0.3)
+    } else {
+        (0.7, 0.25)
+    }
+}
+
+#[test]
+#[ignore]
+fn strings_tuning_report() {
+    println!("profile: {}", profile());
+    let row = |name: &str, p: &PhysModParams| {
+        let (secs, win) = timing(p.freq);
+        let a = analyze_note(p, secs, win);
+        let attack = a.attack_secs.map_or("never".to_string(), |s| format!("{s:.3} s"));
+        println!("{name:<7} {:>8.2} Hz  measured {:>8.2} Hz  {:+6.1} cents  slips/period {:.2}  stuck {:.2}  settled {attack}  {:?}", p.freq, a.f0, a.cents, a.slips_per_period, a.stick_fraction, a.regime.unwrap());
+    };
+    for &f in &[196.0f32, 261.63, 293.66, 349.23, 440.0, 523.25, 659.25, 880.0, 1174.66, 1318.5, 1567.98] {
+        row("violin", &plain(f));
+    }
+    for &f in &[65.41f32, 98.0, 110.0, 146.83, 196.0, 220.0, 329.63] {
+        row("cello", &PhysModParams { freq: f, ..cello() });
+    }
+    for &f in &[41.2f32, 49.0, 55.0, 73.42, 98.0, 146.83] {
+        row("bass", &PhysModParams { freq: f, ..bass() });
+    }
+    println!("-- stiffness: partial 8 against 8 x the fundamental, pizzicato A3");
+    for &st in &[0.0f32, 0.1, 0.4, 0.8, 1.0] {
+        let p = PhysModParams { articulation: Articulation::Pizzicato, stiffness: st, body_mix: 0.0, ring: 1.0, duration: 2.0, ..plain(220.0) };
+        let out = left(&render_note(Arc::new(PhysModShared::default()), p, 0.6));
+        let seg = &out[(0.05 * SR) as usize..(0.55 * SR) as usize];
+        let (mags, bin) = super::analysis::spectrum(seg, SR);
+        let peak_near = |f: f32| {
+            let (lo, hi) = (((f * 0.97) / bin) as usize, ((f * 1.08) / bin) as usize);
+            (lo..hi).max_by(|&a, &b| mags[a].total_cmp(&mags[b])).unwrap() as f32 * bin
+        };
+        let f1 = peak_near(220.0);
+        let ratio = peak_near(220.0 * 8.0) / (8.0 * f1);
+        let b = super::string::inharmonicity(st);
+        let ideal = (1.0 + 64.0 * b).sqrt() / (1.0 + b).sqrt();
+        println!("stiffness {st:.1}: B = {b:.2e}, partial 8 / (8 x f1) = {ratio:.4} (theory {ideal:.4})");
+    }
+}
+
+/// Draws one polyline into an SVG panel: y scaled symmetrically about zero.
+fn panel(svg: &mut String, x: f32, y: f32, w: f32, h: f32, ys: &[f32], stroke: &str, label: &str, unit: &str, reference: Option<f32>) {
+    let peak = ys.iter().fold(1.0e-9f32, |m, v| m.max(v.abs())).max(reference.map_or(0.0, f32::abs));
+    let sy = |v: f32| y + h * 0.5 - v / peak * h * 0.46;
+    svg.push_str(&format!("<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"#ffffff\" stroke=\"#c9c4b8\"/>"));
+    svg.push_str(&format!("<line x1=\"{x}\" y1=\"{0}\" x2=\"{1}\" y2=\"{0}\" stroke=\"#c9c4b8\" stroke-dasharray=\"2 3\"/>", y + h * 0.5, x + w));
+    if let Some(r) = reference {
+        svg.push_str(&format!("<line x1=\"{x}\" y1=\"{0}\" x2=\"{1}\" y2=\"{0}\" stroke=\"#b5462d\" stroke-width=\"2\" stroke-dasharray=\"5 4\"/>", sy(r), x + w));
+    }
+    let pts: Vec<String> = ys.iter().enumerate().map(|(i, v)| format!("{:.1},{:.1}", x + w * i as f32 / (ys.len() - 1) as f32, sy(*v))).collect();
+    svg.push_str(&format!("<polyline points=\"{}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"1.6\"/>", pts.join(" ")));
+    svg.push_str(&format!("<text x=\"{x}\" y=\"{}\" font-size=\"11\" fill=\"#55524a\">{label}</text>", y - 5.0));
+    svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-size=\"11\" fill=\"#55524a\" text-anchor=\"end\">peak {peak:.3} {unit}</text>", x + w, y - 5.0));
+}
+
+#[test]
+#[ignore]
+fn strings_waveforms_report() {
+    println!("profile: {}", profile());
+    let cases: [(&str, f32, f32, f32); 3] = [("Helmholtz motion", 0.13, 0.5, 0.5), ("Surface sound (too little force)", 0.05, 0.15, 0.5), ("Raucous (too much force)", 0.13, 1.0, 0.3)];
+    let mut svg = String::new();
+    let (w, row_h, gap) = (430.0f32, 120.0f32, 58.0f32);
+    let total_h = 3.0 * (row_h + gap) + 8.0;
+    svg.push_str(&format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {} {total_h}\" font-family=\"sans-serif\">", 2.0 * w + 50.0));
+    svg.push_str("<rect width=\"100%\" height=\"100%\" fill=\"#f7f6f2\"/>");
+    for (i, &(name, beta, force, speed)) in cases.iter().enumerate() {
+        let p = PhysModParams { bow_position: beta, bow_force: force, bow_velocity: speed, ..plain(293.66) };
+        let a = analyze_note(&p, 0.8, 0.3);
+        let mut e = Engine::new(SR, &p);
+        let s = e.note_on(1, p, true, None);
+        for _ in 0..(0.6 * SR) as usize {
+            e.next_frame();
+        }
+        let n = (4.0 * SR / p.freq) as usize;
+        let (mut v, mut f) = (Vec::with_capacity(n), Vec::with_capacity(n));
+        for _ in 0..n {
+            e.next_frame();
+            v.push(e.string(s).last_v);
+            f.push(e.string(s).last_force);
+        }
+        let v_bow = bow_speed(speed) * (0.3 + 0.7 * p.velocity);
+        println!("{name}: bow position {beta}, force knob {force}, speed knob {speed} ({v_bow:.3} m/s): slips/period {:.2}, stuck {:.2}, regime {:?}", a.slips_per_period, a.stick_fraction, a.regime.unwrap());
+        let y0 = 48.0 + i as f32 * (row_h + gap);
+        svg.push_str(&format!("<text x=\"20\" y=\"{}\" font-size=\"13\" font-weight=\"bold\" fill=\"#2a2925\">{name} - {:.2} slips per period, stuck {:.0}% of the time</text>", y0 - 26.0, a.slips_per_period, a.stick_fraction * 100.0));
+        panel(&mut svg, 20.0, y0, w, row_h, &v, "#1f5f8b", "string velocity at the bow (dashed red: bow speed)", "m/s", Some(v_bow));
+        panel(&mut svg, 30.0 + w, y0, w, row_h, &f, "#7a4b1e", "force on the bridge", "N", None);
+    }
+    svg.push_str(&format!("<text x=\"20\" y=\"{}\" font-size=\"11\" fill=\"#55524a\">D4 (293.66 Hz), four periods (13.6 ms) each, taken 0.6 s into a held note</text>", total_h - 6.0));
+    svg.push_str("</svg>");
+    let path = art_dir().join("bow-regimes.svg");
+    std::fs::write(&path, svg).unwrap();
+    println!("wrote {}", path.display());
+}
+
+struct Edges {
+    knob_lo: Option<f32>,
+    knob_hi: Option<f32>,
+    center: f32,
+    fit: (f32, f32),
+    holes: bool,
+}
+
+/// One note held for `secs`: is it clean Helmholtz motion over the last `win` seconds? One release per
+/// period (within 8%) that also arrives regularly - the string's own running confidence, which is the
+/// measure the player's ear waits for before it corrects a pitch - so a raucous note that happens to
+/// average one release per period does not count.
+fn clean_helmholtz(p: &PhysModParams, secs: f32, win: f32) -> bool {
+    let p = PhysModParams { duration: secs + 1.0, ..*p };
+    let mut e = Engine::new(SR, &p);
+    let s = e.note_on(1, p, false, None);
+    let n = (secs * SR) as usize;
+    let w0 = n.saturating_sub((win * SR) as usize);
+    let mut reports = [StringReport::default(); MAX_ALL_STRINGS];
+    for i in 0..n {
+        if i == w0 {
+            e.report(&mut reports);
+        }
+        e.next_frame();
+    }
+    e.report(&mut reports);
+    (reports[s].slips_per_period - 1.0).abs() < 0.08 && e.string(s).helmholtz_confidence > 0.95
+}
+
+fn window_edges(base: &PhysModParams, beta: f32) -> Edges {
+    let p0 = PhysModParams { bow_position: beta, ..*base };
+    let e = Engine::new(SR, &p0);
+    let s = e.choose_string(p0.freq);
+    let (open, z) = (e.string(s).spec.open_freq, e.string(s).spec.impedance);
+    let v = bow_speed(p0.bow_velocity) * (0.3 + 0.7 * p0.velocity);
+    let z_nominal = string_impedance(open, p0.body_size, 0.5);
+    let center = force_center(v, z_nominal, p0.freq);
+    // `PhysModParams::friction` is private to the engine: rosin 0.5 is mu_s 0.8, mu_d 0.3, v0 0.11.
+    let curve = super::friction::FrictionCurve { mu_s: 0.8, mu_d: 0.3, v0: 0.11 };
+    let fit = schelleng_window(v, beta, z, &curve, p0.freq);
+    let (secs, win) = timing(p0.freq);
+    const STEPS: usize = 40;
+    let good: Vec<bool> = (0..=STEPS).map(|i| clean_helmholtz(&PhysModParams { bow_force: i as f32 / STEPS as f32, ..p0 }, secs, win)).collect();
+    // The window is the longest unbroken run of clean knob settings; anything clean outside it is
+    // counted, not used.
+    let (mut best, mut cur_start, mut runs) = ((0usize, 0usize), None::<usize>, 0usize);
+    for i in 0..=STEPS + 1 {
+        let g = i <= STEPS && good[i];
+        match (g, cur_start) {
+            (true, None) => cur_start = Some(i),
+            (false, Some(st)) => {
+                runs += 1;
+                if i - st > best.1 - best.0 {
+                    best = (st, i);
+                }
+                cur_start = None;
+            }
+            _ => {}
+        }
+    }
+    let (first, last) = (best.0, best.1.saturating_sub(1));
+    let have = best.1 > best.0;
+    let lo = if have && first > 0 { Some((first as f32 - 0.5) / STEPS as f32) } else { None };
+    let hi = if have && last < STEPS { Some((last as f32 + 0.5) / STEPS as f32) } else { None };
+    Edges { knob_lo: lo, knob_hi: hi, center, fit, holes: runs > 1 }
+}
+
+/// Least-squares slope of ln(force) against ln(beta): (slope, intercept, sxx).
+fn ln_fit(pts: &[(f32, f32)]) -> Option<(f32, f32, f32)> {
+    if pts.len() < 3 {
+        return None;
+    }
+    let n = pts.len() as f32;
+    let (mx, my) = (pts.iter().map(|p| p.0.ln()).sum::<f32>() / n, pts.iter().map(|p| p.1.ln()).sum::<f32>() / n);
+    let sxx: f32 = pts.iter().map(|p| (p.0.ln() - mx).powi(2)).sum();
+    let sxy: f32 = pts.iter().map(|p| (p.0.ln() - mx) * (p.1.ln() - my)).sum();
+    Some((sxy / sxx, my - sxy / sxx * mx, sxx))
+}
+
+struct SweepNote {
+    name: &'static str,
+    freq: f32,
+    speed: f32,
+    z: f32,
+    pts: Vec<(f32, Option<f32>, Option<f32>)>,
+}
+
+fn schelleng_sweep(label: &str, notes: &[(&'static str, PhysModParams)]) -> Vec<SweepNote> {
+    const BETAS: [f32; 6] = [0.04, 0.06, 0.09, 0.13, 0.2, 0.3];
+    println!("profile: {}  |  {label}", profile());
+    println!("{:<10} {:>8} {:>6} {:>10} {:>10} {:>10} {:>10}", "note", "Hz", "beta", "F_min N", "F_max N", "fit min", "fit max");
+    let (mut min_num, mut min_den, mut max_num, mut max_den) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    let (mut min_ratios, mut max_ratios) = (Vec::new(), Vec::new());
+    let (mut censored_lo, mut censored_hi, mut holes, mut edges) = (0, 0, 0, 0);
+    let mut records = Vec::new();
+    for (name, base) in notes {
+        let (mut lo_pts, mut hi_pts) = (Vec::new(), Vec::new());
+        let e0 = Engine::new(SR, base);
+        let z0 = e0.string(e0.choose_string(base.freq)).spec.impedance;
+        let mut rec = SweepNote { name, freq: base.freq, speed: bow_speed(base.bow_velocity) * (0.3 + 0.7 * base.velocity), z: z0, pts: Vec::new() };
+        for &beta in &BETAS {
+            let ed = window_edges(base, beta);
+            let lo = ed.knob_lo.map(|k| bow_newtons(k, ed.center));
+            let hi = ed.knob_hi.map(|k| bow_newtons(k, ed.center));
+            println!(
+                "{name:<10} {:>8.2} {beta:>6.2} {:>10} {:>10} {:>10.4} {:>10.4}{}",
+                base.freq,
+                lo.map_or("-".to_string(), |v| format!("{v:.4}")),
+                hi.map_or("-".to_string(), |v| format!("{v:.4}")),
+                ed.fit.0,
+                ed.fit.1,
+                if ed.holes { "  (2+ clean runs)" } else { "" }
+            );
+            if ed.holes {
+                holes += 1;
+            }
+            rec.pts.push((beta, lo, hi));
+            match lo {
+                Some(v) => {
+                    lo_pts.push((beta, v));
+                    min_ratios.push(v / ed.fit.0);
+                    edges += 1;
+                }
+                None => censored_lo += 1,
+            }
+            match hi {
+                Some(v) => {
+                    hi_pts.push((beta, v));
+                    max_ratios.push(v / ed.fit.1);
+                    edges += 1;
+                }
+                None => censored_hi += 1,
+            }
+        }
+        if let Some((s, _, sxx)) = ln_fit(&lo_pts) {
+            min_num += s * sxx;
+            min_den += sxx;
+            println!("{name:<10} {:>8.2} F_min slope {s:+.2} over {} betas", base.freq, lo_pts.len());
+        }
+        if let Some((s, _, sxx)) = ln_fit(&hi_pts) {
+            max_num += s * sxx;
+            max_den += sxx;
+            println!("{name:<10} {:>8.2} F_max slope {s:+.2} over {} betas", base.freq, hi_pts.len());
+        }
+        records.push(rec);
+    }
+    let geo = |v: &[f32]| (v.iter().map(|x| x.ln()).sum::<f32>() / v.len().max(1) as f32).exp();
+    let (mn, mx) = (min_ratios.iter().cloned().fold(f32::MAX, f32::min), min_ratios.iter().cloned().fold(0.0, f32::max));
+    let (mn2, mx2) = (max_ratios.iter().cloned().fold(f32::MAX, f32::min), max_ratios.iter().cloned().fold(0.0, f32::max));
+    println!("pooled slope of F_min against beta: {:+.2}  (Schelleng -2)", min_num / min_den);
+    println!("pooled slope of F_max against beta: {:+.2}  (Schelleng -1)", max_num / max_den);
+    println!("measured / fitted F_min: geometric mean {:.2}, range {mn:.2} to {mx:.2}", geo(&min_ratios));
+    println!("measured / fitted F_max: geometric mean {:.2}, range {mn2:.2} to {mx2:.2}", geo(&max_ratios));
+    println!("edges found {edges}, edges outside the force knob's range {censored_lo} low / {censored_hi} high, sweeps with more than one separate clean run {holes}");
+    records
+}
+
+/// Window edges against bow position on log-log axes, for one note per panel, with the engine's
+/// fitted laws (solid) and lines of Schelleng's slopes (-2 and -1, dashed) through the fit at 0.13.
+fn plot_window(records: &[&SweepNote], path: &std::path::Path) {
+    let curve = super::friction::FrictionCurve { mu_s: 0.8, mu_d: 0.3, v0: 0.11 };
+    let (pw, ph, m) = (400.0f32, 300.0f32, 50.0f32);
+    let mut svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {} {}\" font-family=\"sans-serif\">", records.len() as f32 * (pw + m) + m, ph + 2.0 * m + 20.0);
+    svg.push_str("<rect width=\"100%\" height=\"100%\" fill=\"#f7f6f2\"/>");
+    let (bx0, bx1, fy0, fy1) = (0.03f32.ln(), 0.35f32.ln(), 0.003f32.ln(), 6.0f32.ln());
+    for (k, r) in records.iter().enumerate() {
+        let x0 = m + k as f32 * (pw + m);
+        let y0 = m;
+        let px = |b: f32| x0 + (b.ln() - bx0) / (bx1 - bx0) * pw;
+        let py = |f: f32| y0 + ph - (f.max(1.0e-9).ln() - fy0) / (fy1 - fy0) * ph;
+        svg.push_str(&format!("<rect x=\"{x0}\" y=\"{y0}\" width=\"{pw}\" height=\"{ph}\" fill=\"#ffffff\" stroke=\"#c9c4b8\"/>"));
+        svg.push_str(&format!("<text x=\"{x0}\" y=\"{}\" font-size=\"13\" font-weight=\"bold\" fill=\"#2a2925\">{} {:.1} Hz, bow speed {:.3} m/s</text>", y0 - 14.0, r.name, r.freq, r.speed));
+        for &f in &[0.01f32, 0.1, 1.0] {
+            svg.push_str(&format!("<line x1=\"{x0}\" y1=\"{0}\" x2=\"{1}\" y2=\"{0}\" stroke=\"#e6e2d8\"/><text x=\"{2}\" y=\"{3}\" font-size=\"10\" fill=\"#55524a\" text-anchor=\"end\">{f} N</text>", py(f), x0 + pw, x0 - 4.0, py(f) + 3.0));
+        }
+        for &b in &[0.05f32, 0.1, 0.2, 0.3] {
+            svg.push_str(&format!("<line x1=\"{0}\" y1=\"{y0}\" x2=\"{0}\" y2=\"{1}\" stroke=\"#e6e2d8\"/><text x=\"{0}\" y=\"{2}\" font-size=\"10\" fill=\"#55524a\" text-anchor=\"middle\">{b}</text>", px(b), y0 + ph, y0 + ph + 14.0));
+        }
+        svg.push_str(&format!("<text x=\"{}\" y=\"{}\" font-size=\"11\" fill=\"#55524a\" text-anchor=\"middle\">bow position beta (fraction of the string from the bridge)</text>", x0 + pw * 0.5, y0 + ph + 32.0));
+        let betas: Vec<f32> = (0..=60).map(|i| (0.03f32.ln() + (0.35f32.ln() - 0.03f32.ln()) * i as f32 / 60.0).exp()).collect();
+        let line = |f: &dyn Fn(f32) -> f32, color: &str, dash: &str| {
+            let pts: Vec<String> = betas.iter().map(|&b| format!("{:.1},{:.1}", px(b), py(f(b)).clamp(y0, y0 + ph))).collect();
+            format!("<polyline points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"1.4\" stroke-dasharray=\"{dash}\"/>", pts.join(" "))
+        };
+        let fit = |b: f32| schelleng_window(r.speed, b, r.z, &curve, r.freq);
+        svg.push_str(&line(&|b| fit(b).0, "#1f5f8b", ""));
+        svg.push_str(&line(&|b| fit(b).1, "#b5462d", ""));
+        let (a0, a1) = fit(0.13);
+        svg.push_str(&line(&|b| a0 * (b / 0.13).powf(-2.0), "#1f5f8b", "4 4"));
+        svg.push_str(&line(&|b| a1 * (b / 0.13).powf(-1.0), "#b5462d", "4 4"));
+        for &(b, lo, hi) in &r.pts {
+            if let Some(f) = lo {
+                svg.push_str(&format!("<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4.5\" fill=\"#1f5f8b\"/>", px(b), py(f)));
+            }
+            if let Some(f) = hi {
+                svg.push_str(&format!("<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4.5\" fill=\"#b5462d\"/>", px(b), py(f)));
+            }
+        }
+    }
+    svg.push_str(&format!("<text x=\"{m}\" y=\"{}\" font-size=\"11\" fill=\"#55524a\">dots: measured edges (blue least force, red most). solid: fitted window. dashed: slopes -2 and -1 through the fit at 0.13</text>", ph + 2.0 * m + 12.0));
+    svg.push_str("</svg>");
+    std::fs::write(path, svg).unwrap();
+    println!("wrote {}", path.display());
+}
+
+fn sweep_notes(skill: f32, coupling: f32, subset: bool) -> Vec<(&'static str, PhysModParams)> {
+    let mut v: Vec<(&'static str, PhysModParams)> = Vec::new();
+    let violin: &[f32] = if subset { &[293.66, 440.0, 659.25, 349.23] } else { &[196.0, 293.66, 440.0, 659.25, 246.94, 349.23, 523.25, 880.0, 1174.66] };
+    for &f in violin {
+        v.push(("violin", PhysModParams { attack_skill: skill, coupling, ..plain(f) }));
+    }
+    let cello_notes: &[f32] = if subset { &[98.0, 220.0] } else { &[98.0, 220.0, 130.81, 329.63] };
+    for &f in cello_notes {
+        v.push(("cello", PhysModParams { freq: f, attack_skill: skill, coupling, ..cello() }));
+    }
+    if !subset {
+        for &f in &[41.2f32, 55.0, 82.41] {
+            v.push(("bass", PhysModParams { freq: f, attack_skill: skill, coupling, ..bass() }));
+        }
+    }
+    v
+}
+
+#[test]
+#[ignore]
+fn strings_schelleng_report() {
+    let recs = schelleng_sweep("attack_skill 1.0 (the player helps a stroke start), coupling 0.35", &sweep_notes(1.0, 0.35, false));
+    let pick = |name: &str, f: f32| recs.iter().find(|r| r.name == name && (r.freq - f).abs() < 0.01).unwrap();
+    plot_window(&[pick("violin", 293.66), pick("cello", 98.0)], &art_dir().join("schelleng-window.svg"));
+}
+
+#[test]
+#[ignore]
+fn strings_schelleng_no_player_report() {
+    let _ = schelleng_sweep("attack_skill 0.0 (the friction alone starts the stroke), coupling 0.35", &sweep_notes(0.0, 0.35, false));
+}
+
+#[test]
+#[ignore]
+fn strings_schelleng_uncoupled_report() {
+    let _ = schelleng_sweep("attack_skill 1.0, coupling 0.0 (the bridge does not move), subset of notes", &sweep_notes(1.0, 0.0, true));
+}
+
+#[test]
+#[ignore]
+fn strings_behaviour_report() {
+    println!("profile: {}", profile());
+    // Bow speed, force, position.
+    let slow = PhysModParams { bow_velocity: 0.35, ..plain(440.0) };
+    let fast = PhysModParams { bow_velocity: 0.35 + (2.0f32).ln() / 25f32.ln(), bow_force: 0.5 + 0.5 * (2.0f32).log10(), ..plain(440.0) };
+    let (a, b) = (analyze_note(&slow, 0.8, 0.3), analyze_note(&fast, 0.8, 0.3));
+    println!("bow speed x2 ({:.3} -> {:.3} m/s, force scaled with it): {:.1} dB -> {:.1} dB, {:+.1} dB", bow_speed(slow.bow_velocity), bow_speed(fast.bow_velocity), a.rms_db, b.rms_db, b.rms_db - a.rms_db);
+    let base = PhysModParams { body_mix: 0.0, ..plain(293.66) };
+    let tasto = analyze_note(&PhysModParams { bow_position: 0.2, bow_force: 0.35, ..base }, 0.8, 0.3);
+    let pont = analyze_note(&PhysModParams { bow_position: 0.05, bow_force: 0.8, ..base }, 0.8, 0.3);
+    println!("tasto (beta 0.2, force 0.35) centroid {:.0} Hz; ponticello (beta 0.05, force 0.8) {:.0} Hz; ratio {:.2}", tasto.centroid_hz, pont.centroid_hz, pont.centroid_hz / tasto.centroid_hz);
+    let base = PhysModParams { body_mix: 0.0, bow_position: 0.1, ..plain(440.0) };
+    let soft = analyze_note(&PhysModParams { bow_force: 0.35, ..base }, 0.8, 0.3);
+    let hard = analyze_note(&PhysModParams { bow_force: 0.7, ..base }, 0.8, 0.3);
+    println!("force 0.35 centroid {:.0} Hz, force 0.7 centroid {:.0} Hz ({:.2}x); regimes {:?} then {:?}", soft.centroid_hz, hard.centroid_hz, hard.centroid_hz / soft.centroid_hz, soft.regime.unwrap(), hard.regime.unwrap());
+    // Body against no body.
+    let bare = analyze_note(&PhysModParams { body_mix: 0.0, ..plain(440.0) }, 0.7, 0.3);
+    let bodied = analyze_note(&PhysModParams { body_mix: 1.0, ..plain(440.0) }, 0.7, 0.3);
+    let diff: f32 = bare.harmonics_db.iter().zip(bodied.harmonics_db.iter()).map(|(x, y)| (x - y).abs()).sum::<f32>() / HARMONICS_F;
+    println!("body: mean change in harmonic balance {diff:.1} dB, level {:.1} -> {:.1} dB", bare.rms_db, bodied.rms_db);
+    // The body's modes against the size axis.
+    for &size in &[-1.0f32, 0.0, 0.13, 0.72, 1.0, 2.5] {
+        let e = Engine::new(SR, &PhysModParams { body_size: size, ..Default::default() });
+        let (f, _) = e.body_modes();
+        println!("body_size {size:>5.2}: divisor {:>5.2}, A0 {:>6.1} Hz, B1- {:>6.1} Hz, B1+ {:>6.1} Hz, bridge hill {:>7.1} Hz", body_scale(size), f[0], f[2], f[3], f[9]);
+    }
+    // Sympathetic ringing.
+    let ring_of = |freq: f32, coupling: f32| {
+        let p = PhysModParams { coupling, ..plain(freq) };
+        let mut e = Engine::new(SR, &p);
+        e.note_on(1, p, true, None);
+        for _ in 0..(1.0 * SR) as usize {
+            e.next_frame();
+        }
+        e.string(0).level
+    };
+    let (g, fs) = (ring_of(392.0, 0.35), ring_of(370.0, 0.35));
+    println!("open G string level after 1 s: bowing G4 {g:.3e}, bowing F#4 {fs:.3e}, ratio {:.1}", g / fs);
+    for &c in &[0.0f32, 0.35, 0.9] {
+        println!("coupling {c}: open G string level bowing G4 = {:.3e}", ring_of(392.0, c));
+    }
+    let with_symp = |sym: f32| {
+        let p = PhysModParams { sympathetic: [sym, 0.0, 0.0, 0.0, 0.0, 0.0], ..plain(440.0) };
+        let mut e = Engine::new(SR, &p);
+        e.note_on(1, p, true, None);
+        for _ in 0..(1.0 * SR) as usize {
+            e.next_frame();
+        }
+        e.string(4).level
+    };
+    println!("sympathetic string after 1 s bowing A4: tuned to 440 {:.3e}, tuned to 415.3 {:.3e}, ratio {:.1}", with_symp(440.0), with_symp(415.3), with_symp(440.0) / with_symp(415.3));
+    // The wolf.
+    let wolf = |coupling: f32, force: f32| {
+        let p = PhysModParams { coupling, bow_force: force, ..PhysModParams { freq: 163.6, ..cello() } };
+        let a = analyze_note(&p, 1.6, 0.4);
+        println!("cello 163.6 Hz, coupling {coupling}, force {force}: slips/period {:.2}, regime {:?}, pitch {:+.1} cents, level {:.1} dB", a.slips_per_period, a.regime.unwrap(), a.cents, a.rms_db);
+    };
+    wolf(1.0, 0.3);
+    wolf(1.0, 0.7);
+    wolf(0.35, 0.3);
+    // Attack: the player against bare friction.
+    println!("-- how a stroke starts: seconds until one release per period holds for 10 periods");
+    let starts: [(&str, PhysModParams); 5] = [("violin G3", plain(196.0)), ("violin A4", plain(440.0)), ("violin B5", plain(987.77)), ("cello C2", PhysModParams { freq: 65.41, ..cello() }), ("bass E1", PhysModParams { freq: 41.2, ..bass() })];
+    for (name, base) in starts {
+        let (secs, win) = timing(base.freq);
+        let mut line = format!("{name:<10}");
+        for &skill in &[0.0f32, 0.9, 1.0] {
+            let a = analyze_note(&PhysModParams { attack_skill: skill, ..base }, secs + 0.6, win);
+            line.push_str(&format!("  skill {skill:.1}: {} ({:?}, {:.2} slips/period)", a.attack_secs.map_or("never".to_string(), |s| format!("{s:.3} s")), a.regime.unwrap(), a.slips_per_period));
+        }
+        println!("{line}");
+    }
+    // Impossible instruments.
+    let mut worst = 0.0f32;
+    let mut count = 0;
+    for &body_size in &[-1.0f32, 0.0, 1.0, 2.5] {
+        for &force in &[0.0f32, 0.5, 1.0] {
+            for &(speed, pos) in &[(0.0f32, 0.02f32), (1.0, 0.5), (0.5, 0.12)] {
+                for &(mass, coupling, stiffness) in &[(0.0f32, 1.0f32, 1.0f32), (1.0, 0.0, 0.0), (0.5, 1.0, 0.5)] {
+                    let p = PhysModParams { freq: 110.0 * 4f32.powf(-body_size * 0.5).max(0.3) * 2.0, bow_force: force, bow_velocity: speed, bow_position: pos, string_mass: mass, coupling, stiffness, body_size, velocity: 1.0, duration: 0.25, ..Default::default() };
+                    for v in render_note(Arc::new(PhysModShared::default()), p, 0.35) {
+                        assert!(v.is_finite());
+                        worst = worst.max(v.abs());
+                    }
+                    count += 1;
+                }
+            }
+        }
+    }
+    println!("bounded output: {count} extreme instruments, largest sample {worst:.3}");
+}
+
+#[test]
+#[ignore]
+fn strings_cost_report() {
+    println!("profile: {}", profile());
+    let cost = |label: &str, p: &PhysModParams, notes: &[f32]| {
+        let secs = 10.0f32;
+        let mut runs = Vec::new();
+        for _ in 0..3 {
+            let mut e = Engine::new(SR, p);
+            for (i, &f) in notes.iter().enumerate() {
+                e.note_on(i as u64 + 1, PhysModParams { freq: f, ..*p }, true, None);
+            }
+            for _ in 0..(0.5 * SR) as usize {
+                e.next_frame();
+            }
+            let n = (secs * SR) as usize;
+            let t = std::time::Instant::now();
+            let mut acc = 0.0f32;
+            for _ in 0..n {
+                let [l, r] = e.next_frame();
+                acc += l + r;
+            }
+            std::hint::black_box(acc);
+            runs.push(t.elapsed().as_secs_f32() / secs * 100.0);
+        }
+        runs.sort_by(|a, b| a.total_cmp(b));
+        println!("{label:<40} {:.1}% / {:.1}% / {:.1}% of one core (min / median / max of 3, 10 s of audio each)", runs[0], runs[1], runs[2]);
+    };
+    let base = plain(440.0);
+    cost("one bowed note", &base, &[440.0]);
+    cost("four strings bowed at once (G D A E)", &base, &[196.0, 293.66, 440.0, 659.25]);
+    let s4 = PhysModParams { sympathetic: [196.0, 293.66, 440.0, 659.25, 0.0, 0.0], ..base };
+    cost("one note, four sympathetic strings", &s4, &[440.0]);
+    let s6 = PhysModParams { sympathetic: [196.0, 293.66, 440.0, 659.25, 880.0, 1318.5], ..base };
+    cost("one note, six sympathetic strings", &s6, &[440.0]);
+    cost("cello, one note", &PhysModParams { freq: 110.0, ..cello() }, &[110.0]);
+    cost("bass, one note", &PhysModParams { freq: 55.0, ..bass() }, &[55.0]);
+}
+
+#[test]
+#[ignore]
+fn strings_stiffness_report() {
+    println!("profile: {}", profile());
+    // Partial 8 (or lower on a high note) against the ideal harmonic, and the allpass coefficient the
+    // solver chose. The string runs at twice the engine rate.
+    for &f0 in &[110.0f32, 220.0, 440.0] {
+        for &st in &[0.2f32, 0.4, 0.6, 0.8, 1.0] {
+            let p = PhysModParams { articulation: Articulation::Pizzicato, stiffness: st, body_mix: 0.0, ring: 1.0, duration: 2.0, ..plain(f0) };
+            let out = left(&render_note(Arc::new(PhysModShared::default()), p, 0.6));
+            let seg = &out[(0.05 * SR) as usize..(0.55 * SR) as usize];
+            let (mags, bin) = super::analysis::spectrum(seg, SR);
+            let peak_near = |f: f32| {
+                let (lo, hi) = (((f * 0.97) / bin) as usize, ((f * 1.12) / bin) as usize);
+                (lo..hi).max_by(|&a, &b| mags[a].total_cmp(&mags[b])).unwrap() as f32 * bin
+            };
+            let f1 = peak_near(f0);
+            let b = super::string::inharmonicity(st);
+            let n = ((SR * 2.0 * 0.2 / f0).floor() as usize).clamp(2, 8) as f32;
+            let ratio = peak_near(f0 * n) / (n * f1);
+            let ideal = (1.0 + n * n * b).sqrt() / (1.0 + b).sqrt();
+            let c = super::string::dispersion_coefficient(b, f0, SR * 2.0);
+            println!("{f0:>5.0} Hz stiffness {st:.1}: partial {n} / ({n} x f1) = {ratio:.4}, theory {ideal:.4}, allpass coefficient {c:+.3}");
+        }
+    }
+}

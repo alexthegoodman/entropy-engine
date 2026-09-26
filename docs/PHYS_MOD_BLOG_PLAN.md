@@ -94,53 +94,53 @@ Schelleng's bowed-string paper; Smith, *Physical Audio Signal Processing*.
 `--test physmod_view`, `--test physmod_no_alloc`; `npx vitest run tests/daw_physmod.test.ts` in
 `examples/studio-bundle`.
 
-- [ ] **1.1 The model in one chain.** Player, bow, string, bridge and body, output. What the earlier
+- [x] **1.1 The model in one chain.** Player, bow, string, bridge and body, output. What the earlier
   post got wrong and why this one replaces it. The shape of `src/audio/physmod/`: `string.rs`,
   `friction.rs`, `body.rs`, `engine.rs`, `analysis.rs`, `mod.rs`.
-- [ ] **1.2 The string.** Four-segment digital waveguide (finger to bow, bow to bridge, both
+- [x] **1.2 The string.** Four-segment digital waveguide (finger to bow, bow to bridge, both
   directions), cubic-Lagrange fractional delays, losses at bridge, nut and fingertip, optional
   stiffness dispersion solved per note for a target inharmonicity, 2x oversampling. Evidence:
   in tune within 6 cents across the violin (cello and bass low notes within 8-10).
-- [ ] **1.3 The bow.** McIntyre-Schumacher-Woodhouse friction curve solved in closed form against the
+- [x] **1.3 The bow.** McIntyre-Schumacher-Woodhouse friction curve solved in closed form against the
   string impedance each sample, stick/slip hysteresis, physical units underneath (newtons, m/s,
   fraction of string). Evidence: normal stroke is Helmholtz motion (one release per period, stuck
   about 1 - beta of it), settles in under 0.2 s; faster bow is about 6 dB louder per doubling;
   ponticello brighter than tasto. A waveform plot from `analysis.rs`.
-- [ ] **1.4 Schelleng's window, fitted from the model.** The self-contained "the model disagrees with
+- [x] **1.4 Schelleng's window, fitted from the model.** The self-contained "the model disagrees with
   the textbook" section. The sweep: 37 notes (bass E1 to violin G6) for the force centre, 180 window
   edges at three bow positions; fitted `F_min` proportional to `beta^-2.5` and `F_max` to `beta^-1.4`
   against Schelleng's -2 and -1; good to about a factor of 1.35. Re-run the sweep, plot edges against
   the fit, print the residual. Do not explain why the exponents differ until it has been tested; "the
   model disagrees, here is by how much" is a valid finding. Also the raucous, surface-sound and
   Helmholtz regimes.
-- [ ] **1.5 The body.** `body.rs`: 10 coupled modes (A0, CBR, B1+/-, the bridge hill) whose summed
+- [x] **1.5 The body.** `body.rs`: 10 coupled modes (A0, CBR, B1+/-, the bridge hill) whose summed
   velocity is the bridge's motion, fed back into every string; 40 seeded radiating modes to about
   10 kHz, stereo. Decision log: why hand-chosen coupled modes rather than a measured body.
-- [ ] **1.6 The virtual player.** String choice, double stops against slurs (40 ms chord window), bow
+- [x] **1.6 The virtual player.** String choice, double stops against slurs (40 ms chord window), bow
   reversal, guided attack and attack assist (`attack_skill`), intonation by ear, delayed vibrato,
   pizzicato, col legno, ring and damp on release, `force_center`.
-- [ ] **1.7 The instrument laboratory.** Continuous size axis (`body_size` -1 to 2.5, tuning
+- [x] **1.7 The instrument laboratory.** Continuous size axis (`body_size` -1 to 2.5, tuning
   optionally following: violin to viola to cello to bass and beyond), string mass, stiffness, rosin,
   bow grit, bridge coupling up to wolf notes, sympathetic strings (up to six), the invented presets
   (Hardanger, glass violin, octobass, wolf cello). Evidence: the wolf note on a strongly coupled cello,
   tamed by a firmer bow, absent at normal coupling; sympathetic strings ring when they share a
   harmonic; bounded output for impossible instruments. BDD scenarios in
   `tests/features/physmod_synth.feature`.
-- [ ] **1.8 Physics View and one held note.** `PhysModShared` (lock-free state the view reads),
+- [x] **1.8 Physics View and one held note.** `PhysModShared` (lock-free state the view reads),
   `widgets_physmod.rs` (strings drawn from their simulated shape, the bow coloured by friction regime),
   Physics View (standing-wave envelopes, the travelling Helmholtz corner, body-mode levels, a live
   Schelleng diagram, the "ringing in sympathy" readout), and `PhysModLive`: a bow drag in 3D, a drag in
   the diagram, the knobs, the AI tool and automation all move the same held note. Introduces the
   "one instrument, two representations" pattern that posts 2 and 3 reuse.
-- [ ] **1.9 In the DAW.** `PhysModInstrumentVoice` (notes share strings and body), `daw_physmod.ts`,
+- [x] **1.9 In the DAW.** `PhysModInstrumentVoice` (notes share strings and body), `daw_physmod.ts`,
   the laboratory controls, offline export through `render_performance`. Cost of a whole instrument
   (docs: about 4% of one core plus about 1% per sympathetic string; re-measure).
-- [ ] **1.10 How this was verified without listening.** The method, written once here: every behaviour
+- [x] **1.10 How this was verified without listening.** The method, written once here: every behaviour
   measured from rendered audio; `analysis.rs` shared by the tests, `Entropy.PhysMod.analyzeNote` and the
   DAW's AI tool; the no-allocation test on the audio thread while notes arrive, slur and release; the
   view tests and their pictures. A "claim, then the test that holds it" table from the doc. Then where
   measurement ended and Alex's listening begins.
-- [ ] **1.11 Failure notes and known limits.** The regenerative voice it replaces; the bottom five or
+- [x] **1.11 Failure notes and known limits.** The regenerative voice it replaces; the bottom five or
   so bass notes take 0.3-0.5 s to settle; the window fit is an estimate in the view while the sound is
   the simulation; not modelled: bow width, torsional waves, thermal friction, the string's second
   polarisation; direct manipulation of construction from the 3D view is not built. The pitch and
@@ -149,7 +149,15 @@ Schelleng's bowed-string paper; Smith, *Physical Audio Signal Processing*.
   whether that card still applies before citing the feature as evidence.
 
 **Gaps:** no listening comparison; the live DAW feature needs a desktop session and audio device.
-Gate: [ ] evidence run  [ ] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+Gate: [x] evidence run  [x] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+
+**Drafted 2026-09-26** as `indie-machine/app/posts/2026-09-26-entropy-physmod-strings.mdx`. What the
+re-run changed against this plan: the Schelleng fit is good to x1.35 for only 57% of lower edges and
+31% of upper edges (x2 for 87% and 83%), and four notes (violin A4, C5, E5, cello E4) do not follow it;
+the stiffness knob saturates on low notes; `attack_skill` 1.0 fails on bass E1; a whole instrument
+costs 2.0% of one core here, not 4%. The `*_report` tests in `src/audio/physmod/tests.rs` are the
+commands. The post's frontmatter pins commit `5b84b6b` plus uncommitted changes, so the tag step is
+still Alex's.
 
 ---
 

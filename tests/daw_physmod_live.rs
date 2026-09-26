@@ -87,9 +87,9 @@ fn daw_physmod_live_feature() {
     let (violin, cello) = (tool(4), tool(6));
     assert_eq!(violin["success"], true, "{violin:#}");
     assert_eq!(cello["success"], true, "{cello:#}");
-    println!("  A3 on violin: {:.1} Hz, {:.0} Hz bright; on cello: {:.1} Hz, {:.0} Hz bright", num(&violin, "strongestHz"), num(&violin, "brightnessHz"), num(&cello, "strongestHz"), num(&cello, "brightnessHz"));
-    assert!((num(&violin, "strongestHz") - 220.0).abs() / 220.0 < 0.1, "A3 on the violin sounded at {:.1} Hz", num(&violin, "strongestHz"));
-    assert!((num(&cello, "strongestHz") - 220.0).abs() / 220.0 < 0.1, "A3 on the cello sounded at {:.1} Hz", num(&cello, "strongestHz"));
+    println!("  A3 on violin: {:.1} Hz, {:.0} Hz bright; on cello: {:.1} Hz, {:.0} Hz bright", num(&violin, "pitchHz"), num(&violin, "brightnessHz"), num(&cello, "pitchHz"), num(&cello, "brightnessHz"));
+    assert!((num(&violin, "pitchHz") - 220.0).abs() / 220.0 < 0.1, "A3 on the violin sounded at {:.1} Hz", num(&violin, "pitchHz"));
+    assert!((num(&cello, "pitchHz") - 220.0).abs() / 220.0 < 0.1, "A3 on the cello sounded at {:.1} Hz", num(&cello, "pitchHz"));
     assert!((num(&violin, "brightnessHz") - num(&cello, "brightnessHz")).abs() > 10.0, "the same note on a violin and a cello should not sound identical: {:.0} vs {:.0} Hz bright", num(&violin, "brightnessHz"), num(&cello, "brightnessHz"));
 
     // ---- The song plays the bowed string through the track's own bus ----
