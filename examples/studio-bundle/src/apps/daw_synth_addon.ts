@@ -946,8 +946,15 @@ function playMatterHit(track: Track, hit: MatterHit) {
     else if (r.played === false) mtBuild[track.id] = "building";
 }
 
-function matterRowHit(track: Track, row: number, velocity: number) {
-    playMatterHit(track, matterHitConfig(track.id, trackMatter(track), { row, velocity }));
+function matterRowHit(track: Track, row: number, velocity: number, duration?: number) {
+    playMatterHit(track, matterHitConfig(track.id, trackMatter(track), { row, velocity, duration }));
+}
+
+/** A shift-drag in the view: a brush held on a piece where the pointer is, lifted with pressure 0. */
+function holdMatterFromView(track: Track, piece: MatterPiece, x: number, y: number, pressure: number) {
+    const r = addon.Audio.holdMatterOnTrack(track.id, { kit: mtKit[track.id] ?? trackMatter(track).kit, piece, x, y, pressure });
+    if (!r.ok) mtStatus = `${track.name}: ${r.error}`;
+    else if (r.played === false) mtBuild[track.id] = "building";
 }
 
 function loadMatterPreset(track: Track, id: string) {
@@ -2461,6 +2468,7 @@ function renderMatterWindow(win: string) {
         status: build === "building" ? "building the kit (the first time takes a moment)..." : build === "rebuilding" ? "retuning: the new kit is being built, the old one plays meanwhile" : undefined,
         onStrike: (piece: MatterPiece, position: number, angle: number, velocity: number) => { strikeMatterFromView(track, piece, velocity, position, angle); },
         onPad: (piece: MatterPiece, velocity: number) => { strikeMatterFromView(track, piece, velocity); },
+        onRub: (piece: MatterPiece, x: number, y: number, pressure: number) => { holdMatterFromView(track, piece, x, y, pressure); },
         onPhysicsView: (on: boolean) => { m.physicsView = on; scheduleSave(); },
     });
     if (mtStatus) W.label(left, { text: mtStatus });
@@ -2578,7 +2586,7 @@ function playTrigger(t: Track, note: NoteCell, velocity: number) {
         return;
     }
     if (isMatterTrack(t)) {
-        matterRowHit(t, note.row, velocity);
+        matterRowHit(t, note.row, velocity, duration);
         return;
     }
     const { freq } = noteVoiceAndFreq(t, note.row);
@@ -2840,12 +2848,13 @@ function buildBrassEvents(): any[] {
 // The drum-kit tracks' hits for the same render: one kit per track, so the pieces ring on and hear
 // each other in the bounce as they do live.
 function buildMatterEvents(): any[] {
+    const sd = stepDuration();
     const events: any[] = [];
     for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
         const track = placed.track as Track;
         if (!isMatterTrack(track)) continue;
         const { startTime, velocity } = placedTiming(placed);
-        events.push(matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime }));
+        events.push(matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime, duration: Math.max(0.03, placed.lengthSteps * sd * 0.95) }));
     }
     return events;
 }
@@ -5693,7 +5702,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_matter",
-        description: "Play and shape a physically modeled drum kit: a track whose waveform is \"matter\" (daw_set_track_params with waveform \"matter\" makes one; its rows become the kit's: 0 Kick, 1 Snare, 2 Snare edge, 3 Rack tom, 4 Floor tom, 5 Crash, 6 Ride, 7 Ride bell, 8 Splash). The sound comes from a physical model, with no samples: drumheads as stretched membranes with the air loading them and the air inside the shell coupling both heads, snare wires that are thrown off the head and land again, cymbals as bronze domes whose modes couple when they bend past their thickness (the crash's swell into a wash), and sticks, beaters and mallets meeting them through a contact solved every sample - so the controls behave physically: velocity is the stick's speed (a harder hit is brighter, and a slack tom's pitch glides down after it), a hit near the rim rings different modes from one near the centre, a felt beater is darker than plastic, looser snare wires buzz longer, and the pieces hear each other through the air (a tom or a kick sets the snare wires buzzing). Tunings rebuild the kit (heard a moment later: the old kit plays meanwhile); the mix, hands, beater and dynamics apply from the next hit. Actions: \"info\" (settings and rows), \"preset\" (studio, jazz, rock, funk, mallets), \"params\" (kick/snare/rackTom/floorTom: the heads' fundamentals in Hz (kick 35-90, snare 140-360, rack 90-260, floor 55-160); kickMuffling 0-1 (1 a pillow in the kick); snares true|false; snareTension N (0.03-1.5, 0.15 usual); sympathetic true|false; hands sticks|mallets; beater felt|plastic; dynamics m/s at full velocity (1-12)), \"mix\" ({kick, snare, rack-tom, floor-tom, crash, ride, splash}: each piece's level, 0-8), \"hear\" (strikes one row offline, alone, and reports its loudness, brightness, crack (energy above 4 kHz), strongest partial, how long it rings, the contact time and force, how fast the stick rebounded, a drum's pitch glide and the snare wires' landings - so a change can be checked without listening), and \"strike\" (plays a row live on the track's kit now).",
+        description: "Play and shape a physically modeled drum kit: a track whose waveform is \"matter\" (daw_set_track_params with waveform \"matter\" makes one; its rows become the kit's: 0 Kick, 1 Snare, 2 Snare edge, 3 Rack tom, 4 Floor tom, 5 Crash, 6 Ride, 7 Ride bell, 8 Splash, 9 Brush sweep, 10 Brush swirl - the brush rows rub a wire brush across the snare for as long as the note lasts, velocity setting how fast and hard the hand moves). The sound comes from a physical model, with no samples: drumheads as stretched membranes with the air loading them and the air inside the shell coupling both heads, snare wires that are thrown off the head and land again, cymbals as bronze domes whose modes couple when they bend past their thickness (the crash's swell into a wash), and sticks, beaters and mallets meeting them through a contact solved every sample - so the controls behave physically: velocity is the stick's speed (a harder hit is brighter, and a slack tom's pitch glides down after it), a hit near the rim rings different modes from one near the centre, a felt beater is darker than plastic, looser snare wires buzz longer, and the pieces hear each other through the air (a tom or a kick sets the snare wires buzzing). Tunings rebuild the kit (heard a moment later: the old kit plays meanwhile); the mix, hands, beater and dynamics apply from the next hit. Actions: \"info\" (settings and rows), \"preset\" (studio, jazz, rock, funk, brushes, mallets), \"params\" (kick/snare/rackTom/floorTom: the heads' fundamentals in Hz (kick 35-90, snare 140-360, rack 90-260, floor 55-160); kickMuffling 0-1 (1 a pillow in the kick); snares true|false; snareTension N (0.03-1.5, 0.15 usual); sympathetic true|false; brushes true|false (the snare set up to be swirled all round); hands sticks|mallets; beater felt|plastic; dynamics m/s at full velocity (1-12)), \"mix\" ({kick, snare, rack-tom, floor-tom, crash, ride, splash}: each piece's level, 0-8), \"hear\" (strikes one row offline, alone, and reports its loudness, brightness, crack (energy above 4 kHz), strongest partial, how long it rings, the contact time and force, how fast the stick rebounded, a drum's pitch glide and the snare wires' landings; for a brush row, the brightness, the flatness of its spectrum and how the wires caught and slid (stick fraction, releases per second) - so a change can be checked without listening), and \"strike\" (plays a row live on the track's kit now).",
         parameters: {
             type: "object",
             properties: {
@@ -5706,12 +5715,12 @@ addon.onInit(async () => {
                     properties: {
                         kick: { type: "number" }, snare: { type: "number" }, rackTom: { type: "number" }, floorTom: { type: "number" },
                         kickMuffling: { type: "number" }, snares: { type: "boolean" }, snareTension: { type: "number" },
-                        sympathetic: { type: "boolean" }, hands: { type: "string", enum: ["sticks", "mallets"] },
+                        sympathetic: { type: "boolean" }, brushes: { type: "boolean" }, hands: { type: "string", enum: ["sticks", "mallets"] },
                         beater: { type: "string", enum: ["felt", "plastic"] }, dynamics: { type: "number" }
                     }
                 },
                 mix: { type: "object", description: "For action mix: piece -> level.", properties: Object.fromEntries(MATTER_PIECES.map(p => [p.id, { type: "number" }])) },
-                row: { type: "number", description: "For hear and strike: the kit row (0-8). Default 1, the snare." },
+                row: { type: "number", description: "For hear and strike: the kit row (0-10). Default 1, the snare." },
                 velocity: { type: "number", description: "For hear and strike: 0-1 (default 0.8)." }
             },
             required: ["trackId", "action"]
@@ -5750,6 +5759,16 @@ addon.onInit(async () => {
             }
             case "hear": {
                 const row = rowOf();
+                if (MATTER_ROWS[row].stroke) {
+                    const s = addon.Matter.analyzeStroke(matterHitConfig(track.id, m, { row, velocity: velocityOf(), duration: 0.5 }) as any, 0);
+                    if (!s.ok) return { success: false, error: s.error };
+                    const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                    return done({
+                        row, name: MATTER_ROWS[row].label, piece: s.piece, tool: s.tool, handSpeed: r(s.speed, 2), pressureN: r(s.pressureN, 2),
+                        peakDb: r(s.peakDb), rmsDb: r(s.rmsDb), brightnessHz: r(s.centroidHz, 0), above4kDb: r(s.above4kDb), flatnessDb: r(s.flatnessDb),
+                        stickFraction: r(s.stickFraction, 2), releasesPerSecond: r(s.releasesPerSecond, 0),
+                    });
+                }
                 const a = addon.Matter.analyzeHit(matterHitConfig(track.id, m, { row, velocity: velocityOf() }), 0);
                 if (!a.ok) return { success: false, error: a.error };
                 const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;

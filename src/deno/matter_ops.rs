@@ -7,6 +7,7 @@
 //! by that id.
 
 use crate::audio::matter::kit::{self, Piece, PIECES};
+use crate::audio::matter::rub::{self, Stroke, ToolSpec};
 use crate::audio::matter::{live, KitHit, KitSpec};
 use crate::audio::physmod::analysis::spectrum;
 use crate::deno::addon_ops::AddonContext;
@@ -34,6 +35,8 @@ pub struct MatterKitConfig {
     pub snares: Option<bool>,
     pub snare_tension: Option<f32>,
     pub sympathetic: Option<bool>,
+    /// The snare set up for brushes (see `KitSpec::brushes`).
+    pub brushes: Option<bool>,
 }
 
 impl MatterKitConfig {
@@ -48,6 +51,7 @@ impl MatterKitConfig {
             snares: self.snares.unwrap_or(d.snares),
             snare_tension: self.snare_tension.unwrap_or(d.snare_tension),
             sympathetic: self.sympathetic.unwrap_or(d.sympathetic),
+            brushes: self.brushes.unwrap_or(d.brushes),
         }
         .clamped()
     }
@@ -76,6 +80,13 @@ pub struct MatterHitConfig {
     pub striker: Option<String>,
     /// Offline events only: seconds from the start of the render.
     pub start_time: Option<f64>,
+    /// A stroke instead of a strike: "sweep" or "swirl". `speed` is then the hand's speed (m/s),
+    /// `pressure` how hard it presses (N), `duration` how long it lasts (s), `tool` what rubs:
+    /// "brush" (the default), "finger", "wet-finger", "rubber", "rod" or "stick-tip".
+    pub stroke: Option<String>,
+    pub pressure: Option<f32>,
+    pub duration: Option<f32>,
+    pub tool: Option<String>,
 }
 
 impl MatterHitConfig {
@@ -87,7 +98,30 @@ impl MatterHitConfig {
             None => piece.default_striker(),
         };
         let position = self.position.unwrap_or(if piece.is_cymbal() { 0.85 } else { 0.35 });
-        Ok(KitHit { piece, strike: live::strike(self.speed.unwrap_or(3.0), position, self.angle.unwrap_or(0.0), striker) })
+        if let Some(kind) = self.stroke.as_deref() {
+            let kind = kit::StrokeKind::from_name(kind).ok_or_else(|| format!("unknown stroke \"{kind}\""))?;
+            if !piece.rubbable() {
+                return Err(format!("the {} can't be rubbed", piece.name()));
+            }
+            return Ok(KitHit::stroke(piece, self.stroke_spec(kind, piece)?));
+        }
+        Ok(KitHit { piece, strike: live::strike(self.speed.unwrap_or(3.0), position, self.angle.unwrap_or(0.0), striker), stroke: None })
+    }
+
+    /// The tool a stroke is played with (a brush unless named).
+    pub fn tool(&self) -> Result<ToolSpec, String> {
+        match self.tool.as_deref() {
+            Some(t) => rub::tool_named(t).ok_or_else(|| format!("unknown tool \"{t}\"")),
+            None => Ok(ToolSpec::brush()),
+        }
+    }
+
+    fn stroke_spec(&self, kind: kit::StrokeKind, piece: Piece) -> Result<Stroke, String> {
+        let f = |v: Option<f32>, d: f32, lo: f32, hi: f32| v.filter(|x| x.is_finite()).unwrap_or(d).clamp(lo, hi);
+        let speed = f(self.speed, 0.6, 0.01, 5.0);
+        let pressure = f(self.pressure, 0.8, 0.05, 30.0);
+        let duration = f(self.duration, 0.5, 0.02, 30.0);
+        Ok(kit::stroke_for(piece, kind, self.tool()?, speed, pressure, duration))
     }
 
     pub fn mix(&self) -> [f32; PIECES] {
@@ -140,6 +174,18 @@ fn described(id: &str, shared: &live::MatterShared) -> Json {
                 o["wiresLifted"] = json!(v.wires_lifted);
                 o["wireLandings"] = json!(v.wire_landings);
             }
+            if p.rubbable() {
+                o["rubs"] = json!(v.rubs);
+                o["rubbing"] = json!(v.rubbing);
+                if v.rubbing {
+                    o["rubSpeed"] = json!(v.rub_speed);
+                    o["rubPressureN"] = json!(v.rub_pressure);
+                    o["rubNormalN"] = json!(v.rub_normal);
+                    o["rubFrictionN"] = json!(v.rub_friction);
+                }
+                o["stickFraction"] = json!(v.stick);
+                o["releases"] = json!(v.releases);
+            }
             o
         })
         .collect();
@@ -152,7 +198,7 @@ fn described(id: &str, shared: &live::MatterShared) -> Json {
         "kit": {
             "kick": spec.kick, "snare": spec.snare, "rackTom": spec.rack_tom, "floorTom": spec.floor_tom,
             "kickMuffling": spec.kick_muffling, "snares": spec.snares, "snareTension": spec.snare_tension,
-            "sympathetic": spec.sympathetic,
+            "sympathetic": spec.sympathetic, "brushes": spec.brushes,
         },
         "pieces": pieces,
     })
@@ -200,6 +246,45 @@ pub fn op_audio_play_matter_on_track(state: &mut OpState, #[serde] config: Matte
     }
 }
 
+/// A tool held on a piece live (a drag in the view): where, and how hard.
+#[derive(Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MatterHoldConfig {
+    pub track_id: Option<String>,
+    pub kit_id: Option<String>,
+    #[serde(default)]
+    pub kit: MatterKitConfig,
+    pub piece: Option<String>,
+    /// Where on the face, in fractions of its radius from the centre (the view's coordinates).
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    /// N; 0 (or omitted) lifts the tool.
+    pub pressure: Option<f32>,
+}
+
+/// Holds a tool on a piece of the track's kit now: `{ ok, played }` (false while it is being built).
+#[op2]
+#[serde]
+pub fn op_audio_hold_matter_on_track(state: &mut OpState, #[serde] config: MatterHoldConfig) -> Json {
+    let Some(ctx) = state.try_borrow::<AddonContext>() else { return err("Context not available") };
+    let Some(track) = config.track_id.clone() else { return err("a hold needs a trackId") };
+    let name = config.piece.as_deref().unwrap_or("snare");
+    let Some(piece) = Piece::from_name(name) else { return err(format!("unknown piece \"{name}\"")) };
+    if !piece.rubbable() {
+        return err(format!("the {name} can't be rubbed"));
+    }
+    let a = kit::placement(piece).radius;
+    let (x, y) = (config.x.unwrap_or(0.0), config.y.unwrap_or(0.0));
+    let r = (x * x + y * y).sqrt().max(1.0);
+    let (x, y) = (x / r * a, y / r * a);
+    let pressure = config.pressure.filter(|p| p.is_finite()).unwrap_or(0.0).clamp(0.0, 30.0);
+    let kit_id = config.kit_id.clone().unwrap_or_else(|| track.clone());
+    match ctx.audio_engine.hold_matter_on_track(&track, &kit_id, config.kit.to_spec(), piece, x, y, pressure) {
+        Ok(played) => json!({ "ok": true, "played": played }),
+        Err(e) => err(e),
+    }
+}
+
 /// Stops the track's kit.
 #[op2(fast)]
 pub fn op_audio_matter_remove(state: &mut OpState, #[string] track_id: String, #[string] kit_id: String) {
@@ -219,6 +304,9 @@ pub fn op_matter_render_analyze(#[serde] config: MatterHitConfig, seconds: f64) 
 
 /// What `op_matter_render_analyze` answers.
 pub fn analyze_hit(config: &MatterHitConfig, seconds: f64) -> Json {
+    if config.stroke.is_some() {
+        return analyze_stroke(config, seconds);
+    }
     let hit = match config.hit() {
         Ok(h) => h,
         Err(e) => return err(e),
@@ -284,6 +372,107 @@ pub fn analyze_hit(config: &MatterHitConfig, seconds: f64) -> Json {
     out
 }
 
+/// Renders one stroke offline, alone, and measures it. `piece` is a piece of the kit, or "glass" or
+/// "steel-sheet" (a free pane of glass or sheet of steel, to rub something across).
+pub fn analyze_stroke(config: &MatterHitConfig, seconds: f64) -> Json {
+    use crate::audio::matter::{Sheet, SheetSpec};
+    let sr = crate::audio::analysis::ENGINE_SAMPLE_RATE as f32;
+    let name = config.piece.as_deref().unwrap_or("snare");
+    let sheet = match name {
+        "glass" => Some(SheetSpec::glass_pane()),
+        "steel-sheet" => Some(SheetSpec::steel_sheet()),
+        _ => None,
+    };
+    enum Played {
+        Kit(Box<kit::Body>),
+        Sheet(Box<Sheet>),
+    }
+    let (mut played, stroke) = match sheet {
+        Some(spec) => {
+            let Some(kind) = config.stroke.as_deref().and_then(kit::StrokeKind::from_name) else { return err("unknown stroke") };
+            let tool = match config.tool() {
+                Ok(t) => t,
+                Err(e) => return err(e),
+            };
+            let f = |v: Option<f32>, d: f32, lo: f32, hi: f32| v.filter(|x| x.is_finite()).unwrap_or(d).clamp(lo, hi);
+            let a = spec.radius;
+            let path = match kind {
+                kit::StrokeKind::Sweep => rub::Path::Line { from: [-0.8 * a, 0.0], to: [0.8 * a, 0.0] },
+                kit::StrokeKind::Swirl => rub::Path::Circle { centre: [0.0, 0.0], radius: 0.55 * a },
+            };
+            let st = Stroke { tool, path, speed: f(config.speed, 0.3, 0.01, 5.0), pressure: f(config.pressure, 2.0, 0.05, 30.0), duration: f(config.duration, 0.6, 0.02, 30.0), ease: 0.03 };
+            let mut sh = Sheet::new(spec, tool, sr);
+            sh.rub(st);
+            (Played::Sheet(Box::new(sh)), st)
+        }
+        None => {
+            let hit = match config.hit() {
+                Ok(h) => h,
+                Err(e) => return err(e),
+            };
+            let Some(st) = hit.stroke else { return err("not a stroke") };
+            let mut body = kit::Body::build(&config.kit.to_spec(), hit.piece, sr);
+            body.rub(st);
+            (Played::Kit(Box::new(body)), st)
+        }
+    };
+    let secs = if seconds > 0.0 { seconds as f32 } else { stroke.duration + 0.5 }.clamp(0.2, 30.0);
+    let n = (secs * sr) as usize;
+    let mut x = Vec::with_capacity(n);
+    let mut last = rub::RubReport::default();
+    let during = ((stroke.duration * sr) as usize).min(n);
+    let mut mid = rub::RubReport::default();
+    for i in 0..n {
+        let (v, r) = match &mut played {
+            Played::Kit(b) => (b.next_sample(), b.rub_report()),
+            Played::Sheet(s) => (s.next_sample(), s.rub_report()),
+        };
+        x.push(v * kit::KIT_GAIN);
+        if i == during / 5 {
+            mid = r;
+        }
+        if i < during {
+            last = r;
+        }
+    }
+    let seg = &x[during / 5..during.max(during / 5 + 1)];
+    let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    if peak < 1.0e-9 {
+        return err("the stroke did not sound");
+    }
+    let db = |v: f32| 20.0 * v.max(1.0e-9).log10();
+    let rms = (seg.iter().map(|v| v * v).sum::<f32>() / seg.len().max(1) as f32).sqrt();
+    let (mags, bin) = spectrum(seg, sr);
+    let power: f32 = mags.iter().map(|m| m * m).sum::<f32>().max(1.0e-30);
+    let centroid = mags.iter().enumerate().map(|(i, m)| i as f32 * bin * m * m).sum::<f32>() / power;
+    let above = mags.iter().enumerate().filter(|(i, _)| *i as f32 * bin >= 4000.0).map(|(_, m)| m * m).sum::<f32>();
+    // Spectral flatness from 200 Hz to 8 kHz: near 0 dB for noise (sliding), far below for a squeak.
+    let (lo, hi) = ((200.0 / bin) as usize, ((8000.0 / bin) as usize).min(mags.len()));
+    let p: Vec<f64> = mags[lo..hi.max(lo + 1)].iter().map(|v| (*v as f64).powi(2).max(1.0e-40)).collect();
+    let flat = 10.0 * ((p.iter().map(|v| v.ln()).sum::<f64>() / p.len() as f64).exp() / (p.iter().sum::<f64>() / p.len() as f64)).log10();
+    let steady = (during - during / 5) as f32 / sr;
+    let stuck = (last.stuck - mid.stuck) as f32;
+    let sliding = (last.sliding - mid.sliding) as f32;
+    json!({
+        "ok": true,
+        "piece": name,
+        "stroke": config.stroke,
+        "tool": rub::tool_name(&stroke.tool),
+        "speed": stroke.speed,
+        "pressureN": stroke.pressure,
+        "duration": stroke.duration,
+        "seconds": secs,
+        "peakDb": db(peak),
+        "rmsDb": db(rms),
+        "centroidHz": centroid,
+        "above4kDb": 10.0 * (above / power).max(1.0e-12).log10(),
+        "flatnessDb": flat,
+        "stickFraction": stuck / (stuck + sliding).max(1.0),
+        "releasesPerSecond": (last.releases - mid.releases) as f32 / steady.max(1.0e-3),
+        "landings": last.landings,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +509,36 @@ mod tests {
         assert!(crash["decaySeconds"].as_f64().unwrap() > 1.0, "{crash}");
         assert_eq!(hear("cowbell", 1.0, |_| {})["ok"], false);
         assert_eq!(hear("snare", 1.0, |c| c.striker = Some("spoon".into()))["ok"], false);
+    }
+
+    #[test]
+    fn hearing_a_stroke_measures_friction_and_roughness() {
+        let stroke = |piece: &str, kind: &str, tool: &str, speed: f32, pressure: f32| {
+            let c = MatterHitConfig { piece: Some(piece.into()), stroke: Some(kind.into()), tool: Some(tool.into()), speed: Some(speed), pressure: Some(pressure), duration: Some(0.6), ..Default::default() };
+            analyze_hit(&c, 0.0)
+        };
+        // Rubber on glass: slow and heavy squeaks (stuck, released hundreds of times a second, a line
+        // spectrum); fast slides (never stuck, noise-like).
+        let squeak = stroke("glass", "swirl", "rubber", 0.05, 2.0);
+        let slide = stroke("glass", "swirl", "rubber", 2.0, 2.0);
+        assert_eq!(squeak["ok"], true, "{squeak}");
+        assert!(squeak["releasesPerSecond"].as_f64().unwrap() > 100.0 && squeak["stickFraction"].as_f64().unwrap() > 0.3, "{squeak}");
+        assert!(slide["releasesPerSecond"].as_f64().unwrap() < 5.0, "{slide}");
+        assert!(slide["flatnessDb"].as_f64().unwrap() > squeak["flatnessDb"].as_f64().unwrap() + 10.0, "{squeak} {slide}");
+        // A brush on the kit's snare, and on the ride.
+        let brush = stroke("snare", "swirl", "brush", 0.6, 0.8);
+        assert_eq!(brush["tool"], "brush");
+        assert!(brush["above4kDb"].as_f64().unwrap() > -25.0, "{brush}");
+        let ride = stroke("ride", "sweep", "rod", 0.4, 3.0);
+        assert_eq!(ride["ok"], true, "{ride}");
+        assert_eq!(stroke("kick", "sweep", "brush", 0.5, 1.0)["ok"], false);
+        assert_eq!(stroke("snare", "zigzag", "brush", 0.5, 1.0)["ok"], false);
+        assert_eq!(stroke("snare", "sweep", "feather", 0.5, 1.0)["ok"], false);
+        // As an offline event: a stroke on the kit.
+        let c = MatterHitConfig { track_id: Some("t".into()), piece: Some("snare".into()), stroke: Some("sweep".into()), speed: Some(99.0), duration: Some(0.25), start_time: Some(2.0), ..Default::default() };
+        let e = c.to_event().unwrap();
+        let st = e.hit.stroke.unwrap();
+        assert!(st.speed <= 5.0 && (st.duration - 0.25).abs() < 1.0e-6 && rub::tool_name(&st.tool) == "brush");
     }
 
     #[test]

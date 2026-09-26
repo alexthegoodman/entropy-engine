@@ -23,6 +23,7 @@ use super::contact::StrikeReport;
 use super::cymbal::{Cymbal, CymbalSpec};
 use super::drum::{Drum, DrumSpec, Strike, StrikerSpec, FULL_SCALE_PA};
 use super::membrane::C_AIR;
+use super::rub::{RubReport, Stroke, ToolSpec, MAX_TIPS};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -114,6 +115,11 @@ impl Piece {
 
     pub fn is_cymbal(self) -> bool {
         matches!(self, Piece::Crash | Piece::Ride | Piece::Splash)
+    }
+
+    /// Whether a tool can be rubbed on it (everything but the kick).
+    pub fn rubbable(self) -> bool {
+        self != Piece::Kick
     }
 
     /// What usually strikes it.
@@ -229,11 +235,15 @@ pub struct KitSpec {
     /// Whether the pieces hear each other (see the module notes). Not part of the build: a running
     /// kit switches it.
     pub sympathetic: bool,
+    /// The snare set up for brushes: its batter carries both members of every mode pair, so a swirl
+    /// anywhere round it is heard as it goes (see `DrumSpec::all_round`; it costs about half as much
+    /// again to run). Without it brushes still play, heard as if mirrored onto one diameter.
+    pub brushes: bool,
 }
 
 impl Default for KitSpec {
     fn default() -> Self {
-        Self { kick: 55.0, snare: 220.0, rack_tom: 140.0, floor_tom: 82.0, kick_muffling: 1.0, snares: true, snare_tension: 0.15, sympathetic: true }
+        Self { kick: 55.0, snare: 220.0, rack_tom: 140.0, floor_tom: 82.0, kick_muffling: 1.0, snares: true, snare_tension: 0.15, sympathetic: true, brushes: false }
     }
 }
 
@@ -251,6 +261,7 @@ impl KitSpec {
             snares: self.snares,
             snare_tension: f(self.snare_tension, 0.03, 1.5, d.snare_tension),
             sympathetic: self.sympathetic,
+            brushes: self.brushes,
         }
     }
 
@@ -269,6 +280,7 @@ impl KitSpec {
             }
             Piece::Snare => {
                 let s = DrumSpec::snare(self.snare);
+                let s = if self.brushes { s.all_round() } else { s };
                 if !self.snares {
                     s.snares_off()
                 } else {
@@ -305,7 +317,7 @@ pub enum Body {
 impl Body {
     /// Builds a piece of `spec`.
     pub fn build(spec: &KitSpec, piece: Piece, sr: f32) -> Body {
-        match (spec.drum(piece), spec.cymbal(piece)) {
+        let mut b = match (spec.drum(piece), spec.cymbal(piece)) {
             (Some(d), _) => Body::Drum(Box::new(Drum::new(d, sr))),
             (_, Some(c)) => {
                 let mut c = Cymbal::new(c, sr);
@@ -313,6 +325,52 @@ impl Body {
                 Body::Cymbal(Box::new(c))
             }
             _ => unreachable!("every piece is a drum or a cymbal"),
+        };
+        // Everything but the kick (whose batter faces the pedal) can be brushed, scraped or rubbed:
+        // map its face now, off the audio thread.
+        if piece.rubbable() {
+            match &mut b {
+                Body::Drum(d) => d.enable_rubbing(ToolSpec::brush()),
+                Body::Cymbal(c) => c.enable_rubbing(ToolSpec::brush()),
+            }
+        }
+        b
+    }
+
+    /// Plays a stroke on it (a brush sweep, a swirl, a scrape). A piece that can't be rubbed ignores
+    /// it.
+    pub fn rub(&mut self, s: Stroke) {
+        match self {
+            Body::Drum(d) if d.rubbing().is_some() => d.rub(s),
+            Body::Cymbal(c) if c.rubbing().is_some() => c.rub(s),
+            _ => {}
+        }
+    }
+
+    /// Holds a tool on it live (see `Rub::hold`): `x`, `y` in metres from the centre of the face.
+    pub fn hold(&mut self, x: f32, y: f32, pressure: f32) {
+        match self {
+            Body::Drum(d) => d.hold(x, y, pressure),
+            Body::Cymbal(c) => c.hold(x, y, pressure),
+        }
+    }
+
+    pub fn rub_report(&self) -> RubReport {
+        match self {
+            Body::Drum(d) => d.rub_report(),
+            Body::Cymbal(c) => c.rub_report(),
+        }
+    }
+
+    /// Where the tool's tips are on the face (m from the centre), into `out`; how many.
+    pub fn tip_points(&self, out: &mut [[f32; 2]]) -> usize {
+        let r = match self {
+            Body::Drum(d) => d.rubbing(),
+            Body::Cymbal(c) => c.rubbing(),
+        };
+        match r {
+            Some(r) if r.active() => r.tip_points(out),
+            _ => 0,
         }
     }
 
@@ -402,6 +460,10 @@ pub struct PieceState {
     /// Whether a cymbal's von Karman coupling is running (it rests once the plate is back to small
     /// amplitudes).
     pub nonlinear: bool,
+    /// A tool rubbing it: what it is doing, and where its tips are (m from the centre).
+    pub rub: RubReport,
+    pub tips: [[f32; 2]; MAX_TIPS],
+    pub n_tips: usize,
 }
 
 /// One piece as the kit runs it. Each sits behind its own lock so the pieces can be rendered on
@@ -413,7 +475,7 @@ struct Part {
     awake: bool,
     quiet_blocks: u32,
     history: Vec<f32>,
-    pending: [(usize, Strike); MAX_PENDING],
+    pending: [(usize, Action); MAX_PENDING],
     n_pending: usize,
     /// What it hears this block: pressure on the batter and resonant heads, Pa.
     incident: [[f32; BLOCK]; 2],
@@ -443,8 +505,14 @@ impl Part {
             let mut peak = 0.0f32;
             for i in 0..BLOCK {
                 while next < self.n_pending && self.pending[next].0 <= i {
-                    self.body.strike(self.pending[next].1);
-                    self.trace_len = 0;
+                    match self.pending[next].1 {
+                        Action::Strike(s) => {
+                            self.body.strike(s);
+                            self.trace_len = 0;
+                        }
+                        Action::Stroke(s) => self.body.rub(s),
+                        Action::Hold { x, y, pressure } => self.body.hold(x, y, pressure),
+                    }
                     next += 1;
                 }
                 if self.drive {
@@ -480,6 +548,14 @@ impl Part {
     fn needs_render(&self) -> bool {
         self.awake || self.n_pending > 0 || self.heard
     }
+}
+
+/// Something done to a piece at a sample of a block.
+#[derive(Clone, Copy, Debug)]
+enum Action {
+    Strike(Strike),
+    Stroke(Stroke),
+    Hold { x: f32, y: f32, pressure: f32 },
 }
 
 fn lock(p: &Mutex<Part>) -> MutexGuard<'_, Part> {
@@ -570,7 +646,7 @@ impl Kit {
             .zip(Piece::ALL)
             .map(|(body, piece)| {
                 let (field, field_modes) = body.field_shapes();
-                let rest = Strike { velocity: 0.0, position: 0.0, angle: 0.0, striker: StrikerSpec::stick() };
+                let rest = Action::Strike(Strike { velocity: 0.0, position: 0.0, angle: 0.0, striker: StrikerSpec::stick() });
                 Arc::new(Mutex::new(Part { piece, body, awake: false, quiet_blocks: 0, history: vec![0.0; HISTORY], pending: [(0, rest); MAX_PENDING], n_pending: 0, incident: [[0.0; BLOCK]; 2], heard: false, drive: false, out: [0.0; BLOCK], level: 0.0, field, field_modes, trace: vec![0.0; TRACE_CAPTURE], trace_len: 0 }))
             })
             .collect();
@@ -683,6 +759,22 @@ impl Kit {
     /// Strikes `piece` `offset` samples into the next block to be rendered (sample-accurate offline
     /// rendering). A piece holds a few strikes per block; beyond that the earliest is dropped.
     pub fn schedule(&mut self, piece: Piece, s: Strike, offset: usize) {
+        self.act(piece, Action::Strike(s), offset);
+    }
+
+    /// Starts a stroke (a brush sweep or swirl, a scrape) on `piece` `offset` samples into the next
+    /// block. A piece that can't be rubbed (the kick) ignores it.
+    pub fn schedule_stroke(&mut self, piece: Piece, s: Stroke, offset: usize) {
+        self.act(piece, Action::Stroke(s), offset);
+    }
+
+    /// Holds a tool on `piece` live at `(x, y)` (m from the centre of its face) with `pressure` N;
+    /// 0 lifts it (see `Rub::hold`). From the next block.
+    pub fn hold(&mut self, piece: Piece, x: f32, y: f32, pressure: f32) {
+        self.act(piece, Action::Hold { x, y, pressure }, 0);
+    }
+
+    fn act(&mut self, piece: Piece, a: Action, offset: usize) {
         let mut p = lock(&self.parts[piece.index()]);
         let offset = offset.min(BLOCK - 1);
         if p.n_pending == MAX_PENDING {
@@ -690,7 +782,7 @@ impl Kit {
             p.n_pending -= 1;
         }
         let n = p.n_pending;
-        p.pending[n] = (offset, s);
+        p.pending[n] = (offset, a);
         p.n_pending += 1;
         self.focus = piece;
     }
@@ -734,7 +826,8 @@ impl Kit {
 
     pub fn state(&self, piece: Piece) -> PieceState {
         let p = lock(&self.parts[piece.index()]);
-        let mut s = PieceState { awake: p.awake, energy: p.body.energy(), level: p.level, report: p.body.report(), ..Default::default() };
+        let mut s = PieceState { awake: p.awake, energy: p.body.energy(), level: p.level, report: p.body.report(), rub: p.body.rub_report(), ..Default::default() };
+        s.n_tips = p.body.tip_points(&mut s.tips);
         match &p.body {
             Body::Drum(d) => {
                 s.glide_cents = 1200.0 * d.head_body(0).map_or(1.0, |b| b.scale()).max(1.0e-6).log2();
@@ -886,11 +979,58 @@ impl Drop for Kit {
 pub struct KitHit {
     pub piece: Piece,
     pub strike: Strike,
+    /// A stroke instead of a strike (a brush sweep or swirl): `strike` is then unused.
+    pub stroke: Option<Stroke>,
 }
 
 impl KitHit {
     /// A hit at `speed` m/s where `piece` is usually played, with its usual striker.
     pub fn at(piece: Piece, speed: f32, position: f32) -> Self {
-        Self { piece, strike: Strike { velocity: speed, position, angle: 0.0, striker: piece.default_striker() } }
+        Self { piece, strike: Strike { velocity: speed, position, angle: 0.0, striker: piece.default_striker() }, stroke: None }
     }
+
+    /// A stroke on a piece.
+    pub fn stroke(piece: Piece, stroke: Stroke) -> Self {
+        Self { piece, strike: Strike { velocity: 0.0, position: 0.0, angle: 0.0, striker: piece.default_striker() }, stroke: Some(stroke) }
+    }
+}
+
+/// The shape of a stroke on a piece of the kit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrokeKind {
+    /// Straight across (a drum: through the middle; a cymbal: out along a radius).
+    Sweep,
+    /// Circles (a drum: about half-way out; a cymbal: about two thirds).
+    Swirl,
+}
+
+impl StrokeKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            StrokeKind::Sweep => "sweep",
+            StrokeKind::Swirl => "swirl",
+        }
+    }
+
+    pub fn from_name(n: &str) -> Option<Self> {
+        match n {
+            "sweep" => Some(StrokeKind::Sweep),
+            "swirl" => Some(StrokeKind::Swirl),
+            _ => None,
+        }
+    }
+}
+
+/// A stroke of `kind` on `piece` with `tool`: the hand at `speed` m/s, pressing `pressure` N, for
+/// `duration` s. A cymbal carries only the cosine member of its mode pairs (see
+/// `Cymbal::enable_rubbing`), so its sweep runs out along that diameter, where it is exact.
+pub fn stroke_for(piece: Piece, kind: StrokeKind, tool: ToolSpec, speed: f32, pressure: f32, duration: f32) -> Stroke {
+    let a = placement(piece).radius;
+    let s = match (kind, piece.is_cymbal()) {
+        (StrokeKind::Sweep, false) => Stroke::sweep(a, speed, pressure, duration),
+        (StrokeKind::Swirl, false) => Stroke::swirl(a, speed, pressure, duration),
+        (StrokeKind::Sweep, true) => Stroke { path: super::rub::Path::Line { from: [0.3 * a, 0.0], to: [0.95 * a, 0.0] }, ..Stroke::sweep(a, speed, pressure, duration) },
+        (StrokeKind::Swirl, true) => Stroke { path: super::rub::Path::Circle { centre: [0.0, 0.0], radius: 0.65 * a }, ..Stroke::swirl(a, speed, pressure, duration) },
+    };
+    s.with_tool(tool)
 }

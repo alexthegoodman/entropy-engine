@@ -193,7 +193,8 @@ const audioAPI = {
     brassSetControl: (voice, which, value) => ops.op_audio_brass_set_control(voice, which, value),
     // A physically modeled drum kit on a track's bus (see Entropy.Matter). kit: {kick, snare,
     // rackTom, floorTom (tunings, Hz), kickMuffling (0..1), snares (bool), snareTension (N),
-    // sympathetic (bool)}. A kit takes a moment to build the first time: prepareMatter builds it off
+    // sympathetic (bool), brushes (bool: the snare set up to be swirled all round)}. A kit takes a
+    // moment to build the first time: prepareMatter builds it off
     // the audio thread and answers {ok, status: "ready" | "building" | "rebuilding"}; hits sent
     // while it is first being built are dropped. Cheap to call every frame.
     prepareMatter: (trackId, config) => ops.op_audio_matter_prepare({ ...config, trackId }),
@@ -201,7 +202,13 @@ const audioAPI = {
     // "snare", "rack-tom", "floor-tom", "crash", "ride", "splash"), speed (m/s at impact), position
     // (0 centre .. 1 edge), angle?, striker? ("stick", "shoulder", "felt", "plastic", "mallet",
     // "hard-mallet", "yarn")}. Returns {ok, played, error?}.
+    // With stroke: "sweep" | "swirl" it rubs instead (not the kick): speed is the hand's (m/s),
+    // pressure (N), duration (s), tool? ("brush" default, "finger", "wet-finger", "rubber", "rod",
+    // "stick-tip").
     playMatterOnTrack: (trackId, config) => ops.op_audio_play_matter_on_track({ ...config, trackId }),
+    // Holds a tool on a piece of the track's kit live (a drag): config {kit, piece, x, y (fractions of
+    // the face's radius from its centre), pressure (N; 0 lifts it)}. Send it every frame of a drag.
+    holdMatterOnTrack: (trackId, config) => ops.op_audio_hold_matter_on_track({ ...config, trackId }),
     // Stops a track's kit.
     removeMatter: (trackId, kitId) => ops.op_audio_matter_remove(trackId, kitId || trackId),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
@@ -341,13 +348,19 @@ const brassAPI = {
 const matterAPI = {
     // {ok, id, activeKits, workers, focus, kit: {...}, pieces: [{piece, awake, energyJ, level,
     //  strikes, position, speedIn, speedOut, contactMs, peakForceN, mix, glideCents? | nonlinear?,
-    //  wiresLifted?, wireLandings?}]}.
+    //  wiresLifted?, wireLandings?, rubs?, rubbing?, rubSpeed?, rubPressureN?, rubNormalN?,
+    //  rubFrictionN?, stickFraction?, releases?}]}.
     info: (id) => ops.op_matter_info(id),
     remove: (id) => ops.op_matter_remove(id),
     // Strikes one piece offline, alone, and measures it: {ok, piece, striker, speed, peakDb, rmsDb,
     // centroidHz, above4kDb (the crack: the attack's energy above 4 kHz), strongestHz, decaySeconds, contactMs, peakForceN, reboundSpeed, glideCents?,
     // wireLandings?}. No audio device is used, so this is how to check what a hit sounds like.
-    analyzeHit: (config, seconds) => ops.op_matter_render_analyze(config, seconds || 0)
+    analyzeHit: (config, seconds) => ops.op_matter_render_analyze(config, seconds || 0),
+    // Rubs one piece (or "glass", "steel-sheet") offline, alone, and measures it. config as
+    // playMatterOnTrack's with a stroke: {ok, piece, stroke, tool, speed, pressureN, duration, peakDb,
+    // rmsDb, centroidHz, above4kDb, flatnessDb (near 0 for noise-like sliding, far below for a
+    // squeak), stickFraction, releasesPerSecond (stick-slip), landings}.
+    analyzeStroke: (config, seconds) => ops.op_matter_render_analyze(config, seconds || 0)
 };
 
 const vst3API = {
@@ -1501,6 +1514,7 @@ globalThis.Entropy = {
                         const type = parts[0];
                         if (type === "MATTER_STRIKE" && config.onStrike) config.onStrike(parts[2], parseFloat(parts[3]), parseFloat(parts[4]), parseFloat(parts[5]));
                         else if (type === "MATTER_PAD" && config.onPad) config.onPad(parts[2], parseFloat(parts[3]));
+                        else if (type === "MATTER_RUB" && config.onRub) config.onRub(parts[2], parseFloat(parts[3]), parseFloat(parts[4]), parseFloat(parts[5]));
                         else if (type === "MATTER_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
                     });
                 }

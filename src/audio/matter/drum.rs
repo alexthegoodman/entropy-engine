@@ -14,6 +14,8 @@ use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
 use super::cavity::{Cavity, MAX_CAVITY_ORDER};
 use super::membrane::{HeadSpec, Membrane, MembraneOptions};
 use super::modal::{dot, ModalBody};
+use super::rub::{Rub, RubReport, Stroke, SurfaceKind, ToolSpec};
+use super::surface::SurfaceMap;
 
 /// Default density of the sampled high band, modes per octave.
 pub const HIGH_BAND: f32 = 40.0;
@@ -144,6 +146,12 @@ pub struct DrumSpec {
     pub high_band: f32,
     /// Snare wires on the resonant head.
     pub snares: Option<SnareWires>,
+    /// What the batter's surface is (coated or clear): what a brush or a finger rubs on.
+    pub surface: SurfaceKind,
+    /// Both members of each of the batter's degenerate mode pairs (`cos` and `sin`): a head played
+    /// anywhere around it - a brush swirled round it - needs them; one struck only along one
+    /// diameter does not.
+    pub partners: bool,
 }
 
 impl DrumSpec {
@@ -153,19 +161,19 @@ impl DrumSpec {
         let a = 0.2794;
         let batter = HeadSpec { loss: 25.0, loss_hf: 12.0, ..HeadSpec::two_ply(a) };
         let reso = HeadSpec { loss: 4.0, ..HeadSpec::single_ply(a) };
-        Self::tuned(DrumSpec { kind: DrumKind::Kick, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.457, depth: 0.457, striker: StrikerSpec::felt_beater(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.1)
+        Self::tuned(DrumSpec { kind: DrumKind::Kick, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.457, depth: 0.457, striker: StrikerSpec::felt_beater(), max_modes: 400, high_band: HIGH_BAND, snares: None, surface: SurfaceKind::ClearHead, partners: false }, tuning, tuning * 1.1)
     }
 
     /// A 16" x 16" floor tom.
     pub fn floor_tom(tuning: f32) -> Self {
         let a = 0.2032;
-        Self::tuned(DrumSpec { kind: DrumKind::FloorTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.406, depth: 0.406, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.15)
+        Self::tuned(DrumSpec { kind: DrumKind::FloorTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.406, depth: 0.406, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None, surface: SurfaceKind::CoatedHead, partners: false }, tuning, tuning * 1.15)
     }
 
     /// A 12" x 9" rack tom.
     pub fn rack_tom(tuning: f32) -> Self {
         let a = 0.1524;
-        Self::tuned(DrumSpec { kind: DrumKind::RackTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.229, depth: 0.229, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None }, tuning, tuning * 1.15)
+        Self::tuned(DrumSpec { kind: DrumKind::RackTom, batter: HeadSpec::two_ply(a), reso: Some(HeadSpec::single_ply(a)), volume: std::f32::consts::PI * a * a * 0.229, depth: 0.229, striker: StrikerSpec::stick(), max_modes: 400, high_band: HIGH_BAND, snares: None, surface: SurfaceKind::CoatedHead, partners: false }, tuning, tuning * 1.15)
     }
 
     /// A 14" x 5.5" snare: a coated 10-mil batter, a 3-mil snare-side head tuned about a fifth above
@@ -174,7 +182,17 @@ impl DrumSpec {
         let a = 0.1778;
         let batter = HeadSpec { thickness: 0.25e-3, loss: 4.0, loss_hf: 6.0, ..HeadSpec::single_ply(a) };
         let reso = HeadSpec { thickness: 0.076e-3, loss: 3.0, loss_hf: 3.0, ..HeadSpec::single_ply(a) };
-        Self::tuned(DrumSpec { kind: DrumKind::Snare, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.14, depth: 0.14, striker: StrikerSpec::stick(), max_modes: 360, high_band: HIGH_BAND, snares: Some(SnareWires::twenty_strand()) }, tuning, tuning * 1.5)
+        Self::tuned(DrumSpec { kind: DrumKind::Snare, batter, reso: Some(reso), volume: std::f32::consts::PI * a * a * 0.14, depth: 0.14, striker: StrikerSpec::stick(), max_modes: 360, high_band: HIGH_BAND, snares: Some(SnareWires::twenty_strand()), surface: SurfaceKind::CoatedHead, partners: false }, tuning, tuning * 1.5)
+    }
+
+    /// The same drum ready to be played all round its head (a brush swirl): the batter gets both
+    /// members of each mode pair, and twice the modes so its complete band reaches as high.
+    pub fn all_round(mut self) -> Self {
+        if !self.partners {
+            self.partners = true;
+            self.max_modes *= 2;
+        }
+        self
     }
 
     /// The same drum with its snares thrown off (the strainer lowers them clear of the head).
@@ -188,7 +206,7 @@ impl DrumSpec {
     pub fn timpani(pitch: f32) -> Self {
         let a = 0.33;
         let batter = HeadSpec { loss: 0.6, loss_hf: 1.5, ..HeadSpec::single_ply(a) };
-        let mut s = DrumSpec { kind: DrumKind::Timpani, batter, reso: None, volume: 0.14, depth: 0.0, striker: StrikerSpec::timpani_mallet(), max_modes: 400, high_band: HIGH_BAND, snares: None };
+        let mut s = DrumSpec { kind: DrumKind::Timpani, batter, reso: None, volume: 0.14, depth: 0.0, striker: StrikerSpec::timpani_mallet(), max_modes: 400, high_band: HIGH_BAND, snares: None, surface: SurfaceKind::ClearHead, partners: false };
         s.batter.tension = Membrane::tension_for(s.batter, 1, 1, pitch, true);
         s
     }
@@ -333,12 +351,14 @@ pub struct Drum {
     newest: usize,
     /// Sound pressure outside each head for the coming sample, Pa (see `add_pressure`).
     outside: [f32; 2],
+    /// A tool rubbing the batter (see `enable_rubbing`).
+    rub: Option<Box<Rub>>,
 }
 
 impl Drum {
     pub fn new(spec: DrumSpec, sr: f32) -> Self {
         let top = TOP_FREQ.min(0.45 * sr);
-        let batter = MembraneOptions { high_band_per_octave: spec.high_band, seed: 1, ..MembraneOptions::complete(spec.max_modes, top, true) };
+        let batter = MembraneOptions { sine_partners: spec.partners, high_band_per_octave: spec.high_band, seed: 1, ..MembraneOptions::complete(spec.max_modes, top, true) };
         let mut heads = vec![Head::new(spec.batter, batter, sr)];
         if let Some(r) = spec.reso {
             // A resonant head that only the shell's air drives needs only its axisymmetric modes
@@ -379,7 +399,7 @@ impl Drum {
         // beater more energy than it brought.
         let c_l = (spec.batter.young / (spec.batter.density * (1.0 - spec.batter.poisson * spec.batter.poisson))).sqrt();
         let smoothing = 1.0 - (-(BLOCK as f32) / (spec.batter.radius / c_l * sr)).exp();
-        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0, report: StrikeReport::default(), newest: 0, outside: [0.0; 2] }
+        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0, report: StrikeReport::default(), newest: 0, outside: [0.0; 2], rub: None }
     }
 
     /// Number of (cavity mode, head mode) couplings.
@@ -445,9 +465,52 @@ impl Drum {
         self.outside[1] += reso;
     }
 
-    /// Whether anything is still in flight or in contact.
+    /// Whether anything is still in flight or in contact (a tool rubbing the head included).
     pub fn striking(&self) -> bool {
-        self.flights.iter().any(|f| f.active)
+        self.flights.iter().any(|f| f.active) || self.rub.as_ref().is_some_and(|r| r.active())
+    }
+
+    /// Makes the batter ready to be rubbed by `tool`: maps its mode shapes over the whole head (a
+    /// fraction of a second the first time). Call off the audio thread; `rub` and `hold` then
+    /// allocate nothing.
+    pub fn enable_rubbing(&mut self, tool: ToolSpec) {
+        if self.rub.is_none() {
+            let map = SurfaceMap::of_membrane(&self.heads[0].membrane);
+            // A membrane has no bending stiffness to take a moment: a traction along its surface
+            // only stretches it in-plane. It is moved by the contact's normal force alone.
+            self.rub = Some(Box::new(Rub::new(map, self.spec.surface, 0.0, tool, self.sr)));
+        }
+    }
+
+    /// The batter's rubbing, once enabled.
+    pub fn rubbing(&self) -> Option<&Rub> {
+        self.rub.as_deref()
+    }
+
+    pub fn rubbing_mut(&mut self) -> Option<&mut Rub> {
+        self.rub.as_deref_mut()
+    }
+
+    /// Plays a stroke on the batter (a brush sweep or swirl). Enables rubbing first if it was not,
+    /// which allocates.
+    pub fn rub(&mut self, stroke: Stroke) {
+        self.enable_rubbing(stroke.tool);
+        if let Some(r) = self.rub.as_mut() {
+            r.stroke(stroke);
+        }
+    }
+
+    /// Holds a tool on the batter live at `(x, y)` (m from the centre) with `pressure` N (0 lifts it).
+    /// Does nothing until rubbing is enabled.
+    pub fn hold(&mut self, x: f32, y: f32, pressure: f32) {
+        if let Some(r) = self.rub.as_mut() {
+            r.hold(x, y, pressure);
+        }
+    }
+
+    /// What the rubbing is doing.
+    pub fn rub_report(&self) -> RubReport {
+        self.rub.as_ref().map(|r| r.report).unwrap_or_default()
     }
 
     /// Total vibrational energy in the heads, J.
@@ -513,6 +576,11 @@ impl Drum {
             }
         }
         self.last_force = total;
+
+        // A tool rubbing the batter.
+        if let Some(r) = self.rub.as_mut() {
+            r.tick(&mut self.heads[0].body);
+        }
 
         // Snare wires against the resonant head. Everything here is the motion about the rest state,
         // where each group presses with its preload: the head (linear) is simulated without the

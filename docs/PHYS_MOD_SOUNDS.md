@@ -431,13 +431,17 @@ head's own motion), and the tests keep those measurements in place.
 | Plate | `plate.rs` | A free-edge thin circular plate (modes `J_m + C I_m` from the free edge's moment and Kirchhoff-shear conditions), bent into a shallow spherical dome: the in-plane (Airy) stress expanded on the clamped-plate functions, the **von Karman couplings** `H^k_pq` and the dome's linear couplings `B^k_p` as radial quadratures with the angular selection rules in closed form, the dome's stiffness folded into **shell modes** (an eigen-solve per order), radiation from the Rayleigh integral with the Hankel transforms of `J_m` and `I_m` in closed form (Lommel), both faces. The stand as two rigid modes (bouncing, rocking on the felts). A sampled high band as for the membrane. Built plates are cached. |
 | Von Karman | `vonkarman.rs` | The stretching force on the shell modes, run with a **scalar auxiliary variable** so the modes' energy plus the stretching energy can never grow; couplings stored as dense blocks per pair of orders and evaluated with hand-written SSE2 |
 | Cymbals | `cymbal.rs` | Plate + strikers: 16" crash, 20" ride, 10" splash (bronze; size, weight, dome rise), stick bead, stick shoulder, yarn mallet |
+| Friction | `friction.rs` | The bow's friction law (`physmod::friction`) with a pair's coefficients (`FrictionPair`: rubber/glass, wet finger/glass, steel/coated head, steel/bronze, wood/wood...), and **surface roughness** (`Roughness` -> `Profile`): a power-law height spectrum as octaves of gradient noise scaled to an RMS height, plus optional grooves; each octave capped where the tip's curvature can't follow it, and octaves shorter than two samples of travel dropped |
+| Surface map | `surface.rs` | A face's mode shapes **and their slopes** anywhere on it, fast enough for a moving contact: radial functions tabulated once (512 points), `cos(m theta)` for every order by complex powers, plane waves for the sampled band. Tables cached by a fingerprint of the modes |
+| Rubbing | `rub.rs` | Tools (`ToolSpec`: brush, finger, wet finger, rubber, rod, stick tip), surfaces (`SurfaceKind`), strokes (`Stroke`: a sweep or a swirl, eased in and out, then lifted) and live holds; `Rub` runs each tip's normal contact (the `contact` solve, over the body's motion plus the roughness) and its friction (the bow's solve, with that contact force as the normal force), and pushes the body along its normal and, on plates, by the traction's moment |
+| Sheet | `sheet.rs` | A flat free disc of glass or steel (the plate model, linear, no stand): something other than a drum to rub |
 | Kit | `kit.rs` | Every drum and cymbal set up together (`placement`: one layout for the sound and the view), hearing each other through the air (each piece's sound reaches every drum's heads after the time it takes to cross the distance, as a pressure on their volume-changing modes), run in blocks of 32 samples on the audio thread and a few parked worker threads, pieces asleep when silent; `KitSpec` (tunings, kick muffling, snares, snare tension, sympathy) |
 | Live | `live.rs` | `MatterShared` (lock-free state for the view: each face's displacement on a grid, its lowest modes, each strike's measured contact, the snare wires, the latest force pulse), `KitVoice` / `KitHandle` (one kit per track), `render_performance` (a track's hits offline, for export), the registry by kit id |
-| Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head), `render_cymbal` |
+| Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head), `render_cymbal`, `render_drum_stroke`, `render_sheet_stroke` |
 | Engine | `src/audio/mod.rs` | `matter_prepare` (a kit built off the audio thread, installed on the track's bus when ready; a retuned kit is built while the old one plays), `play_matter_on_track`, `matter_remove`; `MatterEvent` in `render_mix_to_wav` |
-| Ops | `src/deno/matter_ops.rs` | `Entropy.Matter` (`info`, `remove`, `analyzeHit`), `Audio.prepareMatter` / `playMatterOnTrack` / `removeMatter`, `Widget.matter` |
-| View | `src/entropy_gui/widgets_matter.rs` | `MatterView`: the kit in 3D, heads and plates drawn from the published modes, strikers replaying each contact, Physics View, click-to-strike and pads |
-| DAW | `examples/studio-bundle/src/apps/daw_matter.ts`, `daw_synth_addon.ts` | Kit tracks (waveform `"matter"`): kit rows, presets, tunings, mix, the Kit window and the `daw_matter` AI tool |
+| Ops | `src/deno/matter_ops.rs` | `Entropy.Matter` (`info`, `remove`, `analyzeHit`, `analyzeStroke`), `Audio.prepareMatter` / `playMatterOnTrack` (strikes and strokes) / `holdMatterOnTrack` (a tool held live) / `removeMatter`, `Widget.matter` |
+| View | `src/entropy_gui/widgets_matter.rs` | `MatterView`: the kit in 3D, heads and plates drawn from the published modes, strikers replaying each contact, Physics View, click-to-strike, **shift-drag to rub** (the tool's hand and tips drawn where they touch, warm where friction holds them) and pads |
+| DAW | `examples/studio-bundle/src/apps/daw_matter.ts`, `daw_synth_addon.ts` | Kit tracks (waveform `"matter"`): kit rows (brush sweep and swirl rows that last as long as the note), presets (Brushes among them), tunings, mix, the Kit window (shift-drag to brush) and the `daw_matter` AI tool |
 
 ## Phase 1 progress
 
@@ -455,6 +459,21 @@ head's own motion), and the tests keep those measurements in place.
 - **Plates and the von Karman nonlinearity - done**, with the dome.
 - **Cymbals - done** as offline models: crash, ride, splash.
 - **Gongs, bells - not started.**
+
+## Phase 3 progress
+
+- **Friction between any two surfaces - done.** The bow's law with each pair's coefficients, its
+  normal force from the contact model every sample, and a **surface profile** (roughness, grooves)
+  along the path each tip actually slides.
+- **Brushes - done.** Six groups of wires, each a light striker with its own friction and its own
+  patch of the coating, dragged across a head (sweeps, swirls, and anything a hand does live).
+- **Rubbing anything - done** for the bodies that exist: every drum but the kick, the cymbals, and a
+  sheet of glass or steel (a rubber ball, a wet finger, a rod, a stick's tip).
+- **The viewport interaction - done** for the kit: shift-drag on a head or a cymbal presses a brush on
+  it and drags it along; strokes are also kit rows, AI-tool rows and exported events.
+- Not done: tools dragged across each other (both sides moving, Phase 7's scene), the bowed edge of a
+  cymbal or a glass rim (the traction there is in the plate's own plane), and a 2D texture (see the
+  limits).
 
 ## Decisions the measurements made
 
@@ -682,6 +701,30 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
 | A stick on bronze at 44.1 kHz: contact time within 8%, impulse within 2%, the force's energy below 8 kHz within 1 dB of a 4x finer step | same |
 | A yarn mallet's contact is 2x+ longer and its sound darker (centroid 0.8x) than a stick's | same |
 | Every cymbal stays finite for two 25 m/s hits and decays | same |
+| A surface map's shapes match the membrane's and the plate's own to 3e-3, and its slopes a centred difference to 1.5% | `matter::surface::tests` |
+| A roughness profile has the RMS height asked for (10%); its slope is its height's derivative; a blunt tip feels less of the fine grain, and speed cuts the finest | `matter::friction::tests` |
+| Rubber on glass: slow and heavy sticks and slips (a squeak: releases 100+/s, the friction force's line at the release rate, the sound's flatness below -30 dB); fast slides (no releases, 15 dB+ flatter); at one speed, light slides and heavy squeaks | `matter::rub_tests` |
+| A squeak's release rate rises with speed toward the tool's shear resonance and never passes it | same |
+| Friction never holds more than static friction allows | same |
+| A stroke ends when the tool is lifted, and the body rings on | same |
+| A wet finger on glass squeaks where a dry one barely does | same |
+| A rougher surface is brighter and louder (clear, coated, three times the coating) | same |
+| A brush sweep's highs are the coating's (15 dB+ more above 3 kHz than on a clear head); the wires catch and let go | same |
+| A brush swirl is a continuous wash (no 10 ms gap), louder above 1 kHz at 1.5 m/s than at 0.3, and gone once lifted | same |
+| Brushing with the snares on buzzes the wires | same |
+| A rod on a snare, sandpaper under a brush, a stick tip scraped along a ride: all finite | same |
+| A held tool follows the hand at the drag's speed, smoothly, and lifts | same |
+| `analyzeStroke`: squeak against slide on glass, a brush on the kit's snare, a rod on the ride, the kick refused; a stroke becomes an offline event | `deno::matter_ops::tests` |
+| A live kit allocates nothing while strokes, tool changes and live holds play | `tests/matter_no_alloc.rs` |
+| A shift-drag rubs a head along the drag and lets go; a brushed snare is drawn with its tips | `tests/matter_view.rs` |
+| DAW: brush rows as long as the note, the Brushes preset, the drag, the tool hearing a brush row, strokes in the export | `examples/studio-bundle/tests/daw_matter.test.ts` |
+
+`matter::rub_tests::rub_report` (ignored) prints the rubber-on-glass table (speed and pressure
+against stick fraction, release rate, level, centroid and flatness), the brush on the snare (speed,
+roughness, groups of wires, modes felt, cost) and the swirl against speed;
+`matter::rub_tests::rub_listening_examples` renders a brush groove, an accelerating swirl, a sweep on a
+clear, a coated and a rough head, rubber on glass from squeak to slide, a wet finger round a pane and
+a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` times them.
 ## Known limits
 
 - **Cost.** Per ringing drum, in release builds on one core: snare 13%, kick 7%, floor tom 5.5%, rack
@@ -744,6 +787,60 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
   contact time (~1 ms: the plate gives way), the impulse and the force's spectrum below 8 kHz match a
   4x finer step.
 
+## Decisions the friction measurements made
+
+- **Stick-slip and sliding come out of the friction curve and the tool, not a switch.** Rubber on a
+  30 cm glass pane (the `rub_report` table): at 2 N the tip sticks and slips from 0.02 up to 0.5 m/s
+  and slides steadily from 1 m/s; at 0.5 N it already slides at 0.2 m/s; at 5 N it sticks and slips up
+  to 1 m/s. That is the classic instability: steady sliding is unstable while the pressure times the
+  friction curve's fall with speed, `N |d mu / dv|`, outweighs the tool's damping - so heavy and slow
+  squeaks, light and fast slides.
+- **A squeak's pitch is the tool's.** The releases come at most at the rubber's own shear resonance,
+  `sqrt(k / m) / 2 pi` = 318 Hz (315/s measured at 0.5 m/s, 5 N), approaching it from below as the
+  speed rises (45, 161, 300/s at 0.02, 0.1, 0.5 m/s). The friction force is a sawtooth at the release
+  rate; the sound is a set of lines (spectral flatness -30 to -50 dB) where sliding is noise (-12 to
+  -16 dB).
+- **A membrane is moved by the normal force only.** A tangential traction on a plate's surface bends
+  it through its moment about the mid-plane, `F h / 2` - which is how a smooth pane is made to sing -
+  but a membrane has no bending stiffness to take a moment, so on a drumhead friction acts only
+  through the normal force and the roughness's slope.
+- **A brush is the coating.** The same sweep on a clear head has its energy below 1 kHz (centroid
+  580 Hz, 47 dB down above 3 kHz); on a coated head (6 microns of grit) 3.7 kHz and -18 dB; three
+  times as rough, 4.0 kHz and -11 dB. The wires catch on the grit and let go thousands of times a
+  second (a micro stick-slip at the bumps' scale, set by their slopes and the wires' lightness).
+- **The tips must feel all the head's modes.** A membrane's give at a point keeps growing with the
+  modes counted; a brush's tips that felt only the lowest 128 of a snare's 768 came out 6-7 dB
+  brighter above 3 kHz (and 32 no brighter than 128: it is the many high modes that matter). So the tips feel every coupled mode, as a strike does
+  (the sampled band is driven one way, as by a strike). Likewise the snare played all round needs
+  its complete band carried as high: with both members of each pair but the same 360-mode budget
+  (429 modes) the sweep was 2 dB brighter above 3 kHz than with 720 (768).
+- **Six groups of wires.** Four, six and eight groups give centroids of 3.55, 3.75 and 3.86 kHz and
+  levels within 0.1 dB: six is converged within a couple of dB, at 57% of a core where eight takes 68%.
+- **Speed.** The swirl's level above 1 kHz rises by about 7 dB from 0.3 to 1.5 m/s; below about
+  0.6 m/s the grit's micro stick-slip holds it nearly level. At 1.5 m/s the wires no longer stick at
+  all and start leaving the head (65 landings a second).
+- **Live drags coast.** A hand following each drag position as it arrives (50 a second) hops: it
+  reaches each point and stops. Between holds the target carries on at the velocity the last two
+  implied (for at most 80 ms), so a steady drag is a steady stroke.
+
+## Known limits (friction)
+
+- **Cost.** A brush on the snare set up all round is about 55-75% of a core on its own (the snare
+  struck: 18-20%): six tips, each a dot product and a force over 768 modes every sample, plus the
+  contact and friction solves. Rubber on the glass pane: 3%. A kit with brushes on the snare wants
+  its worker threads.
+- The roughness is a 1D profile along each tip's own path (each tip on its own patch), not a 2D
+  texture: a swirl crossing its own path doesn't meet the same bumps again.
+- A tip moves along the stroke and normal to the surface; across the stroke it follows the hand
+  rigidly (no sideways stick-slip, no rolling).
+- The tool's own vibration isn't heard (a brush's wires ringing, a rod's modes): only the body
+  radiates.
+- Cymbals keep only the cosine member of each mode pair, so a path off the `theta = 0` diameter is
+  heard as its mirror image onto it; the kit's cymbal sweep runs along that diameter, where it is
+  exact.
+- Friction coefficients are typical tabulated values for each pair; wetness, temperature and wear
+  don't change them.
+
 ## Known limits (cymbals)
 
 - **Cost.** Per ringing cymbal after a hard hit, one core, release: crash 56% (72 nonlinear modes,
@@ -766,6 +863,11 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
   not modelled.
 
 ## Picking up
+
+- **Friction next**: a 2D roughness texture; a tip's sideways motion; tools that are bodies too (a
+  rod's own modes ringing as it scrapes, two plates rubbed together - Phase 7's scene); the bowed
+  edge of a cymbal or a glass rim (in-plane traction on the plate's edge); and the brush's cost (by `perf`, the tips' passes over the head's modes and their contact
+  solves are most of it).
 
 - **Cymbal cost and reach.** Ideas, measured first: run the nonlinear set on a second thread; share
   one evaluation between the in-plane functions of an order through a low-rank factorization of each
