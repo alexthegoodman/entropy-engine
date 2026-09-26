@@ -11,7 +11,7 @@
 //! crash's swell into a wash. Nothing in the presets shapes that: they are sizes, thicknesses, a dome
 //! height and the metal's losses.
 
-use super::contact::{Contact, ContactLaw, Material, Striker, Tip};
+use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
 use super::drum::{Strike, StrikerSpec, FULL_SCALE_PA, MAX_STRIKERS};
 use super::modal::ModalBody;
 use super::plate::{Plate, PlateOptions, PlateSpec};
@@ -107,6 +107,18 @@ pub struct Cymbal {
     counter: u32,
     /// The contact force over the last sample, N.
     pub last_force: f32,
+    /// The latest strike, as it happens.
+    pub report: StrikeReport,
+    newest: usize,
+    /// While the stretching's share of the plate's energy stays under this, the plate is treated as
+    /// linear and the von Karman force is not evaluated, until the next strike (see
+    /// `set_nonlinear_floor`). 0: always evaluated.
+    nonlinear_floor: f32,
+    dormant: bool,
+    /// Recent peak of the stretching's `|U|`, J (it swings through zero every cycle), and its
+    /// decay per sample.
+    u_peak: f32,
+    u_decay: f32,
 }
 
 impl Cymbal {
@@ -120,7 +132,7 @@ impl Cymbal {
         let flights = (0..MAX_STRIKERS)
             .map(|_| Flight { striker: Striker { mass: 1.0, tip: spec.striker.tip, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw::between(spec.striker.tip, BRONZE, 0.5)), shape: vec![0.0; n], active: false, age: 0 })
             .collect();
-        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0 }
+        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0, report: StrikeReport::default(), newest: 0, nonlinear_floor: 0.0, dormant: false, u_peak: 0.0, u_decay: (-1.0 / (0.05 * sr)).exp() }
     }
 
     pub fn plate(&self) -> &Plate {
@@ -133,6 +145,21 @@ impl Cymbal {
 
     pub fn von_karman(&mut self) -> Option<&mut VonKarman> {
         self.vk.as_mut()
+    }
+
+    /// Lets the von Karman evaluation rest once the plate has fallen back to small amplitudes: when
+    /// the stretching's energy (`|U|`, which grows faster than the modes' energy `E` with the
+    /// amplitude) is below `floor * E` and nothing is touching the plate, the modes carry on as a
+    /// linear plate until the next strike, which wakes the coupling and resynchronizes its energy.
+    /// `U` swings through zero every cycle, so it is its peak over the last 50 ms that is compared.
+    /// What that changes in the sound is measured in the tests.
+    pub fn set_nonlinear_floor(&mut self, floor: f32) {
+        self.nonlinear_floor = floor.max(0.0);
+    }
+
+    /// Whether the von Karman coupling is resting (see `set_nonlinear_floor`).
+    pub fn nonlinear_resting(&self) -> bool {
+        self.dormant
     }
 
     pub fn sample_rate(&self) -> f32 {
@@ -157,6 +184,10 @@ impl Cymbal {
         f.contact = Contact::new(ContactLaw::between(s.striker.tip, BRONZE, s.striker.restitution));
         f.active = true;
         f.age = 0;
+        self.newest = slot;
+        self.dormant = false;
+        self.u_peak = 0.0;
+        self.report.begin(s.velocity.max(0.0), s.position, s.angle);
     }
 
     pub fn striking(&self) -> bool {
@@ -165,17 +196,23 @@ impl Cymbal {
 
     /// One sample of radiated sound, normalized so `FULL_SCALE_PA` at 1 m is 1.0.
     pub fn next_sample(&mut self) -> f32 {
+        let touching = self.flights.iter().any(|f| f.active && (f.contact.touching || f.contact.touches == 0));
         if self.counter % FLUSH_EVERY == 0 {
             self.body.flush_quiet();
+            if let (Some(_), true, false, false) = (self.vk.as_ref(), self.nonlinear_floor > 0.0, touching, self.dormant) {
+                if self.u_peak < self.nonlinear_floor * self.body.energy() {
+                    self.dormant = true;
+                }
+            }
         }
         self.counter = self.counter.wrapping_add(1);
-        let touching = self.flights.iter().any(|f| f.active && (f.contact.touching || f.contact.touches == 0));
-        if let Some(vk) = self.vk.as_mut() {
+        if let (Some(vk), false) = (self.vk.as_mut(), self.dormant) {
             vk.tick(&mut self.body, touching);
+            self.u_peak = (self.u_peak * self.u_decay).max(vk.potential.abs() as f32);
         }
         let h = self.h;
         let mut total = 0.0;
-        for f in self.flights.iter_mut().filter(|f| f.active) {
+        for (slot, f) in self.flights.iter_mut().enumerate().filter(|(_, f)| f.active) {
             let (sy, sc) = f.striker.predict(h);
             let (by, bc) = self.body.predict(&f.shape);
             let force = f.contact.solve(sy - by, sc + bc, h);
@@ -186,6 +223,10 @@ impl Cymbal {
             let gone = f.contact.touches > 0 && !f.contact.touching && f.striker.v < 0.0 && f.contact.delta < -0.002;
             if gone || f.age as f32 > 0.5 * self.sr {
                 f.active = false;
+            }
+            if slot == self.newest {
+                self.report.track(&f.contact, f.striker.v);
+                self.report.flying = f.active;
             }
         }
         self.last_force = total;

@@ -14,6 +14,9 @@
 //!   radiation, and the von Karman couplings.
 //! * [`vonkarman`] - those couplings run on the modes with an energy-conserving scheme.
 //! * [`cymbal`] - crash, ride, splash.
+//! * [`kit`] - the drums and cymbals set up together, hearing each other through the air.
+//! * [`live`] - the kit on a track: what it publishes for the view, the live voice, offline
+//!   rendering of a track's hits.
 //!
 //! As with the strings and the brass, every behaviour is measured from rendered audio in the tests,
 //! not tuned by ear.
@@ -23,6 +26,8 @@ pub mod cavity;
 pub mod contact;
 pub mod cymbal;
 pub mod drum;
+pub mod kit;
+pub mod live;
 pub mod membrane;
 pub mod modal;
 pub mod plate;
@@ -32,10 +37,14 @@ pub mod vonkarman;
 mod tests;
 #[cfg(test)]
 mod cymbal_tests;
+#[cfg(test)]
+mod kit_tests;
 
 pub use contact::{Contact, ContactLaw, Material, Striker, Tip};
 pub use cymbal::{Cymbal, CymbalKind, CymbalSpec};
 pub use drum::{Drum, DrumKind, DrumSpec, Strike, StrikerSpec};
+pub use kit::{Kit, KitHit, KitSpec, Piece};
+pub use live::{render_performance, KitCommand, KitHandle, KitVoice, MatterShared};
 pub use membrane::{HeadSpec, Membrane};
 pub use modal::{ModalBody, ModeSpec};
 pub use plate::{Plate, PlateOptions, PlateSpec};

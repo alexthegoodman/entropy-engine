@@ -451,6 +451,18 @@ pub struct BrassEvent {
     pub params: BrassParams,
 }
 
+/// One hit of a physically-modeled drum-kit track in an offline render. Hits with the same `kit`
+/// are played on one kit (the first hit's `spec` and `mix` build it), so the pieces ring on and hear
+/// each other as they do live.
+#[derive(Clone, Debug)]
+pub struct MatterEvent {
+    pub start_time: f64,
+    pub kit: String,
+    pub spec: matter::KitSpec,
+    pub mix: [f32; matter::kit::PIECES],
+    pub hit: matter::KitHit,
+}
+
 /// `render_events_to_wav` plus wavetable notes, physically-modeled bowed-string notes and VST3
 /// instrument tracks. A wavetable note is rendered by the same `WavetableVoice` the live path plays,
 /// from the table's current contents, so a bounce sounds like what was sculpted. A note whose table
@@ -467,7 +479,7 @@ pub fn render_events_full_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
 }
 
 /// Which track bus each event of an offline render plays through (see `render_mix_to_wav`). Each
@@ -482,6 +494,7 @@ pub struct MixRouting<'a> {
     pub wavetable: &'a [Option<usize>],
     pub physmod: &'a [Option<usize>],
     pub brass: &'a [Option<usize>],
+    pub matter: &'a [Option<usize>],
     pub vst3: &'a [Option<usize>],
 }
 
@@ -502,6 +515,7 @@ pub fn render_mix_to_wav(
     wavetable_events: &[WavetableEvent],
     physmod_events: &[PhysModEvent],
     brass_events: &[BrassEvent],
+    matter_events: &[MatterEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
     routing: &MixRouting,
     sample_rate: u32,
@@ -562,7 +576,17 @@ pub fn render_mix_to_wav(
     }
     let brass_bufs = by_player.iter().map(|(_, bus, notes)| (*bus, brass::render_performance(notes, 3.0)));
     let physmod_bufs = by_instrument.iter().map(|(_, bus, notes)| (*bus, physmod::render_performance(notes, 6.0)));
-    for (bus, buf) in physmod_bufs.chain(brass_bufs) {
+    // Drum kits likewise, one kit per track, so the pieces ring on and hear each other.
+    let mut by_kit: Vec<(&str, Option<usize>, matter::KitSpec, [f32; matter::kit::PIECES], Vec<(f64, matter::KitHit)>)> = Vec::new();
+    for (i, hit) in matter_events.iter().enumerate() {
+        let h = (hit.start_time.max(0.0), hit.hit);
+        match by_kit.iter_mut().find(|k| k.0 == hit.kit.as_str()) {
+            Some(k) => k.4.push(h),
+            None => by_kit.push((hit.kit.as_str(), routing.bus(routing.matter, i), hit.spec, hit.mix, vec![h])),
+        }
+    }
+    let matter_bufs = by_kit.iter().map(|(_, bus, spec, mix, hits)| (*bus, matter::render_performance(*spec, *mix, hits, 20.0)));
+    for (bus, buf) in physmod_bufs.chain(brass_bufs).chain(matter_bufs) {
         let mut buf = buf;
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
@@ -1042,6 +1066,38 @@ pub struct AudioEngine {
     /// One live brass player per (track, instrument id): notes on it slur into each other (see
     /// `brass::BrassInstrumentVoice`).
     brass_players: Mutex<HashMap<String, Arc<BrassHandle>>>,
+    /// One live drum kit per (track, kit id), or the kit being built for it (see `matter_prepare`).
+    matter_kits: Mutex<HashMap<String, MatterKit>>,
+}
+
+/// A track's kit: the one playing, and one being built off the audio thread to replace it (a new
+/// kit, or new tunings). The playing kit keeps playing until its replacement is ready.
+#[derive(Default)]
+struct MatterKit {
+    playing: Option<Arc<matter::KitHandle>>,
+    building: Option<(matter::KitSpec, Arc<Mutex<Option<matter::Kit>>>)>,
+    /// What the live kit was last told, so a hit only sends what changed.
+    sympathetic: Option<bool>,
+    mix: Option<[f32; matter::kit::PIECES]>,
+}
+
+/// Whether a track's kit can be played yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatterStatus {
+    Ready,
+    /// Playing the old kit while the new one is built.
+    Rebuilding,
+    Building,
+}
+
+impl MatterStatus {
+    pub fn name(self) -> &'static str {
+        match self {
+            MatterStatus::Ready => "ready",
+            MatterStatus::Rebuilding => "rebuilding",
+            MatterStatus::Building => "building",
+        }
+    }
 }
 
 /// What the main thread keeps of a held wavetable note: the gate that releases it and the position
@@ -1108,6 +1164,7 @@ impl AudioEngine {
             brass_gates: Mutex::new(HashMap::new()),
             next_brass_voice: AtomicU64::new(1),
             brass_players: Mutex::new(HashMap::new()),
+            matter_kits: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1415,6 +1472,90 @@ impl AudioEngine {
         }
     }
 
+    /// Makes sure `track_id` has a live kit of `spec` named `kit_id` (the `MatterShared` the view
+    /// reads): starts building one off the audio thread if there is none or it is a different kit,
+    /// and puts a finished one on the track's bus (retiring the kit it replaces). Cheap to call
+    /// every frame. `Building` until the kit can be played.
+    pub fn matter_prepare(&self, track_id: &str, kit_id: &str, spec: matter::KitSpec) -> Result<MatterStatus, String> {
+        let spec = spec.clamped();
+        let key = format!("{track_id}\u{1}{kit_id}");
+        let mut map = self.matter_kits.lock().unwrap();
+        let entry = map.entry(key).or_default();
+        if entry.playing.as_ref().is_some_and(|h| !h.is_alive()) {
+            entry.playing = None;
+            entry.sympathetic = None;
+            entry.mix = None;
+        }
+        let current = entry.playing.as_ref().is_some_and(|h| h.spec().same_build(&spec));
+        // A build under way for another kit is abandoned (it finishes and is dropped).
+        if entry.building.as_ref().is_some_and(|(b, _)| !b.same_build(&spec)) || current {
+            entry.building = None;
+        }
+        if !current && entry.building.is_none() {
+            let slot = Arc::new(Mutex::new(None));
+            let out = slot.clone();
+            std::thread::Builder::new()
+                .name("matter-kit-build".into())
+                .spawn(move || {
+                    let kit = matter::Kit::new(spec, ENGINE_SAMPLE_RATE as f32);
+                    *out.lock().unwrap_or_else(|p| p.into_inner()) = Some(kit);
+                })
+                .map_err(|e| format!("could not start building the kit: {e}"))?;
+            entry.building = Some((spec, slot));
+        }
+        if let Some((_, slot)) = &entry.building {
+            let built = slot.lock().unwrap_or_else(|p| p.into_inner()).take();
+            if let Some(kit) = built {
+                let buses = self.track_buses.lock().unwrap();
+                let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+                let (voice, handle) = matter::KitVoice::new(matter::live::shared_for(kit_id), kit);
+                bus.note_mixer.add(voice);
+                if let Some(old) = entry.playing.replace(handle) {
+                    old.retire();
+                }
+                entry.building = None;
+                entry.sympathetic = None;
+                entry.mix = None;
+            }
+        }
+        Ok(match (entry.playing.is_some(), entry.building.is_some()) {
+            (true, false) => MatterStatus::Ready,
+            (true, true) => MatterStatus::Rebuilding,
+            (false, _) => MatterStatus::Building,
+        })
+    }
+
+    /// Strikes a piece of the track's kit. `Ok(false)` while the kit is still being built (the hit
+    /// is dropped: a kit is built once, ahead of playing - see `matter_prepare`). A kit being
+    /// rebuilt with new tunings plays the hit on the old one meanwhile.
+    pub fn play_matter_on_track(&self, track_id: &str, kit_id: &str, spec: matter::KitSpec, mix: [f32; matter::kit::PIECES], hit: matter::KitHit) -> Result<bool, String> {
+        if self.matter_prepare(track_id, kit_id, spec)? == MatterStatus::Building {
+            return Ok(false);
+        }
+        let key = format!("{track_id}\u{1}{kit_id}");
+        let mut map = self.matter_kits.lock().unwrap();
+        let Some(entry) = map.get_mut(&key) else { return Ok(false) };
+        let Some(h) = entry.playing.clone() else { return Ok(false) };
+        if entry.sympathetic != Some(spec.sympathetic) {
+            let _ = h.send(matter::KitCommand::Sympathetic(spec.sympathetic));
+            entry.sympathetic = Some(spec.sympathetic);
+        }
+        if entry.mix != Some(mix) {
+            let _ = h.send(matter::KitCommand::Mix(mix));
+            entry.mix = Some(mix);
+        }
+        Ok(h.send(matter::KitCommand::Strike(hit)).is_ok())
+    }
+
+    /// Stops the track's kit (a deleted track).
+    pub fn matter_remove(&self, track_id: &str, kit_id: &str) {
+        if let Some(entry) = self.matter_kits.lock().unwrap().remove(&format!("{track_id}\u{1}{kit_id}")) {
+            if let Some(h) = entry.playing {
+                h.retire();
+            }
+        }
+    }
+
     /// Auditions a sample through `PREVIEW_BUS`, cutting off the one still playing from the last
     /// call.
     pub fn preview_sample(&self, path: &str, params: SampleParams) -> Result<(), String> {
@@ -1624,7 +1765,7 @@ mod character_path_tests {
         let events = [note(220.0), note(5_512.5)];
         let buses = [TrackBusRender { gain: 1.0, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
         let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
-        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
         let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();
         // Level over a 20 ms window at `t`, split by a crude filter: slow part = 220 Hz track.
         let window = |t: f32| {

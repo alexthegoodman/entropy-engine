@@ -10,7 +10,7 @@
 //! player asks for), the shell's volume, losses such as a pillow in the kick, and the striker. The
 //! sounds - the kick's thump, a tom's pitch glide, the timpani's pitch - are what those quantities do.
 
-use super::contact::{Contact, ContactLaw, Material, Striker, Tip};
+use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
 use super::cavity::{Cavity, MAX_CAVITY_ORDER};
 use super::membrane::{HeadSpec, Membrane, MembraneOptions};
 use super::modal::{dot, ModalBody};
@@ -227,6 +227,10 @@ struct Head {
     ramp: f32,
     /// Sum of the modes' mean-square amplitudes at the last measurement, m^2.
     quiet: f32,
+    /// The modes a uniform pressure outside can move (those that change the volume), and the
+    /// volume each sweeps per metre, m^2: the generalized force of a pressure `p` on mode `k` is
+    /// `p * volume`.
+    breathing: Vec<(u32, f32)>,
 }
 
 impl Head {
@@ -235,10 +239,18 @@ impl Head {
         let mut body = ModalBody::new(&membrane.mode_specs(), sr);
         // The sampled high band (after the complete band) listens to contacts; see `set_coupled`.
         body.set_coupled(membrane.modes.iter().take_while(|m| m.count == 1.0).count());
-        let k2 = membrane.wavenumbers_squared();
+        // Only the modes that take part in contacts stretch the head. The sampled high band is driven
+        // one way (see `set_coupled`): its motion costs the striker nothing, so if it also raised the
+        // tension that pushes the striker back, a hard hit on a slack head would take energy from
+        // nowhere - a 6 m/s beater left a 55 Hz kick at 19 m/s. Its share of the stretch (the high
+        // band holds a small part of the head's motion) is left out instead.
+        let coupled = membrane.modes.iter().take_while(|m| m.count == 1.0).count();
+        let mut k2 = membrane.wavenumbers_squared();
+        k2.iter_mut().skip(coupled).for_each(|v| *v = 0.0);
         let stretch = membrane.stretch_coefficient();
         let yield_tension = spec.young * spec.thickness * YIELD_STRAIN / (1.0 - spec.poisson);
-        Self { body, membrane, k2, stretch, yield_tension, tension: spec.tension, added: 0.0, ramp: 0.0, quiet: 0.0 }
+        let breathing = membrane.modes.iter().enumerate().filter(|(_, m)| m.volume != 0.0).map(|(k, m)| (k as u32, m.volume)).collect();
+        Self { body, membrane, k2, stretch, yield_tension, tension: spec.tension, added: 0.0, ramp: 0.0, quiet: 0.0, breathing }
     }
 
     /// Tension modulation: the stretch of the head raises its tension, and every mode's frequency.
@@ -315,6 +327,12 @@ pub struct Drum {
     smoothing: f32,
     /// The contact force on the batter head over the last sample (for the view and the tests).
     pub last_force: f32,
+    /// The latest strike, as it happens.
+    pub report: StrikeReport,
+    /// The flight slot of the latest strike.
+    newest: usize,
+    /// Sound pressure outside each head for the coming sample, Pa (see `add_pressure`).
+    outside: [f32; 2],
 }
 
 impl Drum {
@@ -344,7 +362,7 @@ impl Drum {
                     let preload = w.preload / w.points.max(1) as f32;
                     // At rest the group presses with its preload: that sets the resting penetration.
                     let delta0 = (preload / law.k).powf(1.0 / law.alpha);
-                    Wire { x: 0.0, v: 0.0, shape, delta0, preload, contact: Contact::resting(law, delta0, 0.3), lifted: false, landings: 0, cross: Vec::new(), tuned: 0.0, applied: 0.0 }
+                    Wire { x: 0.0, v: 0.0, shape, delta0, preload, contact: Contact::resting(law, delta0, 0.3), lifted: false, landings: 0, cross: vec![0.0; w.points.max(1)], tuned: 0.0, applied: 0.0 }
                 })
                 .collect(),
             _ => Vec::new(),
@@ -354,9 +372,14 @@ impl Drum {
             .map(|_| Flight { striker: Striker { mass: 1.0, tip: spec.striker.tip, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw::between(spec.striker.tip, Material::MYLAR, 0.5)), shape: vec![0.0; n], active: false, age: 0 })
             .collect();
         let cavity = (spec.volume > 0.0).then(|| Cavity::new(&heads.iter().map(|h| &h.membrane).collect::<Vec<_>>(), spec.volume, spec.depth, sr));
-        // In-plane waves are fast: the tension follows the stretch within about a millisecond.
-        let smoothing = 1.0 - (-(BLOCK as f32) / (0.0015 * sr)).exp();
-        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0 }
+        // In-plane waves are fast: the tension follows the stretch in the time they take to cross
+        // the head (0.14 ms on a 22" kick). Any slower, and a long contact - a beater buried in a
+        // slack kick head - stretches the head on the way in against a tension that lags behind it
+        // and is pushed back out by one that has not yet fallen: the lag's hysteresis hands the
+        // beater more energy than it brought.
+        let c_l = (spec.batter.young / (spec.batter.density * (1.0 - spec.batter.poisson * spec.batter.poisson))).sqrt();
+        let smoothing = 1.0 - (-(BLOCK as f32) / (spec.batter.radius / c_l * sr)).exp();
+        Self { spec, sr, h: 1.0 / sr, free: vec![0.0; heads.get(1).map_or(0, |h| h.body.len())], heads, cavity, flights, wires, counter: 0, smoothing, last_force: 0.0, report: StrikeReport::default(), newest: 0, outside: [0.0; 2] }
     }
 
     /// Number of (cavity mode, head mode) couplings.
@@ -406,6 +429,20 @@ impl Drum {
         f.contact = Contact::new(ContactLaw::between(s.striker.tip, Material::MYLAR, s.striker.restitution));
         f.active = true;
         f.age = 0;
+        self.newest = slot;
+        self.report.begin(s.velocity.max(0.0), s.position, s.angle);
+    }
+
+    /// Sound arriving from outside: `batter` and `reso` are the pressures (Pa) on the outer face of
+    /// each head for the coming sample - another drum's hit, a cymbal, a loud room. A pressure
+    /// uniform over a head moves only the modes that change the volume (the air inside then passes
+    /// it on to the rest, as it does a stick's hit); that is how a tom or a kick sets the snare's
+    /// wires buzzing. The pressure gradient across a head (which would drive its `m = 1` modes
+    /// directly) is left out: at the frequencies that carry the energy the heads are smaller than
+    /// the wavelength.
+    pub fn add_pressure(&mut self, batter: f32, reso: f32) {
+        self.outside[0] += batter;
+        self.outside[1] += reso;
     }
 
     /// Whether anything is still in flight or in contact.
@@ -437,6 +474,16 @@ impl Drum {
         }
         self.counter = self.counter.wrapping_add(1);
 
+        // Sound from outside, before anything that predicts where the heads will be.
+        for (hd, p) in self.heads.iter_mut().zip(self.outside) {
+            if p != 0.0 {
+                for &(k, v) in &hd.breathing {
+                    hd.body.add_modal_force(k as usize, p * v);
+                }
+            }
+        }
+        self.outside = [0.0; 2];
+
         // The enclosed air: the heads' motion drives its modes, whose pressure pushes back on them.
         if let Some(cav) = self.cavity.as_mut() {
             let (first, rest) = self.heads.split_at_mut(1);
@@ -447,7 +494,7 @@ impl Drum {
         let h = self.h;
         let mut total = 0.0;
         let batter = &mut self.heads[0];
-        for f in self.flights.iter_mut().filter(|f| f.active) {
+        for (slot, f) in self.flights.iter_mut().enumerate().filter(|(_, f)| f.active) {
             let (sy, sc) = f.striker.predict(h);
             let (by, bc) = batter.body.predict(&f.shape);
             let force = f.contact.solve(sy - by, sc + bc, h);
@@ -459,6 +506,10 @@ impl Drum {
             let gone = f.contact.touches > 0 && !f.contact.touching && f.striker.v < 0.0 && f.contact.delta < -0.002;
             if gone || f.age as f32 > 0.5 * self.sr {
                 f.active = false;
+            }
+            if slot == self.newest {
+                self.report.track(&f.contact, f.striker.v);
+                self.report.flying = f.active;
             }
         }
         self.last_force = total;
@@ -474,12 +525,13 @@ impl Drum {
             let k = w.stiffness;
             let c = m * (k / m).sqrt() / w.q.max(0.1);
             if (reso.body.scale() / self.wires[0].tuned - 1.0).abs() > 1.0e-3 || self.wires[0].tuned == 0.0 {
+                // In place: this runs on the audio thread.
                 for a in 0..self.wires.len() {
-                    let cross: Vec<f32> = (0..self.wires.len()).map(|b| reso.body.cross_compliance(&self.wires[a].shape, &self.wires[b].shape)).collect();
-                    let g = &mut self.wires[a];
-                    g.cross.clear();
-                    g.cross.extend_from_slice(&cross);
-                    g.tuned = reso.body.scale();
+                    for b in 0..self.wires.len() {
+                        let c = reso.body.cross_compliance(&self.wires[a].shape, &self.wires[b].shape);
+                        self.wires[a].cross[b] = c;
+                    }
+                    self.wires[a].tuned = reso.body.scale();
                 }
             }
             // Every mode's free next position once; each group's free position is then a dot

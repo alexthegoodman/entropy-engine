@@ -49,6 +49,10 @@ use crate::deno::brass_ops::{
     op_brass_info, op_brass_remove, op_audio_play_brass_on_track, op_audio_brass_note_on, op_audio_brass_note_off,
     op_audio_brass_set_control, op_brass_render_analyze,
 };
+use crate::deno::matter_ops::{
+    op_matter_info, op_matter_remove, op_audio_matter_prepare, op_audio_play_matter_on_track, op_audio_matter_remove,
+    op_matter_render_analyze,
+};
 use crate::deno::physmod_ops::{
     op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
     op_audio_physmod_note_on, op_audio_physmod_note_off, op_audio_physmod_set_bow, op_physmod_render_analyze,
@@ -82,7 +86,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -260,6 +264,13 @@ extension!(
         op_audio_brass_note_off,
         op_audio_brass_set_control,
         op_brass_render_analyze,
+        op_matter_info,
+        op_matter_remove,
+        op_audio_matter_prepare,
+        op_audio_play_matter_on_track,
+        op_audio_matter_remove,
+        op_matter_render_analyze,
+        op_ui_widget_matter,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4793,6 +4804,28 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             BrassViewEvent::SlideDrag { position } => format!("BRASS_SLIDE_DRAG|{}|{:.4}", br_id, position),
                             BrassViewEvent::PlayDrag { breath, lip_tension } => format!("BRASS_PLAY_DRAG|{}|{:.4}|{:.4}", br_id, breath, lip_tension),
                             BrassViewEvent::PhysicsView(on) => format!("BRASS_PHYSICS_VIEW|{}|{}", br_id, on as u8),
+                        });
+                    }
+                }
+                UiWidget::MatterView { id: mt_id, config } => {
+                    use crate::audio::matter::live;
+                    use crate::entropy_gui::{MatterView, MatterViewEvent, MatterViewOptions};
+                    let shared = live::shared_for(&config.kit);
+                    let d = MatterViewOptions::default();
+                    let opts = MatterViewOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        pads: config.pads.unwrap_or(d.pads),
+                        physics_view: config.physics_view.unwrap_or(d.physics_view),
+                        exaggeration: config.exaggeration.unwrap_or(d.exaggeration),
+                        status: config.status.clone(),
+                    };
+                    let resp = MatterView::new(mt_id.as_str()).show(ui, &opts, &shared);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            MatterViewEvent::Strike { piece, position, angle, velocity } => format!("MATTER_STRIKE|{}|{}|{:.4}|{:.4}|{:.3}", mt_id, piece.name(), position, angle, velocity),
+                            MatterViewEvent::Pad { piece, velocity } => format!("MATTER_PAD|{}|{}|{:.3}", mt_id, piece.name(), velocity),
+                            MatterViewEvent::PhysicsView(on) => format!("MATTER_PHYSICS_VIEW|{}|{}", mt_id, on as u8),
                         });
                     }
                 }

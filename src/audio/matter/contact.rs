@@ -226,6 +226,46 @@ impl Striker {
     }
 }
 
+/// What the latest strike on a body did, measured as it happened: for the view (the stick comes
+/// down at `speed_in`, stays `contact_samples`, leaves at `speed_out`) and for the ops.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StrikeReport {
+    /// Strikes so far on this body.
+    pub count: u32,
+    /// Where it landed: 0 is the centre, 1 the edge; around the body, radians.
+    pub position: f32,
+    pub angle: f32,
+    /// Speed at impact and, once it has left, speed away from the surface, m/s.
+    pub speed_in: f32,
+    pub speed_out: f32,
+    /// Samples with the tip pressing on the surface, and the largest force, N.
+    pub contact_samples: u32,
+    pub peak_force: f32,
+    /// Distance from the tip to the surface under it now, m (negative while pressed in).
+    pub gap: f32,
+    /// Whether the striker is still in flight or in contact.
+    pub flying: bool,
+}
+
+impl StrikeReport {
+    /// A new strike at `speed` m/s, where it lands.
+    pub fn begin(&mut self, speed: f32, position: f32, angle: f32) {
+        *self = Self { count: self.count.wrapping_add(1), position, angle, speed_in: speed, flying: true, ..Default::default() };
+    }
+
+    /// One sample of the strike: the contact's force and state, and the striker's velocity
+    /// (toward the surface).
+    #[inline]
+    pub fn track(&mut self, contact: &Contact, striker_v: f32) {
+        if contact.force > 0.0 {
+            self.contact_samples += 1;
+            self.peak_force = self.peak_force.max(contact.force);
+        }
+        self.gap = -contact.delta;
+        self.speed_out = (-striker_v).max(0.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

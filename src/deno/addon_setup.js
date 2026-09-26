@@ -76,7 +76,10 @@ const audioAPI = {
     // first (see render_mix_to_wav); anything else goes straight to the master as before.
     // brassEvents: [{trackId, instrument?, freq, startTime, duration, breath, ...}] - brass notes
     // (see Entropy.Brass); notes on one track are played by one player, so overlaps slur.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents) => {
+    // matterEvents: [{trackId, kit, mix?, piece, speed, position?, striker?, startTime}] - drum-kit
+    // hits (see Entropy.Matter); hits on one track are played on one kit, so the pieces ring on and
+    // hear each other.
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -121,7 +124,7 @@ const audioAPI = {
             gain: b.gain ?? 1.0,
             effects: (b.effects || []).map(characterConfig),
             silences: b.silences || []
-        })), brassEvents || []);
+        })), brassEvents || [], matterEvents || []);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -188,6 +191,19 @@ const audioAPI = {
     // Moves a held brass note while it sounds. which: "breath" (0..1, a breath controller's home),
     // "lipTension" (-1..1), "vibratoDepth" (cents) or "bend" (cents; on the trombone, the slide).
     brassSetControl: (voice, which, value) => ops.op_audio_brass_set_control(voice, which, value),
+    // A physically modeled drum kit on a track's bus (see Entropy.Matter). kit: {kick, snare,
+    // rackTom, floorTom (tunings, Hz), kickMuffling (0..1), snares (bool), snareTension (N),
+    // sympathetic (bool)}. A kit takes a moment to build the first time: prepareMatter builds it off
+    // the audio thread and answers {ok, status: "ready" | "building" | "rebuilding"}; hits sent
+    // while it is first being built are dropped. Cheap to call every frame.
+    prepareMatter: (trackId, config) => ops.op_audio_matter_prepare({ ...config, trackId }),
+    // Strikes a piece of the track's kit. config: {kit, mix? ({piece: level}), piece ("kick",
+    // "snare", "rack-tom", "floor-tom", "crash", "ride", "splash"), speed (m/s at impact), position
+    // (0 centre .. 1 edge), angle?, striker? ("stick", "shoulder", "felt", "plastic", "mallet",
+    // "hard-mallet", "yarn")}. Returns {ok, played, error?}.
+    playMatterOnTrack: (trackId, config) => ops.op_audio_play_matter_on_track({ ...config, trackId }),
+    // Stops a track's kit.
+    removeMatter: (trackId, kitId) => ops.op_audio_matter_remove(trackId, kitId || trackId),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -317,6 +333,21 @@ const brassAPI = {
     // harmonicsDb, partial, position, mouthPressurePa, waveSteepness, attackSeconds}. No audio
     // device is used, so this is how to check what a brass note sounds like.
     analyzeNote: (config, seconds) => ops.op_brass_render_analyze(config, seconds || 0)
+};
+
+// Physically-modeled sounding objects: the drum kit (see src/audio/matter and Widget.matter). A kit
+// is named by an id you choose (the DAW uses the track's id); the widget, these calls and a playing
+// kit publish to and read the same id.
+const matterAPI = {
+    // {ok, id, activeKits, workers, focus, kit: {...}, pieces: [{piece, awake, energyJ, level,
+    //  strikes, position, speedIn, speedOut, contactMs, peakForceN, mix, glideCents? | nonlinear?,
+    //  wiresLifted?, wireLandings?}]}.
+    info: (id) => ops.op_matter_info(id),
+    remove: (id) => ops.op_matter_remove(id),
+    // Strikes one piece offline, alone, and measures it: {ok, piece, striker, speed, peakDb, rmsDb,
+    // centroidHz, above4kDb (the crack: the attack's energy above 4 kHz), strongestHz, decaySeconds, contactMs, peakForceN, reboundSpeed, glideCents?,
+    // wireLandings?}. No audio device is used, so this is how to check what a hit sounds like.
+    analyzeHit: (config, seconds) => ops.op_matter_render_analyze(config, seconds || 0)
 };
 
 const vst3API = {
@@ -960,6 +991,7 @@ globalThis.Entropy = {
                 Wavetable: wavetableAPI,
                 PhysMod: physModAPI,
                 Brass: brassAPI,
+                Matter: matterAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
     Guitar: guitarAPI,
@@ -1453,6 +1485,26 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A physically modeled drum kit, drawn from the modes it rings with in the same neon way
+            // (see Entropy.Matter and entropy_gui::MatterView). The widget reads the engine's
+            // MatterShared directly. config: {kit, height, width, pads, physicsView, exaggeration,
+            // status}; the caller hears about clicks through the callbacks: onStrike(piece,
+            // position, angle, velocity) (a head or cymbal clicked where it was clicked),
+            // onPad(piece, velocity), onPhysicsView(on).
+            matter: (windowId, config) => {
+                const id = nextWidgetId(windowId, "matter", config?.id);
+                ops.op_ui_widget_matter(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "MATTER_STRIKE" && config.onStrike) config.onStrike(parts[2], parseFloat(parts[3]), parseFloat(parts[4]), parseFloat(parts[5]));
+                        else if (type === "MATTER_PAD" && config.onPad) config.onPad(parts[2], parseFloat(parts[3]));
+                        else if (type === "MATTER_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
+                    });
+                }
+            },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
             // treeView.
@@ -1675,7 +1727,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
@@ -1948,6 +2000,7 @@ globalThis.Entropy = {
     Wavetable: wavetableAPI,
     PhysMod: physModAPI,
     Brass: brassAPI,
+    Matter: matterAPI,
     Icons: iconsAPI,
     System: systemAPI,
     Video: videoAPI,
