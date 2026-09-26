@@ -70,6 +70,8 @@ mod cymbal_tests;
 #[cfg(test)]
 mod kit_tests;
 #[cfg(test)]
+mod report_tests;
+#[cfg(test)]
 mod rub_tests;
 #[cfg(test)]
 mod water_tests;

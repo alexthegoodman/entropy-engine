@@ -12,7 +12,7 @@ Source material: [PHYS_MOD_SYNTH.md](PHYS_MOD_SYNTH.md) (strings),
 cymbals, plus the plan for everything after). Each has an "Implementation Status" section with the
 measurements, decisions and known limits the posts draw on.
 
-Nothing here has been drafted yet. Numbers in this plan are copied from those docs so the outlines
+Posts 1, 2 and 3 are drafted. Numbers in this plan are copied from those docs so the outlines
 have something to aim at. They are not publishable until re-run (see "Gates").
 
 ## Series checklist
@@ -172,62 +172,62 @@ trombones that the plan builds on, read before any claim about what real trombon
 **Commands from the doc:** `cargo test --release --lib brass`, `--test brass_no_alloc`,
 `--test brass_view`; `npx vitest run tests/daw_brass.test.ts`.
 
-- [ ] **2.1 What is different from the string.** The chain (player, lips, mouthpiece, bore, radiation)
+- [x] **2.1 What is different from the string.** The chain (player, lips, mouthpiece, bore, radiation)
   and the plan's comparison table, cut to what the post proves. Two consequences: the bore is the
   instrument, and the player matters more.
-- [ ] **2.2 The bore.** `bore.rs`: cones, cylinders and Bessel flares in three runs (front, cylinder,
+- [x] **2.2 The bore.** `bore.rs`: cones, cylinders and Bessel flares in three runs (front, cylinder,
   bell); stock tenor trombone (.547" bore, 8.5" bell, about 2.8 m), B-flat trumpet, double horn, F tuba,
   with tapers and flares found by search so the resonances line up.
-- [ ] **2.3 The reference: transfer-matrix impedance.** `impedance.rs`, 1 mm staircase, visco-thermal
+- [x] **2.3 The reference: transfer-matrix impedance.** `impedance.rs`, 1 mm staircase, visco-thermal
   loss, lumped radiation load. Build and test time only. Evidence: the quarter-wave cylinder check
   within 3 cents; trombone resonances 2-10 within 30 cents of the B-flat series with the first below
   0.75 of the fundamental; seventh position lowers resonances 3-10 by 5.4-6.4 semitones.
-- [ ] **2.4 The runtime waveguide.** `airbore.rs`: Kelly-Lochbaum cells (one sample, about 3.9 mm
+- [x] **2.4 The runtime waveguide.** `airbore.rs`: Kelly-Lochbaum cells (one sample, about 3.9 mm
   each), fractional delay lines for the cylinder, one lumped linear-phase loss filter per direction,
   radiation reflection. Evidence: runtime peaks 2-8 within 12 cents of the reference. Failure note:
   the plan assumed a first-order allpass could carry the boundary layer's slowing; at the model's rate
   it swings the delay by hundreds of samples where the boundary layer moves it by about nine, so the
   slowing is applied at the played pitch (about 15 cents flat eight partials up). The lumped loss
   filter also leaves the DC flow resistance about 7x too high.
-- [ ] **2.5 The lips.** `lips.rs`: one-mass outward-striking valve, Bernoulli flow solved in closed
+- [x] **2.5 The lips.** `lips.rs`: one-mass outward-striking valve, Bernoulli flow solved in closed
   form against the mouthpiece each sample, lip collision. Lip mass following the note
   (`3 (233 / f)^2` kg/m^2). Evidence: a breath threshold of 150-600 Pa for partials 2-8; partial 12
   needs more than twice partial 4's.
-- [ ] **2.6 Why it plays sharp, and a player fitted from the model.** The one-mass lip sounds 50-110
+- [x] **2.6 Why it plays sharp, and a player fitted from the model.** The one-mass lip sounds 50-110
   cents above the resonance, so the player pulls the slide and tunes by ear. Fitted laws:
   `lip_center` (0.85 `(p / 700 Pa)^-0.073` of the resonance, aimed 3% high) and `sounding_offset`.
   Evidence: in tune within 6 cents at pp and mf, 16 at ff; loose lips drop B-flat3 to F3, pinched
   lips pop it to D4. The planned two-degree-of-freedom lip is not built.
-- [ ] **2.7 Attacks.** Released from rest the lips ring at about 0.8 of the note and take about 150 ms
+- [x] **2.7 Attacks.** Released from rest the lips ring at about 0.8 of the note and take about 150 ms
   to be pulled round; guided attack and `attack_skill`, the tongue, cracks and retries. Evidence:
   skilled attacks reach half level within 40 ms and 90% within 80 ms; an unskilled start blooms 2.5x
   slower and high notes start 60+ cents off; a glissando passes through the pitches between.
-- [ ] **2.8 Brassiness: nonlinear propagation and shock fronts.** Pressure-dependent propagation in
+- [x] **2.8 Brassiness: nonlinear propagation and shock fronts.** Pressure-dependent propagation in
   four forward segments (the generalized-Burgers steepening). It was planned as `burgers.rs` and lives
   in `airbore.rs`; say so where the plan is quoted. The shock-front rule: the read point may move at
   most half a sample per sample. The one clean A/B: the same breath with and without the air's
   nonlinearity. Evidence: ff at least 12 dB louder than mf with the centroid more than doubled; with
   the nonlinearity off the 10th harmonic is 15 dB+ weaker; the wavefront at the bell steepens 8x+
   from mf to ff. Spectra and a waveform at the bell for both.
-- [ ] **2.9 One bore, four instruments.** `BrassInstrument` and `Mechanism` (slide, or valves whose
+- [x] **2.9 One bore, four instruments.** `BrassInstrument` and `Mechanism` (slide, or valves whose
   tubes add), the valve chart and why the nearest-resonance fingering was rejected (the player takes
   the standard chart and trims by up to 45 cents), the horn's F side, the tuba as a mostly conical
   bore. Evidence: valve 1+3 comes out 15-40 cents sharp; each instrument in tune across its range
   within 8 cents (tuba's lowest within 20); a valve slur has no gap.
-- [ ] **2.10 Mutes, the hand and the bell.** Straight, cup and harmon as an obstruction plus filters;
+- [x] **2.10 Mutes, the hand and the bell.** Straight, cup and harmon as an obstruction plus filters;
   the hand as part of the bore profile; bell facing as a blend of on-axis and radiated-power outputs.
   Evidence: stopping the horn puts a resonance 80-170 cents above each of partials 9-16 (stopped A4
   within 10 cents, brighter, 6 dB+ quieter, hence stopped horn sounding a semitone high); each mute
   keeps the trombone within 8 cents, harmon 12 dB+ quieter; a bell toward the listener 1.8x+
   brighter. Limits: a mute's body is a filter, not acoustics; the harmon pulls the trumpet about 20
   cents flat.
-- [ ] **2.11 The view and the DAW.** `widgets_brass.rs` (each instrument laid out from its own bore:
+- [x] **2.11 The view and the DAW.** `widgets_brass.rs` (each instrument laid out from its own bore:
   the drawing is as long as the air column, a valve loop as long as the tube it adds, the mute or hand
   drawn where the bore is obstructed), Physics View (standing wave, resonance ladder, playing map, one
   period of lips and mouthpiece), `BrassShared` and `BrassLive`, `daw_brass.ts` (playing styles,
   mutes, the Brass window, the `daw_brass` tool), offline export. Point at post 1.8 for the shared
   pattern rather than re-explaining it. Cost per player (docs: 3.9% of one core; re-measure).
-- [ ] **2.12 Verification, failure notes and known limits.** The claim-and-test table for brass; the
+- [x] **2.12 Verification, failure notes and known limits.** The claim-and-test table for brass; the
   no-allocation test; the view pictures; the DAW tests. Limits: the low register radiates about 15 dB
   less than the high (no register balance yet); ff notes at the extremes are within 15 cents, not 6;
   some extreme notes miss (horn F2, G2, and F4 at some dynamics); pedal tones are tuba-only; changing
@@ -236,7 +236,19 @@ trombones that the plan builds on, read before any claim about what real trombon
 
 **Gaps:** the docs say the live window is tested through callbacks and the headless view, not end to
 end; `daw_brass_live.feature` screenshots need Alex's machine.
-Gate: [ ] evidence run  [ ] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+Gate: [x] evidence run  [x] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+
+**Drafted 2026-09-26** as `indie-machine/app/posts/2026-09-26-entropy-physmod-brass.mdx` (about 6,700
+words of prose plus 23 tables, over the 3,000-5,000 target: cut or split the aliasing proxy, the mute and
+bell tables and the second DAW screenshot first). The post's sections 12-14 cover plan 2.12. The `brass_*_report`
+tests in `src/audio/brass/tests.rs` are the commands. What the re-run changed against this plan and the
+docs: the waveguide's first resonance is 30-39 cents sharp and 7 dB low; "15 cents flat eight partials up"
+reads -9, "DC resistance 7x" reads 2.5x at 1 Hz, and a player costs 1.5-3.2% of a core, not 3.9%; lip
+hysteresis exists (gaps of 40-56 Hz) but no test held it; the trumpet's 1-2-3 fingering and the horn's low
+F-side notes miss or never speak; the tuba gets no brassiness and the horn the most; the nonlinearity makes
+mezzo about 15% duller before the knee. `daw_brass_live` runs to a DAW-side pass but its Rust-side
+playing-map floor fails by 0.6-0.75 dB (assertion left alone). The frontmatter pins `db5fd61` plus
+uncommitted changes, so the tag step is still Alex's.
 
 ---
 
@@ -254,37 +266,37 @@ plate and scalar-auxiliary-variable literature. Identify the exact papers from t
 `--ignored --nocapture`: `matter::tests::cost`, `matter::cymbal_tests::cymbal_cost`, `cascade_report`,
 `rate_report`, `inplane_report`, `matter::kit_tests::kit_report`, and the `*_listening_examples`.
 
-- [ ] **3.1 Impact as the connective tissue.** Why the series' third instrument starts from a contact
+- [x] **3.1 Impact as the connective tissue.** Why the series' third instrument starts from a contact
   law, and the seven-system frame from the Sounds plan cut to what is built. The shape of
   `src/audio/matter/`.
-- [ ] **3.2 Modal bodies.** `modal.rs`: modes as rotated complex states (exact for a force held over a
+- [x] **3.2 Modal bodies.** `modal.rs`: modes as rotated complex states (exact for a force held over a
   sample), in tune in `f32` even at 30 Hz, never unstable, silent above Nyquist; `set_scale` retunes a
   ringing body with displacement and velocity continuous; quiet modes flushed before they turn
   subnormal. `bessel.rs`: Miller's backward recurrence and zeros. Evidence: `J_m` values and zeros
   against tables.
-- [ ] **3.3 Contact.** `contact.rs`: materials, Hertz spheres and felt power laws, Hunt-Crossley with
+- [x] **3.3 Contact.** `contact.rs`: materials, Hertz spheres and felt power laws, Hunt-Crossley with
   Flores' restitution relation, a per-sample bracketed Newton solve. Evidence: contact time and peak
   force at 44.1 kHz match a 4x finer step; contact time falls as `v^(-1/5)` and matches Hertz's closed
   form; rebound follows restitution 0.3, 0.6, 0.9. Failure note: wood on bronze peaks for tens of
   microseconds, which 44.1 kHz sees averaged; contact time, impulse and the spectrum below 8 kHz still
   match the finer step.
-- [ ] **3.4 A drum head from Bessel zeros.** `membrane.rs`: mode shapes normalised to the head's mass,
+- [x] **3.4 A drum head from Bessel zeros.** `membrane.rs`: mode shapes normalised to the head's mass,
   the radiation impedance of every mode from its Hankel transform, tension solved from a tuning.
   Evidence: the 26" timpani's `(m,1)` ratios 1 : 1.469 : 1.921 : 2.361 : 2.795 from the vacuum
   1 : 1.340 : 1.665 : 1.980 : 2.289, against Rossing's roughly 1 : 1.50 : 1.97 : 2.44; the `(0,1)` thud
   dying in 0.49 s against 1.74 s for the note; a centre strike leaving the asymmetric modes 30 dB+
   quieter.
-- [ ] **3.5 Tension modulation and the glide.** The stretch coefficient `E h / (4 (1 - nu))`, capped
+- [x] **3.5 Tension modulation and the glide.** The stretch coefficient `E h / (4 (1 - nu))`, capped
   at the film's yield strain (about 3%). Evidence: an 82 Hz floor tom starts 63 cents sharp at 6 m/s,
   16 at 3 m/s; a slacker head glides further. Failure notes: driving tension from the instantaneous
   `q^2`, or a lagged copy, pumps energy in (parametric amplification) and a hard hit runs away; the
   cycle-averaged amplitude fixed it. A hard beater on a slack kick starts about 400 cents sharp, which
   the docs call what uniform-tension stretching gives, not what a real pillowed kick does.
-- [ ] **3.6 Kick, toms, timpani.** `drum.rs` presets, `cavity.rs`'s uniform mode as the air spring,
+- [x] **3.6 Kick, toms, timpani.** `drum.rs` presets, `cavity.rs`'s uniform mode as the air spring,
   contact times set by the head's give (timpani mallet about 8 ms, stick about 6 ms, kick beater about
   19 ms), the kick's pillow cutting the boom by 6 dB+, a plastic beater putting 6 dB+ more above 4 kHz
   than felt.
-- [ ] **3.7 The snare.** Membrane, shell air, impact and many small contacts in one instrument.
+- [x] **3.7 The snare.** Membrane, shell air, impact and many small contacts in one instrument.
   The cavity's transverse modes (the first near 565 Hz in a 14" by 5.5" shell); the wires (eight
   groups, lifting when the head accelerates away faster than `preload / mass`); the sampled high band a
   complete mode set stops short of (2-3 kHz). Evidence: wires land 50+ times on a mezzo hit and never
@@ -296,11 +308,11 @@ plate and scalar-auxiliary-variable literature. Identify the exact papers from t
   every sample; a uniform-pressure-only cavity let the wires' energy radiate away in tens of
   milliseconds. Cost: 44% of a core down to 13% after profiling and SSE2 (Linux container; re-measure).
   Limits: no shell modes, rim, rimshot or cross-stick.
-- [ ] **3.8 Cymbals: a shallow shell.** `plate.rs`: free-edge thin plate modes, bent into a shallow
+- [x] **3.8 Cymbals: a shallow shell.** `plate.rs`: free-edge thin plate modes, bent into a shallow
   spherical dome, radiation by the Rayleigh integral. Evidence: a 20 mm dome lifts the crash's `(0,1)`
   from 38 Hz to 547 Hz; free-plate `lambda^2` within 2e-4 of the frequency equation and Leissa's table
   within 0.5%; the shell's short waves follow `omega^2 = omega_flat^2 + E / (rho R^2)` within 1%.
-- [ ] **3.9 The von Karman nonlinearity.** `vonkarman.rs`: the stretching force run with a scalar
+- [x] **3.9 The von Karman nonlinearity.** `vonkarman.rs`: the stretching force run with a scalar
   auxiliary variable so total energy cannot grow, evaluated every other sample (every third aliases,
   90 dB errors). Evidence: a hard stroke about 10 dB louder than the same plate made linear;
   energy-weighted frequency rises 10%+ within 100 ms of a hard hit and falls back, where a linear
@@ -310,7 +322,7 @@ plate and scalar-auxiliary-variable literature. Identify the exact papers from t
   rested on one reading (at a zero crossing) lost 15 dB from the low bands. The honest negative result,
   said as a limit and not a caveat: the cascade stops at the nonlinear set's top (2 kHz), so the
   crash's rising wash above a few kHz is missing and the radiated centroid does not rise.
-- [ ] **3.10 The kit as one voice.** `kit.rs`: `placement` shared by the sound and the view, each
+- [x] **3.10 The kit as one voice.** `kit.rs`: `placement` shared by the sound and the view, each
   piece's sound reaching every drum after `d / c` through the same pressure path the air uses,
   blocks of 32 samples, parked worker threads, pieces asleep when silent, builds off the audio
   thread (1.6 s cold, 0.15 s cached), `live.rs` (`KitVoice`, `KitHandle`, `MatterShared`). Evidence:
@@ -321,13 +333,13 @@ plate and scalar-auxiliary-variable literature. Identify the exact papers from t
   one to publish). Failure notes: the energy leak, where a 6 m/s felt beater left the slack kick at
   19 m/s because the high band's motion raised the tension, fixed by restricting the stretch to
   contact-coupled modes (5.2 m/s); more threads than work was slower (75% with three workers).
-- [ ] **3.11 The kit in the DAW.** `widgets_matter.rs` (heads and plates as rings and spokes displaced
+- [x] **3.11 The kit in the DAW.** `widgets_matter.rs` (heads and plates as rings and spokes displaced
   by the published field, the lowest 64 modes on a 145-point grid about 85 times a second, the stick
   replaying each contact, snare wires glowing, click-to-strike, pads, Physics View), `daw_matter.ts`
   (kit rows with General MIDI notes, presets, velocity as stick speed from 0.4 m/s log-spaced, tunings
   committed after 350 ms of stillness, the mix as microphones, the `daw_matter` tool), `matter_ops.rs`
   (`analyzeHit`). Point at post 1.8 for the shared view pattern.
-- [ ] **3.12 Verification, failure notes and known limits.** The claim-and-test table for matter;
+- [x] **3.12 Verification, failure notes and known limits.** The claim-and-test table for matter;
   `matter_no_alloc.rs`; the view pictures; the DAW tests. Limits: no hi-hat, no rim; cymbals radiate
   into the kit but do not listen; a whole kit ringing costs about 30% of a core against the plan's 5%,
   and a crash 56% (ride 63%); no bell profile, lathing, chokes or glancing strikes on cymbals; hits
@@ -337,7 +349,18 @@ plate and scalar-auxiliary-variable literature. Identify the exact papers from t
 **Gaps:** `daw_matter_live.feature` has not been run in the environment the docs were written in;
 it needs a desktop session and audio device. Split point if this runs too long: 3.1-3.7 (drums) and
 3.8-3.12 (cymbals and kit) already stand alone.
-Gate: [ ] evidence run  [ ] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+Gate: [x] evidence run  [x] drafted  [ ] reviewed by Alex  [ ] tag or commit pinned
+
+**Drafted 2026-09-26** as `indie-machine/app/posts/2026-09-26-entropy-physmod-drums.mdx` (about 7,500 words of
+prose plus tables and code, over the 3,000-5,000 target: the split at 3.7 / 3.8 stands, or cut the bronze contact
+table, the rate and resting tables and the snare failure notes first). The ignored `matter_*_report` tests in
+`src/audio/matter/report_tests.rs` are the commands. What the re-run changed against this plan and the docs: the
+nonlinear cymbals carry a decaying output offset (crash 5 m/s mean -0.216 in the first 0.1 s, splash -0.402) so
+"about 10 dB louder" is not a loudness claim, and 500-2000 Hz moves about 5 dB; costs are lower here (crash 34%,
+ride 40%, splash 16%, snare 6.5%, groove 52% on one thread, kit build 0.96 s cold); the 82 Hz tom glides 91 and 25
+cents, not 63 and 16; a two-pole `f32` recurrence is off by 1.4 cents at 30 Hz, not several; the failed stretch
+variants reproduce (18.7 m/s beater, runaway at 25 m/s); `daw_matter_live` passes on this machine. The frontmatter
+pins `db5fd61` plus uncommitted changes, so the tag step is still Alex's.
 
 ---
 
