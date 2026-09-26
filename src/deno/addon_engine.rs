@@ -53,6 +53,10 @@ use crate::deno::matter_ops::{
     op_matter_info, op_matter_remove, op_audio_matter_prepare, op_audio_play_matter_on_track, op_audio_matter_remove,
     op_matter_render_analyze, op_audio_hold_matter_on_track,
 };
+use crate::deno::water_ops::{
+    op_water_info, op_water_remove, op_audio_water_prepare, op_audio_play_water_on_track, op_audio_water_remove,
+    op_water_render_analyze,
+};
 use crate::deno::physmod_ops::{
     op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
     op_audio_physmod_note_on, op_audio_physmod_note_off, op_audio_physmod_set_bow, op_physmod_render_analyze,
@@ -271,6 +275,12 @@ extension!(
         op_audio_matter_remove,
         op_matter_render_analyze,
         op_audio_hold_matter_on_track,
+        op_water_info,
+        op_water_remove,
+        op_audio_water_prepare,
+        op_audio_play_water_on_track,
+        op_audio_water_remove,
+        op_water_render_analyze,
         op_ui_widget_matter,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,

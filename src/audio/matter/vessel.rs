@@ -19,10 +19,15 @@
 //! the closed end; what is heard is the open end's volume velocity, a small monopole.
 //!
 //! **Pouring.** A stream falls from a spout, speeds up (`v^2 = v_0^2 + 2 g h` over the drop to the
-//! water, which shortens as the vessel fills), thins (`r_j = sqrt(q / (pi v))`), and breaks into
-//! drops (Rayleigh-Plateau: the fastest-growing wavelength, `9.02 r_j` of jet, pinches into a drop of
-//! `1.89 r_j`), which land as drops (`drop`) and entrain bubbles, which the air column hears through
-//! the water's surface.
+//! water, which shortens as the vessel fills) and thins (`r_j = sqrt(q / (pi v))`). If it falls
+//! farther than it can stay whole (a jet breaks up after about `13 d sqrt(We)`), it arrives as drops
+//! (Rayleigh-Plateau: the fastest-growing wavelength, `9.02 r_j` of jet, pinches into a drop of
+//! `1.89 r_j`), which land as drops (`drop`). If it arrives whole, it is a **plunging jet**, which
+//! drags air under wherever it enters faster than about a metre a second: Bin's correlation for
+//! plunging jets, `Q_air / Q_water = 0.04 Fr^0.28 (L / d)^0.4` (`L` the free fall, `d` the jet's
+//! diameter), as bubbles of the sizes turbulence tears air into (see `bubble::TurbulentSizes`), no
+//! larger than the jet. Either way the bubbles ring, and the air column hears them through the
+//! water's surface - the rising fizz of a glass being filled.
 //!
 //! **The glass itself.** A struck glass rings in its wall's bending modes, `cos(m theta)` round the
 //! rim with `m = 2, 3, 4...` (a ring's inextensional modes, `omega^2 ~ E h^2 m^2 (m^2 - 1)^2 /
@@ -37,7 +42,7 @@
 //!
 //! Nothing here allocates after construction.
 
-use super::bubble::{Birth, BubbleBank, Resonators, Rng, G, GAMMA_AIR, RHO_WATER};
+use super::bubble::{Birth, BubbleBank, Resonators, Rng, TurbulentSizes, G, GAMMA_AIR, RHO_WATER, SURFACE_TENSION};
 use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
 use super::drop::{entrain, Drop};
 use super::drum::{StrikerSpec, MAX_STRIKERS};
@@ -377,13 +382,21 @@ pub struct Vessel {
     pour: Option<Pour>,
     poured: f32,
     next_parcel: f32,
+    next_bubble: f32,
     rng: Rng,
     counter: usize,
     births: [Birth; 2],
     pub report: StrikeReport,
-    /// Parcels of the stream landed so far.
+    /// Parcels of the stream landed so far (when it arrives broken into drops), and bubbles the
+    /// plunging jet has dragged under (simulated; each may stand for several).
     pub parcels: u64,
+    pub jet_bubbles: u64,
 }
+
+/// Bubbles a plunging jet makes per second, at most (the rest are carried by those made).
+const JET_RATE: f32 = 2000.0;
+/// A jet entering slower than this drags no air under, m/s.
+const JET_ENTRAINS: f32 = 1.0;
 
 impl Vessel {
     /// A vessel filled to `level` m, heard from `distance` m.
@@ -410,11 +423,13 @@ impl Vessel {
             pour: None,
             poured: 0.0,
             next_parcel: 0.0,
+            next_bubble: 0.0,
             rng: Rng::new(7),
             counter: 0,
             births: [Birth::new(1.0e-3, 1.0e-3); 2],
             report: StrikeReport::default(),
             parcels: 0,
+            jet_bubbles: 0,
         };
         v.retune(true);
         v
@@ -422,6 +437,29 @@ impl Vessel {
 
     pub fn level(&self) -> f32 {
         self.level
+    }
+
+    /// Makes this a different vessel with water to `level`, silent (reusing a vessel on the audio
+    /// thread: nothing is allocated).
+    pub fn reshape(&mut self, spec: VesselSpec, level: f32) {
+        self.spec = spec;
+        self.glass = GlassSpec { vessel: spec };
+        self.level = level.clamp(0.0, spec.total_height());
+        self.pour = None;
+        self.walls.clear();
+        self.air.clear();
+        self.flights.iter_mut().flatten().for_each(|f| f.active = false);
+        self.retune(true);
+    }
+
+    /// The wall's energy, J (how loudly a glass is still ringing).
+    pub fn wall_energy(&self) -> f32 {
+        self.walls.energy()
+    }
+
+    /// The lowest air mode now, Hz.
+    pub fn air_pitch(&self) -> f32 {
+        if self.n_air > 0 { self.modes[0].freq } else { 0.0 }
     }
 
     /// Sets the water level at once (m).
@@ -553,18 +591,44 @@ impl Vessel {
             let area = self.spec.area_at(self.level);
             self.level = (self.level + p.flow * h / area).min(self.spec.total_height());
             self.poured += h;
-            self.next_parcel -= h;
-            if self.next_parcel <= 0.0 {
-                let fall = (p.height - self.level).max(0.0);
-                let v = (p.spout_speed * p.spout_speed + 2.0 * G * fall).sqrt().max(0.05);
-                let rj = (p.flow / (PI * v)).sqrt();
-                let drop = Drop { radius: 1.89 * rj, speed: v };
-                let volume = 4.0 / 3.0 * PI * drop.radius.powi(3);
-                self.land(drop, 1.0);
-                self.parcels += 1;
-                // The stream breaks up irregularly: intervals scattered about their mean.
-                let mean = volume / p.flow.max(1.0e-9);
-                self.next_parcel += mean * (0.4 + self.rng.exponential(0.6));
+            let fall = (p.height - self.level).max(0.0);
+            let v = (p.spout_speed * p.spout_speed + 2.0 * G * fall).sqrt().max(0.05);
+            let rj = (p.flow / (PI * v)).sqrt();
+            let d = 2.0 * rj;
+            let weber = RHO_WATER * v * v * d / SURFACE_TENSION;
+            if fall < 13.0 * d * weber.sqrt() {
+                // Whole: a plunging jet.
+                if v > JET_ENTRAINS {
+                    let froude = v * v / (G * d);
+                    let air = 0.04 * froude.powf(0.28) * (fall / d).max(1.0).powf(0.4) * p.flow;
+                    let sizes = TurbulentSizes::new((2.0 * rj).clamp(0.5e-3, 5.0e-3));
+                    let rate = air / sizes.mean_volume();
+                    let sim = rate.min(JET_RATE);
+                    self.next_bubble -= h;
+                    while self.next_bubble <= 0.0 {
+                        let r = sizes.sample(&mut self.rng);
+                        // Carried down through the plume under the jet (a few centimetres).
+                        let depth = self.rng.range(1.1 * r, self.level.min(0.05).max(1.2 * r));
+                        let mut b = Birth::new(r, depth);
+                        b.pan = self.pan;
+                        b.count = rate / sim;
+                        self.bubbles.water_depth = self.level;
+                        self.bubbles.spawn(b);
+                        self.jet_bubbles += 1;
+                        self.next_bubble += self.rng.exponential(1.0 / sim);
+                    }
+                }
+            } else {
+                self.next_parcel -= h;
+                if self.next_parcel <= 0.0 {
+                    let drop = Drop { radius: 1.89 * rj, speed: v };
+                    let volume = 4.0 / 3.0 * PI * drop.radius.powi(3);
+                    self.land(drop, 1.0);
+                    self.parcels += 1;
+                    // The stream breaks up irregularly: intervals scattered about their mean.
+                    let mean = volume / p.flow.max(1.0e-9);
+                    self.next_parcel += mean * (0.4 + self.rng.exponential(0.6));
+                }
             }
             if self.poured >= p.duration || self.level >= self.spec.total_height() {
                 self.pour = None;

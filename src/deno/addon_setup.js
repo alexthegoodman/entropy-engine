@@ -79,7 +79,9 @@ const audioAPI = {
     // matterEvents: [{trackId, kit, mix?, piece, speed, position?, striker?, startTime}] - drum-kit
     // hits (see Entropy.Matter); hits on one track are played on one kit, so the pieces ring on and
     // hear each other.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents) => {
+    // waterEvents: [{trackId, water?, mix?, action, pitch?, speed?, ..., startTime}] - water notes
+    // (see Entropy.Water); notes on one track are played on one water instrument.
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -124,7 +126,7 @@ const audioAPI = {
             gain: b.gain ?? 1.0,
             effects: (b.effects || []).map(characterConfig),
             silences: b.silences || []
-        })), brassEvents || [], matterEvents || []);
+        })), brassEvents || [], matterEvents || [], waterEvents || []);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -211,6 +213,20 @@ const audioAPI = {
     holdMatterOnTrack: (trackId, config) => ops.op_audio_hold_matter_on_track({ ...config, trackId }),
     // Stops a track's kit.
     removeMatter: (trackId, kitId) => ops.op_audio_matter_remove(trackId, kitId || trackId),
+    // Water on a track's bus (see Entropy.Water). water: {rain ("lake", "window", "roof", "tent",
+    // "cymbal", "drum": what its rain falls on), vessel ("bottle", "vase", "jug": what fills pour
+    // into)}. It takes a moment to build (a brook and a beach are set flowing): prepareWater builds
+    // it off the audio thread and answers {ok, status}; notes sent while it is first built are
+    // dropped. Cheap to call every frame.
+    prepareWater: (trackId, config) => ops.op_audio_water_prepare({ ...config, trackId }),
+    // Plays a water note. config: {water, mix? ({drip, glass, fill, rain, brook, surf, slosh}:
+    // level), action, ...}: "drip" {pitch? (Hz; the drop whose bubble rings at it), x? (-1..1)},
+    // "glass" {pitch, speed (m/s), spoon? (else a soft mallet)}, "fill" {pitch (where the air column
+    // rises to), duration}, "rain" {rate (mm/h), duration}, "brook" {speed (m/s), duration}, "surf"
+    // {height (m), duration}, "slosh" {strength (0..1), duration}. Returns {ok, played, error?}.
+    playWaterOnTrack: (trackId, config) => ops.op_audio_play_water_on_track({ ...config, trackId }),
+    // Stops a track's water.
+    removeWater: (trackId, waterId) => ops.op_audio_water_remove(trackId, waterId || trackId),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -340,6 +356,22 @@ const brassAPI = {
     // harmonicsDb, partial, position, mouthPressurePa, waveSteepness, attackSeconds}. No audio
     // device is used, so this is how to check what a brass note sounds like.
     analyzeNote: (config, seconds) => ops.op_brass_render_analyze(config, seconds || 0)
+};
+
+// Water (see src/audio/matter/water_voice.rs): drips, glasses, fills, rain, a brook, surf, a tub,
+// named by an id you choose (the DAW uses the track's id).
+const waterAPI = {
+    // {ok, id, active, levels: {drip, glass, ...}, drip: {lastHz, drops, bubbles}, glasses:
+    //  [{pitchHz, energyJ, levelMm, heightMm}], fills: [{level, airHz, pouring}], rain: {rateMmH,
+    //  drops}, brook: {speed, dissipationW}, surf: {heightM, breakers}, slosh: {strength, bores}}.
+    info: (id) => ops.op_water_info(id),
+    remove: (id) => ops.op_water_remove(id),
+    // Plays one note offline on a fresh instrument and measures it (config as playWaterOnTrack's):
+    // {ok, action, peakDb, rmsDb?, centroidHz?, strongestHz?, and what the physics made of it: drop
+    // {radiusMm, speed, fallCm, regime} and bubble {radiusMm, bornHz, depthMm}, glass {radiusMm,
+    // heightMm, levelMm, emptyHz, fullHz, pitchHz}, vessel {... fromMm, toMm, startHz, endHz,
+    // flowMlPerS}, rain / brook / surf / slosh}. No audio device is used.
+    analyze: (config, seconds) => ops.op_water_render_analyze(config, seconds || 0)
 };
 
 // Physically-modeled sounding objects: the drum kit (see src/audio/matter and Widget.matter). A kit
@@ -1005,6 +1037,7 @@ globalThis.Entropy = {
                 PhysMod: physModAPI,
                 Brass: brassAPI,
                 Matter: matterAPI,
+                Water: waterAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
     Guitar: guitarAPI,
@@ -2015,6 +2048,7 @@ globalThis.Entropy = {
     PhysMod: physModAPI,
     Brass: brassAPI,
     Matter: matterAPI,
+    Water: waterAPI,
     Icons: iconsAPI,
     System: systemAPI,
     Video: videoAPI,

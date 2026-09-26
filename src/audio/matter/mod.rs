@@ -46,6 +46,7 @@ pub mod surface;
 pub mod vessel;
 pub mod vonkarman;
 pub mod water;
+pub mod water_voice;
 pub mod waves;
 
 #[cfg(test)]

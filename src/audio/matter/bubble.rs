@@ -235,6 +235,72 @@ pub fn radius_for(freq: f32) -> f32 {
 }
 
 // ------------------------------------------------------------------------------------------
+// Bubbles made by turbulence
+// ------------------------------------------------------------------------------------------
+
+/// The Hinze scale, m: turbulence splits bubbles larger than about this, not smaller ones.
+pub const HINZE: f32 = 1.0e-3;
+
+fn power_integral(p: f32, a: f32, b: f32) -> f32 {
+    // integral of R^p from a to b.
+    if (p + 1.0).abs() < 1.0e-6 {
+        (b / a).ln()
+    } else {
+        (b.powf(p + 1.0) - a.powf(p + 1.0)) / (p + 1.0)
+    }
+}
+
+/// The sizes of bubbles torn from air by turbulence (a breaking wave, a plunging jet), as Deane and
+/// Stokes measured them: `R^(-3/2)` below the Hinze scale and `R^(-10/3)` above, from
+/// [`MIN_RADIUS`] to `max`. Sampled by the inverse of each power law's distribution.
+#[derive(Clone, Copy, Debug)]
+pub struct TurbulentSizes {
+    max: f32,
+    hinze: f32,
+    small: f32,
+    /// Mean `R^2` and `R^3`, m^2 and m^3.
+    pub r2: f32,
+    pub r3: f32,
+}
+
+impl TurbulentSizes {
+    pub fn new(max: f32) -> Self {
+        let max = max.max(MIN_RADIUS * 1.5);
+        let hinze = HINZE.clamp(MIN_RADIUS * 1.01, max);
+        // Continuous at the Hinze scale: N = R^-1.5 below, H^(-1.5 + 10/3) R^(-10/3) above.
+        let c = hinze.powf(-1.5 + 10.0 / 3.0);
+        let n_small = power_integral(-1.5, MIN_RADIUS, hinze);
+        let n_big = if max > hinze { c * power_integral(-10.0 / 3.0, hinze, max) } else { 0.0 };
+        let total = n_small + n_big;
+        let m = |k: f32| (power_integral(-1.5 + k, MIN_RADIUS, hinze) + if max > hinze { c * power_integral(-10.0 / 3.0 + k, hinze, max) } else { 0.0 }) / total;
+        Self { max, hinze, small: n_small / total, r2: m(2.0), r3: m(3.0) }
+    }
+
+    /// The share of bubbles below the Hinze scale.
+    pub fn below_hinze(&self) -> f32 {
+        self.small
+    }
+
+    /// Mean volume, m^3.
+    pub fn mean_volume(&self) -> f32 {
+        4.0 / 3.0 * std::f32::consts::PI * self.r3
+    }
+
+    pub fn sample(&self, rng: &mut Rng) -> f32 {
+        let u = rng.uniform();
+        let inv = |p: f32, a: f32, b: f32, t: f32| {
+            let (ea, eb) = (a.powf(p + 1.0), b.powf(p + 1.0));
+            (ea + t * (eb - ea)).powf(1.0 / (p + 1.0))
+        };
+        if u < self.small || self.max <= self.hinze {
+            inv(-1.5, MIN_RADIUS, self.hinze, (u / self.small).min(1.0))
+        } else {
+            inv(-10.0 / 3.0, self.hinze, self.max, (u - self.small) / (1.0 - self.small))
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------
 // Random numbers (no allocation, deterministic per seed)
 // ------------------------------------------------------------------------------------------
 
@@ -330,6 +396,8 @@ pub struct Resonators {
     force: Vec<f32>,
     /// Whether the outputs are accelerations (true) or displacements.
     accel: Vec<bool>,
+    /// Samples left of each slot's glide (the turn and ramps stop when it ends).
+    left: Vec<u32>,
 }
 
 fn damped(w0: f32, sigma: f32) -> f32 {
@@ -339,7 +407,7 @@ fn damped(w0: f32, sigma: f32) -> f32 {
 impl Resonators {
     pub fn new(capacity: usize, sr: f32) -> Self {
         let z = || vec![0.0f32; capacity];
-        Self { h: 1.0 / sr, len: 0, re: z(), im: z(), rr: z(), ri: z(), tr: z(), ti: z(), resc: z(), wi: z(), wr: z(), dwi: z(), dwr: z(), kick: z(), w0: z(), sigma: z(), gain: vec![[0.0; 3]; capacity], force: z(), accel: vec![false; capacity] }
+        Self { h: 1.0 / sr, len: 0, re: z(), im: z(), rr: z(), ri: z(), tr: z(), ti: z(), resc: z(), wi: z(), wr: z(), dwi: z(), dwr: z(), kick: z(), w0: z(), sigma: z(), gain: vec![[0.0; 3]; capacity], force: z(), accel: vec![false; capacity], left: vec![0; capacity] }
     }
 
     pub fn len(&self) -> usize {
@@ -352,6 +420,13 @@ impl Resonators {
 
     pub fn capacity(&self) -> usize {
         self.re.len()
+    }
+
+    /// Silences every slot (they keep their tuning).
+    pub fn clear(&mut self) {
+        self.re.iter_mut().for_each(|v| *v = 0.0);
+        self.im.iter_mut().for_each(|v| *v = 0.0);
+        self.force.iter_mut().for_each(|v| *v = 0.0);
     }
 
     /// Displacement of slot `k`.
@@ -429,6 +504,7 @@ impl Resonators {
         self.wr[k] = b;
         self.dwi[k] = 0.0;
         self.dwr[k] = 0.0;
+        self.left[k] = 0;
     }
 
     /// Moves slot `k` from where it is to `w0` (rad/s) and `sigma` (1/s) linearly over the next
@@ -459,6 +535,7 @@ impl Resonators {
         self.dwi[k] = (a1 - a0) / n;
         self.dwr[k] = (b1 - b0) / n;
         self.kick[k] = self.h / (mass.max(1.0e-30) * wd_end);
+        self.left[k] = samples.max(1) as u32;
     }
 
     /// Sets slot `k`'s output gains.
@@ -479,7 +556,7 @@ impl Resonators {
             macro_rules! mv {
                 ($($f:ident),*) => { $( self.$f[k] = self.$f[last]; )* };
             }
-            mv!(re, im, rr, ri, tr, ti, resc, wi, wr, dwi, dwr, kick, w0, sigma, gain, force, accel);
+            mv!(re, im, rr, ri, tr, ti, resc, wi, wr, dwi, dwr, kick, w0, sigma, gain, force, accel, left);
         }
         self.len = last;
     }
@@ -496,12 +573,17 @@ impl Resonators {
             let nim = b * x + a * y;
             self.force[k] = 0.0;
             self.im[k] = nim;
-            self.re[k] = nre * self.resc[k];
-            let (t, u) = (self.tr[k], self.ti[k]);
-            self.rr[k] = a * t - b * u;
-            self.ri[k] = a * u + b * t;
-            self.wi[k] += self.dwi[k];
-            self.wr[k] += self.dwr[k];
+            if self.left[k] > 0 {
+                self.left[k] -= 1;
+                self.re[k] = nre * self.resc[k];
+                let (t, u) = (self.tr[k], self.ti[k]);
+                self.rr[k] = a * t - b * u;
+                self.ri[k] = a * u + b * t;
+                self.wi[k] += self.dwi[k];
+                self.wr[k] += self.dwr[k];
+            } else {
+                self.re[k] = nre;
+            }
             let v = self.wi[k] * nim + self.wr[k] * self.re[k];
             let g = self.gain[k];
             out[0] += v * g[0];
@@ -734,6 +816,21 @@ mod tests {
             let got = bubble_mode(r, 2.0 * r).freq * surface_factor(r, 2.0 * r);
             assert!((got / f - 1.0).abs() < 1.0e-3, "{f}: {got}");
         }
+    }
+
+    #[test]
+    fn a_glide_ends_where_it_was_asked_to() {
+        // Retuned over one sample and then left alone, a slot rings at its new frequency and decays
+        // at its new rate (the turn stops).
+        let sr = 44_100.0;
+        let mut r = Resonators::new(1, sr);
+        r.add(std::f32::consts::TAU * 3000.0, 400.0, 1.0, 0.0, 1.0, false, [1.0, 0.0, 0.0]).unwrap();
+        r.glide(0, std::f32::consts::TAU * 500.0, 5.0, 1.0, 1);
+        let x: Vec<f32> = (0..4410).map(|_| r.step()[0]).collect();
+        let crossings = x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        assert!((crossings as i32 - 50).abs() <= 1, "{crossings}");
+        let (a, b) = (x[..441].iter().fold(0.0f32, |m, v| m.max(v.abs())), x[3969..].iter().fold(0.0f32, |m, v| m.max(v.abs())));
+        assert!((b / a - (-5.0f32 * 0.09).exp()).abs() < 0.05, "{a} {b}");
     }
 
     #[test]

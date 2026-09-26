@@ -30,7 +30,8 @@
 //!
 //! Nothing here allocates after construction.
 
-use super::bubble::{pan_gains, Birth, BubbleBank, Rng, G, MIN_RADIUS, RHO_WATER, SURFACE_TENSION};
+use super::bubble::{pan_gains, Birth, BubbleBank, Rng, TurbulentSizes, G, MIN_RADIUS, RHO_WATER, SURFACE_TENSION};
+pub use super::bubble::HINZE;
 
 /// Most cells along the line.
 pub const MAX_CELLS: usize = 256;
@@ -38,8 +39,7 @@ pub const MAX_CELLS: usize = 256;
 pub const ENTRAINING: f32 = 0.4;
 /// Bores breaking: `h2 / h1` above this.
 pub const BREAKING: f32 = 1.28;
-/// The Hinze scale, m, and the largest bubble made.
-pub const HINZE: f32 = 1.0e-3;
+/// The largest bubble a breaking bore makes, m.
 pub const MAX_BUBBLE: f32 = 5.0e-3;
 /// Samples per physics block.
 pub const WAVE_BLOCK: usize = 32;
@@ -143,49 +143,6 @@ pub struct WavesReport {
     pub steepest: f32,
 }
 
-/// Deane-Stokes bubble sizes: the two power laws' shares and bounds, for sampling by inverse CDF.
-#[derive(Clone, Copy, Debug)]
-struct Sizes {
-    small: f32,
-    /// Mean `R^2` and `R^3` over the distribution.
-    r2: f32,
-    r3: f32,
-}
-
-fn power_integral(p: f32, a: f32, b: f32) -> f32 {
-    // integral of R^p from a to b.
-    if (p + 1.0).abs() < 1.0e-6 {
-        (b / a).ln()
-    } else {
-        (b.powf(p + 1.0) - a.powf(p + 1.0)) / (p + 1.0)
-    }
-}
-
-impl Sizes {
-    fn new() -> Self {
-        // Continuous at the Hinze scale: N = R^-1.5 below, H^(-1.5 + 10/3) R^(-10/3) above.
-        let c = HINZE.powf(-1.5 + 10.0 / 3.0);
-        let n_small = power_integral(-1.5, MIN_RADIUS, HINZE);
-        let n_big = c * power_integral(-10.0 / 3.0, HINZE, MAX_BUBBLE);
-        let total = n_small + n_big;
-        let m = |k: f32| (power_integral(-1.5 + k, MIN_RADIUS, HINZE) + c * power_integral(-10.0 / 3.0 + k, HINZE, MAX_BUBBLE)) / total;
-        Self { small: n_small / total, r2: m(2.0), r3: m(3.0) }
-    }
-
-    fn sample(&self, rng: &mut Rng) -> f32 {
-        let u = rng.uniform();
-        let inv = |p: f32, a: f32, b: f32, t: f32| {
-            let (ea, eb) = (a.powf(p + 1.0), b.powf(p + 1.0));
-            (ea + t * (eb - ea)).powf(1.0 / (p + 1.0))
-        };
-        if u < self.small {
-            inv(-1.5, MIN_RADIUS, HINZE, u / self.small)
-        } else {
-            inv(-10.0 / 3.0, HINZE, MAX_BUBBLE, (u - self.small) / (1.0 - self.small))
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct Pending {
     birth: Option<Birth>,
@@ -212,7 +169,7 @@ pub struct Waves {
     time: f64,
     counter: usize,
     rng: Rng,
-    sizes: Sizes,
+    sizes: TurbulentSizes,
     bubbles: BubbleBank,
     pending: [Pending; PENDING],
     /// A slow wander of the inflow (a brook's flow is never steady).
@@ -246,7 +203,7 @@ impl Waves {
             time: 0.0,
             counter: 0,
             rng: Rng::new(spec.seed),
-            sizes: Sizes::new(),
+            sizes: TurbulentSizes::new(MAX_BUBBLE),
             bubbles: BubbleBank::new(sr),
             pending: [Pending::default(); PENDING],
             wander: 0.0,
@@ -706,7 +663,7 @@ mod tests {
 
     #[test]
     fn deane_stokes_sizes_follow_their_power_laws() {
-        let s = Sizes::new();
+        let s = TurbulentSizes::new(MAX_BUBBLE);
         let mut rng = Rng::new(9);
         let (mut below, mut a, mut b) = (0, 0, 0);
         for _ in 0..200_000 {
@@ -723,7 +680,7 @@ mod tests {
                 a += 1;
             }
         }
-        assert!((below as f32 / 200_000.0 - s.small).abs() < 0.01);
+        assert!((below as f32 / 200_000.0 - s.below_hinze()).abs() < 0.01);
         let ratio = b as f32 / a as f32;
         let want = 0.5f32.powf(7.0 / 3.0);
         assert!((ratio / want - 1.0).abs() < 0.1, "{ratio} vs {want}");

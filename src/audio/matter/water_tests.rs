@@ -384,3 +384,92 @@ fn water_listening_examples() {
         }
     }
 }
+
+#[test]
+#[ignore]
+fn water_mix_report() {
+    use super::water_voice::*;
+    let spec = WaterSpec::default();
+    let unity = [1.0; SOURCES];
+    let actions = [
+        ("drip 1k", WaterAction::Drip { pitch: 1000.0, x: 0.0 }, 1.0),
+        ("drip 3k", WaterAction::Drip { pitch: 3000.0, x: 0.0 }, 1.0),
+        ("glass mallet", WaterAction::Glass { pitch: 523.0, speed: 0.5, spoon: false }, 2.0),
+        ("glass spoon", WaterAction::Glass { pitch: 523.0, speed: 0.3, spoon: true }, 2.0),
+        ("fill 220", WaterAction::Fill { pitch: 220.0, duration: 2.0 }, 2.0),
+        ("fill 660", WaterAction::Fill { pitch: 660.0, duration: 2.0 }, 2.0),
+        ("rain 8", WaterAction::Rain { rate: 8.0, duration: 3.0 }, 3.0),
+        ("brook .5", WaterAction::Brook { speed: 0.5, duration: 3.0 }, 3.0),
+        ("surf 1", WaterAction::Surf { height: 1.0, duration: 10.0 }, 10.0),
+        ("slosh 1", WaterAction::Slosh { strength: 1.0, duration: 4.0 }, 4.0),
+    ];
+    for (name, a, secs) in actions {
+        let t0 = Instant::now();
+        let x = render_water_performance(spec, unity, &[(0.0, a.command(&spec))], 1.0);
+        let m = mono(&x);
+        let s = seg(&m, 0.0, secs);
+        println!("{name:14} peak {:6.1} dBFS rms {:6.1} dBFS ({:.1} s rendered in {:.2} s)", db(s.iter().fold(0.0f32, |p, v| p.max(v.abs()))), db(rms(s)), m.len() as f32 / SR, t0.elapsed().as_secs_f32());
+    }
+    for target in RainTarget::ALL {
+        let spec = WaterSpec { rain: target, ..spec };
+        let x = mono(&render_water_performance(spec, unity, &[(0.0, WaterAction::Rain { rate: 8.0, duration: 3.0 }.command(&spec))], 0.5));
+        println!("rain on {:7} rms {:6.1} dBFS", target.name(), db(rms(seg(&x, 0.5, 3.0))));
+    }
+}
+
+#[test]
+fn a_water_track_plays_its_notes_at_their_pitches_and_lets_them_go() {
+    use super::water_voice::*;
+    let spec = WaterSpec::default();
+    let play = |notes: &[(f64, WaterAction)], tail: f32| {
+        let cmds: Vec<(f64, WaterCommand)> = notes.iter().map(|(t, a)| (*t, a.command(&spec))).collect();
+        mono(&render_water_performance(spec, DEFAULT_MIX, &cmds, tail))
+    };
+    // A glass, a drip and a fill each sound their note.
+    let glass = play(&[(0.0, WaterAction::Glass { pitch: 587.33, speed: 0.5, spoon: false })], 1.0);
+    assert!(super::tests::cents(peak(seg(&glass, 0.05, 1.0), 200.0, 3000.0).0, 587.33).abs() < 10.0);
+    let drip = play(&[(0.0, WaterAction::Drip { pitch: 1318.5, x: 0.0 })], 0.2);
+    assert!(super::tests::cents(peak(seg(&drip, 0.0, 0.004), 500.0, 5000.0).0, 1318.5).abs() < 60.0);
+    let fill = play(&[(0.0, WaterAction::Fill { pitch: 330.0, duration: 2.0 })], 0.3);
+    // As the pour ends (the bubbles it made ring on in the column tuned where it stopped).
+    assert!(super::tests::cents(peak(seg(&fill, 1.9, 2.2), 150.0, 800.0).0, 330.0).abs() < 40.0);
+    assert!(peak(seg(&fill, 0.1, 0.4), 150.0, 800.0).0 < 330.0 * 0.8);
+    // Rain stops when its note ends: the drops ring out and the track falls silent.
+    let rain = play(&[(0.0, WaterAction::Rain { rate: 10.0, duration: 1.0 })], 3.0);
+    assert!(rms(seg(&rain, 0.3, 1.0)) > 1.0e-3);
+    assert!(rms(seg(&rain, 1.6, 2.0)) < rms(seg(&rain, 0.3, 1.0)) * 0.01, "the rain didn't stop");
+    // The brook fades in for its note and away after it.
+    let brook = play(&[(0.0, WaterAction::Brook { speed: 0.5, duration: 1.0 })], 3.0);
+    assert!(rms(seg(&brook, 0.5, 1.0)) > 1.0e-3);
+    assert!(brook.len() < (4.5 * SR) as usize, "the brook kept playing: {} s", brook.len() as f32 / SR);
+}
+
+#[test]
+#[ignore]
+fn water_cost() {
+    use super::water_voice::*;
+    // Everything at once on one track: a drip every 100 ms, a glass every 250 ms, a fill, rain on
+    // each surface, the brook, the surf and the tub.
+    for target in RainTarget::ALL {
+        let spec = WaterSpec { rain: target, ..WaterSpec::default() };
+        let mut w = Water::new(spec, SR);
+        let actions = [WaterAction::Fill { pitch: 330.0, duration: 4.0 }, WaterAction::Rain { rate: 20.0, duration: 4.0 }, WaterAction::Brook { speed: 0.6, duration: 4.0 }, WaterAction::Surf { height: 1.0, duration: 4.0 }, WaterAction::Slosh { strength: 1.0, duration: 4.0 }];
+        for a in actions {
+            w.command(a.command(&spec));
+        }
+        let drips: Vec<WaterCommand> = (0..40).map(|k| WaterAction::Drip { pitch: 600.0 + 50.0 * k as f32, x: 0.0 }.command(&spec)).collect();
+        let glasses: Vec<WaterCommand> = (0..16).map(|k| WaterAction::Glass { pitch: 400.0 + 40.0 * k as f32, speed: 0.4, spoon: false }.command(&spec)).collect();
+        let t0 = Instant::now();
+        for i in 0..(4.0 * SR) as usize {
+            if i % 4410 == 0 {
+                w.command(drips[i / 4410 % 40]);
+            }
+            if i % 11025 == 0 {
+                w.command(glasses[i / 11025 % 16]);
+            }
+            w.next_frame();
+        }
+        println!("rain on {:7}: everything at once {:.0}% of a core", target.name(), t0.elapsed().as_secs_f32() / 4.0 * 100.0);
+    }
+}
+
