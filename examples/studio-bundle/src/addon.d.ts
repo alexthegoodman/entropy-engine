@@ -385,6 +385,9 @@ export interface ScopedAPI {
     prepareMatter: (trackId: string, config: MatterHitConfig) => MatterOk & { status?: MatterStatus };
     /** Strikes a piece of the track's kit now. `played` is false while the kit is being built. */
     playMatterOnTrack: (trackId: string, config: MatterHitConfig) => MatterOk & { played?: boolean };
+    /** Holds a tool on a piece of the track's kit live (a drag): send it every frame; pressure 0
+     *  lifts it. */
+    holdMatterOnTrack: (trackId: string, config: MatterHoldConfig) => MatterOk & { played?: boolean };
     /** Stops the track's kit. */
     removeMatter: (trackId: string, kitId?: string) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
@@ -2056,7 +2059,13 @@ export interface MatterKitConfig {
   snareTension?: number;
   /** Whether the pieces hear each other through the air (a tom sets the snare buzzing). */
   sympathetic?: boolean;
+  /** The snare set up for brushes: its head carries every mode pair, so a swirl anywhere round it
+   *  is heard as it goes (costs about half as much again to run). */
+  brushes?: boolean;
 }
+
+/** What rubs in a stroke. */
+export type MatterTool = "brush" | "finger" | "wet-finger" | "rubber" | "rod" | "stick-tip";
 
 /** One hit on a kit (see `Entropy.Matter`). */
 export interface MatterHitConfig {
@@ -2076,6 +2085,27 @@ export interface MatterHitConfig {
   striker?: MatterStriker;
   /** Offline events only: seconds from the start of the render. */
   startTime?: number;
+  /** A stroke instead of a strike (not on the kick): `speed` is then the hand's speed (m/s). */
+  stroke?: "sweep" | "swirl";
+  /** How hard the tool presses, N (a brush ~0.5-1.5). */
+  pressure?: number;
+  /** How long the stroke lasts, s. */
+  duration?: number;
+  /** Omitted, a brush. */
+  tool?: MatterTool;
+}
+
+/** A tool held on a piece live. */
+export interface MatterHoldConfig {
+  trackId?: string;
+  kitId?: string;
+  kit?: MatterKitConfig;
+  piece?: MatterPiece;
+  /** Where on the face, in fractions of its radius from the centre. */
+  x?: number;
+  y?: number;
+  /** N; 0 lifts it. */
+  pressure?: number;
 }
 
 export interface MatterPieceInfo {
@@ -2094,6 +2124,17 @@ export interface MatterPieceInfo {
   nonlinear?: boolean;
   wiresLifted?: number;
   wireLandings?: number;
+  /** Strokes so far, whether a tool is on it now, and while it is: the hand's speed and pressure,
+   *  the contact's normal and friction forces. */
+  rubs?: number;
+  rubbing?: boolean;
+  rubSpeed?: number;
+  rubPressureN?: number;
+  rubNormalN?: number;
+  rubFrictionN?: number;
+  /** Share of the stroke's touching time the tips were stuck, and releases from stuck so far. */
+  stickFraction?: number;
+  releases?: number;
 }
 
 export interface MatterInfo extends MatterOk {
@@ -2126,11 +2167,33 @@ export interface MatterHitAnalysis extends MatterOk {
   wireLandings?: number;
 }
 
+export interface MatterStrokeAnalysis extends MatterOk {
+  piece?: MatterPiece | "glass" | "steel-sheet";
+  stroke?: "sweep" | "swirl";
+  tool?: MatterTool | "custom";
+  speed?: number;
+  pressureN?: number;
+  duration?: number;
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  centroidHz?: number;
+  above4kDb?: number;
+  /** Spectral flatness 200 Hz-8 kHz: near 0 dB for noise-like sliding, far below for a squeak. */
+  flatnessDb?: number;
+  /** Share of the touching time the tips were stuck, and stick-to-slip releases per second. */
+  stickFraction?: number;
+  releasesPerSecond?: number;
+  landings?: number;
+}
+
 export interface MatterAPI {
   info: (id: string) => MatterInfo;
   remove: (id: string) => boolean;
   /** Strikes one piece offline, alone (no audio device), and measures it. */
   analyzeHit: (config: MatterHitConfig, seconds?: number) => MatterHitAnalysis;
+  /** Rubs one piece - or a pane of "glass" or a "steel-sheet" - offline, alone, and measures it. */
+  analyzeStroke: (config: Omit<MatterHitConfig, "piece"> & { piece?: MatterPiece | "glass" | "steel-sheet"; stroke: "sweep" | "swirl" }, seconds?: number) => MatterStrokeAnalysis;
 }
 
 export interface MatterViewConfig {
@@ -2151,6 +2214,9 @@ export interface MatterViewConfig {
   onStrike?: (piece: MatterPiece, position: number, angle: number, velocity: number) => void;
   onPad?: (piece: MatterPiece, velocity: number) => void;
   onPhysicsView?: (on: boolean) => void;
+  /** A shift-drag on a head or cymbal: a tool held there (x, y in fractions of its radius), every
+   *  frame of the drag, then once with pressure 0 when it is let go. */
+  onRub?: (piece: MatterPiece, x: number, y: number, pressure: number) => void;
 }
 
 export interface BrassAPI {
@@ -2886,6 +2952,9 @@ export interface EntropyAPI {
     prepareMatter: (trackId: string, config: MatterHitConfig) => MatterOk & { status?: MatterStatus };
     /** Strikes a piece of the track's kit now. `played` is false while the kit is being built. */
     playMatterOnTrack: (trackId: string, config: MatterHitConfig) => MatterOk & { played?: boolean };
+    /** Holds a tool on a piece of the track's kit live (a drag): send it every frame; pressure 0
+     *  lifts it. */
+    holdMatterOnTrack: (trackId: string, config: MatterHoldConfig) => MatterOk & { played?: boolean };
     /** Stops the track's kit. */
     removeMatter: (trackId: string, kitId?: string) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.

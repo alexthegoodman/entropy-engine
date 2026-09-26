@@ -14,6 +14,11 @@
 //!   radiation, and the von Karman couplings.
 //! * [`vonkarman`] - those couplings run on the modes with an energy-conserving scheme.
 //! * [`cymbal`] - crash, ride, splash.
+//! * [`friction`] - friction between any two surfaces (the bow's law, generalized), and surface
+//!   roughness.
+//! * [`surface`] - a face's mode shapes and slopes at any point, for contacts that move.
+//! * [`rub`] - a tool pressed and dragged: brushes, fingers, rubber, rods; strokes and live holds.
+//! * [`sheet`] - a flat free plate of glass, steel or wood, to rub.
 //! * [`kit`] - the drums and cymbals set up together, hearing each other through the air.
 //! * [`live`] - the kit on a track: what it publishes for the view, the live voice, offline
 //!   rendering of a track's hits.
@@ -26,11 +31,15 @@ pub mod cavity;
 pub mod contact;
 pub mod cymbal;
 pub mod drum;
+pub mod friction;
 pub mod kit;
 pub mod live;
 pub mod membrane;
 pub mod modal;
 pub mod plate;
+pub mod rub;
+pub mod sheet;
+pub mod surface;
 pub mod vonkarman;
 
 #[cfg(test)]
@@ -39,6 +48,8 @@ mod tests;
 mod cymbal_tests;
 #[cfg(test)]
 mod kit_tests;
+#[cfg(test)]
+mod rub_tests;
 
 pub use contact::{Contact, ContactLaw, Material, Striker, Tip};
 pub use cymbal::{Cymbal, CymbalKind, CymbalSpec};
@@ -48,6 +59,8 @@ pub use live::{render_performance, KitCommand, KitHandle, KitVoice, MatterShared
 pub use membrane::{HeadSpec, Membrane};
 pub use modal::{ModalBody, ModeSpec};
 pub use plate::{Plate, PlateOptions, PlateSpec};
+pub use rub::{Path, Rub, RubReport, Stroke, SurfaceKind, ToolSpec};
+pub use sheet::{Sheet, SheetSpec};
 
 /// Renders one strike of `spec` offline at `sr` Hz for `seconds`, mono.
 pub fn render_hit(spec: &DrumSpec, strike: Strike, sr: f32, seconds: f32) -> Vec<f32> {
@@ -91,4 +104,18 @@ pub fn render_cymbal(spec: &CymbalSpec, hits: &[(f32, Strike)], sr: f32, tail: f
             c.next_sample()
         })
         .collect()
+}
+
+/// Renders a stroke on one drum offline, mono (the drum ringing from nothing before it).
+pub fn render_drum_stroke(spec: &DrumSpec, stroke: Stroke, sr: f32, tail: f32) -> Vec<f32> {
+    let mut drum = Drum::new(*spec, sr);
+    drum.rub(stroke);
+    (0..((stroke.duration + tail) * sr) as usize).map(|_| drum.next_sample()).collect()
+}
+
+/// Renders a stroke on a sheet offline, mono.
+pub fn render_sheet_stroke(spec: &SheetSpec, stroke: Stroke, sr: f32, tail: f32) -> Vec<f32> {
+    let mut sheet = Sheet::new(*spec, stroke.tool, sr);
+    sheet.rub(stroke);
+    (0..((stroke.duration + tail) * sr) as usize).map(|_| sheet.next_sample()).collect()
 }

@@ -20,6 +20,9 @@ export const MATTER_PIECES: { id: MatterPiece; label: string; cymbal: boolean }[
 
 export type MatterStriker = "stick" | "shoulder" | "felt" | "plastic" | "mallet" | "hard-mallet" | "yarn";
 
+/** A stroke rubs instead of striking: a brush swept straight across, or swirled in circles. */
+export type MatterStroke = "sweep" | "swirl";
+
 /** A row of a kit track: which piece it strikes, where (0 centre .. 1 edge), with what, and the
  *  General MIDI note it answers to. Kick at the top, like a drum track's pads. */
 export interface MatterRow {
@@ -30,6 +33,8 @@ export interface MatterRow {
     /** A striker for this row only (the crash is played with the stick's shoulder); otherwise the
      *  kit's hands decide. */
     striker?: MatterStriker;
+    /** A brush stroke instead of a strike: it lasts as long as the note. */
+    stroke?: MatterStroke;
     note: number;
 }
 
@@ -45,6 +50,10 @@ export const MATTER_ROWS: MatterRow[] = [
     // Close to the centre: the long bending modes barely move there, a higher, glassier ping.
     { id: "ride-bell", label: "Ride bell", piece: "ride", position: 0.12, note: 53 },
     { id: "splash", label: "Splash", piece: "splash", position: 0.9, note: 55 },
+    // Brushes on the snare, as long as the note (added after the strikes, so saved rows keep their
+    // meaning). GM2's brush set puts a snare roll on 25; 26 is free.
+    { id: "brush-sweep", label: "Brush sweep", piece: "snare", position: 0.5, stroke: "sweep", note: 26 },
+    { id: "brush-swirl", label: "Brush swirl", piece: "snare", position: 0.45, stroke: "swirl", note: 25 },
 ];
 
 /** The row a General MIDI drum note plays (the nearest thing the kit has), or -1. */
@@ -68,6 +77,9 @@ export interface MatterKit {
     snareTension: number;
     /** Whether the pieces hear each other through the air. */
     sympathetic: boolean;
+    /** The snare set up for brushes: every mode pair of its head, so a swirl is heard as it goes
+     *  round (it costs about half as much again to run). Brush rows play either way. */
+    brushes: boolean;
 }
 
 export type MatterHands = "sticks" | "mallets";
@@ -91,7 +103,7 @@ export interface MatterSettings {
  *  -15 dB, toms -18 to -21 dB, ride -27 dB against the snare), and a kit is mic'd to taste. */
 export const DEFAULT_MIX: Record<MatterPiece, number> = { kick: 3, snare: 1, "rack-tom": 2, "floor-tom": 2.5, crash: 2, ride: 3, splash: 1.5 };
 
-export const DEFAULT_KIT: MatterKit = { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true };
+export const DEFAULT_KIT: MatterKit = { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true, brushes: false };
 
 export interface MatterPreset {
     id: string;
@@ -109,6 +121,8 @@ export const MATTER_PRESETS: MatterPreset[] = [
     { id: "rock", label: "Rock", kit: { kick: 48, snare: 190, rackTom: 115, floorTom: 70, kickMuffling: 1, snares: true, snareTension: 0.2 }, settings: { hands: "sticks", beater: "plastic", dynamics: 8 } },
     // A cranked, crisp snare with tight wires.
     { id: "funk", label: "Funk", kit: { kick: 60, snare: 320, rackTom: 170, floorTom: 100, kickMuffling: 0.8, snares: true, snareTension: 0.35 }, settings: { hands: "sticks", beater: "felt", dynamics: 5 } },
+    // Brushes: a small, open jazz kit with its snare set up to be swirled.
+    { id: "brushes", label: "Brushes", kit: { kick: 64, snare: 250, rackTom: 180, floorTom: 105, kickMuffling: 0.2, snares: true, snareTension: 0.1, brushes: true }, settings: { hands: "sticks", beater: "felt", dynamics: 3 } },
     // Felt mallets on the drums and yarn on the cymbals, snares off: swells and rolls.
     { id: "mallets", label: "Mallets", kit: { kick: 55, snare: 200, rackTom: 140, floorTom: 82, kickMuffling: 0.5, snares: false, snareTension: 0.15 }, settings: { hands: "mallets", beater: "felt", dynamics: 5 } },
 ];
@@ -144,6 +158,7 @@ function repairKit(saved: any): MatterKit {
         snares: typeof s.snares === "boolean" ? s.snares : d.snares,
         snareTension: num(s.snareTension, d.snareTension, ...r.snareTension),
         sympathetic: typeof s.sympathetic === "boolean" ? s.sympathetic : d.sympathetic,
+        brushes: s.brushes === true,
     };
 }
 
@@ -177,7 +192,8 @@ export function applyPreset(m: MatterSettings, id: string): boolean {
 /** Whether two kits build the same drums (anything else is a rebuild, heard from the next hit). */
 export function sameBuild(a: MatterKit, b: MatterKit): boolean {
     return a.kick === b.kick && a.snare === b.snare && a.rackTom === b.rackTom && a.floorTom === b.floorTom
-        && a.kickMuffling === b.kickMuffling && a.snares === b.snares && a.snareTension === b.snareTension;
+        && a.kickMuffling === b.kickMuffling && a.snares === b.snares && a.snareTension === b.snareTension
+        && a.brushes === b.brushes;
 }
 
 /** The stick's speed at impact for a note's velocity (0..1): from a ghost note's 0.4 m/s up to the
@@ -208,6 +224,17 @@ export interface MatterHit {
     angle?: number;
     striker: MatterStriker;
     startTime?: number;
+    /** A brush stroke: `speed` is then the hand's (m/s), `pressure` N, `duration` s. */
+    stroke?: MatterStroke;
+    pressure?: number;
+    duration?: number;
+}
+
+/** A brush stroke's hand for a note's velocity (0..1): speed from a slow 0.2 m/s to a quick
+ *  1.2 m/s and pressure from 0.4 to 1.5 N, both evenly in loudness. */
+export function brushHand(velocity: number): { speed: number; pressure: number } {
+    const v = Math.min(1, Math.max(0, velocity));
+    return { speed: 0.2 * Math.pow(6, v), pressure: 0.4 * Math.pow(1.5 / 0.4, v) };
 }
 
 /** The engine call for one hit on a kit track. `kitId` is the track id, so every hit of the track
@@ -215,7 +242,7 @@ export interface MatterHit {
 export function hitConfig(
     trackId: string,
     m: MatterSettings,
-    hit: { row: number; velocity: number; startTime?: number } | { piece: MatterPiece; position: number; angle?: number; velocity: number; startTime?: number },
+    hit: { row: number; velocity: number; startTime?: number; duration?: number } | { piece: MatterPiece; position: number; angle?: number; velocity: number; startTime?: number },
 ): MatterHit {
     let row: MatterRow;
     let position: number;
@@ -227,6 +254,16 @@ export function hitConfig(
         row = MATTER_ROWS.find(r => r.piece === hit.piece) ?? MATTER_ROWS[0];
         position = hit.position;
         angle = hit.angle;
+    }
+    if (row.stroke) {
+        const hand = brushHand(hit.velocity);
+        const duration = "duration" in hit && typeof hit.duration === "number" && Number.isFinite(hit.duration) ? hit.duration : 0.25;
+        return {
+            trackId, kitId: trackId, kit: { ...m.kit }, mix: { ...m.mix }, piece: row.piece,
+            speed: hand.speed, position: row.position, striker: "stick",
+            stroke: row.stroke, pressure: hand.pressure, duration: Math.min(8, Math.max(0.05, duration)),
+            ...(hit.startTime !== undefined ? { startTime: hit.startTime } : {}),
+        };
     }
     return {
         trackId,

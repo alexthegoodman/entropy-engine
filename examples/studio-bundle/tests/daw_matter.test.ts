@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     DEFAULT_MIX, MATTER_PIECES, MATTER_PRESETS, MATTER_ROWS, MATTER_WAVEFORM, applyPreset, defaultMatter, describeSettings,
-    hitConfig, repairMatter, rowForNote, sameBuild, strikeSpeed, strikerFor,
+    brushHand, hitConfig, repairMatter, rowForNote, sameBuild, strikeSpeed, strikerFor,
 } from "../src/apps/daw_matter";
 import { createWorld } from "./daw_test_world";
 
@@ -79,6 +79,30 @@ describe("The drum kit model", () => {
         expect(hitConfig("t", m, { row: 0, velocity: 1, startTime: 2 }).startTime).toBe(2);
     });
 
+    it("brush rows rub the snare for as long as the note, faster and harder with velocity", () => {
+        const m = defaultMatter();
+        const at = (id: string) => MATTER_ROWS.findIndex(r => r.id === id);
+        // After the strikes, so rows saved before brushes keep their meaning.
+        expect(at("brush-sweep")).toBeGreaterThan(at("splash"));
+        const soft = hitConfig("t", m, { row: at("brush-swirl"), velocity: 0.1, duration: 1.5 });
+        const loud = hitConfig("t", m, { row: at("brush-swirl"), velocity: 0.9, duration: 1.5 });
+        expect(soft).toMatchObject({ piece: "snare", stroke: "swirl", duration: 1.5 });
+        expect(loud.speed).toBeGreaterThan(soft.speed);
+        expect(loud.pressure!).toBeGreaterThan(soft.pressure!);
+        expect(brushHand(0).speed).toBeCloseTo(0.2);
+        expect(brushHand(1).speed).toBeCloseTo(1.2);
+        // A note with no length is a short stroke; lengths are kept sane.
+        expect(hitConfig("t", m, { row: at("brush-sweep"), velocity: 0.5 }).duration).toBeCloseTo(0.25);
+        expect(hitConfig("t", m, { row: at("brush-sweep"), velocity: 0.5, duration: 99 }).duration).toBe(8);
+        // Strike rows never carry a stroke.
+        expect("stroke" in hitConfig("t", m, { row: at("snare"), velocity: 0.5 })).toBe(false);
+        // The brushes preset sets the snare up for them, and that is a rebuild.
+        expect(applyPreset(m, "brushes")).toBe(true);
+        expect(m.kit.brushes).toBe(true);
+        expect(sameBuild(m.kit, { ...m.kit, brushes: false })).toBe(false);
+        expect(repairMatter({ kit: { brushes: "yes" } }).kit.brushes).toBe(false);
+    });
+
     it("maps General MIDI drum notes onto the kit", () => {
         expect(MATTER_ROWS[rowForNote(36)].piece).toBe("kick");
         expect(MATTER_ROWS[rowForNote(38)].piece).toBe("snare");
@@ -96,7 +120,7 @@ describe("The drum kit model", () => {
     it("lists what it offers", () => {
         expect(MATTER_WAVEFORM).toBe("matter");
         expect(MATTER_PIECES.map(p => p.id)).toEqual(["kick", "snare", "rack-tom", "floor-tom", "crash", "ride", "splash"]);
-        expect(MATTER_PRESETS.map(p => p.id)).toEqual(["studio", "jazz", "rock", "funk", "mallets"]);
+        expect(MATTER_PRESETS.map(p => p.id)).toEqual(["studio", "jazz", "rock", "funk", "brushes", "mallets"]);
         expect(MATTER_ROWS[0].piece).toBe("kick");
         expect(new Set(MATTER_ROWS.map(r => r.piece)).size).toBe(MATTER_PIECES.length);
         expect(Object.keys(describeSettings(defaultMatter()))).toContain("snareTension");
@@ -155,6 +179,25 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
         expect(w.matterHits[0].cfg).toMatchObject({ trackId: "trk-lead", kitId: "trk-lead", position: 0.8, angle: 1.2, striker: "stick" });
         expect(w.matterHits[1].cfg).toMatchObject({ position: 0.92, striker: "shoulder" });
         expect(w.matterHits[1].cfg.speed).toBeCloseTo(defaultMatter().dynamics);
+    });
+
+    it("a shift-drag in the view holds a brush on the head and lifts it", async () => {
+        const { w, view, world } = await openDaw();
+        view().onRub("snare", 0.1, -0.2, 1);
+        view().onRub("snare", 0.15, -0.2, 1);
+        view().onRub("snare", 0.15, -0.2, 0);
+        world.render();
+        expect(w.matterHolds.map(h => h.cfg.pressure)).toEqual([1, 1, 0]);
+        expect(w.matterHolds[1]).toMatchObject({ id: "trk-lead", cfg: { piece: "snare", x: 0.15, y: -0.2 } });
+        expect(w.matterHolds[0].cfg.kit.snare).toBe(220);
+    });
+
+    it("the AI tool hears a brush row", async () => {
+        const { tool } = await openDaw();
+        const h = tool("daw_matter", { trackId: "trk-lead", action: "hear", row: MATTER_ROWS.findIndex(r => r.id === "brush-sweep"), velocity: 0.5 });
+        expect(h).toMatchObject({ success: true, name: "Brush sweep", piece: "snare", tool: "brush" });
+        expect(h.stickFraction).toBeCloseTo(0.4);
+        expect(tool("daw_matter", { trackId: "trk-lead", action: "params", params: { brushes: true } }).settings.brushes).toBe(true);
     });
 
     it("a hit while the kit is first being built is dropped, and the view says so", async () => {
@@ -224,7 +267,8 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
 
     it("the sequencer plays the rows on the kit, and the export hands the hits over", async () => {
         const { world, w, tool } = await openDaw();
-        tool("daw_set_notes", { trackId: "trk-lead", notes: [{ row: 0, step: 0, length: 1 }, { row: 1, step: 2, length: 1 }, { row: 6, step: 4, length: 1 }] });
+        const swirl = MATTER_ROWS.findIndex(r => r.id === "brush-swirl");
+        tool("daw_set_notes", { trackId: "trk-lead", notes: [{ row: 0, step: 0, length: 1 }, { row: 1, step: 2, length: 1 }, { row: 6, step: 4, length: 1 }, { row: swirl, step: 6, length: 4 }] });
         tool("daw_set_transport", { mode: "pattern", playing: true });
         world.advance(3000);
         tool("daw_set_transport", { playing: false });
@@ -235,6 +279,11 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
         const exported = w.matterExports.at(-1)!;
         expect(exported.length).toBeGreaterThan(0);
         expect(exported.every((e: any) => e.trackId === "trk-lead" && typeof e.startTime === "number" && e.speed > 0)).toBe(true);
+        // The brush note is a stroke as long as the note, live and in the export.
+        const live = w.matterHits.find(h => h.cfg.stroke === "swirl")!;
+        const out = exported.find((e: any) => e.stroke === "swirl");
+        expect(live.cfg.duration).toBeGreaterThan(0.3);
+        expect(out.duration).toBeCloseTo(live.cfg.duration, 1);
         // The same notes are not also exported as plain oscillator notes.
         expect(w.exports.at(-1)!.every((e: any) => e.track !== "trk-lead")).toBe(true);
     });

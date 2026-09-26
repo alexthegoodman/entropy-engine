@@ -15,6 +15,8 @@ use super::contact::{Contact, ContactLaw, Material, StrikeReport, Striker, Tip};
 use super::drum::{Strike, StrikerSpec, FULL_SCALE_PA, MAX_STRIKERS};
 use super::modal::ModalBody;
 use super::plate::{Plate, PlateOptions, PlateSpec};
+use super::rub::{Rub, RubReport, Stroke, SurfaceKind, ToolSpec};
+use super::surface::SurfaceMap;
 use super::vonkarman::VonKarman;
 
 /// Silent modes are flushed every this many samples.
@@ -119,6 +121,8 @@ pub struct Cymbal {
     /// decay per sample.
     u_peak: f32,
     u_decay: f32,
+    /// A tool rubbing the plate (see `enable_rubbing`).
+    rub: Option<Box<Rub>>,
 }
 
 impl Cymbal {
@@ -132,7 +136,7 @@ impl Cymbal {
         let flights = (0..MAX_STRIKERS)
             .map(|_| Flight { striker: Striker { mass: 1.0, tip: spec.striker.tip, y: 0.0, v: 0.0 }, contact: Contact::new(ContactLaw::between(spec.striker.tip, BRONZE, 0.5)), shape: vec![0.0; n], active: false, age: 0 })
             .collect();
-        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0, report: StrikeReport::default(), newest: 0, nonlinear_floor: 0.0, dormant: false, u_peak: 0.0, u_decay: (-1.0 / (0.05 * sr)).exp() }
+        Self { spec, sr, h: 1.0 / sr, plate, body, vk, flights, counter: 0, last_force: 0.0, report: StrikeReport::default(), newest: 0, nonlinear_floor: 0.0, dormant: false, u_peak: 0.0, u_decay: (-1.0 / (0.05 * sr)).exp(), rub: None }
     }
 
     pub fn plate(&self) -> &Plate {
@@ -190,13 +194,60 @@ impl Cymbal {
         self.report.begin(s.velocity.max(0.0), s.position, s.angle);
     }
 
+    /// Whether anything is in flight or in contact (a tool rubbing the plate included).
     pub fn striking(&self) -> bool {
-        self.flights.iter().any(|f| f.active)
+        self.flights.iter().any(|f| f.active) || self.rubbed()
+    }
+
+    fn rubbed(&self) -> bool {
+        self.rub.as_ref().is_some_and(|r| r.active())
+    }
+
+    /// Makes the plate ready to be rubbed by `tool` (see `Drum::enable_rubbing`). The plate has only
+    /// the cosine member of each mode pair (strikes are on `theta = 0`), so a path is heard as its
+    /// mirror image about that diameter would be: a stroke along the diameter is exact.
+    pub fn enable_rubbing(&mut self, tool: ToolSpec) {
+        if self.rub.is_none() {
+            let map = SurfaceMap::of_plate(&self.plate);
+            self.rub = Some(Box::new(Rub::new(map, SurfaceKind::Bronze, 0.5 * self.spec.plate.thickness, tool, self.sr)));
+        }
+    }
+
+    pub fn rubbing(&self) -> Option<&Rub> {
+        self.rub.as_deref()
+    }
+
+    pub fn rubbing_mut(&mut self) -> Option<&mut Rub> {
+        self.rub.as_deref_mut()
+    }
+
+    /// Plays a stroke on the plate. Enables rubbing first if it was not, which allocates.
+    pub fn rub(&mut self, stroke: Stroke) {
+        self.enable_rubbing(stroke.tool);
+        if let Some(r) = self.rub.as_mut() {
+            r.stroke(stroke);
+            self.dormant = false;
+            self.u_peak = 0.0;
+        }
+    }
+
+    /// Holds a tool on the plate live (see `Drum::hold`).
+    pub fn hold(&mut self, x: f32, y: f32, pressure: f32) {
+        if let Some(r) = self.rub.as_mut() {
+            r.hold(x, y, pressure);
+            if pressure > 0.0 {
+                self.dormant = false;
+            }
+        }
+    }
+
+    pub fn rub_report(&self) -> RubReport {
+        self.rub.as_ref().map(|r| r.report).unwrap_or_default()
     }
 
     /// One sample of radiated sound, normalized so `FULL_SCALE_PA` at 1 m is 1.0.
     pub fn next_sample(&mut self) -> f32 {
-        let touching = self.flights.iter().any(|f| f.active && (f.contact.touching || f.contact.touches == 0));
+        let touching = self.flights.iter().any(|f| f.active && (f.contact.touching || f.contact.touches == 0)) || self.rubbed();
         if self.counter % FLUSH_EVERY == 0 {
             self.body.flush_quiet();
             if let (Some(_), true, false, false) = (self.vk.as_ref(), self.nonlinear_floor > 0.0, touching, self.dormant) {
@@ -230,6 +281,9 @@ impl Cymbal {
             }
         }
         self.last_force = total;
+        if let Some(r) = self.rub.as_mut() {
+            r.tick(&mut self.body);
+        }
         self.body.step() / FULL_SCALE_PA
     }
 }

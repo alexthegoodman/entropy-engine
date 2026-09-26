@@ -21,7 +21,9 @@
 //! its few milliseconds, and the energy in every piece - which shows the sympathetic ringing.
 //!
 //! Interaction: click a head or a cymbal to strike it there (the place decides which modes ring);
-//! click a pad to strike a piece where it is usually played. The PHYSICS chip toggles Physics View.
+//! shift-drag on one to press a tool on it and drag it across (a brush, rubbed live: its tips are
+//! drawn where they touch); click a pad to strike a piece where it is usually played. The PHYSICS
+//! chip toggles Physics View.
 //! The right mouse button, Alt, or a pen's barrel button orbit the camera, as in the other
 //! instrument views.
 
@@ -280,6 +282,9 @@ pub enum MatterViewEvent {
     Pad { piece: Piece, velocity: f32 },
     /// The PHYSICS chip was clicked: the view the user asked for.
     PhysicsView(bool),
+    /// A shift-drag on a head or a plate: a tool held there (`x`, `y` in fractions of its radius from
+    /// the centre, in the engine's frame), sent every frame of the drag; `pressure` N, 0 when let go.
+    Rub { piece: Piece, x: f32, y: f32, pressure: f32 },
 }
 
 pub struct MatterViewResponse {
@@ -289,8 +294,13 @@ pub struct MatterViewResponse {
 #[derive(Clone, Copy)]
 enum Drag {
     Orbit,
+    /// Rubbing a piece, last held at `(x, y)` (fractions of its radius).
+    Rub(Piece, f32, f32),
     None,
 }
+
+/// How hard a drag presses when the pointer has no pressure of its own, N (a brush played gently).
+const DRAG_PRESSURE: f32 = 1.0;
 
 /// A strike being replayed.
 #[derive(Clone, Copy, Default)]
@@ -452,6 +462,14 @@ impl MatterView {
                         events.push(MatterViewEvent::Pad { piece: *piece, velocity });
                     }
                     st.drag = Some(Drag::None);
+                } else if pointer.primary_pressed && mods.shift && lay.scene.contains(p) && !in_panels(&lay, p) {
+                    // Shift-drag: press a tool on the face and drag it (the kick can't be rubbed).
+                    st.drag = Some(Drag::None);
+                    if let Some((piece, position, angle)) = face_at(&proj, p).filter(|f| f.0.rubbable()) {
+                        let (x, y) = (position * angle.cos(), position * angle.sin());
+                        events.push(MatterViewEvent::Rub { piece, x, y, pressure: pressure.map_or(DRAG_PRESSURE, |pr| 2.0 * pr) });
+                        st.drag = Some(Drag::Rub(piece, x, y));
+                    }
                 } else if pointer.primary_pressed && lay.scene.contains(p) && !in_panels(&lay, p) {
                     if let Some((piece, position, angle)) = face_at(&proj, p) {
                         events.push(MatterViewEvent::Strike { piece, position, angle, velocity: pressure.unwrap_or(0.8) });
@@ -464,6 +482,17 @@ impl MatterView {
         if let Some(Drag::Orbit) = st.drag {
             if let (Some(p), Some(last)) = (pos, st.last_pointer) {
                 st.camera.orbit(p.x - last.x, p.y - last.y);
+            }
+        }
+        if let Some(Drag::Rub(piece, lx, ly)) = st.drag {
+            if still_down {
+                // Where the pointer is on the same face (off it, the tool stays where it was).
+                let (x, y) = pos.and_then(|p| face_at(&proj, p)).filter(|f| f.0 == piece).map_or((lx, ly), |(_, r, a)| (r * a.cos(), r * a.sin()));
+                let pressure = pointer.pen.map_or(DRAG_PRESSURE, |pn| 2.0 * pn.pressure.max(0.1));
+                events.push(MatterViewEvent::Rub { piece, x, y, pressure });
+                st.drag = Some(Drag::Rub(piece, x, y));
+            } else {
+                events.push(MatterViewEvent::Rub { piece, x: lx, y: ly, pressure: 0.0 });
             }
         }
         if !still_down {
@@ -520,6 +549,7 @@ impl MatterView {
                 draw_drum(&clip, &proj, p, &scene, &st, opts);
             }
             draw_striker(&clip, &proj, p, &st);
+            draw_tool(&clip, &proj, p, &scene);
         }
         draw_readout(&clip, &lay, &scene, opts);
         if let Some(r) = lay.modes {
@@ -797,6 +827,37 @@ fn draw_cymbal(painter: &Painter, proj: &Projector, piece: Piece, scene: &Scene,
     }
 }
 
+/// A tool being rubbed on a piece: the hand, and each tip where it touches, bright where the tips
+/// are held by friction (the friction near its static limit), cool where they slide.
+fn draw_tool(painter: &Painter, proj: &Projector, piece: Piece, scene: &Scene) {
+    let pv = scene.pieces[piece.index()];
+    if !pv.rubbing {
+        return;
+    }
+    let face = Face::of(piece);
+    let a = face.pl.radius;
+    let at = |p: [f32; 2]| -> V3 {
+        let r = ((p[0] * p[0] + p[1] * p[1]).sqrt() / a).min(1.0);
+        face.point(r, p[1].atan2(p[0]), 0.002)
+    };
+    let hand = at(pv.hand);
+    // The handle, up toward the player.
+    let up = add(hand, scale(norm(add(face.pl.normal, scale(face.u, 0.6))), 0.3));
+    let grip = (pv.rub_friction.abs() / pv.rub_normal.max(1.0e-6)).clamp(0.0, 1.0);
+    let col = mix3(TEAL, ROSE, grip);
+    if let (Some(p), Some(q)) = (proj.project(hand), proj.project(up)) {
+        painter.line_segment([p, q], Stroke::new(4.0, c32(col, 0.15)));
+        painter.line_segment([p, q], Stroke::new(1.6, c32([0.85, 0.85, 0.9], 0.8)));
+    }
+    for t in pv.tips.iter().take(pv.n_tips) {
+        if let (Some(p), Some(h)) = (proj.project(at(*t)), proj.project(hand)) {
+            painter.line_segment([h, p], Stroke::new(0.8, c32([0.8, 0.8, 0.85], 0.5)));
+            painter.circle_filled(p, 4.0, c32(col, 0.25));
+            painter.circle_filled(p, 1.8, c32(mix3(col, [1.0; 3], 0.4), 0.95));
+        }
+    }
+}
+
 /// The stick, beater or mallet replaying the latest strike in slow motion (see the module notes).
 fn draw_striker(painter: &Painter, proj: &Projector, piece: Piece, st: &ViewState) {
     let rp = st.replay[piece.index()];
@@ -859,8 +920,12 @@ fn draw_readout(painter: &Painter, lay: &Layout, scene: &Scene, opts: &MatterVie
     let pv = scene.pieces[f.index()];
     let tuned = scene.tuning(f).map(|t| format!("  -  tuned {t:.0} Hz")).unwrap_or_default();
     line(format!("{}{}", label(f), tuned), &mut y, c32(colour(f), 0.95));
+    if pv.rubbing {
+        line(format!("rubbed at {:.2} m/s, {:.1} N  -  friction {:.2} N  -  stuck {:.0}% of the time, {} releases", pv.rub_speed, pv.rub_pressure, pv.rub_friction.abs(), pv.stick * 100.0, pv.releases), &mut y, c32(TEAL, 0.95));
+        return;
+    }
     if pv.strikes == 0 {
-        line("click a head or a cymbal to strike it there - or play a pad".into(), &mut y, LABEL);
+        line("click a head or a cymbal to strike it there - shift-drag to rub it - or play a pad".into(), &mut y, LABEL);
         return;
     }
     line(format!("in {:.1} m/s  -  contact {:.1} ms, {:.0} N  -  out {:.1} m/s", pv.speed_in, pv.contact_ms, pv.peak_force, pv.speed_out), &mut y, LABEL);

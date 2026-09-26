@@ -117,6 +117,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // test sets it to "building" to see hits dropped).
         matterViews: new Map<string, any>(),
         matterHits: [] as { id: string; cfg: any }[],
+        matterHolds: [] as { id: string; cfg: any }[],
         matterPrepared: [] as { id: string; cfg: any }[],
         matterExports: [] as any[][],
         matterStatus: "ready" as string,
@@ -226,6 +227,11 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 if (played) w.matterHits.push({ id, cfg });
                 return { ok: true, played };
             },
+            holdMatterOnTrack: (id: string, cfg: any) => {
+                const played = w.matterStatus !== "building";
+                if (played) w.matterHolds.push({ id, cfg });
+                return { ok: true, played };
+            },
             removeMatter: (id: string) => { w.removedMatter.push(id); },
             renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[]) => {
                 w.brassExports.push(brassEvents ?? []);
@@ -330,6 +336,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             info: (id: string) => ({ ok: true, id, pieces: [] }),
             remove: (id: string) => { w.removedMatterKits.push(id); return true; },
             analyzeHit: (cfg: any) => ({ ok: true, piece: cfg.piece, striker: cfg.striker, speed: cfg.speed, position: cfg.position, seconds: 1.5, peakDb: -6, rmsDb: -20, centroidHz: 500 + 400 * cfg.speed, strongestHz: 200, decaySeconds: 0.6, contactMs: 3.5, peakForceN: 20 * cfg.speed, reboundSpeed: 0.6 * cfg.speed, ...(cfg.piece === "snare" ? { glideCents: 4, wireLandings: 120 } : {}) }),
+            analyzeStroke: (cfg: any) => ({ ok: true, piece: cfg.piece, stroke: cfg.stroke, tool: cfg.tool ?? "brush", speed: cfg.speed, pressureN: cfg.pressure, duration: cfg.duration, seconds: 1, peakDb: -20, rmsDb: -30, centroidHz: 3000 + 1000 * cfg.speed, above4kDb: -12, flatnessDb: -14, stickFraction: 0.4, releasesPerSecond: 900, landings: 12 }),
         },
         Guitar: {
             listInputs: () => ({ devices: [], hosts: [] }),

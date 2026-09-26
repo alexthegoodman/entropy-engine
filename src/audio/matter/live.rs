@@ -15,6 +15,7 @@ use rodio::Source;
 
 use super::drum::Strike;
 use super::kit::{Kit, KitHit, KitSpec, Piece, BLOCK, FIELD, PIECES, SPECTRUM, TRACE_CAPTURE};
+use super::rub::MAX_TIPS;
 use crate::audio::analysis::ENGINE_SAMPLE_RATE;
 
 /// Points of the latest strike's force pulse published.
@@ -53,6 +54,20 @@ pub struct PieceView {
     pub wire_landings: u32,
     pub nonlinear: bool,
     pub mix: f32,
+    /// A tool rubbing it: strokes so far, whether one is on it now, the hand (m on the face, m/s,
+    /// N), the summed normal and friction forces (N), the share of the stroke's touching time the
+    /// tips were stuck, releases from stuck so far, and the tips (m on the face).
+    pub rubs: u32,
+    pub rubbing: bool,
+    pub hand: [f32; 2],
+    pub rub_speed: f32,
+    pub rub_pressure: f32,
+    pub rub_normal: f32,
+    pub rub_friction: f32,
+    pub stick: f32,
+    pub releases: u32,
+    pub tips: [[f32; 2]; MAX_TIPS],
+    pub n_tips: usize,
 }
 
 #[derive(Default)]
@@ -74,6 +89,17 @@ struct PieceShared {
     wire_landings: AtomicU32,
     nonlinear: AtomicBool,
     mix: AtomicU32,
+    rubs: AtomicU32,
+    rubbing: AtomicBool,
+    hand: [AtomicU32; 2],
+    rub_speed: AtomicU32,
+    rub_pressure: AtomicU32,
+    rub_normal: AtomicU32,
+    rub_friction: AtomicU32,
+    stick: AtomicU32,
+    releases: AtomicU32,
+    tips: [AtomicU32; 2 * MAX_TIPS],
+    n_tips: AtomicU32,
 }
 
 /// What a live kit publishes and the view (and `Entropy.Matter.info`) reads, lock-free.
@@ -85,6 +111,7 @@ pub struct MatterShared {
     spec: [AtomicU32; 7],
     snares: AtomicBool,
     sympathetic: AtomicBool,
+    brushes: AtomicBool,
     pieces: [PieceShared; PIECES],
     field: Vec<AtomicU32>,
     spec_hz: Vec<AtomicU32>,
@@ -104,6 +131,7 @@ impl Default for MatterShared {
             spec: atomics(),
             snares: AtomicBool::new(true),
             sympathetic: AtomicBool::new(true),
+            brushes: AtomicBool::new(false),
             pieces: std::array::from_fn(|_| PieceShared::default()),
             field: (0..PIECES * FIELD).map(|_| AtomicU32::new(0)).collect(),
             spec_hz: (0..PIECES * SPECTRUM).map(|_| AtomicU32::new(0)).collect(),
@@ -152,6 +180,7 @@ impl MatterShared {
             snare_tension: load(&self.spec[5]),
             snares: self.snares.load(Ordering::Relaxed),
             sympathetic: self.sympathetic.load(Ordering::Relaxed),
+            brushes: self.brushes.load(Ordering::Relaxed),
         }
     }
 
@@ -161,6 +190,7 @@ impl MatterShared {
         }
         self.snares.store(s.snares, Ordering::Relaxed);
         self.sympathetic.store(s.sympathetic, Ordering::Relaxed);
+        self.brushes.store(s.brushes, Ordering::Relaxed);
     }
 
     pub fn piece(&self, piece: Piece) -> PieceView {
@@ -183,6 +213,17 @@ impl MatterShared {
             wire_landings: p.wire_landings.load(Ordering::Relaxed),
             nonlinear: p.nonlinear.load(Ordering::Relaxed),
             mix: load(&p.mix),
+            rubs: p.rubs.load(Ordering::Relaxed),
+            rubbing: p.rubbing.load(Ordering::Relaxed),
+            hand: [load(&p.hand[0]), load(&p.hand[1])],
+            rub_speed: load(&p.rub_speed),
+            rub_pressure: load(&p.rub_pressure),
+            rub_normal: load(&p.rub_normal),
+            rub_friction: load(&p.rub_friction),
+            stick: load(&p.stick),
+            releases: p.releases.load(Ordering::Relaxed),
+            tips: std::array::from_fn(|i| [load(&p.tips[2 * i]), load(&p.tips[2 * i + 1])]),
+            n_tips: (p.n_tips.load(Ordering::Relaxed) as usize).min(MAX_TIPS),
         }
     }
 
@@ -229,6 +270,21 @@ impl MatterShared {
             p.wire_landings.store(s.wire_landings, Ordering::Relaxed);
             p.nonlinear.store(s.nonlinear, Ordering::Relaxed);
             store(&p.mix, mix[piece.index()]);
+            p.rubs.store(s.rub.count, Ordering::Relaxed);
+            p.rubbing.store(s.rub.active, Ordering::Relaxed);
+            store(&p.hand[0], s.rub.x);
+            store(&p.hand[1], s.rub.y);
+            store(&p.rub_speed, s.rub.speed);
+            store(&p.rub_pressure, s.rub.pressure);
+            store(&p.rub_normal, s.rub.normal);
+            store(&p.rub_friction, s.rub.friction);
+            store(&p.stick, s.rub.stick_fraction());
+            p.releases.store(s.rub.releases, Ordering::Relaxed);
+            for (i, t) in s.tips.iter().enumerate() {
+                store(&p.tips[2 * i], t[0]);
+                store(&p.tips[2 * i + 1], t[1]);
+            }
+            p.n_tips.store(s.n_tips as u32, Ordering::Relaxed);
             if !s.awake && s.level == 0.0 && scratch.published[piece.index()] {
                 // Asleep and already drawn as it is: its modes have not moved.
                 continue;
@@ -287,7 +343,11 @@ impl Scratch {
 /// A command for a live kit.
 #[derive(Clone, Copy, Debug)]
 pub enum KitCommand {
+    /// A strike, or a stroke (`KitHit::stroke`).
     Strike(KitHit),
+    /// A tool held on a piece live at `(x, y)` (m from the centre of its face) with `pressure` N;
+    /// 0 lifts it.
+    Hold { piece: Piece, x: f32, y: f32, pressure: f32 },
     /// Whether the pieces hear each other.
     Sympathetic(bool),
     /// Each piece's level in the kit's mix (1 as it radiates; the "mics").
@@ -367,7 +427,11 @@ impl KitVoice {
         }
         for cmd in self.pending.drain(..) {
             match cmd {
-                KitCommand::Strike(h) => self.kit.strike(h.piece, h.strike),
+                KitCommand::Strike(h) => match h.stroke {
+                    Some(st) => self.kit.schedule_stroke(h.piece, st, 0),
+                    None => self.kit.strike(h.piece, h.strike),
+                },
+                KitCommand::Hold { piece, x, y, pressure } => self.kit.hold(piece, x, y, pressure),
                 KitCommand::Sympathetic(on) => self.kit.set_sympathetic(on),
                 KitCommand::Mix(m) => {
                     self.mix = m;
@@ -435,7 +499,8 @@ impl Source for KitVoice {
 
 /// Renders a track's hits (seconds from the start) on one kit, the way the track plays them live:
 /// sample-accurate, the pieces hearing each other. Returns interleaved stereo at the engine rate,
-/// running until the kit has fallen silent (capped at `tail` seconds past the last hit).
+/// running until the kit has fallen silent (capped at `tail` seconds past the last hit, or past the
+/// end of the last stroke).
 pub fn render_performance(spec: KitSpec, mix: [f32; PIECES], hits: &[(f64, KitHit)], tail: f32) -> Vec<f32> {
     if hits.is_empty() {
         return Vec::new();
@@ -445,7 +510,7 @@ pub fn render_performance(spec: KitSpec, mix: [f32; PIECES], hits: &[(f64, KitHi
     order.sort_by_key(|h| h.0);
     let mut kit = Kit::new(spec, sr);
     kit.set_mix(mix);
-    let last = order.last().map(|h| h.0).unwrap_or(0);
+    let last = order.iter().map(|h| h.0 + h.1.stroke.map_or(0, |s| (s.duration.max(0.0) * sr) as u64)).max().unwrap_or(0);
     let hard_end = last + (tail.max(0.0) * sr) as u64;
     let mut out = Vec::with_capacity((hard_end as usize).min(sr as usize * 600) * 2);
     let (mut next, mut t) = (0, 0u64);
@@ -453,7 +518,10 @@ pub fn render_performance(spec: KitSpec, mix: [f32; PIECES], hits: &[(f64, KitHi
         // A block at a time: every hit landing in it is scheduled at its own sample.
         while next < order.len() && order[next].0 < t + BLOCK as u64 {
             let (at, h) = order[next];
-            kit.schedule(h.piece, h.strike, at.saturating_sub(t) as usize);
+            match h.stroke {
+                Some(st) => kit.schedule_stroke(h.piece, st, at.saturating_sub(t) as usize),
+                None => kit.schedule(h.piece, h.strike, at.saturating_sub(t) as usize),
+            }
             next += 1;
         }
         for _ in 0..BLOCK {
@@ -473,7 +541,10 @@ pub fn render_performance(spec: KitSpec, mix: [f32; PIECES], hits: &[(f64, KitHi
 pub fn render_piece(spec: KitSpec, hit: KitHit, seconds: f32) -> Vec<f32> {
     let sr = ENGINE_SAMPLE_RATE as f32;
     let mut body = super::kit::Body::build(&spec.clamped(), hit.piece, sr);
-    body.strike(hit.strike);
+    match hit.stroke {
+        Some(st) => body.rub(st),
+        None => body.strike(hit.strike),
+    }
     (0..(seconds * sr) as usize).map(|_| body.next_sample()).collect()
 }
 

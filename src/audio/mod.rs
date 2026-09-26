@@ -1547,6 +1547,19 @@ impl AudioEngine {
         Ok(h.send(matter::KitCommand::Strike(hit)).is_ok())
     }
 
+    /// Holds a tool on a piece of the track's kit live - a drag in the view: `(x, y)` in metres from
+    /// the centre of its face, `pressure` in newtons (0 lifts it). `Ok(false)` while the kit is being
+    /// built.
+    pub fn hold_matter_on_track(&self, track_id: &str, kit_id: &str, spec: matter::KitSpec, piece: matter::Piece, x: f32, y: f32, pressure: f32) -> Result<bool, String> {
+        if self.matter_prepare(track_id, kit_id, spec)? == MatterStatus::Building {
+            return Ok(false);
+        }
+        let key = format!("{track_id}\u{1}{kit_id}");
+        let map = self.matter_kits.lock().unwrap();
+        let Some(h) = map.get(&key).and_then(|e| e.playing.clone()) else { return Ok(false) };
+        Ok(h.send(matter::KitCommand::Hold { piece, x, y, pressure }).is_ok())
+    }
+
     /// Stops the track's kit (a deleted track).
     pub fn matter_remove(&self, track_id: &str, kit_id: &str) {
         if let Some(entry) = self.matter_kits.lock().unwrap().remove(&format!("{track_id}\u{1}{kit_id}")) {

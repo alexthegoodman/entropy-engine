@@ -153,3 +153,57 @@ fn the_pads_and_the_chip_ask_for_what_they_should() {
     let (events, _) = frame(&mut h, &o, &shared, press);
     assert!(events.contains(&MatterViewEvent::PhysicsView(true)), "got {events:?}");
 }
+
+fn frame_shift(h: &mut Harness, opts: &MatterViewOptions, shared: &MatterShared, pointer: PointerState) -> Vec<MatterViewEvent> {
+    let mut events = Vec::new();
+    let mods = entropy_engine::entropy_gui::context::Modifiers { shift: true, ..Default::default() };
+    let _ = h.run_with(pointer, 0.0, mods, |ui| {
+        events = MatterView::new("matter-test").show(ui, opts, shared).events;
+    });
+    events
+}
+
+#[test]
+fn a_shift_drag_rubs_a_head_along_the_drag_and_lets_go() {
+    let shared = MatterShared::default();
+    let mut h = Harness::new(W, H);
+    let o = opts(false);
+    let _ = frame(&mut h, &o, &shared, PointerState::default());
+    let at = |r: f32| face_screen(widget(), &o, Piece::FloorTom, r, 0.4).expect("on screen");
+    let (a, b) = (at(0.2), at(0.7));
+    let mut rubs = Vec::new();
+    for k in 0..=6 {
+        let p = a + (b - a) * (k as f32 / 6.0);
+        let pointer = PointerState { pos: Some(p), primary_down: true, primary_pressed: k == 0, ..Default::default() };
+        rubs.extend(frame_shift(&mut h, &o, &shared, pointer).into_iter().filter_map(|e| if let MatterViewEvent::Rub { piece, x, y, pressure } = e { Some((piece, x, y, pressure)) } else { None }));
+    }
+    rubs.extend(frame_shift(&mut h, &o, &shared, PointerState { pos: Some(b), ..Default::default() }).into_iter().filter_map(|e| if let MatterViewEvent::Rub { piece, x, y, pressure } = e { Some((piece, x, y, pressure)) } else { None }));
+    assert!(rubs.len() >= 7, "{rubs:?}");
+    assert!(rubs.iter().all(|r| r.0 == Piece::FloorTom));
+    // It moved outward along the drag (radius 0.2 to 0.7 at 0.4 rad), pressing, then let go.
+    let radius = |r: &(Piece, f32, f32, f32)| (r.1 * r.1 + r.2 * r.2).sqrt();
+    let (first, last) = (rubs[0], rubs[rubs.len() - 2]);
+    assert!((radius(&first) - 0.2).abs() < 0.15 && (radius(&last) - 0.7).abs() < 0.15, "{first:?} {last:?}");
+    assert!(rubs[..rubs.len() - 1].iter().all(|r| r.3 > 0.0));
+    assert_eq!(rubs.last().unwrap().3, 0.0);
+    // A plain click still strikes, and the kick can't be rubbed.
+    let k = face_screen(widget(), &o, Piece::Kick, 0.3, 0.0).expect("on screen");
+    let ev = frame_shift(&mut h, &o, &shared, PointerState { pos: Some(k), primary_down: true, primary_pressed: true, ..Default::default() });
+    assert!(!ev.iter().any(|e| matches!(e, MatterViewEvent::Rub { .. })), "{ev:?}");
+}
+
+#[test]
+fn a_brush_on_the_snare_is_drawn_where_its_tips_are() {
+    let shared = Arc::new(MatterShared::default());
+    let (mut voice, handle) = KitVoice::new(shared.clone(), Kit::new(KitSpec::default(), 44_100.0));
+    let mut h = Harness::new(W, H);
+    let rest = settled(&mut h, &opts(true), &shared);
+    let st = entropy_engine::audio::matter::kit::stroke_for(Piece::Snare, entropy_engine::audio::matter::kit::StrokeKind::Swirl, entropy_engine::audio::matter::ToolSpec::brush(), 0.6, 0.8, 1.0);
+    handle.send(KitCommand::Strike(KitHit::stroke(Piece::Snare, st))).unwrap();
+    let _ = voice.by_ref().take(44_100 / 5 * 2).count();
+    let v = shared.piece(Piece::Snare);
+    assert!(v.rubbing && v.n_tips == 6 && v.rub_normal > 0.0, "{v:?}");
+    let img = settled(&mut h, &opts(true), &shared);
+    img.save(artifacts().join("snare-brushed.png")).unwrap();
+    assert!(difference(&rest, &img) > 1500, "{}", difference(&rest, &img));
+}

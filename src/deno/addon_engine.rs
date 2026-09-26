@@ -51,7 +51,7 @@ use crate::deno::brass_ops::{
 };
 use crate::deno::matter_ops::{
     op_matter_info, op_matter_remove, op_audio_matter_prepare, op_audio_play_matter_on_track, op_audio_matter_remove,
-    op_matter_render_analyze,
+    op_matter_render_analyze, op_audio_hold_matter_on_track,
 };
 use crate::deno::physmod_ops::{
     op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
@@ -270,6 +270,7 @@ extension!(
         op_audio_play_matter_on_track,
         op_audio_matter_remove,
         op_matter_render_analyze,
+        op_audio_hold_matter_on_track,
         op_ui_widget_matter,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
@@ -4825,6 +4826,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         events_to_push.push(match event {
                             MatterViewEvent::Strike { piece, position, angle, velocity } => format!("MATTER_STRIKE|{}|{}|{:.4}|{:.4}|{:.3}", mt_id, piece.name(), position, angle, velocity),
                             MatterViewEvent::Pad { piece, velocity } => format!("MATTER_PAD|{}|{}|{:.3}", mt_id, piece.name(), velocity),
+                            MatterViewEvent::Rub { piece, x, y, pressure } => format!("MATTER_RUB|{}|{}|{:.4}|{:.4}|{:.3}", mt_id, piece.name(), x, y, pressure),
                             MatterViewEvent::PhysicsView(on) => format!("MATTER_PHYSICS_VIEW|{}|{}", mt_id, on as u8),
                         });
                     }

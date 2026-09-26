@@ -230,6 +230,11 @@ impl ModalBody {
         self.coupled = n.min(self.specs.len());
     }
 
+    /// How many modes take part in contacts (see `set_coupled`).
+    pub fn coupled(&self) -> usize {
+        self.coupled.min(self.active)
+    }
+
     /// Displacement of a point whose shape values are `shape` (one per mode).
     pub fn displacement(&self, shape: &[f32]) -> f32 {
         let n = self.active.min(shape.len());

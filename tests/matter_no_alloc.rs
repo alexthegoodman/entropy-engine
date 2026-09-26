@@ -1,7 +1,9 @@
 //! Real-time safety: a live drum kit allocates nothing on the audio thread - not while hits arrive
 //! through its command queue, not while its heads ring, glide and set the snare wires rattling, not
 //! while the pieces hear each other, not while its cymbals couple their modes, not while it
-//! publishes its state for the view, and not while it hands blocks to its worker threads. A
+//! publishes its state for the view, not while tools are rubbed on it (brush strokes, a rod scraped
+//! along a cymbal, a tool held and dragged live, tools switched between strokes), and not while it
+//! hands blocks to its worker threads. A
 //! counting global allocator watches only the thread that pulls samples (the stand-in for the audio
 //! thread); the thread sending hits may allocate freely, and so may building the kit.
 //!
@@ -10,7 +12,8 @@
 //!
 //! One test in this binary on purpose: the allocator is global.
 
-use entropy_engine::audio::matter::kit::{KitHit, KitSpec, Piece, PIECES};
+use entropy_engine::audio::matter::kit::{stroke_for, KitHit, KitSpec, Piece, StrokeKind, PIECES};
+use entropy_engine::audio::matter::rub::ToolSpec;
 use entropy_engine::audio::matter::{Kit, KitCommand, KitVoice, MatterShared};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -50,7 +53,7 @@ static A: Counting = Counting;
 
 fn play(workers: usize) -> (f32, u64) {
     let shared = Arc::new(MatterShared::default());
-    let kit = Kit::with_workers(KitSpec::default(), 44_100.0, workers);
+    let kit = Kit::with_workers(KitSpec { brushes: true, ..KitSpec::default() }, 44_100.0, workers);
     let (mut voice, handle) = KitVoice::new(shared.clone(), kit);
     let done = Arc::new(AtomicBool::new(false));
 
@@ -82,6 +85,23 @@ fn play(workers: usize) -> (f32, u64) {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(60));
             }
+            // Brushes on the snare, a rod along the ride (another tool, fewer tips), a finger on the
+            // floor tom, and a brush held on the rack tom and dragged, then lifted.
+            let strokes = [
+                (Piece::Snare, stroke_for(Piece::Snare, StrokeKind::Swirl, ToolSpec::brush(), 0.6, 0.8, 0.4)),
+                (Piece::Snare, stroke_for(Piece::Snare, StrokeKind::Sweep, ToolSpec::brush(), 1.0, 1.2, 0.2)),
+                (Piece::Ride, stroke_for(Piece::Ride, StrokeKind::Sweep, ToolSpec::rod(), 0.3, 3.0, 0.3)),
+                (Piece::FloorTom, stroke_for(Piece::FloorTom, StrokeKind::Swirl, ToolSpec::finger(), 0.2, 2.0, 0.3)),
+            ];
+            for (piece, st) in strokes {
+                let _ = handle.send(KitCommand::Strike(KitHit::stroke(piece, st)));
+                std::thread::sleep(std::time::Duration::from_millis(60));
+            }
+            for k in 0..12 {
+                let pressure = if k == 11 { 0.0 } else { 1.0 };
+                let _ = handle.send(KitCommand::Hold { piece: Piece::RackTom, x: -0.06 + 0.01 * k as f32, y: 0.02, pressure });
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
             done.store(true, Ordering::Relaxed);
         })
     };
@@ -91,7 +111,7 @@ fn play(workers: usize) -> (f32, u64) {
     ON_AUDIO_THREAD.with(|c| c.set(true));
     let mut frames = 0usize;
     let mut peak = 0.0f32;
-    while frames < 44_100 * 2 * 2 {
+    while frames < 44_100 * 2 * 3 {
         let Some(v) = voice.next() else { break };
         peak = peak.max(v.abs());
         frames += 1;
