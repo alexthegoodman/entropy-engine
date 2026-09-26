@@ -41,9 +41,17 @@ impl ComboBox {
         let padding = ui.style().spacing.button_padding;
         let text_size = Painter::measure_text(ui.ctx(), font, &selected_text);
         let size = vec2((text_size.x + padding.x * 2.0 + 18.0).max(70.0), text_size.y + padding.y * 2.0).max(ui.style().spacing.interact_size);
-        let (rect, response) = ui.allocate_response(size, Sense::click());
-
+        let (rect, mut response) = ui.allocate_response(size, Sense::click());
+        let popup_layer = id.with("combo_popup_layer");
         let is_open_before = ui.ctx().memory(|m| m.popup_open) == Some(id);
+        // Down/Up open a closed dropdown from the keyboard, the same as Enter/Space.
+        if ui.focus(&mut response) && !is_open_before {
+            let ctx = ui.ctx();
+            if ctx.consume_key(crate::entropy_gui::context::Key::ArrowDown) || ctx.consume_key(crate::entropy_gui::context::Key::ArrowUp) {
+                response.clicked = true;
+            }
+        }
+
         let visuals = ui.interactive_visuals(response.hovered(), is_open_before);
         let painter = ui.painter();
         painter.rect_filled(rect, visuals.corner_radius, visuals.bg_fill);
@@ -53,6 +61,10 @@ impl ComboBox {
 
         if response.clicked() {
             ui.ctx().memory_mut(|m| m.popup_open = if is_open_before { None } else { Some(id) });
+            if !is_open_before {
+                // Escape (handled in `focus::resolve`) closes the popup and focuses this again.
+                ui.ctx().set_opener(id, response.id);
+            }
         }
 
         let is_open = ui.ctx().memory(|m| m.popup_open) == Some(id);
@@ -69,11 +81,18 @@ impl ComboBox {
             // underneath the popup (see `popup-click-through` - this is one of the two popups
             // that card names; `Response::context_menu` got the same fix alongside it).
             let ctx = ui.ctx().clone();
-            let previous_layer = ctx.enter_layer(id.with("combo_popup_layer"));
+            let previous_layer = ctx.enter_layer(popup_layer);
+            // A keyboard user lands on the current choice; closing gives focus back to the combo.
+            ctx.note_layer_shown(popup_layer, true);
+            ctx.mark_menu_layer(popup_layer);
             let mut popup_ui = Ui::new(ctx.clone(), id.with("combo_popup"), popup_rect.shrink(4.0), Layout::top_down(Align::Min), popup_rect, DrawTarget::Popup);
             ScrollArea::vertical().show(&mut popup_ui, |inner| add_contents(inner));
-            ctx.add_occluder(id.with("combo_popup_layer"), popup_rect);
+            ctx.add_occluder(popup_layer, popup_rect);
+            let picked_by_keyboard = ctx.activated_in_layer(popup_layer);
             ctx.leave_layer(previous_layer);
+            if picked_by_keyboard {
+                ctx.memory_mut(|m| m.popup_open = None);
+            }
 
             // Any primary press outside the toggle button — including an item click inside the
             // popup, i.e. a selection was just made — closes the popup starting next frame.

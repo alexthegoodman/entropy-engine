@@ -59,6 +59,10 @@ name = "knob_bdd"
 harness = false
 
 [[test]]
+name = "keyboard_ux_bdd"
+harness = false
+
+[[test]]
 name = "combo_box_bdd"
 harness = false
 

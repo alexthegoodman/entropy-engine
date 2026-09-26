@@ -48,9 +48,27 @@ impl Harness {
             dt: self.time_step,
             ..Default::default()
         };
-        let out = self.ctx.run(raw, |ctx| {
+        self.run_raw(raw, |ctx| {
             CentralPanel::default().show(ctx, |ui| add(ui));
-        });
+        })
+    }
+
+    /// The input a frame of `run` would get, for a caller that wants to add keys or text.
+    pub fn raw_input(&self, pointer: PointerState, modifiers: entropy_engine::entropy_gui::context::Modifiers) -> RawInput {
+        RawInput {
+            screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(self.width as f32, self.height as f32)),
+            pixels_per_point: 1.0,
+            pointer,
+            modifiers,
+            dt: self.time_step,
+            ..Default::default()
+        }
+    }
+
+    /// One frame with full control over the input and the whole context (windows, several
+    /// panels), returning the frame's draw commands.
+    pub fn run_raw(&mut self, raw: RawInput, add: impl FnOnce(&Context)) -> Vec<DrawCommand> {
+        let out = self.ctx.run(raw, add);
         for (_, delta) in &out.textures_delta.set {
             for row in 0..delta.height as usize {
                 for col in 0..delta.width as usize {

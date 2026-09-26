@@ -473,6 +473,17 @@ export interface ScopedAPI {
     clear: () => void;
     selectDialogueOption: (index: number) => void;
     setTheme: (theme: ThemeConfig) => void;
+    /** A short status message in the bottom-right corner ("Saved", "Export 40%", "Couldn't
+     *  save - Retry"). It never takes keyboard focus; F6 reaches its buttons. Showing a toast
+     *  with an id that is already on screen updates it in place. Returns the id. */
+    toast: (config: ToastConfig | string) => string;
+    dismissToast: (id: string) => void;
+    /** App-wide behavior preferences; persist until changed. */
+    setPreferences: (prefs: UIPreferences) => void;
+    /** Who owns the keyboard as of the last frame: `typing` while a text field (or a knob's typed
+     *  value, a sheet cell, the doc editor) has focus; `navigating` while Tab/arrows are moving
+     *  between GUI controls. */
+    keyboardState: () => { typing: boolean; navigating: boolean };
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
@@ -770,6 +781,9 @@ export interface WindowConfig {
   // `default_pos` (or leave x/y unset to center). Default `true`.
   decorations?: boolean;
   onRender?: () => void;
+  // The title bar's close button (or Escape, while a control inside has focus) hid the window.
+  // Show it again with `setWindowVisible`. Keep any "is it open" flag of your own in step here.
+  onClose?: () => void;
   [key: string]: unknown;
 }
 
@@ -835,7 +849,8 @@ export interface ThemeConfig {
     buttonPadding?: [number, number];
 }
 
-export interface SliderConfig {
+export interface SliderConfig extends NumericExtras {
+    tooltip?: string;
     label: string;
     value: number;
     min: number;
@@ -848,7 +863,7 @@ export interface SliderConfig {
 /** A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up
  *  raises the value, down lowers it); there is no fixed track to click a position on, so unlike
  *  `slider` a click alone does not move it. Label and value are drawn on the knob itself. */
-export interface KnobConfig {
+export interface KnobConfig extends NumericExtras {
     label: string;
     value: number;
     min: number;
@@ -857,9 +872,15 @@ export interface KnobConfig {
     id?: string;
 }
 
-export interface NumericInputConfig {
+export interface NumericInputConfig extends NumericExtras {
     label: string;
     value: number;
+    /** Clamp typing, dragging and the arrow keys (unbounded by default). */
+    min?: number;
+    max?: number;
+    /** Value change per pixel dragged (default 1). */
+    speed?: number;
+    tooltip?: string;
     onChange?: (value: string) => void;
     /** Stable id for scripted/BDD control; defaults to one derived from the label and draw order. */
     id?: string;
@@ -2460,6 +2481,53 @@ export interface ButtonConfig {
   // `false` draws no background fill or border while idle, only a subtle highlight on
   // hover/press - an icon-tile look instead of a bordered dialog button. Default `true`.
   frame?: boolean;
+  // Shown after the pointer rests on the button (or while it has keyboard focus). Give every
+  // icon-only button one.
+  tooltip?: string;
+  // The shortcut that does the same thing, shown dimmer beside the tooltip: "Ctrl+S".
+  shortcut?: string;
+  // Greyed out; ignores clicks, Enter and Space, and is skipped by Tab.
+  disabled?: boolean;
+  // Drawn pressed-in: a toggle that is on, the current tool in a row.
+  selected?: boolean;
+}
+
+/** Shared by `knob`, `slider` and `numericInput`. Every numeric widget also takes a typed value
+ *  (double-click, or Enter/typing while focused), Shift for fine adjustment, arrow keys/Page
+ *  Up/Page Down/Home/End while focused, and Ctrl+click (or Delete) to reset to `defaultValue`. */
+export interface NumericExtras {
+  /** Shown after the value: "Hz", "dB", "%", "ms". Optional when typing a value. */
+  unit?: string;
+  /** What Ctrl+click and Delete return to; also drawn as a tick on a knob. */
+  defaultValue?: number;
+  /** One arrow-key step (default: a hundredth of the range). */
+  step?: number;
+  /** Digits after the point in the readout. */
+  decimals?: number;
+}
+
+export interface ToastConfig {
+  /** Reuse an id to update a toast in place. Default: a fresh one. */
+  id?: string;
+  message: string;
+  kind?: "info" | "success" | "warning" | "error";
+  /** A button on the toast ("Undo", "Retry", "Cancel"); `onAction` runs when it is pressed. */
+  actionLabel?: string;
+  onAction?: () => void;
+  /** The toast's close button was pressed. */
+  onDismiss?: () => void;
+  /** 0..1 draws a progress bar; a negative number an indeterminate one. */
+  progress?: number;
+  /** Milliseconds on screen; 0 keeps it until dismissed. Default 4000; errors and progress
+   *  toasts stay until dismissed or replaced. Hovering pauses the countdown. */
+  durationMs?: number;
+}
+
+export interface UIPreferences {
+  /** No easing when scrolling, no sliding toasts. Also on when ENTROPY_REDUCE_MOTION is set. */
+  reduceMotion?: boolean;
+  /** How long the pointer rests on a widget before its tooltip shows (default 450). */
+  tooltipDelayMs?: number;
 }
 
 export interface HyperlinkConfig {
@@ -2511,6 +2579,9 @@ export interface CheckboxConfig {
     label: string;
     value: boolean;
     onChange?: (value: boolean) => void;
+    id?: string;
+    tooltip?: string;
+    shortcut?: string;
 }
 
 export interface BehaviorPin {
@@ -2701,6 +2772,17 @@ export interface EntropyAPI {
     drawText: (config: UITextConfig) => void;
     clear: () => void;
     setTheme: (theme: ThemeConfig) => void;
+    /** A short status message in the bottom-right corner ("Saved", "Export 40%", "Couldn't
+     *  save - Retry"). It never takes keyboard focus; F6 reaches its buttons. Showing a toast
+     *  with an id that is already on screen updates it in place. Returns the id. */
+    toast: (config: ToastConfig | string) => string;
+    dismissToast: (id: string) => void;
+    /** App-wide behavior preferences; persist until changed. */
+    setPreferences: (prefs: UIPreferences) => void;
+    /** Who owns the keyboard as of the last frame: `typing` while a text field (or a knob's typed
+     *  value, a sheet cell, the doc editor) has focus; `navigating` while Tab/arrows are moving
+     *  between GUI controls. */
+    keyboardState: () => { typing: boolean; navigating: boolean };
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
@@ -3187,6 +3269,10 @@ export interface EntropyAPI {
     // without it, a click on a UI button also fires as a click on whatever's in the game world
     // underneath that same screen position, since UI and game input aren't otherwise exclusive.
     isPointerOverUI: () => boolean;
+    // True while a GUI text field has keyboard focus. `onKeyDown` already holds back plain keys
+    // (and Ctrl+A/C/V/X/Z/Y) then, and `isKeyPressed` reports false for them, so typing a "w"
+    // into a name field does not also walk the camera forward.
+    isTypingInUI: () => boolean;
   };
   Selection: {
     setMode: (mode: "vertex" | "edge" | "face" | "object") => void;

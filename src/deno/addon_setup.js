@@ -713,6 +713,27 @@ function nextWidgetId(windowId, label, explicitId) {
     return id;
 }
 
+// Presentation options any widget config may carry (tooltip, shortcut, unit, defaultValue,
+// step, decimals, min, max, speed, disabled, selected). Sent as an `Extras` entry right before
+// the widget itself - see `UiWidget::Extras` in addon_ops.rs.
+const WIDGET_EXTRA_KEYS = ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed", "disabled", "selected"];
+function emitWidgetExtras(windowId, config, only) {
+    if (!config || typeof config !== 'object') return;
+    let extras = null;
+    for (const key of (only || WIDGET_EXTRA_KEYS)) {
+        if (config[key] !== undefined && config[key] !== null) {
+            extras = extras || {};
+            extras[key] = config[key];
+        }
+    }
+    if (extras) ops.op_ui_widget_extras(windowId, extras);
+}
+
+// Named keys a focused GUI control uses for itself while the keyboard is moving through the GUI.
+const GUI_NAVIGATION_KEYS = new Set(["Tab", "Enter", " ", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace", "Delete"]);
+// While a text field has focus, Ctrl/Cmd + these are text editing, not app shortcuts.
+const TEXT_EDITING_CHORDS = new Set(["a", "c", "v", "x", "z", "y"]);
+
 function bindListener(poolName, id, fn) {
     if (!fn) return;
     globalThis[poolName] = globalThis[poolName] || {};
@@ -1191,8 +1212,36 @@ globalThis.Entropy = {
                 glass: config.glass === true,
                 decorations: config.decorations !== false
             }, config.onRender);
+            // Its close button (or Escape) hides it; `onClose` hears about it.
+            bindListener('_entropy_event_listeners', `__window_closed:${windowId}`, config.onClose);
             return windowId;
         },
+        // A short status message in the bottom-right corner that never takes keyboard focus.
+        // `{ id?, message, kind?: "info"|"success"|"warning"|"error", actionLabel?, onAction?,
+        //    onDismiss?, progress?: 0..1 (negative: indeterminate), durationMs? (0 = until
+        //    dismissed) }`. Returns the id; calling again with the same id updates that toast in
+        //    place (progress, "Saving..." -> "Saved").
+        toast: (config) => {
+            const c = typeof config === 'string' ? { message: config } : (config || {});
+            globalThis.__entropy_toast_seq = (globalThis.__entropy_toast_seq || 0) + 1;
+            const id = c.id || `toast-${globalThis.__entropy_toast_seq}`;
+            ops.op_ui_toast({
+                id,
+                message: String(c.message ?? ""),
+                kind: c.kind || "info",
+                actionLabel: c.actionLabel ?? null,
+                progress: typeof c.progress === 'number' ? c.progress : null,
+                durationMs: typeof c.durationMs === 'number' ? c.durationMs : null,
+            });
+            bindListener('_entropy_event_listeners', `__toast_action:${id}`, c.onAction);
+            bindListener('_entropy_event_listeners', `__toast_dismissed:${id}`, c.onDismiss);
+            return id;
+        },
+        dismissToast: (id) => ops.op_ui_dismiss_toast(String(id)),
+        // `{ reduceMotion?: boolean, tooltipDelayMs?: number }` - app-wide, persists until changed.
+        setPreferences: (prefs) => ops.op_ui_set_preferences(prefs || {}),
+        // `{ typing, navigating }` as of the last frame - see Input.isTypingInUI.
+        keyboardState: () => ops.op_ui_keyboard_state(),
         createTab: (config) => {
             const tabId = ops.op_ui_create_tab("Global", config, config.onRender);
             return tabId;
@@ -1222,6 +1271,7 @@ globalThis.Entropy = {
                 const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
                 const frame = typeof config === 'object' && config?.frame !== undefined ? config.frame : true;
 
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "disabled", "selected"]);
                 ops.op_ui_widget_button(windowId, text, id, fontSize, alpha, frame);
                 bindListener('_entropy_event_listeners', id, config?.onClick);
             },
@@ -1240,6 +1290,7 @@ globalThis.Entropy = {
                 const max = config?.max || 100;
                 const id = nextWidgetId(windowId, label, config?.id);
 
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals"]);
                 ops.op_ui_widget_slider(windowId, label, value, min, max, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
@@ -1250,6 +1301,7 @@ globalThis.Entropy = {
                 const max = config?.max || 100;
                 const id = nextWidgetId(windowId, label, config?.id);
 
+                emitWidgetExtras(windowId, config, ["unit", "defaultValue", "step", "decimals"]);
                 ops.op_ui_widget_knob(windowId, label, value, min, max, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
@@ -1258,6 +1310,7 @@ globalThis.Entropy = {
                 const value = config?.value || 0;
                 const id = nextWidgetId(windowId, label, config?.id);
 
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed"]);
                 ops.op_ui_widget_numeric_input(windowId, label, value, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
@@ -1275,6 +1328,7 @@ globalThis.Entropy = {
                 const value = config?.value || false;
                 const id = nextWidgetId(windowId, label, config?.id);
 
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut"]);
                 ops.op_ui_widget_checkbox(windowId, label, value, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
@@ -1915,9 +1969,15 @@ globalThis.Entropy = {
                     fireAll("onMouseUp", event.button);
                     break;
                 case "KeyDown": {
-                    // We need modifiers here too if requested by API
-                    // For now keeping it simple as per NEEDED_APIS.md
                     const state = ops.op_input_get_state();
+                    // A GUI text field has focus: plain keys (and the text-editing chords) are
+                    // typing, not app shortcuts. While the keyboard is moving through GUI controls,
+                    // Tab/Enter/Space/Escape/arrows drive the focused control instead.
+                    const ui = ops.op_ui_keyboard_state();
+                    const k = String(event.key);
+                    const chord = state.modifiers.ctrl || state.modifiers.command;
+                    if (ui.typing && (!chord || TEXT_EDITING_CHORDS.has(k.toLowerCase()))) break;
+                    if (ui.navigating && !chord && GUI_NAVIGATION_KEYS.has(k)) break;
                     fireAll("onKeyDown", event.key, state.modifiers.ctrl, state.modifiers.shift, state.modifiers.alt);
                     break;
                 }
@@ -2432,8 +2492,13 @@ globalThis.Entropy = {
             // if (state.pressedKeys?.length) {
             //     globalThis.Entropy.println("state.pressedKeys: " + JSON.stringify(state.pressedKeys));
             // }
+            // Held keys drive movement (WASD and the like); typing into a text field is not that.
+            if (!state.modifiers.ctrl && ops.op_ui_keyboard_state().typing) return false;
             return state.pressedKeys?.includes(key);
         },
+        // True while a GUI text field (or a knob's typed value, a sheet cell, the doc editor) has
+        // keyboard focus. Single-key shortcuts should stand down; onKeyDown already does.
+        isTypingInUI: () => ops.op_ui_keyboard_state().typing,
         isCtrlPressed: () => {
             const state = ops.op_input_get_state();
             return state.modifiers.ctrl;

@@ -15,10 +15,14 @@ const MENU_SIZE: (f32, f32) = (190.0, 220.0);
 pub fn context_menu(ctx: &Context, id: Id, anchor_rect: Rect, just_secondary_clicked: bool, add_contents: impl FnOnce(&mut Ui)) {
     if just_secondary_clicked {
         let pos = ctx.input(|i| i.pointer.pos).unwrap_or(anchor_rect.left_bottom());
-        ctx.memory_mut(|m| {
+        let opener = ctx.memory_mut(|m| {
             m.popup_open = Some(id);
             m.popup_pos = pos;
+            m.focused
         });
+        if let Some(opener) = opener {
+            ctx.set_opener(id, opener);
+        }
         // Opens next frame: this avoids the same click that opened the menu also being
         // read as an outside-click that immediately closes it.
         return;
@@ -50,9 +54,17 @@ pub fn context_menu(ctx: &Context, id: Id, anchor_rect: Rect, just_secondary_cli
     // no topmost-only hit-testing otherwise - see `Window`'s own module doc for the click-
     // through bug this exact mechanism was built to fix). Without this, a click landing on
     // e.g. "Delete row" would also select whichever grid cell happened to be drawn under it.
-    let previous_layer = ctx.enter_layer(id.with("context_menu_layer"));
+    let layer = id.with("context_menu_layer");
+    let previous_layer = ctx.enter_layer(layer);
+    // Up/Down walk the items; a keyboard user's focus moves into the menu when it opens.
+    ctx.note_layer_shown(layer, true);
+    ctx.mark_menu_layer(layer);
     let mut ui = Ui::new(ctx.clone(), id.with("context_menu"), region.shrink(4.0), Layout::top_down(Align::Min), region, DrawTarget::Popup);
     add_contents(&mut ui);
-    ctx.add_occluder(id.with("context_menu_layer"), region);
+    ctx.add_occluder(layer, region);
+    let picked_by_keyboard = ctx.activated_in_layer(layer);
     ctx.leave_layer(previous_layer);
+    if picked_by_keyboard {
+        ctx.memory_mut(|m| m.popup_open = None);
+    }
 }

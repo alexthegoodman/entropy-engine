@@ -15,7 +15,8 @@ impl Ui {
         let text = text.into();
         let font = FontId::proportional(DEFAULT_FONT_SIZE);
         let size = Painter::measure_text(self.ctx(), font, &text.0.text);
-        let (rect, response) = self.allocate_response(vec2(size.x, size.y.max(font.size)), Sense::click());
+        let (rect, mut response) = self.allocate_response(vec2(size.x, size.y.max(font.size)), Sense::click());
+        self.focus(&mut response);
         let color = self.visuals().hyperlink_color;
         let painter = self.painter();
         painter.text(rect.left_top(), Align2::LEFT_TOP, &text.0.text, font, color);

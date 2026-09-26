@@ -10,6 +10,25 @@ use crate::entropy_gui::painter::{DrawTarget, Painter};
 use crate::entropy_gui::response::{Response, Sense};
 use crate::entropy_gui::style::{Style, Visuals, WidgetVisuals};
 
+/// How a widget takes part in keyboard focus - see `Ui::focus_with`.
+#[derive(Clone, Copy, Debug)]
+pub struct FocusOptions {
+    /// Enter/Space act as a click.
+    pub activate: bool,
+    /// A text-entry widget: it wants every key (Escape included), and app shortcuts stand down.
+    pub text: bool,
+    /// Where a popup lands when it opens from the keyboard (the current choice in a dropdown).
+    pub selected: bool,
+    /// Draw the focus ring (a widget with its own focused look can turn it off).
+    pub ring: bool,
+}
+
+impl Default for FocusOptions {
+    fn default() -> Self {
+        Self { activate: true, text: false, selected: false, ring: true }
+    }
+}
+
 pub struct InnerResponse<R> {
     pub inner: R,
     pub response: Response,
@@ -289,6 +308,33 @@ impl Ui {
         self.ctx.output_mut(writer)
     }
 
+    /// Puts a widget in the Tab order. A press on it focuses it; when it has focus, Enter or
+    /// Space activates it (`clicked()` becomes true), and a ring is drawn while the keyboard put
+    /// the focus there. Returns whether it has focus. Every standard click widget calls this;
+    /// custom widgets can too.
+    pub fn focus(&self, response: &mut Response) -> bool {
+        self.focus_with(response, FocusOptions::default())
+    }
+
+    pub fn focus_with(&self, response: &mut Response, opts: FocusOptions) -> bool {
+        let pressed_here = response.hovered && self.input(|i| i.pointer.primary_pressed);
+        let focused = self.ctx.register_focusable(response.id, response.rect, opts.text, opts.selected, pressed_here);
+        response.focused = focused;
+        if focused && opts.activate && !opts.text {
+            let enter = self.ctx.consume_key(Key::Enter);
+            let space = !enter && self.ctx.consume_key(Key::Space);
+            if enter || space {
+                response.clicked = true;
+                self.ctx.note_activated(response.id);
+            }
+        }
+        if focused && self.ctx.focus_visible() && opts.ring {
+            let radius = self.visuals().widgets.inactive.corner_radius;
+            crate::entropy_gui::focus::paint_focus_ring(&self.painter(), response.rect, radius);
+        }
+        focused
+    }
+
     pub fn close_menu(&self) {
         self.ctx.memory_mut(|m| m.popup_open = None);
     }
@@ -344,5 +390,6 @@ pub(crate) fn interact(ctx: &Context, rect: Rect, id: Id, sense: Sense) -> Respo
         drag_delta,
         interact_pointer_pos,
         changed: false,
+        focused: false,
     }
 }

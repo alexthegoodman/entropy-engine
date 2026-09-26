@@ -1976,9 +1976,12 @@ function saveScene(asNew = false): boolean {
         savedSceneState = captureScene();
         statusMessage = `Saved: ${entry.name}`;
         textInputActive = false;
+        Entropy.UI.toast?.({ id: "canvas-save", message: `Saved "${entry.name}".`, kind: "success", durationMs: 2500 });
         return true;
     } catch (error) {
         statusMessage = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+        // Stays until dealt with: the scene is only in memory until a save works.
+        Entropy.UI.toast?.({ id: "canvas-save", message: statusMessage, kind: "error", actionLabel: "Retry", onAction: () => { saveScene(asNew); }, durationMs: 0 });
         return false;
     }
 }

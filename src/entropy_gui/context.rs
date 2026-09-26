@@ -35,6 +35,11 @@ pub enum Key {
     Enter,
     Escape,
     Tab,
+    Space,
+    PageUp,
+    PageDown,
+    /// Moves keyboard focus between layers (the base panels and each window).
+    F6,
     A,
     C,
     V,
@@ -107,6 +112,9 @@ pub struct RawInput {
     pub pixels_per_point: f32,
     pub pointer: PointerState,
     pub scroll_delta: crate::entropy_gui::geometry::Vec2,
+    /// `scroll_delta` came from a notched mouse wheel (whole lines), so scroll areas ease toward
+    /// it. Trackpad (pixel) deltas are already smooth and apply at once.
+    pub scroll_in_lines: bool,
     pub modifiers: Modifiers,
     /// Committed text this frame (typed characters and/or IME commit).
     pub text_input: String,
@@ -214,6 +222,30 @@ pub(crate) struct ContextInner {
     /// released. While set, only that layer sees the pointer, so dragging a slider out of a
     /// window does not start driving whatever is underneath.
     pub(crate) pointer_capture: Option<Option<Id>>,
+    /// Keyboard focus traversal - see `focus.rs`.
+    pub(crate) focus: crate::entropy_gui::focus::FocusState,
+    /// Tooltip hover timing and the toast stack - see `containers::tooltip` and `toast.rs`.
+    pub(crate) tooltip: crate::entropy_gui::containers::tooltip::TooltipState,
+    pub(crate) toasts: crate::entropy_gui::toast::Toasts,
+    /// Accessibility preferences that are not colors: reduced motion and similar.
+    pub(crate) prefs: UiPrefs,
+}
+
+/// App-wide UI preferences that change behavior rather than looks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiPrefs {
+    /// Scroll jumps instead of easing, and toasts appear without sliding. Defaults to on when
+    /// the `ENTROPY_REDUCE_MOTION` environment variable is set to anything but `0`.
+    pub reduce_motion: bool,
+    /// Seconds the pointer must rest on a widget before its tooltip shows.
+    pub tooltip_delay: f32,
+}
+
+impl Default for UiPrefs {
+    fn default() -> Self {
+        let reduce_motion = std::env::var("ENTROPY_REDUCE_MOTION").map_or(false, |v| v != "0" && !v.is_empty());
+        Self { reduce_motion, tooltip_delay: 0.45 }
+    }
 }
 
 impl ContextInner {
@@ -235,7 +267,7 @@ impl ContextInner {
 }
 
 #[derive(Clone)]
-pub struct Context(Rc<RefCell<ContextInner>>);
+pub struct Context(pub(crate) Rc<RefCell<ContextInner>>);
 
 impl Default for Context {
     fn default() -> Self {
@@ -259,6 +291,10 @@ impl Default for Context {
             layer: None,
             windows_begun: 0,
             pointer_capture: None,
+            focus: Default::default(),
+            tooltip: Default::default(),
+            toasts: Default::default(),
+            prefs: UiPrefs::default(),
         })))
     }
 }
@@ -390,6 +426,22 @@ impl Context {
             inner.pointer_capture = None;
         }
         inner.memory.begin_scroll_frame();
+        inner.focus.begin_frame();
+        if p.primary_pressed || p.secondary_pressed {
+            let layer = p.pos.and_then(|pos| inner.top_layer_at(pos));
+            inner.focus.active_layer = Some(layer);
+        }
+        let dt = inner.input.dt.max(0.0);
+        inner.tooltip.begin_frame(dt);
+        inner.toasts.tick(dt);
+    }
+
+    pub fn prefs(&self) -> UiPrefs {
+        self.0.borrow().prefs
+    }
+
+    pub fn set_prefs(&self, prefs: UiPrefs) {
+        self.0.borrow_mut().prefs = prefs;
     }
 
     /// Marks the pointer as currently over some GUI element - called from `interact()`
@@ -407,6 +459,14 @@ impl Context {
     }
 
     fn end_frame(&self) -> FullOutput {
+        crate::entropy_gui::toast::show_toasts(self);
+        crate::entropy_gui::containers::tooltip::end_frame(self);
+        {
+            let mut guard = self.0.borrow_mut();
+            let inner = &mut *guard;
+            let pressed = inner.input.pointer.primary_pressed || inner.input.pointer.secondary_pressed;
+            crate::entropy_gui::focus::resolve(&mut inner.focus, &mut inner.memory.focused, &mut inner.memory.popup_open, &inner.input.key_events, pressed);
+        }
         let mut inner = self.0.borrow_mut();
         let overlay = std::mem::take(&mut inner.overlay_draw_list);
         inner.draw_list.commands.extend(overlay.commands);

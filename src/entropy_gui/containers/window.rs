@@ -100,6 +100,17 @@ impl<'open> Window<'open> {
         // stop seeing the pointer wherever this window sits (see `Context::input`).
         let previous_layer = ctx.enter_layer(id);
 
+        // Escape closes a closable window when a (non-text) widget inside it has focus; focus
+        // then goes back to whatever opened it (see `focus::resolve`).
+        if let Some(open) = self.open.as_mut() {
+            if self.decorations && ctx.escape_closes_window(id) {
+                **open = false;
+                ctx.leave_layer(previous_layer);
+                return None;
+            }
+        }
+        ctx.note_layer_shown(id, true);
+
         let title_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + title_bar_height));
 
         // Interact against last frame's rect first so this frame's drag/resize is reflected
@@ -159,7 +170,7 @@ impl<'open> Window<'open> {
 
         if let (Some(open_ref), true) = (self.open.as_mut(), self.decorations) {
             let close_rect = Rect::from_min_size(pos2(title_rect.max.x - 24.0, title_rect.min.y + 4.0), vec2(20.0, 20.0));
-            let close_resp = interact(ctx, close_rect, id.with("close"), Sense::click());
+            let close_resp = interact(ctx, close_rect, id.with("close"), Sense::click()).on_hover_text_with_shortcut("Close", "Esc");
             let close_color = if close_resp.hovered() { style.visuals.widgets.hovered.fg_stroke.color } else { text_color };
             painter.text(close_rect.center(), Align2::CENTER_CENTER, "\u{2715}", FontId::proportional(12.0), close_color);
             if close_resp.clicked() {
