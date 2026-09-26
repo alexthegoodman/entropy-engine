@@ -23,6 +23,20 @@
 //! * [`live`] - the kit on a track: what it publishes for the view, the live voice, offline
 //!   rendering of a track's hits.
 //!
+//! Water (Phase 6):
+//!
+//! * [`bubble`] - bubbles ringing at their Minnaert frequency (with the heat flow, viscosity and
+//!   radiation that damp them), rising and chirping; a bank of gliding resonators.
+//! * [`drop`] - droplets as strikers: on water, the bubbles they entrain (and when); on solids, a
+//!   splash solved against the body every sample.
+//! * [`vessel`] - water in a container: the air column over it, pouring, glasses tuned by their water.
+//! * [`waves`] - a coarse simulation of the water's surface whose breaking drives bubble
+//!   populations: a shaken tub, a brook, surf.
+//! * [`rain`] - raindrops of real sizes on a lake, a window, a roof, a tent, a cymbal or a drum.
+//! * [`water`] - open water to drip into, and offline renders of all of the above.
+//! * [`water_voice`] - water on a track: one instrument for every kind, its live voice, offline
+//!   rendering of a track's notes.
+//!
 //! As with the strings and the brass, every behaviour is measured from rendered audio in the tests,
 //! not tuned by ear.
 

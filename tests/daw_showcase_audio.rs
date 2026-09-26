@@ -141,6 +141,7 @@ fn showcase_finales_render_with_headroom() {
                 .map(|e| e.to_event().unwrap())
                 .collect::<Vec<_>>(),
             &[],
+            &[],
             &routing,
             44100,
             &path,

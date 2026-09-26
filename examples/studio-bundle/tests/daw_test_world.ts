@@ -123,6 +123,14 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         matterStatus: "ready" as string,
         removedMatter: [] as string[],
         removedMatterKits: [] as string[],
+        // Water: the notes played, what the export was handed, what each prepare was asked for, and
+        // what was removed. `waterStatus` is what prepare answers.
+        waterNotes: [] as { id: string; cfg: any }[],
+        waterPrepared: [] as { id: string; cfg: any }[],
+        waterExports: [] as any[][],
+        waterStatus: "ready" as string,
+        removedWater: [] as string[],
+        removedWaterIds: [] as string[],
         // What the WAV export was handed for VST3 tracks, and the vst3Warnings the fake render
         // should hand back on the next export call (reset to [] after each export).
         vst3Exports: [] as any[][],
@@ -233,8 +241,16 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 return { ok: true, played };
             },
             removeMatter: (id: string) => { w.removedMatter.push(id); },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[]) => {
+            prepareWater: (id: string, cfg: any) => { w.waterPrepared.push({ id, cfg }); return { ok: true, status: w.waterStatus }; },
+            playWaterOnTrack: (id: string, cfg: any) => {
+                const played = w.waterStatus !== "building";
+                if (played) w.waterNotes.push({ id, cfg });
+                return { ok: true, played };
+            },
+            removeWater: (id: string) => { w.removedWater.push(id); },
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[]) => {
                 w.brassExports.push(brassEvents ?? []);
+                w.waterExports.push(waterEvents ?? []);
                 w.matterExports.push(matterEvents ?? []);
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
@@ -337,6 +353,17 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             remove: (id: string) => { w.removedMatterKits.push(id); return true; },
             analyzeHit: (cfg: any) => ({ ok: true, piece: cfg.piece, striker: cfg.striker, speed: cfg.speed, position: cfg.position, seconds: 1.5, peakDb: -6, rmsDb: -20, centroidHz: 500 + 400 * cfg.speed, strongestHz: 200, decaySeconds: 0.6, contactMs: 3.5, peakForceN: 20 * cfg.speed, reboundSpeed: 0.6 * cfg.speed, ...(cfg.piece === "snare" ? { glideCents: 4, wireLandings: 120 } : {}) }),
             analyzeStroke: (cfg: any) => ({ ok: true, piece: cfg.piece, stroke: cfg.stroke, tool: cfg.tool ?? "brush", speed: cfg.speed, pressureN: cfg.pressure, duration: cfg.duration, seconds: 1, peakDb: -20, rmsDb: -30, centroidHz: 3000 + 1000 * cfg.speed, above4kDb: -12, flatnessDb: -14, stickFraction: 0.4, releasesPerSecond: 900, landings: 12 }),
+        },
+        // The engine's water, reduced to what the addon can observe: `analyze` reports the pitch a
+        // pitched note was asked for as its strongest frequency, so a test can tell what was heard.
+        Water: {
+            info: (id: string) => ({ ok: true, id, active: 1, levels: {}, drip: { lastHz: 0, drops: 0, bubbles: 0 }, glasses: [], fills: [], rain: { rateMmH: 0, drops: 0 }, brook: { speed: 0, dissipationW: 0 }, surf: { heightM: 0, breakers: 0 }, slosh: { strength: 0, bores: 0 } }),
+            remove: (id: string) => { w.removedWaterIds.push(id); return true; },
+            analyze: (cfg: any) => ({
+                ok: true, action: cfg.action, seconds: 1, peakDb: -12, rmsDb: -24, centroidHz: 2000, strongestHz: cfg.pitch ?? 3000,
+                ...(cfg.action === "glass" ? { glass: { radiusMm: 40, heightMm: 115, levelMm: 90, emptyHz: (cfg.pitch ?? 500) * 1.6, fullHz: (cfg.pitch ?? 500) * 0.8, pitchHz: cfg.pitch, speed: cfg.speed } } : {}),
+                ...(cfg.action === "rain" ? { rain: { surface: cfg.water?.rain ?? "lake", rateMmH: cfg.rate, duration: cfg.duration } } : {}),
+            }),
         },
         Guitar: {
             listInputs: () => ({ devices: [], hosts: [] }),
