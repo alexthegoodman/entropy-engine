@@ -11,21 +11,21 @@ use crate::audio::physmod::analysis::spectrum;
 
 const SR: f32 = 44_100.0;
 
-fn cents(a: f32, b: f32) -> f32 {
+pub(super) fn cents(a: f32, b: f32) -> f32 {
     1200.0 * (a / b).log2()
 }
 
-fn rms(x: &[f32]) -> f32 {
+pub(super) fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32).sqrt()
 }
 
-fn db(x: f32) -> f32 {
+pub(super) fn db(x: f32) -> f32 {
     20.0 * x.max(1.0e-12).log10()
 }
 
 /// The strongest spectral peak of `seg` between `lo` and `hi` Hz: (frequency, magnitude), with
 /// parabolic refinement.
-fn peak(seg: &[f32], lo: f32, hi: f32) -> (f32, f32) {
+pub(super) fn peak(seg: &[f32], lo: f32, hi: f32) -> (f32, f32) {
     let (m, bin) = spectrum(seg, SR);
     let a = ((lo / bin) as usize).max(1);
     let b = ((hi / bin) as usize).min(m.len() - 2);
@@ -42,7 +42,7 @@ fn peak(seg: &[f32], lo: f32, hi: f32) -> (f32, f32) {
 }
 
 /// Spectral centroid of `seg` (Hz).
-fn centroid(seg: &[f32]) -> f32 {
+pub(super) fn centroid(seg: &[f32]) -> f32 {
     let (m, bin) = spectrum(seg, SR);
     let (mut num, mut den) = (0.0f64, 0.0f64);
     for (k, v) in m.iter().enumerate().skip(1) {
@@ -53,7 +53,7 @@ fn centroid(seg: &[f32]) -> f32 {
 }
 
 /// Share of the energy of `seg` above `f` Hz, dB.
-fn above(seg: &[f32], f: f32) -> f32 {
+pub(super) fn above(seg: &[f32], f: f32) -> f32 {
     let (m, bin) = spectrum(seg, SR);
     let tot: f32 = m.iter().map(|v| v * v).sum();
     let hi: f32 = m.iter().enumerate().filter(|(k, _)| *k as f32 * bin > f).map(|(_, v)| v * v).sum();
@@ -64,7 +64,7 @@ fn above_1k(seg: &[f32]) -> f32 {
     above(seg, 1000.0)
 }
 
-fn secs(x: &[f32], a: f32, b: f32) -> &[f32] {
+pub(super) fn secs(x: &[f32], a: f32, b: f32) -> &[f32] {
     &x[(a * SR) as usize..((b * SR) as usize).min(x.len())]
 }
 

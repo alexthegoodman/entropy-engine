@@ -428,7 +428,10 @@ head's own motion), and the tests keep those measurements in place.
 | Membrane | `membrane.rs` | Circular head: Bessel mode shapes normalized to the head's mass; the **radiation impedance of every mode computed** from its Hankel transform (air mass from the evanescent part, radiation resistance from the propagating part, iterated with the frequency it changes); radiation damping and radiated weights from the same numbers; the tension-modulation coefficient `E h / (4 (1 - nu))`; tension solved from a tuning. Options: both members of each degenerate pair (for heads touched all round), orders limited, and a **sampled high band** (below). Built heads are cached by description. |
 | Cavity | `cavity.rs` | The air inside a drum as the acoustic modes of a hard-walled cylinder (`J_m(alpha r / a) cos(m theta) cos(l pi z / L)`), driven by both heads and pressing back on them, with the overlaps in closed form; the uniform mode is the air spring, the others slosh below their resonance and tie the heads' asymmetric modes together. A kettle (no depth given) keeps only the uniform mode. |
 | Drums | `drum.rs` | Batter head + optional resonant head + the cavity; up to four strikers in flight; tension modulation from the cycle-averaged stretch, capped at the film's yield strain and ramped every sample; **snare wires** (below). Presets: 22" kick (two-ply batter with a pillow, felt or plastic beater), 14" snare (coated batter, 3-mil snare side, twenty strands; snares off), 16" floor tom, 12" rack tom (sticks), 26" timpani (felt mallets, soft and hard). |
-| Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head) |
+| Plate | `plate.rs` | A free-edge thin circular plate (modes `J_m + C I_m` from the free edge's moment and Kirchhoff-shear conditions), bent into a shallow spherical dome: the in-plane (Airy) stress expanded on the clamped-plate functions, the **von Karman couplings** `H^k_pq` and the dome's linear couplings `B^k_p` as radial quadratures with the angular selection rules in closed form, the dome's stiffness folded into **shell modes** (an eigen-solve per order), radiation from the Rayleigh integral with the Hankel transforms of `J_m` and `I_m` in closed form (Lommel), both faces. The stand as two rigid modes (bouncing, rocking on the felts). A sampled high band as for the membrane. Built plates are cached. |
+| Von Karman | `vonkarman.rs` | The stretching force on the shell modes, run with a **scalar auxiliary variable** so the modes' energy plus the stretching energy can never grow; couplings stored as dense blocks per pair of orders and evaluated with hand-written SSE2 |
+| Cymbals | `cymbal.rs` | Plate + strikers: 16" crash, 20" ride, 10" splash (bronze; size, weight, dome rise), stick bead, stick shoulder, yarn mallet |
+| Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head), `render_cymbal` |
 
 ## Phase 1 progress
 
@@ -438,6 +441,12 @@ head's own motion), and the tests keep those measurements in place.
 - **1d Snare - done** (wires, the cavity's modes, and the high band it needed). The shell's own
   modes and the rim (rimshots, cross-stick) are not modelled yet.
 - **1e Runtime, view and DAW - not started.**
+
+## Phase 2 progress
+
+- **Plates and the von Karman nonlinearity - done**, with the dome.
+- **Cymbals - done** as offline models: crash, ride, splash.
+- **Gongs, bells - not started.**
 
 ## Decisions the measurements made
 
@@ -533,11 +542,27 @@ Run with `cargo test --release --lib matter`.
 | `J_m'` zeros match tables | `matter::bessel::tests` |
 | Every drum (snare included) stays finite for a 25 m/s hit at the rim and falls silent | same |
 
+`matter::cymbal_tests::cymbal_listening_examples` (ignored) renders a crash soft, medium, hard and hard
+without the stretching, a ride pattern, a splash and a yarn-mallet swell on the crash;
+`matter::cymbal_tests::cymbal_cost` times each cymbal, and `cascade_report`, `rate_report`,
+`inplane_report` print the measurements behind the decisions below.
+
 `matter::tests::listening_examples` (ignored) renders a kick pattern, a tom fill with a hard floor-tom
 glide, a snare groove with ghost notes and a roll, one snare hit with the snares off, loose, normal
 and tight, a timpani phrase on two drums, a timpani roll with a crescendo and a centre-versus-edge
 stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each drum.
-
+| A free plate's `lambda^2` match the frequency equation to 2e-4 and Leissa's table to 0.5%; the in-plane functions are the clamped plate's (Leissa, 2e-4) | `matter::cymbal_tests` |
+| `I_m` matches tables; the closed-form Hankel transform matches quadrature (the removable singularity included) | `matter::bessel::tests`, `matter::cymbal_tests` |
+| `integral Phi_s L(Phi_r, Psi_k) = integral Psi_k L(Phi_r, Phi_s)` to 1e-4 (true only with the right `L` and edge conditions) | `matter::cymbal_tests` |
+| The stretching force is the gradient of its energy (finite differences, 2%) | same |
+| A flat plate's shell modes are its plate modes; the dome lifts `(0,1)` from 38 Hz to the ring frequency, moves the nodal-diameter modes by under 10%, and its short waves follow `omega^2 = omega_flat^2 + E / (rho R^2)` within 1% | same |
+| With no losses the modes' energy plus the scheme's stretching energy drifts by under 0.5% in a second, and the auxiliary variable tracks the true stretching energy | same |
+| A very soft stroke (1 cm/s) keeps its energy within 1.5% of where a linear plate has it; 1 m/s moves 10%+, 5 m/s 20%+ | same |
+| After a hard crash, energy climbs through the nonlinear set (its energy-weighted frequency rises 10%+ within 100 ms) and then falls; a linear plate's only falls | same |
+| At the same stroke the thicker ride moves less than 0.6 of the energy the crash moves | same |
+| A stick on bronze at 44.1 kHz: contact time within 8%, impulse within 2%, the force's energy below 8 kHz within 1 dB of a 4x finer step | same |
+| A yarn mallet's contact is 2x+ longer and its sound darker (centroid 0.8x) than a stick's | same |
+| Every cymbal stays finite for two 25 m/s hits and decays | same |
 ## Known limits
 
 - **Cost.** Per ringing drum, in release builds on one core: snare 13%, kick 7%, floor tom 5.5%, rack
@@ -558,24 +583,80 @@ stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each d
 - A 25 m/s stick at the rim peaks at several hundred pascals at 1 m: physical for the speed (90 km/h),
   but the DAW will need gain staging (full scale is 20 Pa).
 
-## Picking up: Phase 2 (cymbals, gongs, bells)
+## Decisions the cymbal measurements made
 
-Where to start, from what exists:
+- **The dome is what makes it a cymbal.** A 16" crash of a millimetre of bronze is almost a flat
+  plate for the modes that only bend (nodal diameters: `(2,0)` at 22 Hz, `(3,0)` at 54 Hz...), but
+  every mode with a nodal circle has to stretch a dome to move, and 20 mm of rise (R = 1.04 m)
+  lifts them all to just above the ring frequency `sqrt(E / rho) / (2 pi R)` = 546 Hz: `(0,1)` goes
+  from 38 Hz to 547 Hz. The computed shell modes then follow the spherical shell's dispersion within
+  a hertz, which is what the linear modes above the nonlinear set use.
+- **The dome's coupling is quadratic, and resonant.** Folding the linear part into the modes leaves
+  quadratic (dome) and cubic (stretching) forces. Many pairs of bending modes sum to the frequencies
+  of the lifted modes (96 + 437, 147 + 352, 2 x 276 Hz...), the internal resonances shells are known
+  for, so energy moves from the low bending modes - which take most of an edge strike and radiate
+  almost nothing - into the well-radiating modes around 550 Hz-2 kHz. A hard stroke sounds about 10 dB
+  louder than the same plate made linear. How much moves at a given soft stroke depends on how
+  exactly those pairs are tuned (it is not monotonic in the stroke between 2 and 10 cm/s: 3.7% at
+  2 cm/s, 11% at 4 cm/s, 2% at 10 cm/s, converged in the time step but changing with the in-plane
+  basis, which moves the tuning by fractions of a hertz); the robust claims are the ones tested.
+- **An energy-conserving scheme, not a small time step.** The stretching force is stiff and grows
+  with the square of the amplitude. It is run with a scalar auxiliary variable: the force is
+  `-psi g`, and `psi` is updated in closed form so the work done on the modes (which the modal body
+  receives as an impulse and then carries exactly) equals what `psi^2 / 2` loses. Nothing can blow
+  up, whatever the stroke; two 25 m/s rim shots are finite. Undamped, the total drifts 0.1% in a
+  second (single-precision modes), and `psi` tracks the stretching energy to about 1e-5 of the total
+  on a soft stroke and 1e-2 on a hard one. It is resynchronized while a striker is in contact.
+- **Every other sample.** Evaluating the force every 2 samples changes the hard crash's third-octave
+  bands by 0.5 dB on average (1.8 dB at most) against every sample; every 3 or more aliases (90 dB
+  errors in some bands).
+- **In-plane functions to 1.2x the highest bending wavenumber.** Against 2.5x: 1.6 dB at most, 0.75 dB
+  mean over the bands; 1.0x gives 3.1 dB, 1.5x 0.6 dB. Mode frequencies are converged to a hertz
+  already at 0.8x.
+- **No pruning.** Dropping even the smallest 1% of couplings (by their weight in the energy) moves some
+  bands by 11 dB: the couplings that look small carry resonant transfers. With dense blocks and SSE2
+  pruning no longer saves time anyway.
+- **Dense blocks and SSE2.** Stored as sparse entries (gather-scatter) the crash took 213% of a core
+  unpruned. Grouped per pair of azimuthal orders into dense rows padded to whole lanes, `P_k` computed
+  four in-plane functions per register (`[group][entry][lane]`, no horizontal sums) and the gradient
+  as contiguous `axpy`s, it takes 56%, with identical output.
+- **A stick on bronze is short, and resolved where it matters.** Wood on bronze peaks for tens of
+  microseconds, which a 44.1 kHz step sees averaged (the peak sample is half the 4x-rate one), but the
+  contact time (~1 ms: the plate gives way), the impulse and the force's spectrum below 8 kHz match a
+  4x finer step.
 
-- **Reuse as is:** `ModalBody` (exact modes, SSE2 step, `predict`, `set_scale`, listening modes via
-  `set_coupled`), `contact` (a stick or mallet on a plate is the same solve; hard metal contacts are
-  short, so check resolution with the existing "resolved at 44.1 kHz" pattern), `render_hits`, and
-  the test helpers in `matter::tests` (`peak`, `centroid`, `above`, `spectrum`).
-- **New body: `plate.rs`.** Modes of a thin circular plate from `J_m` and the modified `I_m` (not yet
-  in `bessel.rs`); free edge, clamped (or on a felt washer) at the centre hole for a cymbal. Plates
-  are dispersive (`f ~ k^2`), so the complete band reaches much higher than a membrane's before the
-  sampled high band takes over - the same `MembraneOptions`-style sampling applies, with the plate's
-  modal density (constant in frequency) for `count`.
-- **The new physics is the nonlinearity:** a reduced von Karman model (cubic couplings between modes)
-  for the crash's delayed build-up and the gong's shimmer. That is the CPU risk; budget it separately,
-  and profile early.
-- **Measure first:** centroid rising after the strike then falling (energy cascade), a gong nearly
-  linear when soft and shimmering when hard, bell partials at their named ratios.
+## Known limits (cymbals)
+
+- **Cost.** Per ringing cymbal after a hard hit, one core, release: crash 56% (72 nonlinear modes,
+  22.5k coupling coefficients), ride 63%, splash 29%. Far over budget for a kit; the nonlinear
+  evaluation is 90% of it.
+- **The cascade stops at the nonlinear set's top (2 kHz).** Energy climbs through the set and piles
+  up below 2 kHz; the complete band above (to 5 kHz) and the sampled band (to 16 kHz) are linear and
+  get only what the stick puts in. The crash's rising wash above a few kHz needs the set to reach
+  much higher, which at this cost it cannot. The energy-weighted frequency of the set rises and falls
+  as the plan asked; the radiated centroid does not rise.
+- Uniform thickness and a spherical dome: no bell (a real cymbal is thicker at the bell and tapers to
+  the edge, which raises its lowest modes - the crash's `(2,0)` is 22 Hz here), no lathing, no hole.
+  The stand is two rigid felt modes, not coupled to the plate's own modes.
+- Strikes are on the `theta = 0` diameter (or its opposite end): only the cosine member of each mode
+  pair is kept. A hit elsewhere on a ringing cymbal lands on the same pattern.
+- Radiation counts both faces as baffled: the short circuit around the edge of a real (unbaffled)
+  cymbal at low frequencies is not modelled.
+- No air loading (a millimetre of bronze carries about 1% of its mass in air at 500 Hz).
+- Glancing strikes, chokes (a hand grabbing the edge) and the stick's shoulder as a line contact are
+  not modelled.
+
+## Picking up
+
+- **Cymbal cost and reach.** Ideas, measured first: run the nonlinear set on a second thread; share
+  one evaluation between the in-plane functions of an order through a low-rank factorization of each
+  block; or carry the cascade above the set with a wave-turbulence closure (the energy flux leaving
+  the set's top feeding the linear high band), which would be a model, not a first-principles
+  solve, and would have to be justified as such.
+- **Gongs and bells** (the rest of Phase 2): a gong is a flat plate with a turned rim (the plate
+  code with `dome_radius: 0` already rings as one, with the cubic stretching alone); bells need a
+  reference shell solve for hum, prime, tierce, quint and nominal.
+- Phase 1e (runtime, view, DAW) is still open, and cymbals would join the kit there.
 
 Working in this container:
 
@@ -584,4 +665,7 @@ Working in this container:
   real bundle is built with `npm run build` where Deno is). `dist` is git-ignored.
 - `perf` comes from apt `linux-tools-generic` (at `/usr/lib/linux-tools/*/perf`) and works here;
   profile a test binary with `perf record <target/release/deps/entropy_engine-...> <test> --ignored`.
-- The matter tests take ~8 s in release; `cost` and `listening_examples` are `--ignored`.
+- The matter tests take ~10 s in release; `cost`, the reports and the listening examples are
+  `--ignored`.
+- `perf annotate` on the hot function (`perf report --stdio` for its mangled name) shows where the
+  cycles go line by line; that is how the gather-scatter overhead in the von Karman pass was found.

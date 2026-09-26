@@ -9,7 +9,11 @@
 //! * [`membrane`] - a drumhead: Bessel modes, computed air loading and radiation, tension
 //!   modulation.
 //! * [`cavity`] - the air inside a drum as acoustic modes, coupling its heads.
-//! * [`drum`] - heads, the air between them, strikers: kick, toms, timpani.
+//! * [`drum`] - heads, the air between them, strikers: kick, toms, timpani, snare.
+//! * [`plate`] - a free-edge circular plate or shallow dome: bending modes, the dome's stiffness,
+//!   radiation, and the von Karman couplings.
+//! * [`vonkarman`] - those couplings run on the modes with an energy-conserving scheme.
+//! * [`cymbal`] - crash, ride, splash.
 //!
 //! As with the strings and the brass, every behaviour is measured from rendered audio in the tests,
 //! not tuned by ear.
@@ -17,17 +21,24 @@
 pub mod bessel;
 pub mod cavity;
 pub mod contact;
+pub mod cymbal;
 pub mod drum;
 pub mod membrane;
 pub mod modal;
+pub mod plate;
+pub mod vonkarman;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod cymbal_tests;
 
 pub use contact::{Contact, ContactLaw, Material, Striker, Tip};
+pub use cymbal::{Cymbal, CymbalKind, CymbalSpec};
 pub use drum::{Drum, DrumKind, DrumSpec, Strike, StrikerSpec};
 pub use membrane::{HeadSpec, Membrane};
 pub use modal::{ModalBody, ModeSpec};
+pub use plate::{Plate, PlateOptions, PlateSpec};
 
 /// Renders one strike of `spec` offline at `sr` Hz for `seconds`, mono.
 pub fn render_hit(spec: &DrumSpec, strike: Strike, sr: f32, seconds: f32) -> Vec<f32> {
@@ -51,6 +62,24 @@ pub fn render_hits(spec: &DrumSpec, hits: &[(f32, Strike)], sr: f32, tail: f32) 
                 next += 1;
             }
             drum.next_sample()
+        })
+        .collect()
+}
+
+/// Renders a sequence of strikes `(seconds from the start, strike)` on one cymbal. Mono.
+pub fn render_cymbal(spec: &CymbalSpec, hits: &[(f32, Strike)], sr: f32, tail: f32) -> Vec<f32> {
+    let mut c = Cymbal::new(*spec, sr);
+    let mut order: Vec<&(f32, Strike)> = hits.iter().collect();
+    order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let end = order.last().map(|h| h.0).unwrap_or(0.0) + tail;
+    let mut next = 0;
+    (0..(end * sr) as usize)
+        .map(|i| {
+            while next < order.len() && (order[next].0 * sr) as usize <= i {
+                c.strike(order[next].1);
+                next += 1;
+            }
+            c.next_sample()
         })
         .collect()
 }
