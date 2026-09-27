@@ -419,7 +419,7 @@ fn append_sub(layout: &mut fontdue::layout::Layout<()>, faces: &[&fontdue::Font]
     let before = layout.glyphs().len();
     layout.append(faces, &fontdue::layout::TextStyle { text, px, font_index: font_index as usize, user_data: () });
     for g in &layout.glyphs()[before..] {
-        out.push(ShapedGlyph { byte_offset: base_offset + g.byte_offset, x: g.x, y: g.y, raster_config: g.key, font_index: g.font_index as u8 });
+        out.push(ShapedGlyph { byte_offset: base_offset + g.byte_offset, x: g.x, y: g.y, raster_config: g.key, font_index: g.font_index as u8, width: g.width as f32 });
     }
 }
 

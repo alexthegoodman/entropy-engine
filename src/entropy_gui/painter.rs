@@ -135,10 +135,10 @@ impl Painter {
     pub fn text(&self, pos: Pos2, align: Align2, text: impl ToString, font_id: FontId, color: Color32) -> Rect {
         let text = text.to_string();
         let mut guard = self.ctx.inner_mut();
-        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, popup_draw_list, .. } = &mut *guard;
+        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, popup_draw_list, shape_cache, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
 
-        let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, &text);
+        let shaped = shape_cache.shape(face_set, font_id.family, font_id.size, &text);
         // Every horizontal x vertical combination is honoured. This used to match only the
         // three constants that existed (LEFT_TOP/LEFT_CENTER/CENTER_CENTER) and put anything else
         // at top-left of `pos`, which silently mis-placed right-aligned and bottom-aligned text.
@@ -190,11 +190,18 @@ impl Painter {
 
     /// Measures `text` without drawing it (used by widgets to size their allocated rect
     /// before painting, e.g. buttons/labels).
+    /// `text` shaped as one unwrapped line, from the `Context`'s shape cache.
+    pub(crate) fn shaped(ctx: &Context, font_id: FontId, text: &str) -> std::rc::Rc<crate::entropy_gui::text_layout::ShapedText> {
+        let mut guard = ctx.inner_mut();
+        let ContextInner { fonts, shape_cache, .. } = &mut *guard;
+        shape_cache.shape(fonts.shaping_set(font_id.family), font_id.family, font_id.size, text)
+    }
+
     pub fn measure_text(ctx: &Context, font_id: FontId, text: &str) -> crate::entropy_gui::geometry::Vec2 {
         let mut guard = ctx.inner_mut();
-        let ContextInner { fonts, .. } = &mut *guard;
+        let ContextInner { fonts, shape_cache, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
-        let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, text);
+        let shaped = shape_cache.shape(face_set, font_id.family, font_id.size, text);
         // A line is as tall as the text face's line, whatever glyphs it holds: an icon-only label
         // (Phosphor's line is shorter than Figtree's) must size a widget like a text label does.
         let line = fonts.font_for(font_id.family).horizontal_line_metrics(font_id.size).map_or(0.0, |m| m.new_line_size.ceil());

@@ -38,6 +38,10 @@ pub struct Renderer {
     vertex_capacity: usize,
     index_capacity: usize,
     batch_ranges: Vec<(u32, u32)>,
+    /// Per-frame staging for the flattened draw list, kept between frames so a busy UI (a few
+    /// MB of vertices) does not allocate and page-fault its whole buffer in again every frame.
+    scratch_vertices: Vec<Vertex>,
+    scratch_indices: Vec<u32>,
 }
 
 fn create_solid_texture(
@@ -229,6 +233,8 @@ impl Renderer {
             vertex_capacity,
             index_capacity,
             batch_ranges: Vec::new(),
+            scratch_vertices: Vec::new(),
+            scratch_indices: Vec::new(),
         }
     }
 
@@ -297,8 +303,12 @@ impl Renderer {
         let h = screen_descriptor.size_in_pixels[1] as f32;
         queue.write_buffer(&self.window_size_buffer, 0, bytemuck::cast_slice(&[w, h, 0.0f32, 0.0f32]));
 
-        let mut vertices: Vec<Vertex> = Vec::new();
-        let mut indices: Vec<u32> = Vec::new();
+        let mut vertices = std::mem::take(&mut self.scratch_vertices);
+        let mut indices = std::mem::take(&mut self.scratch_indices);
+        vertices.clear();
+        indices.clear();
+        vertices.reserve(draw_commands.iter().map(|c| c.vertices.len()).sum());
+        indices.reserve(draw_commands.iter().map(|c| c.indices.len()).sum());
         self.batch_ranges.clear();
         for cmd in draw_commands {
             let base = vertices.len() as u32;
@@ -334,6 +344,8 @@ impl Renderer {
         if !indices.is_empty() {
             queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&indices));
         }
+        self.scratch_vertices = vertices;
+        self.scratch_indices = indices;
     }
 
     pub fn render<'rp>(&'rp self, render_pass: &mut wgpu::RenderPass<'rp>, draw_commands: &[DrawCommand], screen_descriptor: &ScreenDescriptor) {

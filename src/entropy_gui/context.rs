@@ -196,6 +196,8 @@ pub(crate) struct ContextInner {
     pub(crate) popup_draw_list: DrawList,
     pub(crate) input: RawInput,
     pub(crate) fonts: FontRegistry,
+    /// Shaped unwrapped strings from this frame and the last - see `text_layout::ShapeCache`.
+    pub(crate) shape_cache: crate::entropy_gui::text_layout::ShapeCache,
     pub(crate) atlas: GlyphAtlas,
     pub(crate) used_rect: Rect,
     pub(crate) screen_rect: Rect,
@@ -279,6 +281,7 @@ impl Default for Context {
             popup_draw_list: DrawList::new(),
             input: RawInput::default(),
             fonts: FontRegistry::new(),
+            shape_cache: Default::default(),
             atlas: GlyphAtlas::new(1024),
             used_rect: Rect::default(),
             screen_rect: Rect::default(),
@@ -414,6 +417,7 @@ impl Context {
         inner.time += raw_input.dt.max(0.0);
         inner.cursor_icon = CursorIcon::Default;
         inner.frame_count += 1;
+        inner.shape_cache.begin_frame();
         inner.pointer_over_ui = false;
         inner.input = raw_input;
         inner.occluders_prev = std::mem::take(&mut inner.occluders_cur);
