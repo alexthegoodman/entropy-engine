@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -532,6 +532,9 @@ export interface ScopedAPI {
       spectrum: (windowId: string, config: SpectrumConfig) => void;
       /** A stereo peak/RMS meter with peak hold and a click-to-clear clip latch. */
       levelMeter: (windowId: string, config: LevelMeterConfig) => void;
+      /** A live preview of a music-video visualizer (`Video.exportMusicVideo`'s renderer) fed by
+       *  `source`'s analysis tap, sized to the video's aspect. */
+      musicVisualizer: (windowId: string, config: MusicVisualizerConfig) => void;
       /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
        * one - fine for a header nothing else needs to target, fragile for one a script wants to
        * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
@@ -615,6 +618,21 @@ export interface ScopedAPI {
      * pollExport() is polled for a result. */
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
+    /** The music-video visualizer styles (src/music_video), in menu order. */
+    musicVideoStyles: () => { id: MusicVideoStyle; label: string }[];
+    /** The engine's default `VisualizerSettings`. */
+    musicVideoDefaults: () => Required<Omit<VisualizerSettings, "backgroundImage">> & { backgroundImage: string | null };
+    /** A save dialog for the MP4; null when cancelled. */
+    chooseMusicVideoPath: (suggestedName?: string) => string | null;
+    /** An open dialog for a background picture; null when cancelled. */
+    chooseMusicVideoImage: () => string | null;
+    /** Renders a bounced song (`wavPath`, 44.1 or 48 kHz) to an H.264/AAC MP4 with an
+     *  audio-reactive visualizer, on a background thread. One export at a time. */
+    exportMusicVideo: (config: MusicVideoExportConfig) => { ok: boolean; error?: string };
+    /** Progress of the running export; its final state (`done: true`) exactly once, then null. */
+    pollMusicVideo: () => MusicVideoStatusInfo | null;
+    /** Stops the running export at its next frame and removes the partial file. */
+    cancelMusicVideo: () => void;
   };
   /** Compiles a visual node graph (Input -> Dense... -> Loss) into a real Burn MLP and trains it
    * on a background thread against a small built-in synthetic dataset - see `crate::ml_graph`
@@ -922,6 +940,82 @@ export interface NoteConfig {
   reverbDamping?: number;
   /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. */
   reverbMix?: number;
+}
+
+/** The last argument of `Audio.renderPatternToWav`. */
+export interface RenderWavOptions {
+  /** Write to a fresh file in the system temp directory instead of showing a save dialog. */
+  tempFile?: boolean;
+}
+
+export type MusicVideoStyle = "bars" | "radial" | "wave" | "particles" | "rings" | "horizon";
+
+/** How a music video looks - see src/music_video/settings.rs. Every field is optional. */
+export interface VisualizerSettings {
+  style?: MusicVideoStyle;
+  /** Output size in pixels (made even). Default 1280 x 720. */
+  width?: number;
+  height?: number;
+  /** 24, 30 (default) or 60. */
+  fps?: number;
+  /** [r, g, b, a] in 0..1. */
+  primary?: [number, number, number, number];
+  secondary?: [number, number, number, number];
+  /** Background gradient, top to bottom. */
+  background?: [number, number, number, number];
+  backgroundBottom?: [number, number, number, number];
+  /** How hard the visuals react; 1 is neutral. */
+  sensitivity?: number;
+  /** 0 twitchy .. 1 syrupy. */
+  smoothing?: number;
+  /** Bars / spokes / dots across the spectrum, 8..128. */
+  barCount?: number;
+  mirror?: boolean;
+  /** Bloom, 0..1. */
+  glow?: number;
+  title?: string;
+  artist?: string;
+  /** A name from `Widget.docEditorFontNames()`; unknown names use Figtree. */
+  font?: string;
+  showProgress?: boolean;
+  backgroundImage?: string | null;
+  /** How much the background picture is darkened, 0..1. */
+  backgroundDim?: number;
+  /** Seeds the starfield. */
+  seed?: number;
+}
+
+export interface MusicVisualizerConfig {
+  id?: string;
+  /** `"master"` (default) or a track id. */
+  source?: string;
+  settings?: VisualizerSettings;
+  /** Width in points; omit to fill the row. The height follows the video's aspect. */
+  width?: number;
+  /** Caps the height (default 360); the width shrinks to keep the aspect. */
+  maxHeight?: number;
+}
+
+export interface MusicVideoExportConfig {
+  wavPath: string;
+  outputPath: string;
+  settings?: VisualizerSettings;
+  /** Delete `wavPath` when the export ends (a temporary bounce). */
+  deleteWav?: boolean;
+}
+
+export interface MusicVideoStatusInfo {
+  framesDone: number;
+  totalFrames: number;
+  /** 0..1. */
+  progress: number;
+  done: boolean;
+  cancelled: boolean;
+  error?: string | null;
+  outputPath: string;
+  elapsedMs: number;
+  /** A problem that didn't stop the export (a background picture that wouldn't load). */
+  warning?: string | null;
 }
 
 /** One pre-scheduled note in an offline pattern render - see `Audio.renderPatternToWav`. */
@@ -2831,6 +2925,9 @@ export interface EntropyAPI {
       spectrum: (windowId: string, config: SpectrumConfig) => void;
       /** A stereo peak/RMS meter with peak hold and a click-to-clear clip latch. */
       levelMeter: (windowId: string, config: LevelMeterConfig) => void;
+      /** A live preview of a music-video visualizer (`Video.exportMusicVideo`'s renderer) fed by
+       *  `source`'s analysis tap, sized to the video's aspect. */
+      musicVisualizer: (windowId: string, config: MusicVisualizerConfig) => void;
       /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
        * one - fine for a header nothing else needs to target, fragile for one a script wants to
        * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
@@ -2936,6 +3033,21 @@ export interface EntropyAPI {
      * pollExport() is polled for a result. */
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
+    /** The music-video visualizer styles (src/music_video), in menu order. */
+    musicVideoStyles: () => { id: MusicVideoStyle; label: string }[];
+    /** The engine's default `VisualizerSettings`. */
+    musicVideoDefaults: () => Required<Omit<VisualizerSettings, "backgroundImage">> & { backgroundImage: string | null };
+    /** A save dialog for the MP4; null when cancelled. */
+    chooseMusicVideoPath: (suggestedName?: string) => string | null;
+    /** An open dialog for a background picture; null when cancelled. */
+    chooseMusicVideoImage: () => string | null;
+    /** Renders a bounced song (`wavPath`, 44.1 or 48 kHz) to an H.264/AAC MP4 with an
+     *  audio-reactive visualizer, on a background thread. One export at a time. */
+    exportMusicVideo: (config: MusicVideoExportConfig) => { ok: boolean; error?: string };
+    /** Progress of the running export; its final state (`done: true`) exactly once, then null. */
+    pollMusicVideo: () => MusicVideoStatusInfo | null;
+    /** Stops the running export at its next frame and removes the partial file. */
+    cancelMusicVideo: () => void;
   };
   ML: {
     trainGraph: (id: string, config: {
@@ -3111,7 +3223,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */

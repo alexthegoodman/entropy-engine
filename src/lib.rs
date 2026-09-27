@@ -43,6 +43,7 @@ pub mod screen_capture;
 pub mod shape_primitives;
 pub mod vector_animations;
 pub mod video_export;
+pub mod music_video;
 pub mod physics;
 pub mod procedural_grass;
 pub mod water_plane;

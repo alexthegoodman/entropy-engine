@@ -45,6 +45,10 @@ use crate::deno::wavetable_ops::{
     op_wavetable_render_analyze, op_audio_play_wavetable_on_track, op_audio_wavetable_note_on,
     op_audio_wavetable_note_off, op_audio_wavetable_set_position,
 };
+use crate::deno::music_video_ops::{
+    op_music_video_styles, op_music_video_defaults, op_music_video_choose_path, op_music_video_choose_image,
+    op_music_video_start, op_music_video_poll, op_music_video_cancel, op_ui_widget_music_visualizer,
+};
 use crate::deno::brass_ops::{
     op_brass_info, op_brass_remove, op_audio_play_brass_on_track, op_audio_brass_note_on, op_audio_brass_note_off,
     op_audio_brass_set_control, op_brass_render_analyze,
@@ -346,6 +350,14 @@ extension!(
         op_video_poll,
         op_video_export_start,
         op_video_export_poll,
+        op_music_video_styles,
+        op_music_video_defaults,
+        op_music_video_choose_path,
+        op_music_video_choose_image,
+        op_music_video_start,
+        op_music_video_poll,
+        op_music_video_cancel,
+        op_ui_widget_music_visualizer,
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_note,
@@ -769,6 +781,9 @@ impl AddonEngine {
             pending_video_export: None,
             #[cfg(not(target_arch = "wasm32"))]
             video_export_result: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            music_video_job: None,
+            music_previews: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -5022,6 +5037,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         ..d
                     };
                     SpectrumView::new(spectrum_id.as_str()).options(opts).show(ui, &bins, sr);
+                }
+                UiWidget::MusicVisualizer { id: viz_id, config } => {
+                    crate::deno::music_video_ops::draw_preview(ui, viz_id, config, context, egui_renderer);
                 }
                 UiWidget::LevelMeter { id: meter_id, config } => {
                     use crate::entropy_gui::{LevelMeter, MeterOptions, MeterReading};

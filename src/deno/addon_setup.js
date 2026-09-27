@@ -81,7 +81,9 @@ const audioAPI = {
     // hear each other.
     // waterEvents: [{trackId, water?, mix?, action, pitch?, speed?, ..., startTime}] - water notes
     // (see Entropy.Water); notes on one track are played on one water instrument.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents) => {
+    // options: { tempFile?: boolean } - tempFile writes to the system temp directory without a save
+    // dialog (for handing the bounce straight to Video.exportMusicVideo).
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents, options) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -126,7 +128,7 @@ const audioAPI = {
             gain: b.gain ?? 1.0,
             effects: (b.effects || []).map(characterConfig),
             silences: b.silences || []
-        })), brassEvents || [], matterEvents || [], waterEvents || []);
+        })), brassEvents || [], matterEvents || [], waterEvents || [], options || null);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -537,7 +539,21 @@ const videoAPI = {
     close: (handle) => ops.op_video_close(handle),
     poll: (handle) => ops.op_video_poll(handle),
     export: (config) => ops.op_video_export_start(config.outputPath, config.fps, config.durationMs),
-    pollExport: () => ops.op_video_export_poll()
+    pollExport: () => ops.op_video_export_poll(),
+    // Music videos (crate::music_video): audio-reactive visualizer styles rendered from a bounced
+    // WAV to an H.264/AAC MP4 on a background thread. Preview a look with Widget.musicVisualizer.
+    musicVideoStyles: () => ops.op_music_video_styles(),
+    musicVideoDefaults: () => ops.op_music_video_defaults(),
+    chooseMusicVideoPath: (suggestedName) => ops.op_music_video_choose_path(suggestedName || "music-video.mp4"),
+    chooseMusicVideoImage: () => ops.op_music_video_choose_image(),
+    exportMusicVideo: (config) => ops.op_music_video_start({
+        wavPath: config.wavPath,
+        outputPath: config.outputPath,
+        settings: config.settings || {},
+        deleteWav: !!config.deleteWav
+    }),
+    pollMusicVideo: () => ops.op_music_video_poll(),
+    cancelMusicVideo: () => ops.op_music_video_cancel()
 };
 
 // A visual node graph (Input -> Dense... -> Loss, see ml_graph_demo_addon.ts) compiled into a
@@ -1515,6 +1531,18 @@ globalThis.Entropy = {
             levelMeter: (windowId, config) => {
                 const id = nextWidgetId(windowId, "levelmeter", config?.id);
                 ops.op_ui_widget_level_meter(windowId, { source: "master", ...(config || {}) }, id);
+            },
+            // A live preview of a music-video visualizer: the same renderer Video.exportMusicVideo
+            // uses, fed from `source`'s analysis tap, at the widget's size.
+            musicVisualizer: (windowId, config) => {
+                const id = nextWidgetId(windowId, "musicviz", config?.id);
+                const c = config || {};
+                ops.op_ui_widget_music_visualizer(windowId, {
+                    source: c.source || "master",
+                    settings: c.settings || {},
+                    width: c.width ?? null,
+                    maxHeight: c.maxHeight ?? null
+                }, id);
             },
             // A wavetable as sculptable terrain, with a single-cycle pen strip, the harmonics of the
             // selected frame and a keyboard (see Entropy.Wavetable). The table lives engine-side and
