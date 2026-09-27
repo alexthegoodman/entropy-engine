@@ -48,8 +48,11 @@ pub const MIN_FREQ: f32 = 12.0;
 pub const SHAPE_POINTS: usize = 64;
 /// How often (in output samples) a voice publishes to `PhysModShared` (~86 times a second).
 const PUBLISH_EVERY: u32 = 512;
-/// A live instrument with nothing sounding shuts itself down after this long.
-const INSTRUMENT_IDLE_SECS: f32 = 3.0;
+/// A live instrument with nothing sounding stops computing after this long (it sleeps: silence for
+/// almost no CPU, waking on the next note with nothing to rebuild).
+const SLEEP_AFTER_SECS: f32 = 0.25;
+/// A live instrument asleep this long shuts itself down (a track left alone for a while).
+const INSTRUMENT_IDLE_SECS: f32 = 600.0;
 /// A single-note voice never rings on for longer than this after its release.
 const MAX_TAIL_SECS: f32 = 6.0;
 
@@ -478,6 +481,8 @@ pub struct InstrumentHandle {
     queue: Mutex<InstrumentQueue>,
     /// The string tuning the running engine was built for.
     tuning: Mutex<([f32; MAX_STRINGS], [f32; MAX_SYMPATHETIC])>,
+    /// Set once the voice has been built.
+    ready: AtomicBool,
 }
 
 struct InstrumentQueue {
@@ -487,6 +492,16 @@ struct InstrumentQueue {
 }
 
 impl InstrumentHandle {
+    /// A handle for an instrument built for `p`'s strings, taking commands at once: they wait in
+    /// the queue until the voice is built (see `PhysModInstrumentVoice::with_handle`).
+    pub fn new(p: &PhysModParams) -> Arc<Self> {
+        Arc::new(Self {
+            queue: Mutex::new(InstrumentQueue { commands: Vec::with_capacity(64), alive: true }),
+            tuning: Mutex::new((p.open_strings().0, p.sympathetic)),
+            ready: AtomicBool::new(false),
+        })
+    }
+
     /// Queues a command, or hands it back if the audio side has stopped (so the caller can start a
     /// fresh voice with it).
     pub fn send(&self, cmd: InstrumentCommand) -> Result<(), InstrumentCommand> {
@@ -496,6 +511,12 @@ impl InstrumentHandle {
         }
         q.commands.push(cmd);
         Ok(())
+    }
+
+    /// Whether the audio side has been built (see `PhysModInstrumentVoice::with_handle`). Commands sent before then
+    /// wait in the queue and play as soon as it starts.
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
     }
 
     pub fn is_alive(&self) -> bool {
@@ -539,15 +560,18 @@ pub struct PhysModInstrumentVoice {
 impl PhysModInstrumentVoice {
     /// A new instrument built for `p`'s strings and body, plus the handle to play it with.
     pub fn new(shared: Arc<PhysModShared>, p: &PhysModParams) -> (Self, Arc<InstrumentHandle>) {
+        let handle = InstrumentHandle::new(p);
+        (Self::with_handle(shared, p, handle.clone()), handle)
+    }
+
+    /// Builds the instrument for a handle made beforehand (`InstrumentHandle::new`), so notes can
+    /// be sent to it while it is built off the caller's thread; they play once it starts.
+    pub fn with_handle(shared: Arc<PhysModShared>, p: &PhysModParams, handle: Arc<InstrumentHandle>) -> Self {
         shared.active.fetch_add(1, Ordering::Relaxed);
-        let handle = Arc::new(InstrumentHandle {
-            queue: Mutex::new(InstrumentQueue { commands: Vec::with_capacity(64), alive: true }),
-            tuning: Mutex::new((p.open_strings().0, p.sympathetic)),
-        });
         let voice = Self {
             engine: Engine::new(ENGINE_SAMPLE_RATE as f32, p),
             shared,
-            handle: handle.clone(),
+            handle,
             pending: Vec::with_capacity(64),
             idle: 0,
             active_string: None,
@@ -560,7 +584,8 @@ impl PhysModInstrumentVoice {
             retiring: false,
             done: false,
         };
-        (voice, handle)
+        voice.handle.ready.store(true, Ordering::Release);
+        voice
     }
 
     fn drain(&mut self) {
@@ -592,8 +617,11 @@ impl PhysModInstrumentVoice {
         if self.publish_countdown % 64 == 0 {
             self.drain();
         }
-        let frame = self.engine.next_frame();
-        if self.engine.is_playing() || !self.engine.is_silent() {
+        // Asleep: silent and nothing to play, so nothing to compute until a note wakes it (a note
+        // arriving resets `idle` in `drain`).
+        let asleep = !self.retiring && self.idle >= (SLEEP_AFTER_SECS * ENGINE_SAMPLE_RATE as f32) as u32;
+        let frame = if asleep { [0.0; 2] } else { self.engine.next_frame() };
+        if !asleep && (self.engine.is_playing() || !self.engine.is_silent()) {
             self.idle = 0;
         } else {
             self.idle += 1;

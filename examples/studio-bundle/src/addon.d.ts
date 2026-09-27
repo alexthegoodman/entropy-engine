@@ -369,6 +369,7 @@ export interface ScopedAPI {
     wavetableSetPosition: (voice: number, position: number) => void;
     /** Plays one timed bowed-string note on a track's bus (see `PhysMod`). */
     playPhysModOnTrack: (trackId: string, config: PhysModNoteConfig) => PhysModOk;
+    preparePhysMod: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { status?: "ready" | "building" };
     /** Starts a bowed-string note that sounds until `physModNoteOff(voice)`. */
     physModNoteOn: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { voice?: number };
     physModNoteOff: (voice: number) => void;
@@ -377,6 +378,7 @@ export interface ScopedAPI {
     /** Plays one timed brass note on a track's bus (see `Brass`). Notes on one track are played by
      *  one player: a note that starts before the last one ends slurs into it. */
     playBrassOnTrack: (trackId: string, config: BrassNoteConfig) => BrassOk;
+    prepareBrass: (trackId: string, config: BrassNoteConfig) => BrassOk & { status?: "ready" | "building" };
     /** Starts a brass note that sounds until `brassNoteOff(voice)`. */
     brassNoteOn: (trackId: string, config: BrassNoteConfig) => BrassOk & { voice?: number };
     brassNoteOff: (voice: number) => void;
@@ -2192,6 +2194,9 @@ export interface MatterKitConfig {
   /** The snare set up for brushes: its head carries every mode pair, so a swirl anywhere round it
    *  is heard as it goes (costs about half as much again to run). */
   brushes?: boolean;
+  /** How much of each piece is modelled: "draft" (the cymbals for about a third of their cost),
+   *  "live" (default) or "render" (the best there is; exports use it). */
+  quality?: "draft" | "live" | "render";
 }
 
 /** What rubs in a stroke. */
@@ -3248,6 +3253,7 @@ export interface EntropyAPI {
     wavetableSetPosition: (voice: number, position: number) => void;
     /** Plays one timed bowed-string note on a track's bus (see `PhysMod`). */
     playPhysModOnTrack: (trackId: string, config: PhysModNoteConfig) => PhysModOk;
+    preparePhysMod: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { status?: "ready" | "building" };
     /** Starts a bowed-string note that sounds until `physModNoteOff(voice)`. */
     physModNoteOn: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { voice?: number };
     physModNoteOff: (voice: number) => void;
@@ -3256,6 +3262,7 @@ export interface EntropyAPI {
     /** Plays one timed brass note on a track's bus (see `Brass`). Notes on one track are played by
      *  one player: a note that starts before the last one ends slurs into it. */
     playBrassOnTrack: (trackId: string, config: BrassNoteConfig) => BrassOk;
+    prepareBrass: (trackId: string, config: BrassNoteConfig) => BrassOk & { status?: "ready" | "building" };
     /** Starts a brass note that sounds until `brassNoteOff(voice)`. */
     brassNoteOn: (trackId: string, config: BrassNoteConfig) => BrassOk & { voice?: number };
     brassNoteOff: (voice: number) => void;

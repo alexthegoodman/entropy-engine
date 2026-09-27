@@ -74,6 +74,8 @@ mod report_tests;
 #[cfg(test)]
 mod rub_tests;
 #[cfg(test)]
+mod tier_tests;
+#[cfg(test)]
 mod water_tests;
 
 pub use contact::{Contact, ContactLaw, Material, Striker, Tip};

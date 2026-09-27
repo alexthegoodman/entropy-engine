@@ -19,6 +19,7 @@ use super::plate::{Plate, PlateOptions, PlateSpec};
 use super::rub::{Rub, RubReport, Stroke, SurfaceKind, ToolSpec};
 use super::surface::SurfaceMap;
 use super::vonkarman::VonKarman;
+use crate::audio::quality::Quality;
 
 /// Silent modes are flushed every this many samples.
 const FLUSH_EVERY: u32 = 64;
@@ -53,6 +54,11 @@ impl StrikerSpec {
     }
 }
 
+/// `Draft`: the top of the nonlinear set (Hz; the standard reaches 2 kHz).
+const DRAFT_NONLINEAR_HZ: f32 = 1400.0;
+/// `Draft`: the nonlinear force is evaluated every this many samples (standard 2).
+const DRAFT_EVERY: u32 = 3;
+
 /// B20 cymbal bronze.
 pub const BRONZE: Material = Material { young: 110.0e9, poisson: 0.34, density: 8600.0 };
 
@@ -67,6 +73,20 @@ impl CymbalSpec {
     }
 
     /// A 16" crash, about 1.1 kg (a millimetre of bronze), 20 mm of rise.
+    /// The cymbal built for a quality tier (see `crate::audio::quality`). `Live` and `Render` are
+    /// the cymbal as measured and tested; `Draft` couples fewer modes nonlinearly and evaluates the
+    /// coupling less often - the von Karman coupling is 90% of a cymbal's cost - for about a third
+    /// of the cost. Its bands move about twice as far as the same cymbal struck 1% harder moves
+    /// them (the wash is chaotic); see `matter::tier_tests`. The linear bands above stay: thinning
+    /// them saved nothing measurable and cost accuracy.
+    pub fn at_quality(mut self, q: Quality) -> Self {
+        if q == Quality::Draft {
+            self.options.nonlinear_freq = DRAFT_NONLINEAR_HZ;
+            self.every = DRAFT_EVERY;
+        }
+        self
+    }
+
     pub fn crash() -> Self {
         Self { kind: CymbalKind::Crash, plate: Self::plate(0.4064, 1.1, 0.02), options: PlateOptions::standard(), striker: StrikerSpec::stick_shoulder(), every: 2 }
     }

@@ -548,6 +548,27 @@ fn a_live_instrument_plays_queued_notes_and_shuts_down_when_idle() {
 }
 
 #[test]
+fn a_silent_instrument_sleeps_for_almost_nothing_and_wakes_on_the_next_note() {
+    let shared = Arc::new(PhysModShared::default());
+    let p = PhysModParams { duration: 0.2, release: 0.05, ring: 0.0, ..plain(440.0) };
+    let (mut voice, handle) = PhysModInstrumentVoice::new(shared, &p);
+    assert!(handle.is_ready(), "built by the time it is handed back");
+    handle.send(InstrumentCommand::NoteOn { id: 1, params: p, gated: false, live: None }).ok().unwrap();
+    let _ = voice.by_ref().take(2 * (1.5 * SR) as usize).count();
+    // Rung down and asleep: ten seconds of silence cost next to nothing, and the instrument is
+    // still there (a song resting for a few bars does not lose its instruments).
+    let t = std::time::Instant::now();
+    let rest: Vec<f32> = voice.by_ref().take(2 * (10.0 * SR) as usize).collect();
+    let cost = t.elapsed().as_secs_f32() / 10.0;
+    assert!(rest.iter().all(|v| *v == 0.0), "asleep is silent");
+    assert!(cost < 0.01, "asleep should cost well under 1% of a core, took {:.2}%", cost * 100.0);
+    assert!(handle.is_alive());
+    handle.send(InstrumentCommand::NoteOn { id: 2, params: p, gated: false, live: None }).ok().unwrap();
+    let woken: Vec<f32> = voice.by_ref().take(2 * (0.15 * SR) as usize).collect();
+    assert!(rms_db(&left(&woken)) > -40.0, "the next note wakes it");
+}
+
+#[test]
 fn a_rendered_performance_slurs_overlapping_notes_on_one_instrument() {
     let a = PerformedNote { start: 0.0, params: PhysModParams { duration: 0.6, ..plain(523.25) } };
     let b = PerformedNote { start: 0.5, params: PhysModParams { duration: 0.5, ..plain(587.33) } };

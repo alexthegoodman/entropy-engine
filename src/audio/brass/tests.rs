@@ -396,6 +396,24 @@ fn pull(src: &mut impl Iterator<Item = f32>, secs: f32) -> Vec<f32> {
 }
 
 #[test]
+fn a_silent_player_sleeps_and_wakes_on_the_next_note() {
+    let shared = Arc::new(BrassShared::default());
+    let p = BrassParams { duration: 0.2, ..note(233.08) };
+    let (mut voice, handle) = BrassInstrumentVoice::new(shared, &p);
+    assert!(handle.is_ready());
+    handle.send(BrassCommand::NoteOn { id: 1, params: p, gated: false, live: None }).ok().unwrap();
+    let _ = pull(&mut voice, 1.5);
+    let t = std::time::Instant::now();
+    let rest = pull(&mut voice, 10.0);
+    let cost = t.elapsed().as_secs_f32() / 10.0;
+    assert!(rest.iter().all(|v| *v == 0.0), "asleep is silent");
+    assert!(cost < 0.01, "asleep should cost well under 1% of a core, took {:.2}%", cost * 100.0);
+    assert!(handle.is_alive(), "a rest does not lose the player");
+    handle.send(BrassCommand::NoteOn { id: 2, params: p, gated: false, live: None }).ok().unwrap();
+    assert!(rms(&pull(&mut voice, 0.15)) > 0.0, "the next note wakes it");
+}
+
+#[test]
 fn a_live_player_slurs_between_notes_and_publishes_what_the_view_draws() {
     let shared = Arc::new(BrassShared::default());
     let base = note(233.08);

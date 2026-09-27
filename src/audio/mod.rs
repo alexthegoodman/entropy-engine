@@ -3,6 +3,7 @@ pub mod brass;
 pub mod matter;
 pub mod character;
 pub mod physmod;
+pub mod quality;
 pub mod samples;
 pub mod vst3;
 pub mod vst3_capture;
@@ -1324,6 +1325,24 @@ impl AudioEngine {
         buses.remove(track_id);
         let any = buses.values().any(|b| b.solo.load(Ordering::Relaxed));
         self.any_solo.store(any, Ordering::Relaxed);
+        drop(buses);
+        // The track's live instruments went with its bus: forget them, so a bus made again for the
+        // same track (a song reloaded) gets instruments of its own rather than these.
+        let prefix = format!("{track_id}\u{1}");
+        self.physmod_instruments.lock().unwrap().retain(|k, h| {
+            let keep = !k.starts_with(&prefix);
+            if !keep {
+                h.retire();
+            }
+            keep
+        });
+        self.brass_players.lock().unwrap().retain(|k, h| {
+            let keep = !k.starts_with(&prefix);
+            if !keep {
+                h.retire();
+            }
+            keep
+        });
     }
 
     /// Triggers one note on an already-created track bus (see `ensure_track_bus`) - the note
@@ -1399,7 +1418,9 @@ impl AudioEngine {
     }
 
     /// The live instrument for `instrument` on `track_id`, started on the track's bus if it is not
-    /// running (or was built for different strings - a new instrument preset).
+    /// running (or was built for different strings - a new instrument preset). A new instrument is
+    /// built on its own thread and joins the bus when ready; its handle takes notes at once (they
+    /// wait for it), so the caller - the UI and sequencer thread - never waits for a build.
     fn physmod_instrument(&self, track_id: &str, instrument: &str, params: &PhysModParams) -> Result<Arc<InstrumentHandle>, String> {
         let key = format!("{track_id}\u{1}{instrument}");
         let mut map = self.physmod_instruments.lock().unwrap();
@@ -1410,13 +1431,24 @@ impl AudioEngine {
             // Different strings: let the old instrument ring out and stop, and build a new one.
             h.retire();
         }
+        let mixer = self.track_buses.lock().unwrap().get(track_id).map(|b| b.note_mixer.clone()).ok_or_else(|| format!("track {track_id} has no bus"))?;
         let shared = physmod::shared_for(instrument);
-        let buses = self.track_buses.lock().unwrap();
-        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
-        let (voice, handle) = PhysModInstrumentVoice::new(shared, params);
-        bus.note_mixer.add(voice);
+        let handle = InstrumentHandle::new(params);
+        let (h, p) = (handle.clone(), *params);
+        std::thread::Builder::new()
+            .name("physmod-build".into())
+            .spawn(move || mixer.add(PhysModInstrumentVoice::with_handle(shared, &p, h)))
+            .map_err(|e| format!("could not start building the instrument: {e}"))?;
         map.insert(key, handle.clone());
         Ok(handle)
+    }
+
+    /// Builds the track's bowed-string instrument ahead of its first note (a song loading, a track
+    /// becoming a string track, a new instrument chosen), so the first note plays on time. Cheap to
+    /// call again: `Building` until the instrument is ready, then `Ready`.
+    pub fn physmod_prepare(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<MatterStatus, String> {
+        let h = self.physmod_instrument(track_id, instrument, &params)?;
+        Ok(if h.is_ready() { MatterStatus::Ready } else { MatterStatus::Building })
     }
 
     /// Sends a note-on to the track's instrument, restarting the instrument once if it shut itself
@@ -1475,7 +1507,9 @@ impl AudioEngine {
     }
 
     /// The live brass player for `instrument` on `track_id`, started on the track's bus if it is not
-    /// running (or plays a different instrument).
+    /// running (or plays a different instrument). A new player is built on its own thread (the
+    /// first build of an instrument computes its resonance table, which takes a while) and joins
+    /// the bus when ready; its handle takes notes at once, so the caller never waits for a build.
     fn brass_player(&self, track_id: &str, instrument: &str, params: &BrassParams) -> Result<Arc<BrassHandle>, String> {
         let key = format!("{track_id}\u{1}{instrument}");
         let mut map = self.brass_players.lock().unwrap();
@@ -1485,15 +1519,22 @@ impl AudioEngine {
             }
             h.retire();
         }
+        let mixer = self.track_buses.lock().unwrap().get(track_id).map(|b| b.note_mixer.clone()).ok_or_else(|| format!("track {track_id} has no bus"))?;
         let shared = brass::shared_for(instrument);
-        let buses = self.track_buses.lock().unwrap();
-        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
-        // Building a player computes (once per instrument, cached) its resonance table: done here,
-        // off the audio thread.
-        let (voice, handle) = BrassInstrumentVoice::new(shared, params);
-        bus.note_mixer.add(voice);
+        let handle = BrassHandle::new(params);
+        let (h, p) = (handle.clone(), *params);
+        std::thread::Builder::new()
+            .name("brass-build".into())
+            .spawn(move || mixer.add(BrassInstrumentVoice::with_handle(shared, &p, h)))
+            .map_err(|e| format!("could not start building the brass player: {e}"))?;
         map.insert(key, handle.clone());
         Ok(handle)
+    }
+
+    /// Builds the track's brass player ahead of its first note (see `physmod_prepare`).
+    pub fn brass_prepare(&self, track_id: &str, instrument: &str, params: BrassParams) -> Result<MatterStatus, String> {
+        let h = self.brass_player(track_id, instrument, &params)?;
+        Ok(if h.is_ready() { MatterStatus::Ready } else { MatterStatus::Building })
     }
 
     /// Sends a note-on to the track's brass player, restarting it once if it shut itself down
@@ -1973,5 +2014,61 @@ mod export_progress_tests {
         });
         assert_eq!(result.unwrap_err(), "cancelled");
         assert!(!path.exists());
+    }
+}
+
+#[cfg(test)]
+mod preload_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn until_ready(what: &str, mut status: impl FnMut() -> MatterStatus) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while status() != MatterStatus::Ready {
+            assert!(Instant::now() < deadline, "the {what} was never built");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    // The first brass note of a song used to build its player - resonance table and all, 1-2 s in
+    // a release build - on the thread that sequences the song, stalling the transport.
+    #[test]
+    fn a_note_never_waits_for_its_instrument_to_be_built() {
+        let engine = AudioEngine::new();
+        engine.ensure_track_bus("brass", 1.0, false, false, &[]);
+        engine.ensure_track_bus("strings", 1.0, false, false, &[]);
+        // A construction nothing else builds, so its resonance table is computed now.
+        let p = BrassParams { instrument: brass::BrassInstrument::Tuba, mute: brass::Mute::Cup, freq: 58.27, ..Default::default() };
+        let t = Instant::now();
+        engine.play_brass_on_track("brass", "brass", p).unwrap();
+        let id = engine.brass_note_on("brass", "brass", p).unwrap();
+        engine.brass_note_off(id);
+        assert!(t.elapsed() < Duration::from_millis(50), "the notes waited {:?} for the player", t.elapsed());
+        until_ready("brass player", || engine.brass_prepare("brass", "brass", p).unwrap());
+
+        let s = PhysModParams { strings: [65.41, 98.0, 146.83, 220.0], body_size: 0.72, ..Default::default() };
+        let t = Instant::now();
+        engine.play_physmod_on_track("strings", "strings", s).unwrap();
+        assert!(t.elapsed() < Duration::from_millis(50), "the note waited {:?} for the instrument", t.elapsed());
+        until_ready("string instrument", || engine.physmod_prepare("strings", "strings", s).unwrap());
+    }
+
+    #[test]
+    fn a_track_prepares_its_instrument_ahead_and_a_new_bus_gets_a_new_one() {
+        let engine = AudioEngine::new();
+        assert!(engine.brass_prepare("t", "t", BrassParams::default()).is_err(), "no bus yet: nothing to prepare on");
+        engine.ensure_track_bus("t", 1.0, false, false, &[]);
+        until_ready("brass player", || engine.brass_prepare("t", "t", BrassParams::default()).unwrap());
+        let first = engine.brass_players.lock().unwrap().values().next().cloned().unwrap();
+        // Preparing again is a lookup.
+        assert_eq!(engine.brass_prepare("t", "t", BrassParams::default()).unwrap(), MatterStatus::Ready);
+        assert!(Arc::ptr_eq(&first, engine.brass_players.lock().unwrap().values().next().unwrap()));
+        // A song reloaded: the bus goes and comes back, and the old player (on the old bus) is not
+        // reused.
+        engine.remove_track_bus("t");
+        assert!(!first.is_alive());
+        engine.ensure_track_bus("t", 1.0, false, false, &[]);
+        until_ready("brass player", || engine.brass_prepare("t", "t", BrassParams::default()).unwrap());
+        assert!(!Arc::ptr_eq(&first, engine.brass_players.lock().unwrap().values().next().unwrap()));
     }
 }

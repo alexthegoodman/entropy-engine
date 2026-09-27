@@ -9,6 +9,7 @@
 use crate::audio::matter::kit::{self, Piece, PIECES};
 use crate::audio::matter::rub::{self, Stroke, ToolSpec};
 use crate::audio::matter::{live, KitHit, KitSpec};
+use crate::audio::quality::Quality;
 use crate::audio::physmod::analysis::spectrum;
 use crate::deno::addon_ops::AddonContext;
 use deno_core::{op2, OpState};
@@ -37,6 +38,8 @@ pub struct MatterKitConfig {
     pub sympathetic: Option<bool>,
     /// The snare set up for brushes (see `KitSpec::brushes`).
     pub brushes: Option<bool>,
+    /// "draft", "live" or "render" (see `crate::audio::quality`). Defaults to "live".
+    pub quality: Option<String>,
 }
 
 impl MatterKitConfig {
@@ -52,6 +55,7 @@ impl MatterKitConfig {
             snare_tension: self.snare_tension.unwrap_or(d.snare_tension),
             sympathetic: self.sympathetic.unwrap_or(d.sympathetic),
             brushes: self.brushes.unwrap_or(d.brushes),
+            quality: self.quality.as_deref().and_then(Quality::from_name).unwrap_or(d.quality),
         }
         .clamped()
     }
@@ -198,7 +202,7 @@ fn described(id: &str, shared: &live::MatterShared) -> Json {
         "kit": {
             "kick": spec.kick, "snare": spec.snare, "rackTom": spec.rack_tom, "floorTom": spec.floor_tom,
             "kickMuffling": spec.kick_muffling, "snares": spec.snares, "snareTension": spec.snare_tension,
-            "sympathetic": spec.sympathetic, "brushes": spec.brushes,
+            "sympathetic": spec.sympathetic, "brushes": spec.brushes, "quality": spec.quality.name(),
         },
         "pieces": pieces,
     })

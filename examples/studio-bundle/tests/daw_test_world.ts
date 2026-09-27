@@ -103,6 +103,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // so the stand-in just records what was played/held and which instrument ids were removed.
         physModViews: new Map<string, any>(),
         physModNotes: [] as { id: string; cfg: any }[],
+        // Instruments the addon asked the engine to build ahead of their first note.
+        modelPrepared: [] as { kind: "physmod" | "brass"; id: string; cfg: any }[],
         physModHeld: new Map<number, { id: string; cfg: any; released: boolean; bow: Record<string, number> }>(),
         physModExports: [] as any[][],
         removedInstruments: [] as string[],
@@ -225,6 +227,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 if (n && !n.released) n.position = position;
             },
             playPhysModOnTrack: (id: string, cfg: any) => { w.physModNotes.push({ id, cfg }); return { ok: true }; },
+            preparePhysMod: (id: string, cfg: any) => { w.modelPrepared.push({ kind: "physmod", id, cfg }); return { ok: true, status: "ready" }; },
             physModNoteOn: (id: string, cfg: any) => {
                 const voice = w.nextVoice++;
                 w.physModHeld.set(voice, { id, cfg, released: false, bow: { force: cfg.bowForce, velocity: cfg.bowVelocity, position: cfg.bowPosition, vibratoDepth: cfg.vibratoDepth } });
@@ -236,6 +239,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 if (n && !n.released) n.bow[which] = value;
             },
             playBrassOnTrack: (id: string, cfg: any) => { w.brassNotes.push({ id, cfg }); return { ok: true }; },
+            prepareBrass: (id: string, cfg: any) => { w.modelPrepared.push({ kind: "brass", id, cfg }); return { ok: true, status: "ready" }; },
             brassNoteOn: (id: string, cfg: any) => {
                 const voice = w.nextVoice++;
                 w.brassHeld.set(voice, { id, cfg, released: false, live: { breath: cfg.breath, lipTension: cfg.lipTension, vibratoDepth: cfg.vibratoDepth, bend: 0 } });

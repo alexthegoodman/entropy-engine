@@ -123,6 +123,87 @@ at each tier into a table checked into the repo, compared against a stated refer
 change that makes something more expensive has to update the table. Also publish a minimum-spec
 machine: the tier each instrument gets live on that machine is part of the product description.
 
+## Part A status
+
+### Done: no more stall on a track's first note
+
+When a song first reached a string or brass track, the instrument was built on the thread that runs
+the UI and sequencer. A brass instrument's first build computes its resonance table, **1-2 s in a
+release build** (much longer in a debug build), so the whole editor and transport froze.
+
+- The engine builds string and brass instruments on their own thread
+  (`AudioEngine::physmod_prepare` / `brass_prepare`, `Audio.preparePhysMod` / `prepareBrass`). A
+  note sent while an instrument is building waits in its queue. Nothing waits for a build any more
+  (`audio::preload_tests`).
+- The DAW prepares every string and brass track as soon as it has a bus, and again whenever its
+  construction changes (`prepareModelledInstruments`, checked once a second).
+- A silent instrument now **sleeps** instead of shutting down after 3 s: it outputs silence for
+  almost no CPU (under 1% of a core, tested) and wakes on the next note with nothing to rebuild. It
+  shuts down only after 10 minutes of rest, so resting for a few bars no longer loses an
+  instrument.
+- Removing a track's bus (a song reloaded) drops its instruments, so a new bus never reuses one on
+  the old bus.
+
+Drum kits and water already built off the audio thread and were prepared when a song loaded.
+
+### A1: first tiers
+
+- `audio::quality::Quality` (`Draft`, `Live`, `Render`). An export always renders at `Render`.
+- **Kit:** `KitSpec::quality`, with a Quality switch in the Kit window and a `quality` param on the
+  `daw_matter` tool. Exported kit hits are sent at `render` whatever the track plays live.
+- **Draft cymbals** use a nonlinear set up to 1.4 kHz (instead of 2 kHz), evaluated every 3 samples
+  (instead of 2), for a third of the cost. A cymbal's wash is chaotic: struck just 1% harder, a
+  full crash already moves its third-octave bands 1.75 dB on average. Draft moves them about twice
+  that. `matter::tier_tests` holds it there: within twice the 1%-harder change plus 1.5 dB, at under
+  half the cost. Thinning the cymbals' linear bands above saved nothing measurable and cost
+  accuracy, so they stay.
+- **Drums are the same at every tier.** A measurement overturned the plan here: most of a drum's
+  cost doesn't scale with its modes. A kick with 147 modes still costs half as much as one with
+  685 (3.3% vs 6.2% of a core), while dropping modes moves its spectrum by 4-5 dB. Fewer snare-wire
+  groups saved nothing measurable either.
+- Strings and brass have no Draft yet: at ~4% of a core they don't need one. Their `Render` tier
+  will come with the fidelity work (4x oversampling, richer bow and lips).
+
+| Piece (`tier_report`) | Draft vs full: mean band change (dB) | Largest | 1% harder: mean | Largest | Draft cost |
+|---|---|---|---|---|---|
+| Crash | 3.14 | 10.6 | 1.75 | 5.8 | 34% |
+| Ride | 1.25 | 3.2 | 0.13 | 0.4 | 29% |
+| Splash | 4.40 | 20.4 | 2.51 | 10.6 | 35% |
+
+### A6: measured costs
+
+`cargo test --release --test phys_mod_cost -- --ignored --nocapture`, on the 4-core container this
+was built in. A kit's figure is wall time over audio time with its worker threads, which is what
+the audio thread waits for.
+
+| Instrument | Build, cold (ms) | Build, warm (ms) | One core, playing (%) |
+|---|---|---|---|
+| Strings: violin | 0 | 0 | 4.0 |
+| Strings: cello | 0 | 0 | 4.1 |
+| Strings: bass | 0 | 0 | 4.0 |
+| Brass: trombone | 1144 | 0 | 3.6 |
+| Brass: trumpet | 2025 | 0 | 3.1 |
+| Brass: horn | 2378 | 0 | 3.5 |
+| Brass: tuba | 2077 | 1 | 5.0 |
+| Kit: groove with crash | 1281 | 115 | 56.1 |
+| Kit (draft): groove with crash | 374 | 99 | 34.7 |
+| Kit: one hard crash | 123 | 141 | 58.6 |
+| Kit (draft): one hard crash | 102 | 100 | 33.4 |
+| Kit: one snare hit | 133 | 135 | 53.8 |
+
+What the table says next: **a single snare hit costs the kit about as much as a whole groove.** The
+kit's fixed cost dominates, most likely the threads meeting every 32-sample block and sympathy
+waking the other drums. That is the first A5 target, ahead of anything per mode.
+
+### Next
+
+- **A2 freeze** and **A3 render ahead**: both are DAW features on top of `render_performance`.
+  Freeze plays a pre-rendered track as audio. Render ahead does the same for the part of a
+  sequenced track just ahead of the playhead.
+- **A4 adaptive**: step a kit from Live to Draft when the audio thread runs short of time. Draft is
+  now a rebuild away.
+- **A5**: the kit's fixed cost (above), then wider SIMD for the von Karman blocks.
+
 ---
 
 # Part B — The instruments

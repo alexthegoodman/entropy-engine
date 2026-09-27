@@ -112,8 +112,11 @@ pub const TRACE_POINTS: usize = 64;
 pub const LADDER_POINTS: usize = ResonanceTable::PARTIALS;
 /// How often (in output samples) a voice publishes (~86 times a second).
 const PUBLISH_EVERY: u32 = 512;
-/// A live instrument with nothing sounding shuts itself down after this long.
-const INSTRUMENT_IDLE_SECS: f32 = 3.0;
+/// A live instrument with nothing sounding stops computing after this long (it sleeps: silence for
+/// almost no CPU, waking on the next note with nothing to rebuild).
+const SLEEP_AFTER_SECS: f32 = 0.25;
+/// A live instrument asleep this long shuts itself down (a track left alone for a while).
+const INSTRUMENT_IDLE_SECS: f32 = 600.0;
 /// A single-note voice never rings on for longer than this after its release.
 const MAX_TAIL_SECS: f32 = 3.0;
 
@@ -462,6 +465,8 @@ pub enum BrassCommand {
 pub struct BrassHandle {
     queue: Mutex<BrassQueue>,
     construction: (BrassInstrument, Mute, u32),
+    /// Set once the voice has been built.
+    ready: AtomicBool,
 }
 
 struct BrassQueue {
@@ -471,6 +476,12 @@ struct BrassQueue {
 }
 
 impl BrassHandle {
+    /// A handle for a player of `p`'s instrument, taking commands at once: they wait in the queue
+    /// until the voice is built (see `BrassInstrumentVoice::with_handle`).
+    pub fn new(p: &BrassParams) -> Arc<Self> {
+        Arc::new(Self { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), construction: p.construction(), ready: AtomicBool::new(false) })
+    }
+
     /// Queues a command, or hands it back if the audio side has stopped.
     pub fn send(&self, cmd: BrassCommand) -> Result<(), BrassCommand> {
         let mut q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
@@ -479,6 +490,12 @@ impl BrassHandle {
         }
         q.commands.push(cmd);
         Ok(())
+    }
+
+    /// Whether the audio side has been built (see `BrassInstrumentVoice::with_handle`). Commands sent before then
+    /// wait in the queue and play as soon as it starts.
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
     }
 
     pub fn is_alive(&self) -> bool {
@@ -517,12 +534,19 @@ pub struct BrassInstrumentVoice {
 
 impl BrassInstrumentVoice {
     pub fn new(shared: Arc<BrassShared>, p: &BrassParams) -> (Self, Arc<BrassHandle>) {
+        let handle = BrassHandle::new(p);
+        (Self::with_handle(shared, p, handle.clone()), handle)
+    }
+
+    /// Builds the player for a handle made beforehand (`BrassHandle::new`), so notes can be sent
+    /// to it while it is built off the caller's thread (the first build of an instrument computes
+    /// its resonance table); they play once it starts.
+    pub fn with_handle(shared: Arc<BrassShared>, p: &BrassParams, handle: Arc<BrassHandle>) -> Self {
         shared.active.fetch_add(1, Ordering::Relaxed);
-        let handle = Arc::new(BrassHandle { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), construction: p.construction() });
         let voice = Self {
             engine: Engine::new(ENGINE_SAMPLE_RATE as f32, p),
             shared,
-            handle: handle.clone(),
+            handle,
             pending: Vec::with_capacity(64),
             idle: 0,
             publish_countdown: 0,
@@ -532,7 +556,8 @@ impl BrassInstrumentVoice {
             retiring: false,
             done: false,
         };
-        (voice, handle)
+        voice.handle.ready.store(true, Ordering::Release);
+        voice
     }
 
     fn drain(&mut self) {
@@ -562,8 +587,11 @@ impl BrassInstrumentVoice {
         if self.publish_countdown % 64 == 0 {
             self.drain();
         }
-        let frame = self.engine.next_frame();
-        if self.engine.is_playing() || !self.engine.is_silent() {
+        // Asleep: silent and nothing to play, so nothing to compute until a note wakes it (a note
+        // arriving resets `idle` in `drain`).
+        let asleep = !self.retiring && self.idle >= (SLEEP_AFTER_SECS * ENGINE_SAMPLE_RATE as f32) as u32;
+        let frame = if asleep { [0.0; 2] } else { self.engine.next_frame() };
+        if !asleep && (self.engine.is_playing() || !self.engine.is_silent()) {
             self.idle = 0;
         } else {
             self.idle += 1;

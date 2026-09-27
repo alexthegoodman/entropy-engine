@@ -23,6 +23,7 @@ use super::contact::StrikeReport;
 use super::cymbal::{Cymbal, CymbalSpec};
 use super::drum::{Drum, DrumSpec, Strike, StrikerSpec, FULL_SCALE_PA};
 use super::membrane::C_AIR;
+use crate::audio::quality::Quality;
 use super::rub::{RubReport, Stroke, ToolSpec, MAX_TIPS};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -239,11 +240,13 @@ pub struct KitSpec {
     /// anywhere round it is heard as it goes (see `DrumSpec::all_round`; it costs about half as much
     /// again to run). Without it brushes still play, heard as if mirrored onto one diameter.
     pub brushes: bool,
+    /// How much of each piece is modelled (see `crate::audio::quality`). Part of the build.
+    pub quality: Quality,
 }
 
 impl Default for KitSpec {
     fn default() -> Self {
-        Self { kick: 55.0, snare: 220.0, rack_tom: 140.0, floor_tom: 82.0, kick_muffling: 1.0, snares: true, snare_tension: 0.15, sympathetic: true, brushes: false }
+        Self { kick: 55.0, snare: 220.0, rack_tom: 140.0, floor_tom: 82.0, kick_muffling: 1.0, snares: true, snare_tension: 0.15, sympathetic: true, brushes: false, quality: Quality::Live }
     }
 }
 
@@ -262,6 +265,7 @@ impl KitSpec {
             snare_tension: f(self.snare_tension, 0.03, 1.5, d.snare_tension),
             sympathetic: self.sympathetic,
             brushes: self.brushes,
+            quality: self.quality,
         }
     }
 
@@ -271,6 +275,11 @@ impl KitSpec {
     }
 
     /// The drum a piece is, or `None` for a cymbal.
+    ///
+    /// A drum is the same at every quality tier: most of its cost does not scale with its modes (a
+    /// kick with 147 modes still takes half the time of one with 685) while dropping them moves its
+    /// spectrum by several dB, and fewer snare-wire groups saved nothing measurable
+    /// (`matter::tier_tests`). The tiers are the cymbals'.
     pub fn drum(&self, piece: Piece) -> Option<DrumSpec> {
         Some(match piece {
             Piece::Kick => {
@@ -305,6 +314,7 @@ impl KitSpec {
             Piece::Splash => Some(CymbalSpec::splash()),
             _ => None,
         }
+        .map(|c| c.at_quality(self.quality))
     }
 }
 

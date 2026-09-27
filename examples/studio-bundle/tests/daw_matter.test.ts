@@ -265,6 +265,18 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
         expect(state().tracks.find((t: any) => t.id === "trk-lead").matter.kick).toBe(68);
     });
 
+    it("plays in draft on a slow machine, rebuilding the kit, and keeps it across presets", async () => {
+        const { w, click, tool } = await openDaw();
+        const kitOf = () => w.matterPrepared.at(-1)!.cfg.kit;
+        expect(kitOf().quality).toBe("live");
+        click("mt_quality_draft");
+        expect(kitOf().quality).toBe("draft");
+        tool("daw_matter", { trackId: "trk-lead", action: "preset", preset: "jazz" });
+        expect(kitOf().quality).toBe("draft");
+        expect(tool("daw_matter", { trackId: "trk-lead", action: "params", params: { quality: "live" } }).success).toBe(true);
+        expect(kitOf().quality).toBe("live");
+    });
+
     it("the sequencer plays the rows on the kit, and the export hands the hits over", async () => {
         const { world, w, tool } = await openDaw();
         const swirl = MATTER_ROWS.findIndex(r => r.id === "brush-swirl");
@@ -278,6 +290,8 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
         tool("daw_export_wav", {});
         const exported = w.matterExports.at(-1)!;
         expect(exported.length).toBeGreaterThan(0);
+        // A bounce always renders the full model, whatever the track plays live.
+        expect(exported.every((e: any) => e.kit.quality === "render")).toBe(true);
         expect(exported.every((e: any) => e.trackId === "trk-lead" && typeof e.startTime === "number" && e.speed > 0)).toBe(true);
         // The brush note is a stroke as long as the note, live and in the export.
         const live = w.matterHits.find(h => h.cfg.stroke === "swirl")!;

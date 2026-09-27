@@ -136,6 +136,19 @@ impl BrassNoteConfig {
     }
 }
 
+/// Builds (off the calling thread) or checks the track's brass player ahead of its first note:
+/// `{ ok, status: "ready" | "building" }` (see `op_audio_physmod_prepare`).
+#[op2]
+#[serde]
+pub fn op_audio_brass_prepare(state: &mut OpState, #[serde] config: BrassNoteConfig) -> Json {
+    let Some(ctx) = state.try_borrow::<AddonContext>() else { return err("Context not available") };
+    let Some(track) = config.track_id.clone() else { return err("a brass player needs a trackId") };
+    match ctx.audio_engine.brass_prepare(&track, &config.player_id(), config.to_params()) {
+        Ok(s) => json!({ "ok": true, "status": s.name() }),
+        Err(e) => err(e),
+    }
+}
+
 /// Plays one timed brass note on a track's bus.
 #[op2]
 #[serde]
