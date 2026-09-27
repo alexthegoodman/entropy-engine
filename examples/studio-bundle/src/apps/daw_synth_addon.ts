@@ -66,6 +66,23 @@ import {
     thinOut,
 } from "./daw_moves";
 import type { WavetableSettings } from "./daw_wavetable";
+import type { EqBand, TrackEq } from "./daw_space";
+import {
+    EQ_KIND_LABELS,
+    EQ_MAX_GAIN,
+    EQ_MIN_Q,
+    EQ_MAX_Q,
+    EQ_PRESETS,
+    REVERB_PRESETS,
+    applyEqPreset,
+    describeBand,
+    eqEngineConfig,
+    eqPresetIndex,
+    isEqFlat,
+    repairEq,
+    reverbPresetIndex,
+    setBand,
+} from "./daw_space";
 import type { IconName, IconStyle } from "../addon";
 import {
     WT_OPS,
@@ -357,6 +374,8 @@ interface Track {
     reverbEffectId?: string | null;
     // The Character knobs (daw_moves.ts). Created on first use; absent means all at zero.
     character?: Character;
+    // The six-band EQ after the reverb (daw_space.ts). Created on first use; absent means flat.
+    eq?: TrackEq;
 }
 
 interface DAWProject {
@@ -1172,10 +1191,48 @@ function characterEffect(track: Track, kind: CharacterKind, config: { amount: nu
     return id;
 }
 
+// --- The EQ on the bus (see daw_space.ts and src/audio/eq.rs) -------------------------------------
+//
+// Right after the reverb, so it shapes the tail as well as the dry sound, and ahead of the character
+// effects. Runtime only, like the other effect ids. A flat EQ is left out of the chain; the effect
+// itself is kept, so switching it back in resumes where it was.
+
+const eqIds: Record<string, string> = {};
+
+function trackEq(track: Track): TrackEq {
+    if (!track.eq) track.eq = repairEq(null);
+    return track.eq;
+}
+
+function eqEffect(track: Track): string {
+    const config = eqEngineConfig(trackEq(track));
+    const existing = eqIds[track.id];
+    if (existing) {
+        addon.AudioEffect.setEqParams(existing, config);
+        return existing;
+    }
+    return (eqIds[track.id] = addon.AudioEffect.createEq(config));
+}
+
+// Whether the bus's chain currently holds the EQ, so an edit that keeps it there only has to move
+// the effect's params (a drag reports every frame) rather than rebuild the chain.
+const eqInChain: Record<string, boolean> = {};
+
+// One EQ edit from the Reverb & EQ window or an AI tool. Saved by the debounce, like a knob.
+function updateTrackEq(track: Track, eq: TrackEq) {
+    track.eq = eq;
+    const wanted = !isEqFlat(eq);
+    if (wanted && eqInChain[track.id]) eqEffect(track);
+    else syncTrackBus(track);
+    scheduleSave();
+}
+
 // The whole chain for a track's bus, creating whatever effects it needs.
 function busEffectIds(track: Track): string[] {
     ensureTrackEffects(track);
     const ids = [track.delayEffectId!, track.reverbEffectId!];
+    eqInChain[track.id] = !isEqFlat(track.eq);
+    if (eqInChain[track.id]) ids.push(eqEffect(track));
     for (const fx of busEffects(trackCharacter(track), project.bpm)) {
         ids.push(characterEffect(track, fx.kind, { amount: fx.amount, pattern: fx.pattern, bpm: fx.bpm }));
     }
@@ -1342,6 +1399,9 @@ function removeTrackBus(track: Track) {
     for (const id of Object.values(characterIds[track.id] ?? {})) if (id) addon.AudioEffect.destroy(id);
     delete characterIds[track.id];
     delete cutClosed[track.id];
+    if (eqIds[track.id]) addon.AudioEffect.destroy(eqIds[track.id]);
+    delete eqIds[track.id];
+    delete eqInChain[track.id];
 }
 
 function removeTrack(track: Track) {
@@ -1819,6 +1879,182 @@ let analyzerVisible = true;
 function setAnalyzerVisible(visible: boolean) {
     analyzerVisible = visible;
     if (analyzerWindowId) Entropy.UI.setWindowVisible(analyzerWindowId, visible);
+}
+
+// --- Reverb & EQ -------------------------------------------------------------------------------
+//
+// The active track's reverb and EQ in one window (see daw_space.ts and entropy_gui::ReverbEqView):
+// a 3D room with the reverb's tail as a waterfall shaped by the EQ, or the track's live signal, over
+// the EQ's six bands on the live spectrum. Drag the nodes; the knobs below set the reverb and the
+// selected band exactly. The reverb here is the same one the Effects panel's sliders set.
+
+let spaceWindowId: string | null = null;
+let spaceVisible = false;
+let spaceView: "decay" | "live" = "decay";
+let spaceWindowHeight = 900;
+// The band each track's window last had selected (per session; not saved with the song).
+const spaceSelectedBand: Record<string, number> = {};
+
+function setSpaceVisible(visible: boolean) {
+    spaceVisible = visible;
+    if (spaceWindowId) Entropy.UI.setWindowVisible(spaceWindowId, visible);
+}
+
+// The windows behind the transport bar's Instruments menu, in menu order.
+function instrumentWindows(): { id: string; label: string; open: boolean; toggle: () => void }[] {
+    return [
+        { id: "rack", label: "Drum Rack", open: rackVisible, toggle: () => setRackVisible(!rackVisible) },
+        { id: "wavetable", label: "Wavetable", open: wavetableVisible, toggle: () => setWavetableVisible(!wavetableVisible) },
+        { id: "physmod", label: "Bowed String", open: physModVisible, toggle: () => setPhysModVisible(!physModVisible) },
+        { id: "brass", label: "Brass", open: brassVisible, toggle: () => setBrassVisible(!brassVisible) },
+        { id: "matter", label: "Kit", open: matterVisible, toggle: () => setMatterVisible(!matterVisible) },
+        { id: "water", label: "Water", open: waterVisible, toggle: () => setWaterVisible(!waterVisible) },
+        { id: "guitar", label: guitarStatus.running ? "Guitar Input (on)" : "Guitar Input", open: guitarVisible, toggle: () => setGuitarVisible(!guitarVisible) },
+    ];
+}
+
+type ReverbField = "reverbRoomSize" | "reverbTime" | "reverbDamping" | "reverbMix";
+const REVERB_LIMITS: Record<ReverbField, [number, number]> = {
+    reverbRoomSize: [10, 30],
+    reverbTime: [0.1, 6],
+    reverbDamping: [0, 1],
+    reverbMix: [0, 1],
+};
+
+// One reverb setting from a knob, a preset or an AI tool. Knobs report every step of a drag, so this
+// updates only this track's bus and leaves the save to the debounce.
+function setTrackReverb(track: Track, patch: Partial<Record<ReverbField, number>>) {
+    for (const [k, v] of Object.entries(patch) as [ReverbField, number][]) {
+        if (typeof v !== "number" || !Number.isFinite(v)) continue;
+        const [lo, hi] = REVERB_LIMITS[k];
+        track.voice[k] = Math.min(hi, Math.max(lo, v));
+    }
+    syncTrackBus(track);
+    scheduleSave();
+}
+
+function renderSpaceWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    if (!track) {
+        W.label(win, { text: "Add a track to give it a room and an EQ." });
+        return;
+    }
+    const eq = trackEq(track);
+    const sel = spaceSelectedBand[track.id] ?? 2;
+    const band = eq.bands[sel];
+    const v = track.voice;
+
+    W.horizontal(win, (row: string) => {
+        W.dropdown(row, {
+            label: "Track", id: "space_track",
+            options: project.tracks.map(t => t.name),
+            selectedIndex: Math.max(0, project.tracks.indexOf(track)),
+            onChange: (idx: string) => {
+                const t = project.tracks[parseInt(idx, 10)];
+                if (t) { project.activeTrackId = t.id; scheduleSave(); }
+            }
+        });
+        W.dropdown(row, {
+            label: "Room", id: "space_reverb_preset",
+            options: ["Custom", ...REVERB_PRESETS.map(p => p.label)],
+            selectedIndex: reverbPresetIndex(v) + 1,
+            onChange: (idx: string) => {
+                const p = REVERB_PRESETS[parseInt(idx, 10) - 1];
+                if (p) setTrackReverb(track, p.settings);
+            }
+        });
+        W.dropdown(row, {
+            label: "EQ", id: "space_eq_preset",
+            options: ["Custom", ...EQ_PRESETS.map(p => p.label)],
+            selectedIndex: eqPresetIndex(eq) + 1,
+            onChange: (idx: string) => {
+                const p = EQ_PRESETS[parseInt(idx, 10) - 1];
+                if (p) updateTrackEq(track, applyEqPreset(p.id));
+            }
+        });
+        W.button(row, {
+            text: withIcon("arrow-counter-clockwise", "Flat EQ"), id: "space_eq_flat",
+            tooltip: "Every band back to 0 dB, the cuts off",
+            disabled: isEqFlat(eq),
+            onClick: () => { updateTrackEq(track, repairEq(null)); }
+        });
+    });
+
+    W.reverbEq(win, {
+        id: "space_view",
+        source: track.id,
+        reverb: { roomSize: v.reverbRoomSize, time: v.reverbTime, damping: v.reverbDamping, mix: v.reverbMix },
+        eq: eqEngineConfig(eq),
+        selectedBand: sel,
+        view: spaceView,
+        caption: track.name,
+        height: Math.max(420, spaceWindowHeight - 250),
+        onBand: (index: number, b: EqBand) => { updateTrackEq(track, setBand(trackEq(track), index, b)); },
+        onEditEnd: () => { scheduleSave(); },
+        onSelect: (index: number) => { if (index >= 0) spaceSelectedBand[track.id] = index; },
+        onView: (view: "decay" | "live") => { spaceView = view; }
+    });
+
+    W.horizontal(win, (row: string) => {
+        W.group(row, (g: string) => {
+            W.label(g, { text: withIcon("cube", "Reverb"), bold: true });
+            W.horizontal(g, (r: string) => {
+                W.knob(r, {
+                    id: "space_room", label: "Room", value: v.reverbRoomSize, min: 10, max: 30, unit: "m", decimals: 0, defaultValue: 10,
+                    onChange: (x: string) => { setTrackReverb(track, { reverbRoomSize: parseFloat(x) }); }
+                });
+                W.knob(r, {
+                    id: "space_time", label: "Decay", value: v.reverbTime, min: 0.1, max: 6, unit: "s", decimals: 2, defaultValue: 1.2,
+                    onChange: (x: string) => { setTrackReverb(track, { reverbTime: parseFloat(x) }); }
+                });
+                W.knob(r, {
+                    id: "space_damping", label: "Damping", value: v.reverbDamping, min: 0, max: 1, decimals: 2, defaultValue: 0.5,
+                    onChange: (x: string) => { setTrackReverb(track, { reverbDamping: parseFloat(x) }); }
+                });
+                W.knob(r, {
+                    id: "space_mix", label: "Mix", value: v.reverbMix, min: 0, max: 1, decimals: 2, defaultValue: 0,
+                    onChange: (x: string) => { setTrackReverb(track, { reverbMix: parseFloat(x) }); }
+                });
+            });
+        });
+        if (band) {
+            const cut = band.kind === "lowcut" || band.kind === "highcut";
+            const edit = (patch: Partial<EqBand>) => updateTrackEq(track, setBand(trackEq(track), sel, patch));
+            W.group(row, (g: string) => {
+                W.label(g, { text: `Band ${sel + 1}: ${EQ_KIND_LABELS[band.kind]}`, bold: true });
+                W.horizontal(g, (r: string) => {
+                    W.checkbox(r, {
+                        label: "On", id: "space_band_on", value: band.enabled,
+                        onChange: (x: any) => { edit({ enabled: x === true || x === "true" }); }
+                    });
+                    W.numericInput(r, {
+                        label: "Freq", id: "space_band_freq", value: Math.round(band.freq), min: 20, max: 20000,
+                        speed: Math.max(0.5, band.freq * 0.006), unit: "Hz", decimals: 0,
+                        onChange: (x: string) => { edit({ freq: parseFloat(x) }); }
+                    });
+                    if (!cut) {
+                        W.knob(r, {
+                            id: "space_band_gain", label: "Gain", value: band.gain, min: -EQ_MAX_GAIN, max: EQ_MAX_GAIN, unit: "dB", decimals: 1, defaultValue: 0,
+                            onChange: (x: string) => { edit({ gain: parseFloat(x) }); }
+                        });
+                    }
+                    W.numericInput(r, {
+                        label: cut ? "Resonance" : band.kind === "peak" ? "Q" : "Slope", id: "space_band_q", value: band.q, min: EQ_MIN_Q, max: EQ_MAX_Q,
+                        speed: Math.max(0.002, band.q * 0.01), decimals: 2,
+                        onChange: (x: string) => { edit({ q: parseFloat(x) }); }
+                    });
+                });
+            });
+        }
+        W.group(row, (g: string) => {
+            W.label(g, { text: "Output", bold: true });
+            W.knob(g, {
+                id: "space_eq_output", label: "Trim", value: eq.output, min: -EQ_MAX_GAIN, max: EQ_MAX_GAIN, unit: "dB", decimals: 1, defaultValue: 0,
+                onChange: (x: string) => { updateTrackEq(track, { ...trackEq(track), output: Math.max(-EQ_MAX_GAIN, Math.min(EQ_MAX_GAIN, parseFloat(x) || 0)) }); }
+            });
+        });
+    });
 }
 
 // --- Music Video ---------------------------------------------------------------------------------
@@ -3330,13 +3566,14 @@ function placedTiming(placed: PlacedNote): { startTime: number; velocity: number
     };
 }
 
-// Every track's bus for an export: its gain (applied after its effects, as live), its character
-// chain, and its Drop Gap hard cuts in seconds. Each event names its track, so it is mixed there.
+// Every track's bus for an export: its gain (applied after its effects, as live), its EQ and
+// character chain, and its Drop Gap hard cuts in seconds. Each event names its track, so it is mixed there.
 function buildTrackBuses(): any[] {
     const sd = stepDuration();
     return project.tracks.map(t => ({
         track: t.id,
         gain: t.gain,
+        eq: isEqFlat(t.eq) ? undefined : eqEngineConfig(t.eq!),
         effects: busEffects(trackCharacter(t), project.bpm),
         silences: projectCuts().filter(c => c.trackIds.includes(t.id)).map(c => [c.startStep * sd, c.endStep * sd])
     }));
@@ -4221,6 +4458,7 @@ function repairProject(saved: any): DAWProject {
     for (const t of saved.tracks) if (t.matter || t.voice?.waveform === MATTER_WAVEFORM) t.matter = repairMatter(t.matter);
     for (const t of saved.tracks) if (t.water || t.voice?.waveform === WATER_WAVEFORM) t.water = repairWater(t.water);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
+    for (const t of saved.tracks) if (t.eq) t.eq = repairEq(t.eq);
     saved.cuts = repairCuts(saved.cuts);
     const repaired = saved as DAWProject;
     if (saved.guitar) repaired.guitar = readGuitarPrefs(saved.guitar);
@@ -5136,39 +5374,26 @@ addon.onInit(async () => {
                     onClick: () => { setAnalyzerVisible(!analyzerVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: rackVisible ? "Hide Drum Rack" : "Show Drum Rack",
-                    id: "toggle_rack",
-                    onClick: () => { setRackVisible(!rackVisible); }
+                    text: withIcon("cube", "Reverb & EQ"),
+                    id: "toggle_space",
+                    selected: spaceVisible,
+                    tooltip: "The track's reverb as a 3D room, and its EQ over what it is playing",
+                    onClick: () => { setSpaceVisible(!spaceVisible); }
                 });
-                Entropy.UI.Widget.button(tid2, {
-                    text: wavetableVisible ? "Hide Wavetable" : withIcon("wave-sawtooth", "Wavetable"),
-                    id: "toggle_wavetable",
-                    onClick: () => { setWavetableVisible(!wavetableVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: physModVisible ? "Hide Bowed String" : withIcon("music-notes", "Bowed String"),
-                    id: "toggle_physmod",
-                    onClick: () => { setPhysModVisible(!physModVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: brassVisible ? "Hide Brass" : withIcon("megaphone", "Brass"),
-                    id: "toggle_brass",
-                    onClick: () => { setBrassVisible(!brassVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: matterVisible ? "Hide Kit" : withIcon("disc", "Kit"),
-                    id: "toggle_matter",
-                    onClick: () => { setMatterVisible(!matterVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: waterVisible ? "Hide Water" : withIcon("drop", "Water"),
-                    id: "toggle_water",
-                    onClick: () => { setWaterVisible(!waterVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
-                    id: "toggle_guitar",
-                    onClick: () => { setGuitarVisible(!guitarVisible); }
+                // The instrument windows share one menu so the bar does not run out of room. It
+                // always shows its title; picking an entry opens (or closes) that window, and the
+                // open ones are ticked.
+                const instruments = instrumentWindows();
+                const open = instruments.filter(i => i.open).length;
+                Entropy.UI.Widget.dropdown(tid2, {
+                    label: "",
+                    id: "instrument_windows",
+                    options: [
+                        withIcon("piano-keys", open ? `Instruments (${open} open)` : "Instruments"),
+                        ...instruments.map(i => `${icon(i.open ? "check-square" : "square")} ${i.label}`)
+                    ],
+                    selectedIndex: 0,
+                    onChange: (idx: string) => { instruments[parseInt(idx, 10) - 1]?.toggle(); }
                 });
             });
             const bpmValue = parseFloat(bpmDraft);
@@ -5497,6 +5722,12 @@ addon.onInit(async () => {
         // (see syncTrackBus) - these sliders edit that instance's live params, not a per-note
         // config anymore.
         Entropy.UI.Widget.collapsingHeader(tabId, withIcon("sparkle", "Effects"), (tid: string) => {
+            Entropy.UI.Widget.button(tid, {
+                text: withIcon("cube", spaceVisible ? "Hide Reverb & EQ" : "Open Reverb & EQ"),
+                id: "effects_open_space",
+                tooltip: "See the reverb as a 3D room and shape the track with a six-band EQ",
+                onClick: () => { setSpaceVisible(!spaceVisible); }
+            });
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.group(tid2, (tid3: string) => {
                     Entropy.UI.Widget.label(tid3, { text: "Delay", bold: true });
@@ -5825,6 +6056,20 @@ addon.onInit(async () => {
         onClose: () => { visualizerVisible = false; }
     });
     Entropy.UI.setWindowVisible(visualizerWindowId, visualizerVisible);
+
+    // Reverb & EQ, hidden until asked for: tall enough for the 3D room, the EQ and the knobs.
+    spaceWindowHeight = Math.max(640, Math.min(920, screenH - 72));
+    const spaceWidth = Math.max(760, Math.min(1120, screenW - 32));
+    spaceWindowId = Entropy.UI.createWindow({
+        title: "Reverb & EQ",
+        width: spaceWidth,
+        height: spaceWindowHeight,
+        x: Math.max(16, Math.round((screenW - spaceWidth) / 2)),
+        y: 56,
+        onRender: () => renderSpaceWindow(spaceWindowId!),
+        onClose: () => { spaceVisible = false; }
+    });
+    Entropy.UI.setWindowVisible(spaceWindowId, spaceVisible);
 
     // The drum rack: sample browser, pad bank and pad editor side by side, top-left over the
     // arrangement (drag it wherever suits) and clear of the analyzer at the bottom right.
@@ -6219,6 +6464,67 @@ addon.onInit(async () => {
         if (GATE_PATTERNS.includes(args.gatePattern)) setGatePattern(track, args.gatePattern);
         persist();
         return { success: true, character: trackCharacter(track), voice: track.voice };
+    });
+
+    addon.registerTool({
+        name: "daw_reverb_eq",
+        description: "Set a track's reverb and six-band EQ (the Reverb & EQ window). The EQ sits on the track's bus right after the reverb, so it shapes the reverb's tail as well as the dry sound; it applies live and in the WAV export. Bands, in order: 1 low cut, 2 low shelf, 3 bell, 4 bell, 5 high shelf, 6 high cut; each has enabled, freq (20-20000 Hz), gain (-18..18 dB, ignored by the cuts) and q (0.1-18: a bell's bandwidth, a shelf's slope, a cut's resonance; 0.707 is neutral). A preset is applied first, then any explicit values. Reverb: roomSize 10-30 m, decay 0.1-6 s, damping 0-1 (how much faster the treble dies), mix 0-1 (0 = off). Only fields given change. Returns the result.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                reverbPreset: { type: "string", enum: REVERB_PRESETS.map(p => p.id) },
+                roomSize: { type: "number" },
+                decay: { type: "number" },
+                damping: { type: "number" },
+                mix: { type: "number" },
+                eqPreset: { type: "string", enum: EQ_PRESETS.map(p => p.id) },
+                bands: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            band: { type: "number", description: "1-6." },
+                            enabled: { type: "boolean" },
+                            freq: { type: "number" },
+                            gain: { type: "number" },
+                            q: { type: "number" }
+                        },
+                        required: ["band"]
+                    }
+                },
+                output: { type: "number", description: "EQ output trim, dB." }
+            },
+            required: ["trackId"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        const preset = REVERB_PRESETS.find(p => p.id === args.reverbPreset);
+        setTrackReverb(track, {
+            ...(preset?.settings ?? {}),
+            ...(typeof args.roomSize === "number" ? { reverbRoomSize: args.roomSize } : {}),
+            ...(typeof args.decay === "number" ? { reverbTime: args.decay } : {}),
+            ...(typeof args.damping === "number" ? { reverbDamping: args.damping } : {}),
+            ...(typeof args.mix === "number" ? { reverbMix: args.mix } : {}),
+        });
+        let eq = EQ_PRESETS.some(p => p.id === args.eqPreset) ? applyEqPreset(args.eqPreset) : trackEq(track);
+        for (const b of Array.isArray(args.bands) ? args.bands : []) {
+            const i = Math.round(Number(b?.band)) - 1;
+            const patch: Partial<EqBand> = {};
+            for (const k of ["enabled", "freq", "gain", "q"] as const) if (b?.[k] !== undefined) (patch as any)[k] = b[k];
+            eq = setBand(eq, i, patch);
+        }
+        if (typeof args.output === "number") eq = { ...eq, output: Math.max(-EQ_MAX_GAIN, Math.min(EQ_MAX_GAIN, args.output)) };
+        updateTrackEq(track, eq);
+        persist();
+        const v = track.voice;
+        return {
+            success: true,
+            reverb: { roomSize: v.reverbRoomSize, decay: v.reverbTime, damping: v.reverbDamping, mix: v.reverbMix },
+            eq: trackEq(track).bands.map(describeBand),
+            output: trackEq(track).output
+        };
     });
 
     addon.registerTool({

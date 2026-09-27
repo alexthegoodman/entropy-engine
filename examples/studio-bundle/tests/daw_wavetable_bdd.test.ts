@@ -126,6 +126,7 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                 [/^the Wavetable window is hidden$/, () => expect(windowShown()).toBe(false)],
                 [/^the Wavetable window is shown$/, () => expect(windowShown()).toBe(true)],
                 [/^I click "(.+)"$/, id => click(id)],
+                [/^I pick "(.+)" from the Instruments menu$/, label => { world.openInstrument(label); }],
                 [/^I see the label "(.+)"$/, text => { world.render(); expect(w.labels, w.labels.join(" | ")).toContain(text); }],
                 [/^I see a label containing "(.+)"$/, text => { world.render(); expect(w.labels.some(l => l.includes(text)), `${text} in ${w.labels.join(" | ")}`).toBe(true); }],
                 [/^the Wavetable window offers to make "(.+)" a wavetable synth$/, name => {
@@ -236,7 +237,7 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                 }],
 
                 // ---- the guitar ----
-                [/^the Guitar Input window is open$/, () => { click("toggle_guitar"); }],
+                [/^the Guitar Input window is open$/, () => { world.openInstrument("Guitar Input"); }],
                 [/^the guitar Voice list is "(.+)"$/, list => {
                     world.render();
                     expect(w.dropdowns.get("guitar_waveform").options).toEqual(list.split(", "));

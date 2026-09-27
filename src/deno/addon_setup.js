@@ -479,6 +479,21 @@ function characterConfig(c) {
     };
 }
 
+// An EQ config with every field present and numeric, as the op's serde struct wants it.
+function eqConfig(config) {
+    const num = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+    return {
+        bands: (config?.bands ?? []).map((b) => ({
+            kind: String(b?.kind ?? ""),
+            enabled: b?.enabled !== false,
+            freq: num(b?.freq, 0),
+            gain: num(b?.gain, 0),
+            q: num(b?.q, 0)
+        })),
+        output: num(config?.output, 0)
+    };
+}
+
 // A shared, reusable effect registry - create an effect once (createDelay/createReverb), then
 // attach it to one or more track buses by id via Entropy.Audio.ensureTrackBus's `effectIds`
 // instead of baking delay/reverb fields into every note/track config. See the doc comment above
@@ -510,6 +525,11 @@ const audioEffectAPI = {
     // They replace the signal rather than mixing a wet copy in, so put them after delay/reverb.
     createCharacter: (config) => ops.op_audio_effect_create_character(characterConfig(config)),
     setCharacterParams: (effectId, config) => ops.op_audio_effect_set_character(effectId, characterConfig(config)),
+    // Six-band parametric EQ (src/audio/eq.rs): {bands: [{kind, enabled, freq, gain, q}], output}.
+    // Inline like the character effects. Settings glide rather than jump, so it is safe to call
+    // setEqParams on every step of a drag.
+    createEq: (config) => ops.op_audio_effect_create_eq(eqConfig(config)),
+    setEqParams: (effectId, config) => ops.op_audio_effect_set_eq(effectId, eqConfig(config)),
     destroy: (effectId) => ops.op_audio_effect_destroy(effectId)
 };
 
@@ -1577,6 +1597,43 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A track's reverb and EQ as one neon picture (see entropy_gui::ReverbEqView): a 3D room
+            // with its reflections and a decay waterfall shaped by the EQ (or the live signal), over
+            // a six-band EQ with draggable nodes on the track's live spectrum. The caller owns every
+            // value and hears edits through the callbacks: onBand(index, {kind, enabled, freq,
+            // gain, q}) on every step of a drag, onEditEnd() when one settles (save then),
+            // onSelect(index or -1), onView("decay" | "live"). config: {source, reverb: {roomSize,
+            // time, damping, mix}, eq: {bands, output}, selectedBand, view, caption, height, width}.
+            reverbEq: (windowId, config) => {
+                const id = nextWidgetId(windowId, "reverbeq", config?.id);
+                const c = config || {};
+                ops.op_ui_widget_reverb_eq(windowId, {
+                    source: c.source || "master",
+                    reverb: c.reverb ?? null,
+                    eq: c.eq ? eqConfig(c.eq) : null,
+                    selectedBand: typeof c.selectedBand === "number" ? c.selectedBand : -1,
+                    view: c.view ?? null,
+                    caption: c.caption ?? null,
+                    height: c.height ?? null,
+                    width: c.width ?? null
+                }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "REVERB_EQ_BAND" && config.onBand) {
+                            config.onBand(parseInt(parts[2], 10), {
+                                kind: parts[3], enabled: parts[4] === "1",
+                                freq: parseFloat(parts[5]), gain: parseFloat(parts[6]), q: parseFloat(parts[7])
+                            });
+                        }
+                        else if (type === "REVERB_EQ_SELECT" && config.onSelect) config.onSelect(parseInt(parts[2], 10));
+                        else if (type === "REVERB_EQ_EDIT_END" && config.onEditEnd) config.onEditEnd();
+                        else if (type === "REVERB_EQ_VIEW" && config.onView) config.onView(parts[2]);
+                    });
+                }
+            },
             // A physically modeled bowed-string instrument, drawn the same neon way as Widget.wavetable
             // (see Entropy.PhysMod and entropy_gui::PhysModView). Nothing crosses into JS per frame:
             // the widget reads the engine's PhysModShared directly. config: {instrument, height,
@@ -1889,7 +1946,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener

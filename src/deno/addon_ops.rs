@@ -646,6 +646,33 @@ pub struct SpectrumConfig {
     pub width: Option<f32>,
 }
 
+/// The reverb half of `Widget.reverbEq`: what the track's reverb effect is set to.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReverbViewSettings {
+    pub room_size: Option<f32>,
+    pub time: Option<f32>,
+    pub damping: Option<f32>,
+    pub mix: Option<f32>,
+}
+
+/// `Widget.reverbEq` - see `entropy_gui::ReverbEqView`. `source` is the track id whose live
+/// spectrum the view shows (read Rust-side, like `Widget.spectrum`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReverbEqViewConfig {
+    pub source: String,
+    pub reverb: Option<ReverbViewSettings>,
+    pub eq: Option<EqEffectConfig>,
+    /// The selected band, 0-based; negative or omitted for none.
+    pub selected_band: Option<i32>,
+    /// "decay" (default) or "live".
+    pub view: Option<String>,
+    pub caption: Option<String>,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+}
+
 /// `Widget.levelMeter` - see `entropy_gui::LevelMeter`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -808,6 +835,7 @@ pub enum UiWidget {
     /// A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard - see
     /// `entropy_gui::widgets_wavetable`. The table lives Rust-side; nothing crosses into JS per frame.
     WavetableView { id: String, config: WavetableViewConfig },
+    ReverbEqView { id: String, config: ReverbEqViewConfig },
     /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
     PhysModView { id: String, config: PhysModViewConfig },
     BrassView { id: String, config: BrassViewConfig },
@@ -2601,6 +2629,22 @@ pub fn op_audio_effect_set_character(state: &mut OpState, #[string] effect_id: S
     }
 }
 
+/// Creates a six-band EQ (see src/audio/eq.rs). Inline: it replaces the signal.
+#[op2]
+#[string]
+pub fn op_audio_effect_create_eq(state: &mut OpState, #[serde] config: EqEffectConfig) -> String {
+    let ctx = state.borrow::<AddonContext>();
+    ctx.audio_engine.create_effect(crate::audio::EffectParams::Eq(config.to_params()))
+}
+
+/// Moves an EQ to new settings; it glides there rather than jumping.
+#[op2]
+pub fn op_audio_effect_set_eq(state: &mut OpState, #[string] effect_id: String, #[serde] config: EqEffectConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.set_effect_params(&effect_id, crate::audio::EffectParams::Eq(config.to_params()));
+    }
+}
+
 #[op2(fast)]
 pub fn op_audio_effect_destroy(state: &mut OpState, #[string] effect_id: String) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
@@ -2771,10 +2815,58 @@ pub struct TrackBusRenderConfig {
     pub track: String,
     #[serde(default = "default_drive")]
     pub gain: f64,
+    /// The track's EQ, run ahead of `effects` as on the live bus. Omit for flat.
+    #[serde(default)]
+    pub eq: Option<EqEffectConfig>,
     #[serde(default)]
     pub effects: Vec<CharacterEffectConfig>,
     #[serde(default)]
     pub silences: Vec<[f64; 2]>,
+}
+
+/// One EQ band (see src/audio/eq.rs): `kind` is lowcut, lowshelf, peak, highshelf or highcut.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EqBandConfig {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub freq: f32,
+    #[serde(default)]
+    pub gain: f32,
+    #[serde(default)]
+    pub q: f32,
+}
+
+/// The six-band EQ. Bands are taken in order; a missing or malformed band keeps the default
+/// layout's band at that position (see `eq::DEFAULT_BANDS`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EqEffectConfig {
+    #[serde(default)]
+    pub bands: Vec<EqBandConfig>,
+    /// Output trim, dB.
+    #[serde(default)]
+    pub output: f32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl EqEffectConfig {
+    pub fn to_params(&self) -> crate::audio::eq::EqParams {
+        use crate::audio::eq::{BandKind, EqBand, EqParams, DEFAULT_BANDS};
+        let mut p = EqParams { bands: DEFAULT_BANDS, output_db: self.output };
+        for (slot, b) in p.bands.iter_mut().zip(&self.bands) {
+            let kind = BandKind::parse(&b.kind).unwrap_or(slot.kind);
+            let or = |v: f32, d: f32| if v == 0.0 { d } else { v };
+            *slot = EqBand::new(kind, b.enabled, or(b.freq, slot.freq), b.gain, or(b.q, slot.q));
+        }
+        p.clamped()
+    }
 }
 
 fn default_vst3_note_velocity() -> u8 {
@@ -3033,6 +3125,7 @@ pub fn op_audio_render_pattern_wav(
             .iter()
             .map(|b| crate::audio::character::TrackBusRender {
                 gain: b.gain as f32,
+                eq: b.eq.as_ref().map(|e| e.to_params()),
                 effects: b.effects.iter().filter_map(|e| e.to_params()).collect(),
                 silences: b.silences.iter().map(|s| (s[0], s[1])).collect(),
             })
@@ -4227,6 +4320,18 @@ pub fn op_ui_widget_tab_bar(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TabBar { id, tabs, selected });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_reverb_eq(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: ReverbEqViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::ReverbEqView { id, config });
     }
 }
 

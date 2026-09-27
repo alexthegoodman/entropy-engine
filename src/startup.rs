@@ -334,6 +334,7 @@ impl BrowserBddDriver {
                 Ok("brass") => include_str!("../tests/features/daw_brass_live.feature"),
                 Ok("matter") => include_str!("../tests/features/daw_matter_live.feature"),
                 Ok("visualizer") => include_str!("../tests/features/daw_visualizer_live.feature"),
+                Ok("space") => include_str!("../tests/features/daw_space_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {

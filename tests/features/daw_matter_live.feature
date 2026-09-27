@@ -8,7 +8,8 @@ Feature: The running DAW plays its drum kit
     When I advance 40 frames
     And I call the tool "daw_set_track_params" with {"trackId":"trk-lead","waveform":"matter"}
     And I click "select_track_2"
-    And I click "toggle_matter"
+    # Opens "Kit" from the transport bar's Instruments menu (entry 5).
+    And I set "instrument_windows" to "5"
     And I wait 3000 milliseconds
     And I advance 45 frames
     Then I capture "kit-01-open"

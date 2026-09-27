@@ -152,6 +152,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // Entropy.Video's side. `musicVideoPath` is what the save dialog answers (null = cancel);
         // `musicVideoPolls` is what pollMusicVideo hands back, first to last.
         musicVisualizers: new Map<string, any>(),
+        // The Reverb & EQ window's view, as last drawn.
+        reverbEqViews: new Map<string, any>(),
         colorInputs: new Map<string, any>(),
         musicVideoPath: "/videos/song.mp4" as string | null,
         musicVideoStarts: [] as any[],
@@ -180,6 +182,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         pianoRoll: (_win: string, c: any) => { w.piano = c; },
         padGrid: (_win: string, c: any) => { w.padGrids.set(c.id, c); },
         wavetable: (_win: string, c: any) => { w.wavetableViews.set(c.id ?? c.table, c); },
+        reverbEq: (_win: string, c: any) => { w.reverbEqViews.set(c.id ?? c.source, c); },
         physModString: (_win: string, c: any) => { w.physModViews.set(c.id ?? c.instrument, c); },
         brass: (_win: string, c: any) => { w.brassViews.set(c.id ?? c.instrument, c); },
         matter: (_win: string, c: any) => { w.matterViews.set(c.id ?? c.kit, c); },
@@ -432,6 +435,9 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             // which effects a track's bus chains and what the knob sent them.
             createCharacter: (cfg: any) => { const id = `${cfg.kind}-${++uuid}`; w.effects.set(id, { ...cfg }); return id; },
             setCharacterParams: (id: string, cfg: any) => { if (w.effects.has(id)) w.effects.set(id, { ...cfg }); },
+            // The EQ likewise, recorded as { kind: "eq", ...config }.
+            createEq: (cfg: any) => { const id = `eq-${++uuid}`; w.effects.set(id, { kind: "eq", ...JSON.parse(JSON.stringify(cfg)) }); return id; },
+            setEqParams: (id: string, cfg: any) => { if (w.effects.has(id)) w.effects.set(id, { kind: "eq", ...JSON.parse(JSON.stringify(cfg)) }); },
             destroy: (id: string) => { w.effects.delete(id); },
         },
         Vst3: {
@@ -466,7 +472,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
 
     const render = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
-        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.colorInputs.clear();
+        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.reverbEqViews.clear(); w.colorInputs.clear();
         w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
@@ -479,8 +485,18 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         }
         render();
     };
+    // Picks an entry from the transport bar's Instruments menu, the way a click on it would.
+    const openInstrument = (label: string) => {
+        render();
+        const menu = w.dropdowns.get("instrument_windows");
+        if (!menu) throw new Error("no Instruments menu in the transport bar");
+        const idx = menu.options.findIndex((o: string, i: number) => i > 0 && o.endsWith(" " + label));
+        if (idx < 1) throw new Error(`no "${label}" in the Instruments menu; have ${menu.options.slice(1).join(", ")}`);
+        menu.onChange(String(idx));
+        render();
+    };
     return {
-        w, render, advance,
+        w, render, advance, openInstrument,
         async open() { await import("../src/apps/daw_synth_addon"); await init?.(); render(); },
     };
 }

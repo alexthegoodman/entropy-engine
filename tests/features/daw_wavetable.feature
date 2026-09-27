@@ -10,9 +10,9 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
   Scenario: The Wavetable window stays out of the way until it is asked for
     Given the DAW is open
     Then the Wavetable window is hidden
-    When I click "toggle_wavetable"
+    When I pick "Wavetable" from the Instruments menu
     Then the Wavetable window is shown
-    When I click "toggle_wavetable"
+    When I pick "Wavetable" from the Instruments menu
     Then the Wavetable window is hidden
 
   Scenario: A synth track becomes a wavetable synth and the window shows its terrain

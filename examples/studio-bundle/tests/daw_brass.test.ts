@@ -151,7 +151,7 @@ describe("The DAW's brass (production addon callbacks)", () => {
         // The lead becomes brass, is selected, and the Brass window is open.
         tool("daw_set_track_params", { trackId: "trk-lead", waveform: "brass" });
         click(`select_track_${trackIndex("trk-lead")}`);
-        click("toggle_brass");
+        world.openInstrument("Brass");
         const view = () => {
             const v = w.brassViews.get("br_trk-lead");
             if (!v) throw new Error(`no brass view; have ${[...w.brassViews.keys()].join(", ")}`);

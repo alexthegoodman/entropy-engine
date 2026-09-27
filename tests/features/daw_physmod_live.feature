@@ -12,7 +12,8 @@ Feature: The running DAW bows a physically modeled string and plays it
     When I advance 40 frames
     And I call the tool "daw_set_track_params" with {"trackId":"trk-lead","waveform":"physmod"}
     And I click "select_track_2"
-    And I click "toggle_physmod"
+    # Opens "Bowed String" from the transport bar's Instruments menu (entry 3).
+    And I set "instrument_windows" to "3"
     And I advance 45 frames
     Then I capture "physmod-01-open"
 

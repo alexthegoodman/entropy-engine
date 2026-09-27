@@ -393,11 +393,13 @@ impl Character {
     }
 }
 
-/// A track's bus in an offline render: its character chain, its gain (applied after the chain,
-/// as the live bus does), and the stretches where it is hard-cut to silence.
+/// A track's bus in an offline render: its EQ, its character chain, its gain (applied after the
+/// chain, as the live bus does), and the stretches where it is hard-cut to silence.
 #[derive(Clone, Debug)]
 pub struct TrackBusRender {
     pub gain: f32,
+    /// The track's EQ, ahead of the character chain as on the live bus. `None` is flat.
+    pub eq: Option<crate::audio::eq::EqParams>,
     pub effects: Vec<CharacterParams>,
     /// (start, end) in seconds.
     pub silences: Vec<(f64, f64)>,
@@ -405,7 +407,7 @@ pub struct TrackBusRender {
 
 impl Default for TrackBusRender {
     fn default() -> Self {
-        TrackBusRender { gain: 1.0, effects: Vec::new(), silences: Vec::new() }
+        TrackBusRender { gain: 1.0, eq: None, effects: Vec::new(), silences: Vec::new() }
     }
 }
 
@@ -426,8 +428,12 @@ impl TrackBusRender {
         let open = if self.silenced_at(0.0) { 0.0 } else { 1.0 };
         let mut fader = Character::new(CharacterParams::new(CharacterKind::Fader, open), sample_rate);
         let use_fader = !self.silences.is_empty();
+        let mut eq = self.eq.filter(|p| !p.is_flat()).map(|p| crate::audio::eq::Eq::new(p, sample_rate));
         for (i, frame) in buf.chunks_exact_mut(2).enumerate() {
             let mut x = [frame[0], frame[1]];
+            if let Some(eq) = eq.as_mut() {
+                x = eq.process(x);
+            }
             for c in chain.iter_mut() {
                 x = c.process(x);
             }
@@ -565,6 +571,7 @@ mod tests {
     fn an_offline_bus_applies_gain_after_the_chain_and_cuts_silences_cleanly() {
         let bus = TrackBusRender {
             gain: 0.5,
+            eq: None,
             effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }],
             silences: vec![(1.0, 1.5)],
         };

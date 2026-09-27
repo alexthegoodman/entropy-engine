@@ -150,7 +150,7 @@ describe("The DAW's drum kit (production addon callbacks)", () => {
         // The lead becomes a kit, is selected, and the Kit window is open.
         tool("daw_set_track_params", { trackId: "trk-lead", waveform: "matter" });
         click(`select_track_${trackIndex("trk-lead")}`);
-        click("toggle_matter");
+        world.openInstrument("Kit");
         const view = () => {
             const v = w.matterViews.get("mt_trk-lead");
             if (!v) throw new Error(`no kit view; have ${[...w.matterViews.keys()].join(", ")}`);

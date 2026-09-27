@@ -43,6 +43,7 @@ pub mod widgets_tabs;
 pub mod widgets_tracks;
 pub mod widgets_tree;
 pub mod widgets_wavetable;
+pub mod widgets_reverb_eq;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -80,6 +81,7 @@ pub use widgets_wavetable::{Camera as WavetableCamera, ViewTool, WavetableEvent,
 pub use widgets_brass::{BrassView, BrassViewEvent, BrassViewOptions, BrassViewResponse, Camera as BrassCamera};
 pub use widgets_matter::{Camera as MatterCamera, MatterView, MatterViewEvent, MatterViewOptions, MatterViewResponse};
 pub use widgets_water::{WaterView, WaterViewEvent, WaterViewOptions, WaterViewResponse};
+pub use widgets_reverb_eq::{Camera as ReverbEqCamera, ReverbEqEvent, ReverbEqOptions, ReverbEqResponse, ReverbEqView, ReverbSettings, SpaceView};
 pub use widgets_physmod::{Camera as PhysModCamera, PhysModEvent, PhysModOptions, PhysModResponse, PhysModView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support

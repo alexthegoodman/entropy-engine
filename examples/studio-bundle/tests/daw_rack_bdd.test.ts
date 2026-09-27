@@ -299,6 +299,7 @@ describe("The DAW puts samples from the Music folder on drum pads (production ad
                 [/^I click the add tile (\d+) times$/, n => { for (let i = 0; i < +n; i++) { grid().onAdd(); world.render(); } }],
                 [/^I click the add tile$/, () => { grid().onAdd(); world.render(); }],
                 [/^I click "(.+)"$/, id => click(id)],
+                [/^I pick "(.+)" from the Instruments menu$/, label => { world.openInstrument(label); }],
                 [/^I select the tree row "(.+)"$/, label => { tree().onSelect(node(label).id); world.render(); }],
                 [/^I set "(.+)" to "(.*)"$/, (id, value) => {
                     world.render();
