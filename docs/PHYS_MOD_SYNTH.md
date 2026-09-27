@@ -251,9 +251,20 @@ the wrong octave). With the span, each knob position is the same place in the wi
 string; the whole violin is unchanged. An accent's bite and the attack assist scale the same way,
 and during the attack the force rises with the bow speed rather than ahead of it.
 
+The guided attack holds the string to the bow in the sticking part of an ideal Helmholtz cycle
+for its first 16 periods but lets it slip by its own friction whenever it can (imposing the whole
+idealised cycle drove the string on its resonance with the difference between that cycle and its
+own, which built up until friction could not hold what was handed over; a short low note never
+recovered). The player's ear ignores the guided periods and reacts no faster than ~12 periods of
+the note, the pace at which the string's period can be measured.
+
 ## Known limits
 
-- The bottom five or so bass notes take 0.3–0.5 s to settle into clean motion (25–35 periods).
+- With `attack_skill` above 0 the first 16 periods of every stroke are guided (0.1 s on a violin's
+  G, ~0.4 s on the bass E): during that time the player holds the string to the bow in the sticking
+  part of each cycle, so on the low strings the ends of the force knob no longer reach surface sound
+  or crunch in a short note. Left to friction alone (`attack_skill` 0), the bottom bass notes take
+  0.3–0.5 s to settle into clean motion (25–35 periods).
 - The fitted window laws are good to about ×1.35; the view's diagram is an estimate, while the
   sound is always the simulation itself.
 - Not modelled yet: bow width, torsional waves, thermal (temperature-dependent) friction, the

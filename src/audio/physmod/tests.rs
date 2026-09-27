@@ -100,6 +100,41 @@ fn a_firm_bow_speaks_on_the_cello_and_bass_as_on_the_violin() {
     }
 }
 
+#[test]
+fn fast_short_notes_on_the_cellos_bottom_string_speak_cleanly() {
+    // A sample song's driving cello part: 16ths at 140 bpm on the C string, firm and near the
+    // bridge, each re-bowed while the last is still ringing. A low string has only ~15 periods in a
+    // note this short; the guided start used to hand over to friction in a state it could not hold,
+    // and nearly every note broke into multiple slipping (heard as a wrong octave or a hollow,
+    // unpitched scrape). Every note should be in steady one-slip-per-period motion over its back
+    // half.
+    let base = PhysModParams {
+        strings: [65.41, 98.0, 146.83, 220.0], body_size: 0.72, bow_force: 0.7, bow_velocity: 0.72, bow_position: 0.09,
+        attack_skill: 1.0, vibrato_depth: 3.0, duration: 0.163, ..Default::default()
+    };
+    for &f in &[87.31f32, 69.3, 65.41] {
+        let mut e = Engine::new(SR, &base);
+        let step = 0.2143f32;
+        let n_notes = 4;
+        let (mut rel, mut s) = (Vec::new(), 0);
+        for i in 0..((n_notes as f32 * step) * SR) as usize {
+            for k in 0..n_notes {
+                let vel = if k == 0 { 0.66 } else { 0.56 };
+                if i == (k as f32 * step * SR) as usize { s = e.note_on(k as u64 + 1, PhysModParams { freq: f, velocity: vel, ..base }, true, None); }
+                if i == ((k as f32 * step + base.duration) * SR) as usize { e.note_off(k as u64 + 1); }
+            }
+            e.next_frame();
+            rel.push(e.string(s).releases_total);
+        }
+        for k in 0..n_notes {
+            let a = ((k as f32 * step + 0.5 * base.duration) * SR) as usize;
+            let b = ((k as f32 * step + base.duration) * SR) as usize;
+            let spp = (rel[b] - rel[a]) as f32 / ((b - a) as f32 / SR * f);
+            assert!((0.85..1.2).contains(&spp), "{f} Hz, note {k}: {spp:.2} slips per period");
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Helmholtz motion
 
 #[test]

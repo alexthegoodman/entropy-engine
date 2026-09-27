@@ -372,10 +372,27 @@ impl BowedString {
         let v_h = a_r_out + b_l_out;
         let (mut v, mut contact) = friction::solve(v_h, ex.bow_velocity, z, ex.bow_force, &self.friction, self.contact);
         if ex.guide_weight > 0.0 {
+            // The guided attack. In the sticking part of the ideal cycle the string is held to the
+            // bow; in the slipping part it slips the way the friction makes it slip whenever it
+            // can, and follows the ideal slip only when it can't (the first periods, before the
+            // string has a corner to release it). Imposing the whole ideal cycle instead drove the
+            // string, once a period and exactly on its resonance, with every difference between
+            // that idealised slip and the string's own: the difference built up period after
+            // period until friction alone could no longer hold what the guide handed over, and the
+            // stroke broke into multiple slipping at the hand-over - for longer than a short note
+            // lasts on a low string.
             let w = ex.guide_weight.min(1.0);
-            v += (ex.guide_velocity - v) * w;
+            let (target, state) = if ex.guide_stuck {
+                (ex.guide_velocity, Contact::Stick)
+            } else {
+                match friction::solve(v_h, ex.bow_velocity, z, ex.bow_force, &self.friction, Contact::SlipBehind) {
+                    (v_slip, c) if !c.is_stuck() => (v_slip, c),
+                    _ => (ex.guide_velocity, Contact::SlipBehind),
+                }
+            };
+            v += (target - v) * w;
             if w > 0.5 {
-                contact = if ex.guide_stuck { Contact::Stick } else { Contact::SlipBehind };
+                contact = state;
             }
         }
         let two_z = 2.0 * z;
