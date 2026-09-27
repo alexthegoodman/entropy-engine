@@ -325,7 +325,7 @@ pub struct EntropyPipeline {
     /// One named capture requested by the deterministic UI test driver. It is consumed only
     /// after the GUI pass, unlike the scene-only video-export capture path.
     pub pending_ui_screenshot: Option<(std::path::PathBuf, FrameCaptureBuffer)>,
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub video_export: Option<crate::video_export::exporter::VideoExportState>,
     pub chat: Chat,
     pub new_project_name: String,
@@ -443,7 +443,7 @@ impl EntropyPipeline {
             export_editor: None,
             frame_buffer: None,
             pending_ui_screenshot: None,
-            #[cfg(target_os = "windows")]
+            #[cfg(not(target_arch = "wasm32"))]
             video_export: None,
             chat: Chat::new(),
             new_project_name: String::new(),
@@ -2105,7 +2105,7 @@ impl EntropyPipeline {
     #[cfg(target_arch = "wasm32")]
     pub fn render_display_frame(&mut self, game_mode: bool, glass_blur_enabled: bool) {}
 
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     fn publish_video_export_result(&mut self, result: Result<crate::video_export::exporter::VideoExportResult, String>) {
         if let Some(editor) = self.export_editor.as_mut() {
             if let Some(ctx) = editor
@@ -2130,8 +2130,7 @@ impl EntropyPipeline {
         // `render_addon_frame` against the live scene needs); `start_export` is called once
         // to pick it up, and `step_export` once per frame after that until it reports done.
         // See `video_export::exporter` and the 2026-09-11 video export post's decision log.
-        // Media Foundation-backed, so Windows-only for now (the non-Windows ops report an error).
-        #[cfg(target_os = "windows")]
+        // The encoder is Media Foundation on Windows and OpenH264 elsewhere (`video_export::encode`).
         {
         if self.video_export.is_none() {
             let pending = self.export_editor.as_mut().and_then(|editor| {

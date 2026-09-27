@@ -1344,11 +1344,11 @@ pub struct AddonContext {
     /// already present just replaces the old entry, dropping (and thus stopping) its thread.
     pub ml_trainers: HashMap<String, crate::ml_graph::MlTrainer>,
     pub ml_architecture_trainers: HashMap<String, crate::ml_architecture::ArchitectureTrainer>,
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub video_players: HashMap<String, VideoPlayerEntry>,
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub pending_video_export: Option<crate::video_export::exporter::VideoExportRequest>,
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub video_export_result: Option<Result<crate::video_export::exporter::VideoExportResult, String>>,
 }
 
@@ -2128,13 +2128,14 @@ pub fn op_texture_update(
     }
 }
 
-// --- Media player (Windows/Media Foundation) ---
-// See `crate::media_player::MediaPlayer` for the decoder itself. These ops just own a handle
+// --- Media player (Media Foundation on Windows, OpenH264 + symphonia elsewhere) ---
+// See `crate::media_player::MediaPlayer` for the decoder itself (`media_player/mod.rs` on Windows,
+// `media_player/openh264.rs` everywhere else - same API). These ops just own a handle
 // table and, on poll, push decoded frame bytes into an addon texture the same way
 // `op_texture_update` does (video-only op_texture_update calls aren't reused directly because
 // the addon would otherwise have to round-trip a full RGBA frame buffer through JS every tick).
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub struct VideoPlayerEntry {
     pub player: crate::media_player::MediaPlayer,
     pub texture_id: Option<String>,
@@ -2157,7 +2158,7 @@ pub struct VideoPollResult {
     pub playing: bool,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2]
 #[serde]
 pub fn op_video_open(state: &mut OpState, #[string] path: String) -> Result<VideoOpenResult, deno_error::JsErrorBox> {
@@ -2182,7 +2183,7 @@ pub fn op_video_open(state: &mut OpState, #[string] path: String) -> Result<Vide
     Ok(result)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_bind_texture(state: &mut OpState, #[string] handle: String, #[string] texture_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2192,7 +2193,7 @@ pub fn op_video_bind_texture(state: &mut OpState, #[string] handle: String, #[st
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_play(state: &mut OpState, #[string] handle: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2202,7 +2203,7 @@ pub fn op_video_play(state: &mut OpState, #[string] handle: String) {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_pause(state: &mut OpState, #[string] handle: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2212,7 +2213,7 @@ pub fn op_video_pause(state: &mut OpState, #[string] handle: String) {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_seek(state: &mut OpState, #[string] handle: String, seek_ms: f64) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2224,7 +2225,7 @@ pub fn op_video_seek(state: &mut OpState, #[string] handle: String, seek_ms: f64
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_set_volume(state: &mut OpState, #[string] handle: String, volume: f64) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2234,7 +2235,7 @@ pub fn op_video_set_volume(state: &mut OpState, #[string] handle: String, volume
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_set_speed(state: &mut OpState, #[string] handle: String, speed: f64) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2251,7 +2252,7 @@ pub fn op_video_read_subtitles(#[string] path: String) -> Result<String, deno_er
         .map_err(|error| deno_error::JsErrorBox::generic(format!("Failed to read subtitles '{}': {error}", path)))
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_close(state: &mut OpState, #[string] handle: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2259,7 +2260,7 @@ pub fn op_video_close(state: &mut OpState, #[string] handle: String) {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2]
 #[serde]
 pub fn op_video_poll(state: &mut OpState, #[string] handle: String) -> VideoPollResult {
@@ -2299,7 +2300,7 @@ pub fn op_video_poll(state: &mut OpState, #[string] handle: String) -> VideoPoll
     VideoPollResult { current_time_ms, playing }
 }
 
-// --- Video export (Windows/Media Foundation) ---
+// --- Video export (Media Foundation on Windows, OpenH264 elsewhere) ---
 // See `crate::video_export::exporter::run_export` for the actual frame loop. It needs `&mut
 // EntropyPipeline` (to call `render_addon_frame` against the live scene) which ops can't borrow
 // directly, so `op_video_export_start` just queues a request and `run_export` is invoked from
@@ -2316,7 +2317,7 @@ pub struct VideoExportResultJs {
     pub error: Option<String>,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_video_export_start(
     state: &mut OpState,
@@ -2333,7 +2334,7 @@ pub fn op_video_export_start(
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2]
 #[serde]
 pub fn op_video_export_poll(state: &mut OpState) -> Option<VideoExportResultJs> {
@@ -2352,77 +2353,6 @@ pub fn op_video_export_poll(state: &mut OpState) -> Option<VideoExportResultJs> 
             error: Some(e),
         }),
     }
-}
-
-// Non-Windows stand-ins for the Media Foundation-backed video ops above, so the op table (and the
-// `Entropy.Video` JS surface built on it) stays identical everywhere. Opening a video reports a
-// clear error instead of the op being missing; the per-handle ops are unreachable without a handle.
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-const VIDEO_UNSUPPORTED: &str = "Video playback/export is only supported on Windows (Media Foundation) for now";
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-static VIDEO_EXPORT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2]
-#[serde]
-pub fn op_video_open(#[string] _path: String) -> Result<VideoOpenResult, deno_error::JsErrorBox> {
-    Err(deno_error::JsErrorBox::generic(VIDEO_UNSUPPORTED))
-}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_bind_texture(#[string] _handle: String, #[string] _texture_id: String) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_play(#[string] _handle: String) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_pause(#[string] _handle: String) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_seek(#[string] _handle: String, _seek_ms: f64) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_set_volume(#[string] _handle: String, _volume: f64) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_set_speed(#[string] _handle: String, _speed: f64) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_close(#[string] _handle: String) {}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2]
-#[serde]
-pub fn op_video_poll(#[string] _handle: String) -> VideoPollResult {
-    VideoPollResult { current_time_ms: 0, playing: false }
-}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2(fast)]
-pub fn op_video_export_start(#[string] _output_path: String, _fps: u32, _duration_ms: u32) {
-    VIDEO_EXPORT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
-}
-
-#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
-#[op2]
-#[serde]
-pub fn op_video_export_poll() -> Option<VideoExportResultJs> {
-    VIDEO_EXPORT_REQUESTED
-        .swap(false, std::sync::atomic::Ordering::Relaxed)
-        .then(|| VideoExportResultJs {
-            output_path: String::new(),
-            frame_count: 0,
-            elapsed_ms: 0,
-            error: Some(VIDEO_UNSUPPORTED.to_string()),
-        })
 }
 
 #[op2]

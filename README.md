@@ -370,7 +370,9 @@ There's no built-in "project" concept. Addons own their save data under the dire
 <details>
 <summary><strong>Video</strong></summary>
 
-Windows/Media Foundation-only. Playback and offscreen export, both backed by real hardware decode/encode.
+Playback and offscreen export. On Windows both use Media Foundation (hardware decode/encode, any
+codec it has installed). On Linux they use OpenH264 on the CPU, which handles H.264 MP4 only, with
+AAC audio (see [Linux](#linux)).
 
 | Call | What it does |
 |---|---|
@@ -464,12 +466,15 @@ Run `cargo run --bin example` with no name for the full list (also: `game2d`,
 `level-editor-2d`, `light-hive`, `mcp-tools-demo`, `media-player`, `node-graph`,
 `theme-gallery`).
 
-The Windows Media Player example loads the MP4s in `public/` into a playlist. Build it with
+The Media Player example (Windows and Linux) loads the MP4s in `public/` into a playlist. Build it with
 `npm run build-media-player` from `examples/studio-bundle`, then run
 `cargo run --release --bin example -- media-player` from this directory. Enter another MP4 path
 to add it. It loads a matching `.srt` or `.vtt` next to a clip when present, or you can enter a
 subtitle path. The controls cover seek, volume, speed, repeat, captions and fullscreen.
-`cargo test --release --test media_player_live -- --nocapture` runs the real window BDD suite.
+`cargo test --release --test media_player_live -- --nocapture` runs the real window BDD suite, and
+`cargo test --release --test video_export_live -- --nocapture` exports the `video-export-demo` clip
+and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
+by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
 
 ---
 
@@ -505,14 +510,18 @@ Differences from Windows:
 - With no audio output device the engine logs a warning and keeps running with audio muted
   (previously it panicked; this applies on Windows too).
 - UI icon fallback fonts and the monospace font come from DejaVu/Noto instead of Segoe/Cascadia.
+- Video playback (`Entropy.Video`, the media player example, Stunts videos) and video export
+  (`video-export-demo`) use Cisco's [OpenH264](https://github.com/cisco/openh264) instead of Media
+  Foundation (`src/openh264_codec/`): H.264 in MP4, decoded/encoded on the CPU, with AAC audio
+  decoded by symphonia. OpenH264 is built from bundled source, so there's no extra system package.
+  Unlike Media Foundation it only handles H.264 - HEVC/VP9/AV1 files report an error on `open`.
+  Exports are Constrained Baseline H.264 with the frame size rounded down to even numbers.
 
 Still Windows-only (compiled out with `#[cfg(target_os = "windows")]`; these wrap Win32 APIs, so a
 Cargo feature alone wouldn't make them work):
 
 | Feature | Why | On Linux |
 |---|---|---|
-| Video playback (`Entropy.Video`, media player example, Stunts videos) | Media Foundation | `open` rejects with an "only supported on Windows" error |
-| Video export (`video-export-demo`) | Media Foundation sink writer | export poll reports the same error |
 | Screen/window recording (`screen_capture`) | Windows Graphics Capture | not compiled |
 | VST3 plugin editor screenshots (live BDD) | `PrintWindow`/GDI | returns an error |
 | Pen tilt, barrel and eraser | `WM_POINTER*` message hook | pens report pressure only |

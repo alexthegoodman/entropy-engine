@@ -16,12 +16,21 @@ use windows::Win32::System::Com::StructuredStorage::PropVariantToInt64;
 #[cfg(target_os = "windows")]
 use windows_core::{PCWSTR, PROPVARIANT};
 
-/// Video decoding is backed by Windows Media Foundation. Elsewhere `StVideo::new` always fails
-/// with a message, so no `StVideo` is ever constructed and the frame methods are unreachable.
+/// Video decoding is backed by Windows Media Foundation on Windows and by OpenH264
+/// (`crate::openh264_codec`) on other desktop targets. On wasm `StVideo::new` always fails with a
+/// message, so no `StVideo` is ever constructed and the frame methods are unreachable.
 #[cfg(target_os = "windows")]
 pub type VideoError = windows::core::Error;
 #[cfg(not(target_os = "windows"))]
 pub type VideoError = String;
+
+/// The OpenH264 decoder plus the RGBA buffer it decodes into. Behind a `Mutex` because
+/// `draw_video_frame` takes `&self`, like the Media Foundation source reader it stands in for.
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+pub struct OpenH264Source {
+    decoder: crate::openh264_codec::Mp4VideoDecoder,
+    frame: Vec<u8>,
+}
 
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
@@ -86,6 +95,8 @@ pub struct StVideo {
     pub duration_ms: i32,
     #[cfg(target_os = "windows")]
     pub source_reader: IMFSourceReader,
+    #[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+    pub source_reader: std::sync::Mutex<OpenH264Source>,
     // #[cfg(target_arch = "wasm32")]
     // pub source_reader: WebCodecs
 }
@@ -301,7 +312,7 @@ impl StVideo {
             indices,
             hidden: false,
             layer: video_config.layer - 0,
-            #[cfg(target_os = "windows")]
+            #[cfg(not(target_arch = "wasm32"))]
             source_reader,
             group_bind_group: tmp_group_bind_group,
             current_zoom: 1.0,
@@ -322,11 +333,24 @@ impl StVideo {
         })
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_arch = "wasm32")]
     fn initialize_media_source(path: &Path) -> Result<((), i64, i64, u32, u32, f64), VideoError> {
-        Err(format!(
-            "Video playback of {} is not supported on this platform yet (requires Windows Media Foundation)",
-            path.display()
+        Err(format!("Video playback of {} is not supported on the web yet", path.display()))
+    }
+
+    #[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+    fn initialize_media_source(
+        path: &Path,
+    ) -> Result<(std::sync::Mutex<OpenH264Source>, i64, i64, u32, u32, f64), VideoError> {
+        let decoder = crate::openh264_codec::Mp4VideoDecoder::open(path)?;
+        let info = decoder.info();
+        Ok((
+            std::sync::Mutex::new(OpenH264Source { decoder, frame: Vec::new() }),
+            info.duration_ms / 1000,
+            info.duration_ms,
+            info.width,
+            info.height,
+            info.frame_rate,
         ))
     }
 
@@ -436,8 +460,39 @@ impl StVideo {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_arch = "wasm32")]
     pub fn draw_video_frame(&self, _device: &Device, _queue: &Queue) -> Result<(), VideoError> {
+        Ok(())
+    }
+
+    /// Decodes the next frame into the texture. Past the end of the stream the last frame just
+    /// stays up.
+    #[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+    pub fn draw_video_frame(&self, _device: &Device, queue: &Queue) -> Result<(), VideoError> {
+        let mut source = self.source_reader.lock().map_err(|_| "video decoder lock poisoned".to_string())?;
+        let OpenH264Source { decoder, frame } = &mut *source;
+        if decoder.next_frame(frame)?.is_none() {
+            return Ok(());
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            frame,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * self.source_dimensions.0),
+                rows_per_image: Some(self.source_dimensions.1),
+            },
+            wgpu::Extent3d {
+                width: self.source_dimensions.0,
+                height: self.source_dimensions.1,
+                depth_or_array_layers: 1,
+            },
+        );
         Ok(())
     }
 
@@ -505,9 +560,18 @@ impl StVideo {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_arch = "wasm32")]
     pub fn reset_playback(&mut self) -> Result<(), VideoError> {
         Ok(())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+    pub fn reset_playback(&mut self) -> Result<(), VideoError> {
+        self.source_reader
+            .get_mut()
+            .map_err(|_| "video decoder lock poisoned".to_string())?
+            .decoder
+            .seek(0)
     }
 
     #[cfg(target_os = "windows")]

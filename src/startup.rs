@@ -194,6 +194,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real sheet addon is running in test mode"
         || text == "the real ML graph addon is running in test mode"
         || text == "the real media player is running in test mode"
+        || text == "the real video export demo is running in test mode"
     {
         return None;
     }
@@ -315,7 +316,11 @@ impl BrowserBddDriver {
         } else if ml {
             include_str!("../tests/features/ml_graph_live.feature")
         } else if media {
-            include_str!("../tests/features/media_player_live.feature")
+            // The export demo drives the same media stack (`Entropy.Video`), so it rides this driver.
+            match std::env::var("ENTROPY_MEDIA_BDD_FEATURE").as_deref() {
+                Ok("export") => include_str!("../tests/features/video_export_live.feature"),
+                _ => include_str!("../tests/features/media_player_live.feature"),
+            }
         } else if daw {
             // The restore run reopens the project the first run saved: same driver, second script.
             match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
@@ -575,9 +580,6 @@ impl BrowserBddDriver {
             }
             BrowserBddAction::Capture(name) => {
                 let path = self.artifact_dir.join(format!("{name}.png"));
-                #[cfg(not(target_os = "windows"))]
-                let media: Option<serde_json::Value> = None;
-                #[cfg(target_os = "windows")]
                 let media = if std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
                     window.pipeline.export_editor.as_mut().and_then(|editor| {
                         let op_state = editor.addon_engine.runtime.op_state();
