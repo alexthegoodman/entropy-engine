@@ -45,6 +45,9 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         },
         files,
         keyDown: null as null | ((key: string, ctrl: boolean, shift: boolean, alt: boolean) => void),
+        typing: false,
+        // What the DAW's tab was created with.
+        tabConfig: null as any,
         tools: new Map<string, (args: any) => any>(),
         buttons: new Map<string, () => void>(),
         buttonTexts: new Map<string, string>(),
@@ -61,6 +64,10 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         analysis: new Map<string, any>(),
         piano: null as any,
         arrangement: null as any,
+        // Tab bars as last drawn (the DAW's view switcher and inspector sections), by id.
+        tabBars: new Map<string, any>(),
+        // Every button's whole config as last drawn - for `selected`, `disabled` and tooltips.
+        buttonConfigs: new Map<string, any>(),
         labels: [] as string[],
         played: [] as { id: string; cfg: any; at?: number }[],
         buses: new Map<string, any>(),
@@ -166,7 +173,15 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
     const widgets = {
         collapsingHeader: (win: string, title: string, body: (w: string) => void) => { w.headers.push(title); body(win); },
         horizontal: wrap, vertical: wrap, group: wrap,
-        button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); w.buttonTexts.set(c.id ?? `text:${c.text}`, c.text); },
+        // Page structure: every zone and pane is drawn, in order.
+        bar: (_win: string, _c: any, ...zones: (((w: string) => void) | undefined)[]) => { zones.forEach(z => z?.("win")); },
+        split: (_win: string, c: any, main: (w: string) => void, side?: (w: string) => void) => { main("win"); if (c?.sideOpen !== false) side?.("win"); },
+        card: (_win: string, _c: any, body: (w: string) => void) => body("win"),
+        spacer: () => {},
+        // A segmented control is a dropdown laid out as buttons: same options, index and onChange.
+        segmented: (_win: string, c: any) => { w.dropdowns.set(c.id ?? c.label, c); },
+        tabBar: (_win: string, c: any) => { w.tabBars.set(c.id, c); },
+        button: (_win: string, c: any) => { const key = c.id ?? `text:${c.text}`; w.buttons.set(key, c.onClick); w.buttonTexts.set(key, c.text); w.buttonConfigs.set(key, c); },
         label: (_win: string, c: any) => { w.labels.push(c.text); },
         slider: (_win: string, c: any) => { w.sliders.push(c); }, separator: () => {},
         knob: (_win: string, c: any) => { w.knobs.push(c); },
@@ -198,7 +213,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         onUpdate: () => {},
         onUpdatePlus: (_name: string, cb: () => void) => { updates.push(cb); },
         registerTool: (spec: any, run: (args: any) => any) => { w.tools.set(spec.name, run); },
-        UI: { createTab: (cfg: any) => { tabRender = cfg.onRender; return "tab"; } },
+        UI: { createTab: (cfg: any) => { tabRender = cfg.onRender; w.tabConfig = cfg; return "tab"; } },
         IO: {
             save: (p: unknown) => { legacySaved = JSON.parse(JSON.stringify(p)); },
             store,
@@ -457,6 +472,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             Widget: widgets,
             createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); const id = `window-${windowRenders.length}`; w.windowTitles[id] = cfg.title; return id; },
             setWindowVisible: (id: string, visible: boolean) => { w.windowVisible[id] = visible; },
+            // Whether a text field has the keyboard (a test sets `w.typing`).
+            keyboardState: () => ({ typing: w.typing, navigating: false }),
         },
         Window: { getSize: () => [1400, 900] },
         Video: {
@@ -470,13 +487,35 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         Composer: undefined,
     };
 
-    const render = () => {
-        w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
-        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.reverbEqViews.clear(); w.colorInputs.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
-        w.labels = []; w.piano = null; w.arrangement = null;
+    const drawOnce = () => {
         tabRender?.();
         windowRenders.forEach(fn => fn());
+    };
+    // One frame as the page is now. The DAW keeps its views (Arrange, Piano Roll, Mixer) and the
+    // inspector's sections behind tabs; a person reaches a control by opening its tab, so this
+    // opens every tab once, collecting what each one draws, and comes back to where the page was.
+    // A step can then reach any control, and `w.tabBars` says which tab is really showing.
+    const renderOnly = () => {
+        w.buttons.clear(); w.buttonTexts.clear(); w.buttonConfigs.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
+        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.reverbEqViews.clear(); w.colorInputs.clear();
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
+        w.labels = []; w.piano = null; w.arrangement = null; w.tabBars.clear();
+        drawOnce();
+    };
+    const render = () => {
+        renderOnly();
+        for (const bar of [...w.tabBars.values()]) {
+            if (!bar.onSelect) continue;
+            const was = bar.selected;
+            for (const tab of bar.tabs) {
+                if (tab.id === was) continue;
+                bar.onSelect(tab.id);
+                drawOnce();
+            }
+            bar.onSelect(was);
+        }
+        // The page as it really is, drawn last so its callbacks are the ones kept.
+        drawOnce();
     };
     const advance = (ms: number) => {
         for (let left = ms; left > 0; left -= 50) {
@@ -496,7 +535,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         render();
     };
     return {
-        w, render, advance, openInstrument,
+        w, render, renderOnly, advance, openInstrument,
         async open() { await import("../src/apps/daw_synth_addon"); await init?.(); render(); },
     };
 }

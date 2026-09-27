@@ -274,6 +274,11 @@ pub struct UiTabConfig {
 
     pub title: String,
 
+    /// `false` lays the tab out to the window instead of inside a page-long vertical scroll, for
+    /// an app that fills the window itself (header, a `split` main area, a status bar). Default true.
+    #[serde(default)]
+    pub scroll: Option<bool>,
+
 }
 
 
@@ -375,6 +380,8 @@ pub struct TrackConfig {
 #[serde(rename_all = "camelCase")]
 pub struct TracksOptionsConfig {
     pub lane_height: Option<f32>,
+    /// Height of an empty (`placeholder`) lane; defaults to `lane_height`.
+    pub placeholder_lane_height: Option<f32>,
     pub label_width: Option<f32>,
     pub snap_ms: Option<i32>,
     pub bar_ms: Option<i32>,
@@ -707,6 +714,80 @@ pub struct WidgetExtras {
     pub disabled: Option<bool>,
     /// Button: drawn pressed-in (a toggle that is on, the current tool).
     pub selected: Option<bool>,
+    /// Button: a solid fill, [r, g, b, a] in 0..1 - the one primary action in a bar.
+    pub accent: Option<[f32; 4]>,
+    /// Label/button: text color, [r, g, b, a] in 0..1.
+    pub color: Option<[f32; 4]>,
+    /// Label: fixed-width digits, for readouts that change while you watch them.
+    pub monospace: Option<bool>,
+    /// Label: break onto further lines to fit the width, instead of running off the edge.
+    pub wrap: Option<bool>,
+    /// Button: at least this wide (lines up a column of actions).
+    pub min_width: Option<f32>,
+}
+
+/// `Widget.bar(...)`: a full-width, fixed-height strip with left / centre / right zones.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BarConfig {
+    pub height: Option<f32>,
+    pub fill: Option<[f32; 4]>,
+    pub border: Option<[f32; 4]>,
+    pub border_top: Option<bool>,
+    pub padding_x: Option<f32>,
+}
+
+/// `Widget.split(...)`: the rest of the window as a main area beside a fixed-width side panel.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitConfig {
+    pub side_width: Option<f32>,
+    pub side_open: Option<bool>,
+    pub reserve_bottom: Option<f32>,
+    pub min_height: Option<f32>,
+    pub main_fill: Option<[f32; 4]>,
+    pub side_fill: Option<[f32; 4]>,
+    pub divider: Option<[f32; 4]>,
+    pub main_padding: Option<f32>,
+    pub side_padding: Option<f32>,
+    /// Scroll the main area's content vertically (default false: the view sizes itself).
+    pub scroll_main: Option<bool>,
+    /// Scroll the side panel's content vertically (default true).
+    pub scroll_side: Option<bool>,
+}
+
+/// `Widget.card(...)`: a boxed group on a filled, rounded background.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CardConfig {
+    /// A fixed outer width, e.g. a mixer channel strip.
+    pub width: Option<f32>,
+    pub fill: Option<[f32; 4]>,
+    pub stroke: Option<[f32; 4]>,
+    pub radius: Option<f32>,
+    pub padding: Option<f32>,
+}
+
+/// `Widget.segmented(...)`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentedConfig {
+    pub label: Option<String>,
+    pub options: Vec<String>,
+    pub selected_index: Option<usize>,
+    pub compact: Option<bool>,
+    pub accent: Option<[f32; 4]>,
+}
+
+/// `Widget.pianoRoll(...)`'s sizing and look, beyond the grid data.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PianoRollOptionsConfig {
+    pub row_height: Option<f32>,
+    pub fill_height: Option<bool>,
+    pub color: Option<[f32; 4]>,
+    pub highlight_rows: Option<Vec<u32>>,
+    pub show_velocity: Option<bool>,
 }
 
 /// `Entropy.UI.toast(...)`.
@@ -782,6 +863,7 @@ pub enum UiWidget {
         row_labels: Option<Vec<String>>,
         cells: Vec<PianoRollCell>,
         playhead: f32,
+        options: PianoRollOptionsConfig,
     },
     KeyframeTimeline {
         id: String,
@@ -829,7 +911,7 @@ pub enum UiWidget {
     },
     /// A non-fullscreen tab strip - see `entropy_gui::widgets_tabs`. The caller owns which tab is
     /// selected and draws that tab's widgets itself.
-    TabBar { id: String, tabs: Vec<TabBarItemConfig>, selected: String },
+    TabBar { id: String, tabs: Vec<TabBarItemConfig>, selected: String, stretch: bool },
     /// A drum-machine pad bank - see `entropy_gui::widgets_pads`.
     PadGrid { id: String, config: PadGridConfig },
     /// A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard - see
@@ -853,6 +935,20 @@ pub enum UiWidget {
     StartGroup,
     EndGroup,
     Separator,
+    /// Page structure - see `entropy_gui::widgets_layout`. A bar's zones follow `StartBar` in
+    /// order (left, centre, right), each opened by `BarZone`; a split's main content comes first,
+    /// then `SplitSide` and the side panel's content.
+    StartBar { id: String, config: BarConfig },
+    BarZone { zone: u8 },
+    EndBar,
+    StartSplit { id: String, config: SplitConfig },
+    SplitSide,
+    EndSplit,
+    StartCard { id: String, config: CardConfig },
+    EndCard,
+    /// Empty space along the current row or column.
+    Spacer { size: f32 },
+    Segmented { id: String, config: SegmentedConfig },
     Hyperlink { id: String, text: String, url: String },
     TextInput { id: String, label: String, value: String, width: f32 },
     LayoutCanvas {
@@ -4162,6 +4258,7 @@ pub fn op_ui_widget_piano_roll(
     #[serde] cells: Vec<PianoRollCell>,
     playhead: f32,
     #[string] id: String,
+    #[serde] options: Option<PianoRollOptionsConfig>,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PianoRoll {
@@ -4172,7 +4269,43 @@ pub fn op_ui_widget_piano_roll(
             row_labels,
             cells,
             playhead,
+            options: options.unwrap_or_default(),
         });
+    }
+}
+
+/// The structural widgets (`bar`, `split`, `card`, `spacer`) share one op: `kind` names the marker
+/// and `config` is that marker's JSON config (or null).
+#[op2]
+pub fn op_ui_widget_layout(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] kind: String,
+    #[string] id: String,
+    #[serde] config: Option<serde_json::Value>,
+) {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else { return };
+    let config = config.unwrap_or(serde_json::Value::Null);
+    let parse = |c: serde_json::Value| if c.is_null() { None } else { Some(c) };
+    let widget = match kind.as_str() {
+        "barStart" => UiWidget::StartBar { id, config: parse(config).and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default() },
+        "barZone" => UiWidget::BarZone { zone: config.as_u64().unwrap_or(0).min(2) as u8 },
+        "barEnd" => UiWidget::EndBar,
+        "splitStart" => UiWidget::StartSplit { id, config: parse(config).and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default() },
+        "splitSide" => UiWidget::SplitSide,
+        "splitEnd" => UiWidget::EndSplit,
+        "cardStart" => UiWidget::StartCard { id, config: parse(config).and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default() },
+        "cardEnd" => UiWidget::EndCard,
+        "spacer" => UiWidget::Spacer { size: config.as_f64().unwrap_or(8.0) as f32 },
+        _ => return,
+    };
+    ctx.ui_widgets.entry(window_id).or_default().push(widget);
+}
+
+#[op2]
+pub fn op_ui_widget_segmented(state: &mut OpState, #[string] window_id: String, #[string] id: String, #[serde] config: SegmentedConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Segmented { id, config });
     }
 }
 
@@ -4317,9 +4450,10 @@ pub fn op_ui_widget_tab_bar(
     #[serde] tabs: Vec<TabBarItemConfig>,
     #[string] selected: String,
     #[string] id: String,
+    stretch: bool,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TabBar { id, tabs, selected });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TabBar { id, tabs, selected, stretch });
     }
 }
 

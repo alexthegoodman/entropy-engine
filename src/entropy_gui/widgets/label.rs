@@ -21,11 +21,43 @@ fn label_color(ui: &Ui, wt: &WidgetText) -> Color32 {
 impl Ui {
     pub fn label(&mut self, text: impl Into<WidgetText>) -> Response {
         let text = text.into();
-        let font = FontId::proportional(text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE));
+        let size = text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+        let font = if text.0.monospace { FontId::monospace(size) } else { FontId::proportional(size) };
+        if text.0.wrap {
+            return self.wrapped_label(&text, font);
+        }
         let size = Painter::measure_text(self.ctx(), font, &text.0.text);
         let (rect, response) = self.allocate_response(vec2(size.x, size.y.max(font.size)), Sense::hover());
         let color = label_color(self, &text).linear_multiply(text.0.alpha);
         self.painter().text(rect.left_top(), Align2::LEFT_TOP, &text.0.text, font, color);
+        response
+    }
+
+    /// A label broken at spaces into as many lines as it takes to fit the available width.
+    fn wrapped_label(&mut self, text: &WidgetText, font: FontId) -> Response {
+        let max_w = self.available_width().max(40.0);
+        let mut lines: Vec<String> = Vec::new();
+        for paragraph in text.0.text.split('\n') {
+            let mut line = String::new();
+            for word in paragraph.split(' ') {
+                let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                if !line.is_empty() && Painter::measure_text(self.ctx(), font, &candidate).x > max_w {
+                    lines.push(std::mem::take(&mut line));
+                    line = word.to_string();
+                } else {
+                    line = candidate;
+                }
+            }
+            lines.push(line);
+        }
+        let line_h = Painter::measure_text(self.ctx(), font, "Ag").y.max(font.size) + 2.0;
+        let width = lines.iter().map(|l| Painter::measure_text(self.ctx(), font, l).x).fold(0.0_f32, f32::max);
+        let (rect, response) = self.allocate_response(vec2(width, line_h * lines.len() as f32 - 2.0), Sense::hover());
+        let color = label_color(self, text).linear_multiply(text.0.alpha);
+        let painter = self.painter();
+        for (i, line) in lines.iter().enumerate() {
+            painter.text(rect.left_top() + vec2(0.0, i as f32 * line_h), Align2::LEFT_TOP, line, font, color);
+        }
         response
     }
 

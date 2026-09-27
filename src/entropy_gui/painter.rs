@@ -4,7 +4,7 @@
 use crate::core::vertex::Vertex;
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::context::{Context, ContextInner};
-use crate::entropy_gui::draw_list::{DrawTexture, TextureId};
+use crate::entropy_gui::draw_list::{DrawMark, DrawTexture, TextureId};
 use crate::entropy_gui::geometry::{Align2, CornerRadius, FontId, Pos2, Rect, StrokeKind};
 use crate::entropy_gui::shape::{self, Shape};
 
@@ -54,6 +54,32 @@ impl Painter {
             DrawTarget::Popup => &mut inner.popup_draw_list,
         };
         list.push(self.clip_rect, texture, vertices, indices);
+    }
+
+    /// Where this painter's next shape would land - see `DrawList::mark`.
+    pub fn mark(&self) -> DrawMark {
+        let inner = self.ctx.inner_mut();
+        match self.target {
+            DrawTarget::Main => inner.draw_list.mark(),
+            DrawTarget::Overlay => inner.overlay_draw_list.mark(),
+            DrawTarget::Popup => inner.popup_draw_list.mark(),
+        }
+    }
+
+    /// A rounded rect (fill and optional stroke) slipped in at `mark`, behind whatever was
+    /// painted after the mark was taken - a container's background, sized once its content is.
+    pub fn rect_behind(&self, mark: DrawMark, rect: Rect, corner_radius: impl Into<CornerRadius>, fill: Color32, stroke: Stroke) {
+        let (v, i) = shape::tessellate_rect(rect, corner_radius.into(), fill, stroke);
+        if v.is_empty() || i.is_empty() {
+            return;
+        }
+        let mut inner = self.ctx.inner_mut();
+        let list = match self.target {
+            DrawTarget::Main => &mut inner.draw_list,
+            DrawTarget::Overlay => &mut inner.overlay_draw_list,
+            DrawTarget::Popup => &mut inner.popup_draw_list,
+        };
+        list.insert_at(mark, self.clip_rect, DrawTexture::White, v, i);
     }
 
     pub fn rect_filled(&self, rect: Rect, corner_radius: impl Into<CornerRadius>, fill: Color32) {

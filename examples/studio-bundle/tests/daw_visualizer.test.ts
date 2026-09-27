@@ -95,10 +95,14 @@ describe("The DAW's Analyzer toggle and Music Video panel (production addon call
         const { w, click, windowId } = await openDaw();
         const analyzer = windowId("Analyzer");
         expect(w.windowVisible[analyzer]).toBe(true);
-        expect(w.buttonTexts.get("toggle_analyzer")).toBe("Hide Analyzer");
+        // An icon toggle in the header: drawn pressed-in while the window is open.
+        expect(w.buttonTexts.get("toggle_analyzer")).toBe("[chart-bar]");
+        expect(w.buttonConfigs.get("toggle_analyzer").selected).toBe(true);
+        expect(w.buttonConfigs.get("toggle_analyzer").tooltip).toBe("Hide the analyzer");
         click("toggle_analyzer");
         expect(w.windowVisible[analyzer]).toBe(false);
-        expect(w.buttonTexts.get("toggle_analyzer")).toContain("Show Analyzer");
+        expect(w.buttonConfigs.get("toggle_analyzer").selected).toBe(false);
+        expect(w.buttonConfigs.get("toggle_analyzer").tooltip).toContain("Show the analyzer");
         click("toggle_analyzer");
         expect(w.windowVisible[analyzer]).toBe(true);
     });

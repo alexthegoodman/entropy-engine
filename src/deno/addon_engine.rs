@@ -112,7 +112,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -243,6 +243,8 @@ extension!(
         op_ui_widget_kanban,
         op_ui_widget_tree_view,
         op_ui_widget_tab_bar,
+        op_ui_widget_layout,
+        op_ui_widget_segmented,
         op_ui_widget_sheet_grid,
         op_ui_widget_pad_grid,
         op_ui_widget_wavetable,
@@ -4063,12 +4065,17 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     .map(|w| w.iter().filter_map(|widget| if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }).collect())
                     .unwrap_or_default();
                 context.ui_frame_labels_from_tabs = true;
+                let scroll = context.ui_tabs.get(&active_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        if let Some(widgets) = widgets {
+                    if let Some(widgets) = widgets {
+                        if scroll {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                            });
+                        } else {
                             Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
                         }
-                    });
+                    }
                 });
             }
         }
@@ -4093,6 +4100,24 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
             }
         }
+    }
+
+    /// Index of the end marker matching the start marker at `start`, counting nested pairs.
+    fn matching_end(widgets: &[UiWidget], start: usize, is_start: impl Fn(&UiWidget) -> bool, is_end: impl Fn(&UiWidget) -> bool) -> usize {
+        let mut depth = 1;
+        let mut k = start + 1;
+        while k < widgets.len() {
+            if is_start(&widgets[k]) {
+                depth += 1;
+            } else if is_end(&widgets[k]) {
+                depth -= 1;
+                if depth == 0 {
+                    return k;
+                }
+            }
+            k += 1;
+        }
+        widgets.len()
     }
 
     fn render_widgets(
@@ -4124,7 +4149,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if let Some(size) = font_size {
                         txt = txt.font_size(*size);
                     }
-                    ui.label(txt);
+                    if let Some(c) = extras.color {
+                        txt = txt.color(egui::Color32::from_rgba_f32(c));
+                    }
+                    if extras.monospace.unwrap_or(false) {
+                        txt = txt.monospace();
+                    }
+                    if extras.wrap.unwrap_or(false) {
+                        txt = txt.wrap();
+                    }
+                    let resp = ui.label(txt);
+                    if !tooltip.is_empty() {
+                        resp.on_hover_text(tooltip.clone());
+                    }
                 }
                 UiWidget::Button {
                     text,
@@ -4138,10 +4175,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if let Some(size) = font_size {
                         txt = txt.font_size(*size);
                     }
-                    let button = egui::Button::new(txt)
+                    if let Some(c) = extras.color {
+                        txt = txt.color(egui::Color32::from_rgba_f32(c));
+                    }
+                    let mut button = egui::Button::new(txt)
                         .frame(*frame)
                         .enabled(!extras.disabled.unwrap_or(false))
                         .selected(extras.selected.unwrap_or(false));
+                    if let Some(c) = extras.accent {
+                        button = button.fill(egui::Color32::from_rgba_f32(c));
+                    }
+                    if let Some(w) = extras.min_width {
+                        button = button.min_size(egui::vec2(w, 0.0));
+                    }
                     if ui.add(button).on_hover_text_with_shortcut(tooltip.clone(), shortcut.clone()).clicked() {
                         events_to_push.push(btn_id.clone());
                     }
@@ -4424,130 +4470,41 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     row_labels,
                     cells,
                     playhead,
+                    options,
                 } => {
-                    let rows = (*rows).max(1) as usize;
-                    let steps = (*steps).max(1) as usize;
-                    let steps_per_beat = (*steps_per_beat).max(1) as usize;
-
-                    let label_w: f32 = 46.0;
-                    let row_h: f32 = 16.0;
-                    let avail_w = ui.available_size().x.max(label_w + steps as f32 * 6.0);
-                    let grid_w = avail_w - label_w;
-                    let col_w = grid_w / steps as f32;
-                    let grid_h = row_h * rows as f32;
-
-                    let (full_rect, response) = ui.allocate_exact_size(
-                        egui::vec2(avail_w, grid_h),
-                        egui::Sense::click_and_drag(),
+                    let notes: Vec<egui::PianoRollNote> = cells
+                        .iter()
+                        .map(|c| egui::PianoRollNote { row: c.row as usize, step: c.step as usize, length: c.length.max(1) as usize, velocity: c.velocity })
+                        .collect();
+                    let mut style = egui::PianoRollStyle {
+                        row_h: options.row_height.unwrap_or(0.0),
+                        fill_height: options.fill_height.unwrap_or(false),
+                        highlight_rows: options.highlight_rows.as_ref().map(|r| r.iter().map(|x| *x as usize).collect()).unwrap_or_default(),
+                        show_velocity: options.show_velocity.unwrap_or(false),
+                        ..Default::default()
+                    };
+                    if let Some(c) = options.color {
+                        style.note_color = egui::Color32::from_rgba_f32(c);
+                    }
+                    let events = egui::PianoRoll::new(pr_id.as_str()).show(
+                        ui,
+                        *rows as usize,
+                        *steps as usize,
+                        *steps_per_beat as usize,
+                        row_labels.as_deref(),
+                        &notes,
+                        *playhead,
+                        &style,
                     );
-                    let grid_rect = egui::Rect::from_min_size(
-                        full_rect.min + egui::vec2(label_w, 0.0),
-                        egui::vec2(grid_w, grid_h),
-                    );
-                    let painter = ui.painter();
-
-                    // Row backgrounds (shade "black key" / alternating lanes) + labels
-                    for r in 0..rows {
-                        let y0 = grid_rect.min.y + r as f32 * row_h;
-                        let is_dark = row_labels
-                            .as_ref()
-                            .and_then(|labels| labels.get(r))
-                            .map(|l| l.contains('#'))
-                            .unwrap_or(r % 2 == 1);
-                        let bg = if is_dark {
-                            egui::Color32::from_gray(38)
-                        } else {
-                            egui::Color32::from_gray(50)
+                    // Raw press/drag/release cell coordinates: the addon owns the pattern and
+                    // decides whether a press adds or erases.
+                    for event in events {
+                        let (kind, row, step) = match event {
+                            egui::PianoRollEvent::Down { row, step } => ("DOWN", row, step),
+                            egui::PianoRollEvent::Drag { row, step } => ("DRAG", row, step),
+                            egui::PianoRollEvent::Up { row, step } => ("UP", row, step),
                         };
-                        painter.rect_filled(
-                            egui::Rect::from_min_size(egui::pos2(grid_rect.min.x, y0), egui::vec2(grid_w, row_h)),
-                            0.0,
-                            bg,
-                        );
-                        if let Some(label) = row_labels.as_ref().and_then(|l| l.get(r)) {
-                            painter.text(
-                                egui::pos2(full_rect.min.x + 4.0, y0 + row_h * 0.5),
-                                egui::Align2::LEFT_CENTER,
-                                label,
-                                egui::FontId::monospace(10.0),
-                                egui::Color32::from_gray(200),
-                            );
-                        }
-                    }
-
-                    // Beat / bar separators
-                    for s in 0..=steps {
-                        let x = grid_rect.min.x + s as f32 * col_w;
-                        let is_bar = s % steps_per_beat == 0;
-                        painter.line_segment(
-                            [egui::pos2(x, grid_rect.min.y), egui::pos2(x, grid_rect.max.y)],
-                            egui::Stroke::new(
-                                if is_bar { 1.5 } else { 0.5 },
-                                egui::Color32::from_gray(if is_bar { 95 } else { 62 }),
-                            ),
-                        );
-                    }
-
-                    // Notes
-                    for cell in cells {
-                        if cell.row as usize >= rows || cell.step as usize >= steps {
-                            continue;
-                        }
-                        let x0 = grid_rect.min.x + cell.step as f32 * col_w;
-                        let y0 = grid_rect.min.y + cell.row as f32 * row_h;
-                        let w = (cell.length.max(1) as f32 * col_w - 2.0).max(2.0);
-                        let alpha = (70.0 + cell.velocity.clamp(0.0, 1.0) * 160.0) as u8;
-                        painter.rect_filled(
-                            egui::Rect::from_min_size(egui::pos2(x0 + 1.0, y0 + 1.0), egui::vec2(w, row_h - 2.0)),
-                            2.0,
-                            egui::Color32::from_rgba_unmultiplied(90, 170, 255, alpha),
-                        );
-                    }
-
-                    // Playhead
-                    if *playhead >= 0.0 {
-                        let x = grid_rect.min.x + playhead.clamp(0.0, 1.0) * grid_w;
-                        painter.line_segment(
-                            [egui::pos2(x, grid_rect.min.y), egui::pos2(x, grid_rect.max.y)],
-                            egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 210, 60)),
-                        );
-                    }
-
-                    painter.rect_stroke(grid_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(100)), egui::StrokeKind::Middle);
-
-                    // Interaction: report raw press/drag/release cell coordinates so the
-                    // addon script (which owns the pattern data) can decide add vs. erase.
-                    if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                        if full_rect.contains(pos) {
-                            if let Some((row, step)) = {
-                                let local = pos - grid_rect.min;
-                                if local.x < 0.0 || local.y < 0.0 {
-                                    None
-                                } else {
-                                    let step = ((local.x / col_w) as usize).min(steps - 1);
-                                    let row = ((local.y / row_h) as usize).min(rows - 1);
-                                    Some((row, step))
-                                }
-                            } {
-                                let (pressed, down, released) = ui.input(|i| (
-                                    i.pointer.primary_pressed(),
-                                    i.pointer.primary_down(),
-                                    i.pointer.primary_released(),
-                                ));
-                                let kind = if pressed {
-                                    Some("DOWN")
-                                } else if down {
-                                    Some("DRAG")
-                                } else if released {
-                                    Some("UP")
-                                } else {
-                                    None
-                                };
-                                if let Some(kind) = kind {
-                                    events_to_push.push(format!("PIANOROLL_{}|{}|{},{}", kind, pr_id, row, step));
-                                }
-                            }
-                        }
+                        events_to_push.push(format!("PIANOROLL_{}|{}|{},{}", kind, pr_id, row, step));
                     }
                 }
                 UiWidget::KeyframeTimeline { id: kftl_id, duration_ms, playhead_ms, rows, selected } => {
@@ -4621,6 +4578,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     let selected_ref = selected.as_ref().map(|(t, c)| (t.as_str(), c.as_str()));
                     let view_options = crate::entropy_gui::TrackViewOptions {
                         lane_h: options.lane_height.unwrap_or(0.0),
+                        placeholder_lane_h: options.placeholder_lane_height.unwrap_or(0.0),
                         label_w: options.label_width.unwrap_or(0.0),
                         snap_ms: options.snap_ms.unwrap_or(0),
                         bar_ms: options.bar_ms.unwrap_or(0),
@@ -4816,12 +4774,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::TabBar { id: bar_id, tabs, selected } => {
+                UiWidget::TabBar { id: bar_id, tabs, selected, stretch } => {
                     let tabs_data: Vec<crate::entropy_gui::Tab> = tabs
                         .iter()
                         .map(|t| crate::entropy_gui::Tab::new(t.id.clone(), t.label.clone()))
                         .collect();
-                    let resp = crate::entropy_gui::TabBar::new(bar_id.as_str()).show(ui, &tabs_data, selected);
+                    let resp = crate::entropy_gui::TabBar::new(bar_id.as_str()).stretch(*stretch).show(ui, &tabs_data, selected);
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::TabBarEvent::Selected(tab) => {
@@ -5311,6 +5269,118 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                 }
                 UiWidget::EndGroup => {}
+                UiWidget::StartBar { id: bar_id, config } => {
+                    let end_idx = Self::matching_end(widgets, i, |w| matches!(w, UiWidget::StartBar { .. }), |w| matches!(w, UiWidget::EndBar));
+                    let body = &widgets[i + 1..end_idx.min(widgets.len())];
+                    // Zones are opened by `BarZone` markers at this bar's own depth.
+                    let mut zones: Vec<(u8, usize, usize)> = Vec::new();
+                    let mut depth = 0;
+                    for (k, w) in body.iter().enumerate() {
+                        match w {
+                            UiWidget::StartBar { .. } => depth += 1,
+                            UiWidget::EndBar => depth -= 1,
+                            UiWidget::BarZone { zone } if depth == 0 => {
+                                if let Some(last) = zones.last_mut() {
+                                    last.2 = k;
+                                }
+                                zones.push((*zone, k + 1, body.len()));
+                            }
+                            _ => {}
+                        }
+                    }
+                    let style = egui::BarStyle {
+                        height: config.height.unwrap_or(40.0),
+                        fill: config.fill.map(egui::Color32::from_rgba_f32).unwrap_or(egui::Color32::TRANSPARENT),
+                        border: config.border.map(egui::Color32::from_rgba_f32),
+                        border_top: config.border_top.unwrap_or(false),
+                        padding_x: config.padding_x.unwrap_or(10.0),
+                        gap: 6.0,
+                    };
+                    let mut bar = egui::Bar::begin(ui, bar_id.as_str(), style);
+                    for (zone, from, to) in zones {
+                        let zone = match zone { 0 => egui::BarZone::Left, 1 => egui::BarZone::Center, _ => egui::BarZone::Right };
+                        let mut child = bar.zone_ui(ui, zone);
+                        Self::render_widgets(&mut child, &body[from..to], events_to_push, context, egui_renderer);
+                        bar.end_zone(ui, zone, &child);
+                    }
+                    i = end_idx;
+                }
+                UiWidget::BarZone { .. } | UiWidget::EndBar => {}
+                UiWidget::StartSplit { id: split_id, config } => {
+                    let end_idx = Self::matching_end(widgets, i, |w| matches!(w, UiWidget::StartSplit { .. }), |w| matches!(w, UiWidget::EndSplit));
+                    let body = &widgets[i + 1..end_idx.min(widgets.len())];
+                    let mut depth = 0;
+                    let mut side_at = body.len();
+                    for (k, w) in body.iter().enumerate() {
+                        match w {
+                            UiWidget::StartSplit { .. } => depth += 1,
+                            UiWidget::EndSplit => depth -= 1,
+                            UiWidget::SplitSide if depth == 0 => {
+                                side_at = k;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    let (main_body, side_body) = (&body[..side_at], if side_at < body.len() { &body[side_at + 1..] } else { &body[body.len()..] });
+                    let mut style = egui::SplitStyle::default();
+                    style.side_width = config.side_width.unwrap_or(style.side_width);
+                    style.side_open = config.side_open.unwrap_or(true) && side_at < body.len();
+                    style.reserve_bottom = config.reserve_bottom.unwrap_or(0.0);
+                    style.min_height = config.min_height.unwrap_or(style.min_height);
+                    if let Some(c) = config.main_fill { style.main_fill = egui::Color32::from_rgba_f32(c); }
+                    if let Some(c) = config.side_fill { style.side_fill = egui::Color32::from_rgba_f32(c); }
+                    if let Some(c) = config.divider { style.divider = egui::Color32::from_rgba_f32(c); }
+                    let split = egui::Split::begin(ui, style);
+                    let mut main_ui = egui::Split::pane_ui(ui, split.main, config.main_padding.unwrap_or(0.0), (split_id.as_str(), "main"));
+                    if config.scroll_main.unwrap_or(false) {
+                        egui::ScrollArea::vertical().show(&mut main_ui, |ui| {
+                            Self::render_widgets(ui, main_body, events_to_push, context, egui_renderer);
+                        });
+                    } else {
+                        Self::render_widgets(&mut main_ui, main_body, events_to_push, context, egui_renderer);
+                    }
+                    if let Some(side) = split.side {
+                        let mut side_ui = egui::Split::pane_ui(ui, side, config.side_padding.unwrap_or(12.0), (split_id.as_str(), "side"));
+                        if config.scroll_side.unwrap_or(true) {
+                            egui::ScrollArea::vertical().show(&mut side_ui, |ui| {
+                                Self::render_widgets(ui, side_body, events_to_push, context, egui_renderer);
+                            });
+                        } else {
+                            Self::render_widgets(&mut side_ui, side_body, events_to_push, context, egui_renderer);
+                        }
+                    }
+                    i = end_idx;
+                }
+                UiWidget::SplitSide | UiWidget::EndSplit => {}
+                UiWidget::StartCard { id: card_id, config } => {
+                    let end_idx = Self::matching_end(widgets, i, |w| matches!(w, UiWidget::StartCard { .. }), |w| matches!(w, UiWidget::EndCard));
+                    let body = &widgets[i + 1..end_idx.min(widgets.len())];
+                    let mut style = egui::CardStyle::default();
+                    if let Some(c) = config.fill { style.fill = egui::Color32::from_rgba_f32(c); }
+                    if let Some(c) = config.stroke { style.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_f32(c)); }
+                    if let Some(r) = config.radius { style.radius = r.clamp(0.0, 255.0) as u8; }
+                    if let Some(p) = config.padding { style.padding = p; }
+                    style.width = config.width;
+                    egui::card(ui, card_id.as_str(), style, |ui| {
+                        Self::render_widgets(ui, body, events_to_push, context, egui_renderer);
+                    });
+                    i = end_idx;
+                }
+                UiWidget::EndCard => {}
+                UiWidget::Spacer { size } => {
+                    ui.add_space(*size);
+                }
+                UiWidget::Segmented { id: seg_id, config } => {
+                    if let Some(label) = config.label.as_ref().filter(|l| !l.is_empty()) {
+                        ui.label(egui::RichText::new(label).font_size(11.5).color(egui::Color32::from_rgb(124, 132, 154)));
+                    }
+                    let selected = config.selected_index.unwrap_or(0);
+                    let accent = config.accent.map(egui::Color32::from_rgba_f32);
+                    if let Some(picked) = egui::Segmented::new(seg_id.as_str()).compact(config.compact.unwrap_or(false)).show(ui, &config.options, selected, accent) {
+                        events_to_push.push(format!("{}|{}", seg_id, picked));
+                    }
+                }
                 UiWidget::Separator => {
                     ui.separator();
                 }
@@ -5499,10 +5569,15 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                  let widgets = context.ui_widgets.remove(tab_id);
+                 let scroll = context.ui_tabs.get(tab_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
                  if let Some(widgets) = widgets {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
+                    if scroll {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                        });
+                    } else {
                         Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
-                    });
+                    }
                  }
             }
         }

@@ -52,11 +52,19 @@ pub struct TabBarResponse {
 
 pub struct TabBar {
     id: Id,
+    stretch: bool,
 }
 
 impl TabBar {
     pub fn new(id_salt: impl std::hash::Hash) -> Self {
-        Self { id: Id::new("tab_bar").with(id_salt) }
+        Self { id: Id::new("tab_bar").with(id_salt), stretch: true }
+    }
+
+    /// `false` keeps every tab at its natural width, packed from the left - a view switcher in a
+    /// header rather than a segmented page selector filling its panel. Default true.
+    pub fn stretch(mut self, stretch: bool) -> Self {
+        self.stretch = stretch;
+        self
     }
 
     pub fn show(self, ui: &mut Ui, tabs: &[Tab], selected: &str) -> TabBarResponse {
@@ -64,10 +72,13 @@ impl TabBar {
         let ctx = ui.ctx().clone();
         let width = ui.available_size().x.max(80.0);
         let font = FontId::proportional(LABEL_SIZE);
+        let pad_x = if self.stretch { TAB_PAD_X } else { TAB_PAD_X * 2.0 };
         let natural: Vec<f32> = tabs
             .iter()
-            .map(|t| Painter::measure_text(&ctx, font, &t.label).x.ceil() + TAB_PAD_X * 2.0)
+            .map(|t| Painter::measure_text(&ctx, font, &t.label).x.ceil() + pad_x * 2.0)
             .collect();
+        let packed: f32 = natural.iter().sum::<f32>() + TAB_GAP * (natural.len().max(1) - 1) as f32;
+        let width = if self.stretch { width } else { packed.min(width).max(1.0) };
         let slots = layout_tabs(&natural, width);
         let rows = slots.last().map(|s| s.row + 1).unwrap_or(1);
 
@@ -107,7 +118,9 @@ impl TabBar {
 
             if is_selected {
                 painter.rect_filled(rect, 3u8, accent.linear_multiply(0.22));
-                painter.rect_filled(Rect::from_min_size(pos2(rect.min.x, rect.max.y - UNDERLINE_H), vec2(rect.width(), UNDERLINE_H)), 0u8, accent);
+                // The underline glides from the tab it was under to the new one.
+                let (x, w) = underline_toward(&ctx, bar_id, rect.min.x - origin.x, rect.width());
+                painter.rect_filled(Rect::from_min_size(pos2(origin.x + x, rect.max.y - UNDERLINE_H), vec2(w, UNDERLINE_H)), 0u8, accent);
             } else if resp.hovered() {
                 painter.rect_filled(rect, 3u8, visuals.widgets.hovered.weak_bg_fill);
             }
@@ -131,6 +144,27 @@ impl TabBar {
         painter.rect_filled(Rect::from_min_size(pos2(origin.x, base), vec2(width, 1.0)), 0u8, Color32::from_gray(60));
         TabBarResponse { events, rects }
     }
+}
+
+/// Eases the selected tab's underline toward `(x, w)` (relative to the bar) and returns where it
+/// is this frame. Snaps when motion is reduced, on first sight, or when the bar was re-laid out.
+fn underline_toward(ctx: &crate::entropy_gui::context::Context, bar_id: Id, x: f32, w: f32) -> (f32, f32) {
+    let (kx, kw) = (bar_id.with("underline_x"), bar_id.with("underline_w"));
+    let (px, pw) = ctx.memory(|m| (m.get_scalar(kx), m.get_scalar(kw)));
+    let dt = ctx.input(|i| i.dt).clamp(0.0, 0.1);
+    let (nx, nw) = match (px, pw) {
+        (Some(px), Some(pw)) if !ctx.prefs().reduce_motion => {
+            let k = 1.0 - (-16.0 * dt).exp();
+            let (nx, nw) = (px + (x - px) * k, pw + (w - pw) * k);
+            if (nx - x).abs() < 0.5 && (nw - w).abs() < 0.5 { (x, w) } else { (nx, nw) }
+        }
+        _ => (x, w),
+    };
+    ctx.memory_mut(|m| {
+        m.set_scalar(kx, nx);
+        m.set_scalar(kw, nw);
+    });
+    (nx, nw)
 }
 
 /// Where one tab goes: its line, its x offset from the bar's left edge, and its width.

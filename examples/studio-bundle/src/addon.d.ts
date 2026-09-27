@@ -516,6 +516,18 @@ export interface ScopedAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A full-width strip of fixed height (a header, a toolbar, a status bar) with up to three
+       * zones: `left` from the left edge, `center` centred, `right` against the right edge. */
+      bar: (windowId: string, config: BarConfig, left?: (windowId: string) => void, center?: (windowId: string) => void, right?: (windowId: string) => void) => void;
+      /** The rest of the window as `main` beside a fixed-width `side` panel (an inspector). Fills
+       * the height only in a tab created with `{ scroll: false }`. */
+      split: (windowId: string, config: SplitConfig, main: (windowId: string) => void, side?: (windowId: string) => void) => void;
+      /** A boxed group on a filled, rounded background. */
+      card: (windowId: string, config: CardConfig, render: (windowId: string) => void) => void;
+      /** Empty space along the current row or column. */
+      spacer: (windowId: string, config?: number | { size?: number }) => void;
+      /** Two to five mutually exclusive options as one row of buttons. */
+      segmented: (windowId: string, config: SegmentedConfig) => void;
       /** A non-fullscreen tab strip inside a window (unlike `Entropy.UI.createTab`, which owns the
        * whole work area). You own which tab is selected: pass it as `selected`, update it in
        * `onSelect`, and draw only that tab's widgets after the bar. */
@@ -820,6 +832,9 @@ export interface WindowConfig {
 export interface TabConfig {
   title?: string;
   onRender?: () => void;
+  /** `false` lays the tab out to the window rather than inside a page-long vertical scroll - for
+   * an app that fills the window itself (a `bar`, a `split`, a status `bar`). Default true. */
+  scroll?: boolean;
   [key: string]: unknown;
 }
 
@@ -831,6 +846,72 @@ export interface LabelConfig {
   // Multiplies the drawn text's alpha, 0-1 (default 1). For a caller-driven fade animation -
   // there is no engine-side tweening, so re-supply a new value every frame.
   alpha?: number;
+  /** Text color, [r, g, b, a] in 0..1. */
+  color?: [number, number, number, number];
+  /** Fixed-width digits, for a readout that changes while you watch it. */
+  monospace?: boolean;
+  /** Break onto further lines at spaces to fit the width, instead of running off the edge. */
+  wrap?: boolean;
+  tooltip?: string;
+}
+
+type RGBA = [number, number, number, number];
+
+export interface BarConfig {
+  id?: string;
+  /** Default 40. */
+  height?: number;
+  fill?: RGBA;
+  /** A hairline along the bottom edge, or the top one with `borderTop`. */
+  border?: RGBA;
+  borderTop?: boolean;
+  /** Default 10. */
+  paddingX?: number;
+}
+
+export interface SplitConfig {
+  id?: string;
+  /** Default 320. */
+  sideWidth?: number;
+  /** Default true. */
+  sideOpen?: boolean;
+  /** Height left free under the split (for a status bar). */
+  reserveBottom?: number;
+  /** The height inside a scrolling page, where there is no window bottom to fill to. Default 200. */
+  minHeight?: number;
+  mainFill?: RGBA;
+  sideFill?: RGBA;
+  divider?: RGBA;
+  mainPadding?: number;
+  /** Default 12. */
+  sidePadding?: number;
+  /** Scroll the main area vertically. Default false: its content sizes itself. */
+  scrollMain?: boolean;
+  /** Scroll the side panel vertically. Default true. */
+  scrollSide?: boolean;
+}
+
+export interface CardConfig {
+  id?: string;
+  /** A fixed outer width (a channel strip); otherwise a card spans its column or wraps its row. */
+  width?: number;
+  fill?: RGBA;
+  stroke?: RGBA;
+  radius?: number;
+  padding?: number;
+}
+
+export interface SegmentedConfig {
+  id?: string;
+  /** Shown dim before the options. */
+  label?: string;
+  options: string[];
+  selectedIndex: number;
+  /** Receives the picked index as a string, like `dropdown`. */
+  onChange?: (index: string) => void;
+  compact?: boolean;
+  /** Tints the selected option. */
+  accent?: RGBA;
 }
 
 export interface UIRectConfig {
@@ -1401,6 +1482,16 @@ export interface PianoRollCell {
 
 export interface PianoRollConfig {
   id?: string;
+  /** Fixed row height in points (default 16, or the fill height with `fillHeight`). */
+  rowHeight?: number;
+  /** Stretch rows to fill the height left in the window (18-40 points each). */
+  fillHeight?: boolean;
+  /** Note color, [r, g, b, a] in 0..1. */
+  color?: [number, number, number, number];
+  /** Rows to tint - a scale's root notes, so octaves are easy to find. */
+  highlightRows?: number[];
+  /** A lane under the grid showing each note's velocity. */
+  showVelocity?: boolean;
   rows?: number;
   steps?: number;
   stepsPerBeat?: number;
@@ -1472,6 +1563,8 @@ export interface TrackConfig {
 
 export interface TracksOptions {
   laneHeight?: number;
+  /** Height of an empty (`placeholder`) lane; defaults to `laneHeight`. */
+  placeholderLaneHeight?: number;
   labelWidth?: number;
   /// Grid that move / trim / draw snap to, in ms. 0 or omitted disables snapping.
   snapMs?: number;
@@ -1641,6 +1734,9 @@ export interface TabBarConfig {
   selected: string;
   /** Fired with the new tab's id when a tab other than the selected one is clicked. */
   onSelect?: (id: string) => void;
+  /** `false` keeps tabs at their natural widths, packed left - a view switcher in a header.
+   * Default true: tabs stretch to fill the row. */
+  stretch?: boolean;
 }
 
 export interface TreeViewConfig {
@@ -2645,6 +2741,12 @@ export interface ButtonConfig {
   disabled?: boolean;
   // Drawn pressed-in: a toggle that is on, the current tool in a row.
   selected?: boolean;
+  /** A solid fill, [r, g, b, a] in 0..1, with dark text - the one primary action in a bar. */
+  accent?: [number, number, number, number];
+  /** Text color, [r, g, b, a] in 0..1. */
+  color?: [number, number, number, number];
+  /** At least this wide, to line up a column of actions. */
+  minWidth?: number;
 }
 
 /** Shared by `knob`, `slider` and `numericInput`. Every numeric widget also takes a typed value
@@ -2962,6 +3064,18 @@ export interface EntropyAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A full-width strip of fixed height (a header, a toolbar, a status bar) with up to three
+       * zones: `left` from the left edge, `center` centred, `right` against the right edge. */
+      bar: (windowId: string, config: BarConfig, left?: (windowId: string) => void, center?: (windowId: string) => void, right?: (windowId: string) => void) => void;
+      /** The rest of the window as `main` beside a fixed-width `side` panel (an inspector). Fills
+       * the height only in a tab created with `{ scroll: false }`. */
+      split: (windowId: string, config: SplitConfig, main: (windowId: string) => void, side?: (windowId: string) => void) => void;
+      /** A boxed group on a filled, rounded background. */
+      card: (windowId: string, config: CardConfig, render: (windowId: string) => void) => void;
+      /** Empty space along the current row or column. */
+      spacer: (windowId: string, config?: number | { size?: number }) => void;
+      /** Two to five mutually exclusive options as one row of buttons. */
+      segmented: (windowId: string, config: SegmentedConfig) => void;
       /** A non-fullscreen tab strip inside a window (unlike `Entropy.UI.createTab`, which owns the
        * whole work area). You own which tab is selected: pass it as `selected`, update it in
        * `onSelect`, and draw only that tab's widgets after the bar. */

@@ -1,13 +1,14 @@
 # DAW quick knobs and moves
 
-The DAW has two panels for working fast: **Character**, seven knobs on the selected track, and
-**Moves**, one-click edits to a pattern or to the arrangement. The chat can use both too, through
+The DAW has two inspector sections for working fast: **Character**, seven knobs on the selected
+track, and **Moves**, one-click edits to a pattern or to the arrangement. The **Moves** buttons in
+the Arrange and Piano Roll toolbars open the inspector on Moves. The chat can use both too, through
 the `daw_character` and `daw_move` tools.
 
 ## Character knobs
 
 Each knob runs from 0 (off) to 1. None of them changes your notes. Every knob is saved with the
-track and sounds the same in playback and in **Export Song to WAV**.
+track and sounds the same in playback and in **Export WAV**.
 
 | Knob | What it does | How |
 | --- | --- | --- |
@@ -26,7 +27,7 @@ so an untouched track costs nothing.
 
 ## Moves
 
-Every move can be undone with **Undo** in the Moves panel. The last 20 moves are kept.
+Every move can be undone with **Undo** at the bottom of the Moves section. The last 20 moves are kept.
 
 ### On the pattern in the piano roll
 

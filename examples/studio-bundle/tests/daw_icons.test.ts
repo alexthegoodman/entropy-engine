@@ -48,14 +48,16 @@ describe("The DAW's icons", () => {
         expect(world.w.buttonTexts.get("transport_rewind")).toBe("[skip-back] Rewind");
     });
 
-    it("puts icons on the section headers", async () => {
+    it("puts icons on the view tabs and the inspector's sections", async () => {
         const world = createWorld();
         await world.open();
-        const headers = world.w.headers;
-        expect(headers).toContain("[rows] Arrangement");
-        expect(headers).toContain("[sliders-horizontal] Mixer");
-        expect(headers).toContain("[sparkle] Effects");
-        expect(headers).toContain("[speaker-high] Preview");
+        const views = world.w.tabBars.get("daw_view").tabs.map((t: any) => t.label);
+        expect(views).toEqual(["[rows] Arrange", "[piano-keys] Piano Roll", "[sliders-horizontal] Mixer"]);
+        const sections = world.w.labels;
+        expect(sections).toContain("[piano-keys] Voice");
+        expect(sections).toContain("[speaker-high] Preview");
+        expect(sections).toContain("[sparkle] Delay");
+        expect(sections).toContain("[sparkle] Reverb");
     });
 
     it("marks the selected track in the mixer with a play icon and no other", async () => {
