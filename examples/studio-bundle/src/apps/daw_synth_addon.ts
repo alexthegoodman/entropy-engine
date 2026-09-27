@@ -176,6 +176,22 @@ import blackGlass from "../../sample-songs/black-glass-suspense.json" with { typ
 import ionRunner from "../../sample-songs/ion-runner-synthwave.json" with { type: "json" };
 import velvetSwitch from "../../sample-songs/velvet-switch-funk.json" with { type: "json" };
 import firstLight from "../../sample-songs/first-light-electronica.json" with { type: "json" };
+import foldedCity from "../../sample-songs/folded-city-score.json" with { type: "json" };
+import tidewaterSignal from "../../sample-songs/tidewater-signal-score.json" with { type: "json" };
+import ashenCrown from "../../sample-songs/ashen-crown-score.json" with { type: "json" };
+import rooftopPursuit from "../../sample-songs/rooftop-pursuit-score.json" with { type: "json" };
+import lanterns from "../../sample-songs/lanterns-over-the-sound-score.json" with { type: "json" };
+import type { TemplateInfo } from "./daw_templates";
+import {
+    COLLECTION_ROW,
+    TEMPLATE_COLLECTIONS,
+    TEMPLATE_ROW,
+    allModeled,
+    songLength,
+    templateFacts,
+    templateRows,
+    voiceFamily,
+} from "./daw_templates";
 import {
     GUITAR_MODES,
     GUITAR_WAVEFORMS,
@@ -486,25 +502,66 @@ function makeBlankProject(): DAWProject {
 
 let project: DAWProject = makeStarterProject();
 
-// What "New song" can start from. Every choice makes a new song in the library - nothing here ever
+// What "New song" can start from, as the Songs window's template browser shows it (collections and
+// write-ups: daw_templates.ts). Every choice makes a new song in the library - nothing here ever
 // replaces the song you are working on. The JSON templates are copied with a JSON round trip (the
-// addon runtime has no structuredClone), so the new song can be edited independently.
-interface SongTemplate { id: string; label: string; songName: string; make: () => DAWProject }
+// addon runtime has no structuredClone), so the new song can be edited independently. `label` is
+// the old one-line name, kept for the AI tool's description.
+interface SongTemplate extends TemplateInfo { label: string; songName: string; make: () => DAWProject }
 const copyJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const fromJson = (json: unknown) => () => copyJson(json) as DAWProject;
 const SONG_TEMPLATES: SongTemplate[] = [
-    { id: "blank", label: "Blank song", songName: "Untitled song", make: makeBlankProject },
-    { id: "demo", label: "Demo song", songName: "Demo song", make: makeStarterProject },
-    { id: "neon", label: "Neon Tide - EDM (rising violins)", songName: "Neon Tide", make: () => copyJson(neonTide) as DAWProject },
-    { id: "afterhours", label: "Afterhours - House (cello chops)", songName: "Afterhours", make: () => copyJson(afterhours) as DAWProject },
-    { id: "lowlight", label: "Lowlight - Hip Hop (drum breakdown)", songName: "Lowlight", make: () => copyJson(lowlight) as DAWProject },
-    { id: "beacon", label: "The Beacon - Cinematic (horn fanfare)", songName: "The Beacon", make: () => copyJson(beacon) as DAWProject },
-    { id: "shadow", label: "Shadow Passage - Cinematic (suspense)", songName: "Shadow Passage", make: () => copyJson(shadow) as DAWProject },
-    { id: "homeward", label: "Homeward Light - Cinematic (string theme)", songName: "Homeward Light", make: () => copyJson(homeward) as DAWProject },
-    { id: "event-horizon", label: "Event Horizon - Cinematic trap (bells and brass)", songName: "Event Horizon", make: () => copyJson(eventHorizon) as DAWProject },
-    { id: "black-glass", label: "Black Glass - Suspense (clockwork pursuit)", songName: "Black Glass", make: () => copyJson(blackGlass) as DAWProject },
-    { id: "ion-runner", label: "Ion Runner - Synthwave (night highway)", songName: "Ion Runner", make: () => copyJson(ionRunner) as DAWProject },
-    { id: "velvet-switch", label: "Velvet Switch - Funk (keys and brass)", songName: "Velvet Switch", make: () => copyJson(velvetSwitch) as DAWProject },
-    { id: "first-light", label: "First Light - Electronica (daybreak finale)", songName: "First Light", make: () => copyJson(firstLight) as DAWProject },
+    { id: "blank", name: "Blank song", songName: "Untitled song", collection: "start", style: "Empty", label: "Blank song", make: makeBlankProject,
+        blurb: "One drum track and one synth track, each with an empty pattern, and nothing arranged yet." },
+    { id: "demo", name: "Demo song", songName: "Demo song", collection: "start", style: "Short demo", label: "Demo song", make: makeStarterProject,
+        blurb: "Drums, bass, a lead and pad chords in 16 bars: a small song to take apart." },
+    { id: "neon", name: "Neon Tide", songName: "Neon Tide", collection: "beats", style: "EDM", key: "D minor", label: "Neon Tide - EDM (rising violins)", make: fromJson(neonTide),
+        blurb: "Rising modeled violins, a sparse drum break and two drops.", listen: ["A bowed violin used as a synth riser"] },
+    { id: "afterhours", name: "Afterhours", songName: "Afterhours", collection: "beats", style: "House", label: "Afterhours - House (cello chops)", make: fromJson(afterhours),
+        blurb: "Four-on-the-floor drums, modeled cello chops and a sparse breakdown." },
+    { id: "lowlight", name: "Lowlight", songName: "Lowlight", collection: "beats", style: "Hip hop", label: "Lowlight - Hip Hop (drum breakdown)", make: fromJson(lowlight),
+        blurb: "Half-time drums, a drum-led breakdown and a returning hook." },
+    { id: "beacon", name: "The Beacon", songName: "The Beacon", collection: "cinematic", style: "Heroic score", key: "D minor", label: "The Beacon - Cinematic (horn fanfare)", make: fromJson(beacon),
+        blurb: "A string ascent, horn calls and a trumpet-led finale." },
+    { id: "shadow", name: "Shadow Passage", songName: "Shadow Passage", collection: "cinematic", style: "Suspense score", label: "Shadow Passage - Cinematic (suspense)", make: fromJson(shadow),
+        blurb: "Restless violas, muted horn questions and a low-brass reveal." },
+    { id: "homeward", name: "Homeward Light", songName: "Homeward Light", collection: "cinematic", style: "Reflective score", label: "Homeward Light - Cinematic (string theme)", make: fromJson(homeward),
+        blurb: "A lyrical violin, warm cello and viola, and a chorale horn farewell." },
+    { id: "event-horizon", name: "Event Horizon", songName: "Event Horizon", collection: "showcase", style: "Cinematic trap", key: "D minor", label: "Event Horizon - Cinematic trap (bells and brass)", make: fromJson(eventHorizon),
+        blurb: "A bell motif, a half-time sub groove, 32nd-note hat rolls, violin answers and horn arrivals." },
+    { id: "black-glass", name: "Black Glass", songName: "Black Glass", collection: "showcase", style: "Suspense", key: "E Phrygian", label: "Black Glass - Suspense (clockwork pursuit)", make: fromJson(blackGlass),
+        blurb: "An uneven clock pulse, col legno cello, viola answers and a low trombone reveal." },
+    { id: "ion-runner", name: "Ion Runner", songName: "Ion Runner", collection: "showcase", style: "Synthwave", key: "F# minor", label: "Ion Runner - Synthwave (night highway)", make: fromJson(ionRunner),
+        blurb: "A saw theme and bass, square arpeggios and a wide wavetable finale." },
+    { id: "velvet-switch", name: "Velvet Switch", songName: "Velvet Switch", collection: "showcase", style: "Funk", key: "C Dorian", label: "Velvet Switch - Funk (keys and brass)", make: fromJson(velvetSwitch),
+        blurb: "Syncopated keys, swung hats, square bass, and cup-muted trumpet and trombone punches." },
+    { id: "first-light", name: "First Light", songName: "First Light", collection: "showcase", style: "Melodic electronica", key: "A major", label: "First Light - Electronica (daybreak finale)", make: fromJson(firstLight),
+        blurb: "A bell theme, warm keys, violin answers, pumping wavetable chords and a horn lift." },
+    { id: "folded-city", name: "Folded City", songName: "Folded City", collection: "film", style: "Dream thriller", key: "E minor", label: "Folded City - Film score (dream thriller)", make: fromJson(foldedCity),
+        blurb: "A dream folding in on itself: a spinning glass-harp top, foghorn brass blasts, and a viola ostinato that never stops.",
+        listen: ["Blazing tuba and trombones: past mezzo the air in the bore shocks and the tone turns to a blare",
+            "An octobass (an invented bass an octave below the bass) holding the floor",
+            "A saved hard cut at bar 28: the whole dream stops, reverb and all"] },
+    { id: "tidewater-signal", name: "Tidewater Signal", songName: "Tidewater Signal", collection: "film", style: "Island mystery", key: "A minor", label: "Tidewater Signal - Film score (island mystery)", make: fromJson(tidewaterSignal),
+        blurb: "Castaways on an island that isn't what it seems: surf, a glass-harp lullaby, sliding trombone shrieks and banging on hollow metal.",
+        listen: ["Water weather: a Surf note is waves, its velocity their height",
+            "Trombones in glissando style: the slide is heard travelling between notes",
+            "A glass violin (steel-bar strings) for the signal, and pizzicato basses for the heartbeat"] },
+    { id: "ashen-crown", name: "Ashen Crown", songName: "Ashen Crown", collection: "film", style: "Fantasy epic", key: "D Dorian", label: "Ashen Crown - Film score (fantasy epic)", make: fromJson(ashenCrown),
+        blurb: "A realm's theme: a 3+3+2 cello gallop, a Hardanger fiddle folk tune, war drums, and brass that grows from one horn into the whole court.",
+        listen: ["A Hardanger fiddle whose sympathetic strings are retuned to D Dorian",
+            "Matter toms tuned low and loose, struck with mallets: the pitch glides down after each hit",
+            "An open-fifth ending with no third"] },
+    { id: "rooftop-pursuit", name: "Rooftop Pursuit", songName: "Rooftop Pursuit", collection: "film", style: "Action chase", key: "F minor", label: "Rooftop Pursuit - Film score (action chase)", make: fromJson(rooftopPursuit),
+        blurb: "A chase across the rooftops: col legno ticks, spiccato violins, a kit played like taiko, rough trombone stabs, and a key change for the last sprint.",
+        listen: ["Col legno: the wood of the bow on the cello strings",
+            "Rough-style trombones: low attack skill, so notes crack and bloom",
+            "Water drips for a hiding place in a drain"] },
+    { id: "lanterns", name: "Lanterns Over the Sound", songName: "Lanterns Over the Sound", collection: "film", style: "End credits", key: "D major", label: "Lanterns Over the Sound - Film score (end credits)", make: fromJson(lanterns),
+        blurb: "The end-credits cue: a brook, glass-harp arpeggios, and a hymn passed from a solo cello to the whole orchestra.",
+        listen: ["A straight-muted trumpet placed far away with Space",
+            "Chorale-style horns: a soft tongue, legato",
+            "Mallets and yarn on Matter: timpani-like toms and swelling cymbals"] },
 ];
 
 function getActiveTrack(): Track | undefined {
@@ -4234,7 +4291,7 @@ function openSong(id: string) {
     toast(note ?? `Opened "${currentSongName()}".`);
 }
 
-function createSongFromTemplate(template: SongTemplate, name?: string): SongEntry {
+function createSongFromTemplate(template: Pick<SongTemplate, "songName" | "make">, name?: string): SongEntry {
     versionSongBeingLeft();
     const fresh = repairProject(template.make());
     const entry = library.createSong(name ?? template.songName, fresh);
@@ -4343,7 +4400,7 @@ function openVersionAsSong(versionId: string) {
     if (!v) throw new Error("that version no longer exists");
     const source = library.loadVersion(id, versionId);
     const name = `${currentSongName()} (${v.kind === "named" && v.label ? v.label : formatClock(v.at)})`;
-    const entry = createSongFromTemplate({ id: "version", label: "", songName: name, make: () => copyJson(source) });
+    const entry = createSongFromTemplate({ songName: name, make: () => copyJson(source) });
     toast(`Opened that version as a new song, "${entry.name}". The original is unchanged.`);
 }
 
@@ -4434,7 +4491,13 @@ let songQuery = "";
 let songSort: SortMode = "recent";
 const SORT_MODES: SortMode[] = ["recent", "name", "created"];
 const SORT_LABELS = ["Last edited", "Name", "Date created"];
-let newSongTemplate = 0;
+// The template browser: the chosen template, the collection shown, a search, and folded collections.
+let newSongTemplate = "blank";
+let templateCollection = "all";
+let templateQuery = "";
+const collapsedCollections = new Set<string>();
+// A template's facts and instruments, worked out once (it means copying the whole project).
+const templateSummaries = new Map<string, { facts: string; length: string; instruments: string; modeled: boolean }>();
 let renaming: { id: string; draft: string } | null = null;
 // Two-step confirmation for what cannot be undone: the id of the thing armed, and when.
 let confirmArmed: { key: string; at: number } | null = null;
@@ -4504,25 +4567,87 @@ function songDetail(s: SongEntry, now: number): string {
     return `${Math.round(s.bpm)} BPM · ${s.tracks} tracks · ${timeAgo(s.updatedAt, now)}`;
 }
 
+function templateSummary(t: SongTemplate) {
+    let summary = templateSummaries.get(t.id);
+    if (!summary) {
+        const p = t.make();
+        const counts = new Map<string, number>();
+        for (const track of p.tracks) { const f = voiceFamily(track); counts.set(f, (counts.get(f) ?? 0) + 1); }
+        summary = {
+            facts: templateFacts(t, p),
+            length: `${Math.round(p.bpm)} BPM · ${songLength(p)}`,
+            instruments: [...counts].map(([f, n]) => n > 1 ? `${f} ×${n}` : f).join(", "),
+            modeled: allModeled(p),
+        };
+        templateSummaries.set(t.id, summary);
+    }
+    return summary;
+}
+
+function createFromTemplate(t: SongTemplate) {
+    libraryAction("create a song", () => {
+        const entry = createSongFromTemplate(t);
+        renaming = { id: entry.id, draft: entry.name };
+        toast(`Created "${entry.name}". Give it a name, or just start making music.`);
+    });
+}
+
+// "New song": the templates by collection, searchable, with a card for the one selected.
+function renderTemplateBrowser(win: string) {
+    const W = Entropy.UI.Widget;
+    W.label(win, { text: withIcon("file-plus", "New song"), bold: true });
+    W.horizontal(win, (row: string) => {
+        for (const c of [{ id: "all", label: "All" }, ...TEMPLATE_COLLECTIONS]) {
+            W.button(row, {
+                text: c.id === "film" ? withIcon("film-slate", c.label) : c.label, id: `template_collection_${c.id}`,
+                selected: templateCollection === c.id,
+                tooltip: "blurb" in c ? c.blurb : "Every template",
+                onClick: () => { templateCollection = c.id; },
+            });
+        }
+    });
+    W.textInput(win, { label: "Find a template", id: "template_search", value: templateQuery, width: 220, onChange: (v: string) => { templateQuery = v; } });
+    const rows = templateRows(SONG_TEMPLATES, {
+        collection: templateCollection, query: templateQuery, collapsed: collapsedCollections, selected: newSongTemplate,
+        detail: t => `${t.style} · ${templateSummary(t as SongTemplate).length}`,
+    });
+    const toggle = (id: string) => {
+        const c = id.slice(COLLECTION_ROW.length);
+        if (collapsedCollections.has(c)) collapsedCollections.delete(c); else collapsedCollections.add(c);
+    };
+    if (!rows.length) {
+        W.label(win, { text: `No template matches "${templateQuery.trim()}".` });
+    } else {
+        W.treeView(win, {
+            id: "song_templates", maxHeight: 200,
+            nodes: rows.map(r => ({ ...r, icon: r.depth === 0 ? icon("folder-simple") : icon(r.id === TEMPLATE_ROW + newSongTemplate ? "music-notes" : "music-note") })),
+            onSelect: (id: string) => {
+                if (id.startsWith(COLLECTION_ROW)) toggle(id);
+                else newSongTemplate = id.slice(TEMPLATE_ROW.length);
+            },
+            onToggleExpand: toggle,
+        });
+    }
+    const t = SONG_TEMPLATES.find(x => x.id === newSongTemplate) ?? SONG_TEMPLATES[0];
+    const summary = templateSummary(t);
+    W.group(win, (g: string) => {
+        W.label(g, { text: `${t.name} - ${t.style}`, bold: true });
+        W.label(g, { text: summary.facts });
+        W.label(g, { text: t.blurb });
+        W.label(g, { text: `${summary.modeled ? "Only physically modeled instruments: " : "Instruments: "}${summary.instruments}` });
+        for (const line of t.listen ?? []) W.label(g, { text: `• ${line}` });
+        W.button(g, {
+            text: withIcon("file-plus", t.id === "blank" ? "Create a blank song" : `Create "${t.songName}"`), id: "new_song_create",
+            tooltip: "Makes a new song in your library; the open song is left as it is", onClick: () => createFromTemplate(t),
+        });
+    });
+}
+
 function renderSongsWindow(win: string) {
     const W = Entropy.UI.Widget;
     const now = Date.now();
 
-    W.horizontal(win, (row: string) => {
-        W.dropdown(row, {
-            label: "New song from", id: "new_song_template", options: SONG_TEMPLATES.map(t => t.label),
-            selectedIndex: newSongTemplate,
-            onChange: (idx: string) => { newSongTemplate = parseInt(idx, 10) || 0; }
-        });
-        W.button(row, {
-            text: withIcon("file-plus", "Create"), id: "new_song_create",
-            onClick: () => libraryAction("create a song", () => {
-                const entry = createSongFromTemplate(SONG_TEMPLATES[newSongTemplate] ?? SONG_TEMPLATES[0]);
-                renaming = { id: entry.id, draft: entry.name };
-                toast(`Created "${entry.name}". Give it a name, or just start making music.`);
-            })
-        });
-    });
+    renderTemplateBrowser(win);
     renderToast(win);
     W.separator(win);
 
@@ -6855,7 +6980,7 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
 
     addon.registerTool({
         name: "daw_songs",
-        description: "Manage the song library and the open song's version history. Every song saves automatically; switching songs never loses work. Actions: \"list\" (all songs, newest edit first), \"open\" (songId), \"new\" (optional name, optional template: blank|demo|neon|afterhours|lowlight), \"rename\" (songId, name), \"duplicate\" (songId), \"delete\" (songId; moves it to Recently deleted, recoverable for 30 days), \"versions\" (the open song's versions, newest first), \"save_version\" (optional name; a named version is never thinned out), \"restore_version\" (versionId; the song as it is now is kept as a version first, so this can be undone). Use \"new\" before composing something unrelated to the open song rather than overwriting it.",
+        description: "Manage the song library and the open song's version history. Every song saves automatically; switching songs never loses work. Actions: \"list\" (all songs, newest edit first), \"open\" (songId), \"new\" (optional name, optional template id - blank, demo, or a sample song such as the physically modeled film scores folded-city, tidewater-signal, ashen-crown, rooftop-pursuit and lanterns), \"rename\" (songId, name), \"duplicate\" (songId), \"delete\" (songId; moves it to Recently deleted, recoverable for 30 days), \"versions\" (the open song's versions, newest first), \"save_version\" (optional name; a named version is never thinned out), \"restore_version\" (versionId; the song as it is now is kept as a version first, so this can be undone). Use \"new\" before composing something unrelated to the open song rather than overwriting it.",
         parameters: {
             type: "object",
             properties: {
@@ -6863,7 +6988,7 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
                 songId: { type: "string" },
                 versionId: { type: "string" },
                 name: { type: "string" },
-                template: { type: "string", enum: SONG_TEMPLATES.map(t => t.id) }
+                template: { type: "string", enum: SONG_TEMPLATES.map(t => t.id), description: SONG_TEMPLATES.map(t => `${t.id}: ${t.label}`).join("; ") }
             },
             required: ["action"]
         }
