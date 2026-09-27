@@ -1428,7 +1428,8 @@ impl AudioEngine {
             if h.is_alive() && h.same_tuning(params) {
                 return Ok(h.clone());
             }
-            // Different strings: let the old instrument ring out and stop, and build a new one.
+            // Different strings, or another quality tier: let the old instrument ring out and stop,
+            // and build a new one.
             h.retire();
         }
         let mixer = self.track_buses.lock().unwrap().get(track_id).map(|b| b.note_mixer.clone()).ok_or_else(|| format!("track {track_id} has no bus"))?;

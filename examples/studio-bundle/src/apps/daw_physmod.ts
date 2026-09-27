@@ -6,6 +6,8 @@
 // tuning, body, rosin, coupling - so there is still no engine-side data to export or import here,
 // only settings.
 
+import { repairQuality, type ModelQuality } from "./daw_quality";
+
 export const PHYSMOD_WAVEFORM = "physmod";
 
 export type PhysModArticulation = "arco" | "pizzicato" | "colLegno";
@@ -130,6 +132,11 @@ export interface PhysModSettings {
     /** When on, the open-string tuning follows the size knob (the violin-to-bass morph); when off,
      *  the preset's tuning stays and only the body changes. */
     tuningFollowsSize: boolean;
+    /** How much of the instrument runs live: "draft" leaves sympathetic ringing out (no
+     *  sympathetic strings, and open strings don't ring along) for about half the cost; "live" the
+     *  full instrument. An export always renders at "render" (the full instrument with a finer
+     *  body), whatever the track plays live. */
+    quality: ModelQuality;
     // Editor state.
     audition: boolean;
     /** MIDI note the audition and the Hold button play. */
@@ -165,6 +172,7 @@ export function defaultPhysMod(instrument = "violin"): PhysModSettings {
         bodySeed: 1,
         sympathetic: [...(preset.sympathetic ?? [])],
         tuningFollowsSize: false,
+        quality: "live",
         audition: true,
         auditionNote: 60,
         physicsView: false,
@@ -211,6 +219,7 @@ export function repairPhysMod(saved: unknown): PhysModSettings {
         bodySeed: Math.round(num(s.bodySeed, d.bodySeed, 0, 2 ** 31)),
         sympathetic,
         tuningFollowsSize: s.tuningFollowsSize === true,
+        quality: repairQuality(s.quality),
         audition: s.audition === undefined ? d.audition : s.audition === true,
         auditionNote: Math.round(num(s.auditionNote, d.auditionNote, 24, 96)),
         physicsView: s.physicsView === true,
@@ -272,6 +281,8 @@ export interface PhysModNote {
     bodySeed: number;
     strings: number[];
     sympathetic: number[];
+    /** "draft" | "live" | "render" (exports). */
+    quality: string;
     attack: number;
     release: number;
     duration?: number;
@@ -317,6 +328,7 @@ export function noteConfig(
         bodySeed: pm.bodySeed,
         strings: openStrings(pm),
         sympathetic: pm.sympathetic,
+        quality: pm.quality,
         attack: 0.06,
         release: 0.15,
         ...(note.duration !== undefined ? { duration: note.duration } : {}),
@@ -332,6 +344,6 @@ export function describeSettings(pm: PhysModSettings): Record<string, unknown> {
         vibratoRate: pm.vibratoRate, vibratoDepth: pm.vibratoDepth, damping: pm.damping, brightness: pm.brightness,
         ring: pm.ring, stringMass: pm.stringMass, stiffness: pm.stiffness, rosin: pm.rosin,
         bodySize: pm.bodySize, bodyMix: pm.bodyMix, bodyResonance: pm.bodyResonance, coupling: pm.coupling,
-        sympathetic: pm.sympathetic, tuningFollowsSize: pm.tuningFollowsSize,
+        sympathetic: pm.sympathetic, tuningFollowsSize: pm.tuningFollowsSize, quality: pm.quality,
     };
 }

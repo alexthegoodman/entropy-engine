@@ -5,6 +5,8 @@
 // The engine (src/audio/brass/) builds the player and instrument from what each note carries, so
 // there is no engine-side data to export or import here, only settings - as with the bowed string.
 
+import { repairQuality, type ModelQuality } from "./daw_quality";
+
 export const BRASS_WAVEFORM = "brass";
 
 export type BrassArticulation = "tongued" | "legato" | "glissando";
@@ -108,6 +110,10 @@ export interface BrassSettings {
     hand: number | null;
     /** 0 (the bell away from the listener) .. 1 (at them); null, the instrument's usual. */
     bellFacing: number | null;
+    /** How finely the air column runs live: "draft" at the engine rate, for about half the cost
+     *  (the same below ~8 kHz, darker above); "live" at twice it. An export always renders at
+     *  "render" (four times: cleaner, less aliasing), whatever the track plays live. */
+    quality: ModelQuality;
     // Editor state.
     auditionNote: number;
     physicsView: boolean;
@@ -134,6 +140,7 @@ export function defaultBrass(instrument = "trombone"): BrassSettings {
         mute: "open",
         hand: null,
         bellFacing: null,
+        quality: "live",
         auditionNote: preset.audition,
         physicsView: false,
     };
@@ -168,6 +175,7 @@ export function repairBrass(saved: unknown): BrassSettings {
         mute: BRASS_MUTES.some(m => m.id === s.mute) ? s.mute : d.mute,
         hand: typeof s.hand === "number" && Number.isFinite(s.hand) ? num(s.hand, 0, 0, 1) : null,
         bellFacing: typeof s.bellFacing === "number" && Number.isFinite(s.bellFacing) ? num(s.bellFacing, 0, 0, 1) : null,
+        quality: repairQuality(s.quality),
         auditionNote: Math.round(num(s.auditionNote, d.auditionNote, 24, 96)),
         physicsView: s.physicsView === true,
     };
@@ -240,6 +248,8 @@ export interface BrassNote {
     mute: BrassMute;
     hand?: number;
     bellFacing?: number;
+    /** "draft" | "live" | "render" (exports). */
+    quality: string;
     duration?: number;
     startTime?: number;
 }
@@ -275,6 +285,7 @@ export function noteConfig(
         breathNoise: b.breathNoise,
         brassiness: b.brassiness,
         mute: b.mute,
+        quality: b.quality,
         ...(b.hand !== null ? { hand: b.hand } : {}),
         ...(b.bellFacing !== null ? { bellFacing: b.bellFacing } : {}),
         ...(note.duration !== undefined ? { duration: note.duration } : {}),
@@ -295,6 +306,6 @@ export function describeSettings(b: BrassSettings): Record<string, unknown> {
         articulation: b.articulation, attackSkill: b.attackSkill, tongue: b.tongue, release: b.release,
         vibratoRate: b.vibratoRate, vibratoDepth: b.vibratoDepth, vibratoDelay: b.vibratoDelay,
         slideTime: b.slideTime, breathNoise: b.breathNoise, brassiness: b.brassiness,
-        mute: b.mute, hand: b.hand ?? "usual", bellFacing: b.bellFacing ?? "usual",
+        mute: b.mute, hand: b.hand ?? "usual", bellFacing: b.bellFacing ?? "usual", quality: b.quality,
     };
 }

@@ -106,6 +106,15 @@ describe("The brass model", () => {
         expect(repairBrass({ ...b, mute: "sock", hand: 7, bellFacing: "up" })).toMatchObject({ mute: "open", hand: 1, bellFacing: null });
     });
 
+    it("plays live unless the track asks for draft, and says so in each note", () => {
+        expect(defaultBrass().quality).toBe("live");
+        expect(repairBrass({}).quality).toBe("live");
+        expect(repairBrass({ quality: "draft" }).quality).toBe("draft");
+        // Render is what an export asks for, never a track's own setting.
+        expect(repairBrass({ quality: "render" }).quality).toBe("live");
+        expect(noteConfig("t", { ...defaultBrass(), quality: "draft" }, { freq: 233, velocity: 0.8 }).quality).toBe("draft");
+    });
+
     it("lists what it offers", () => {
         expect(BRASS_WAVEFORM).toBe("brass");
         expect(BRASS_INSTRUMENTS.map(p => p.id)).toEqual(["trombone", "trumpet", "horn", "tuba"]);
@@ -235,6 +244,25 @@ describe("The DAW's brass (production addon callbacks)", () => {
         world.advance(50);
         expect(lead().at(-1)!.cfg.instrument).toBe("tuba");
         expect(w.brassNotes.length).toBe(0);
+    });
+
+    it("plays in draft on a slow machine, rebuilding the player, and an export renders the finest model", async () => {
+        const { world, w, click, tool } = await openDaw();
+        const prepared = () => w.modelPrepared.filter(p => p.kind === "brass" && p.id === "trk-lead").at(-1)!.cfg;
+        world.advance(50);
+        expect(prepared().quality).toBe("live");
+        click("br_quality_draft");
+        world.advance(50);
+        expect(prepared().quality).toBe("draft");
+        // A new instrument keeps the tier.
+        tool("daw_brass", { trackId: "trk-lead", action: "instrument", instrument: "trumpet" });
+        world.advance(50);
+        expect(prepared().quality).toBe("draft");
+        expect(tool("daw_brass", { trackId: "trk-lead", action: "params", params: { quality: "live" } }).settings.quality).toBe("live");
+        tool("daw_brass", { trackId: "trk-lead", action: "params", params: { quality: "draft" } });
+        tool("daw_set_notes", { trackId: "trk-lead", notes: [{ row: 0, step: 0, length: 2 }] });
+        tool("daw_export_wav", {});
+        expect(w.brassExports.at(-1)!.every((e: any) => e.quality === "render")).toBe(true);
     });
 
     it("the sequencer plays the track's notes on its player, and the export hands them over", async () => {

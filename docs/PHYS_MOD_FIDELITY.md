@@ -161,8 +161,9 @@ Drum kits and water already built off the audio thread and were prepared when a 
   cost doesn't scale with its modes. A kick with 147 modes still costs half as much as one with
   685 (3.3% vs 6.2% of a core), while dropping modes moves its spectrum by 4-5 dB. Fewer snare-wire
   groups saved nothing measurable either.
-- Strings and brass have no Draft yet: at ~4% of a core they don't need one. Their `Render` tier
-  will come with the fidelity work (4x oversampling, richer bow and lips).
+- **Strings and brass** have all three tiers (below). Each track has a Quality switch (Draft /
+  Full) in its window and a `quality` param on `daw_physmod` and `daw_brass`, and exported notes
+  are sent at `render` whatever the track plays live, as the kit's are.
 
 | Piece (`tier_report`) | Draft vs full: mean band change (dB) | Largest | 1% harder: mean | Largest | Draft cost |
 |---|---|---|---|---|---|
@@ -170,26 +171,137 @@ Drum kits and water already built off the audio thread and were prepared when a 
 | Ride | 1.25 | 3.2 | 0.13 | 0.4 | 29% |
 | Splash | 4.40 | 20.4 | 2.51 | 10.6 | 35% |
 
+### A1: strings
+
+`physmod::tier_tests` (`tier_report` for the table). The phrase is the cost benchmark's: eight
+overlapping notes up the instrument, with vibrato.
+
+- **Live** is the instrument as it was.
+- **Draft** leaves sympathetic ringing out: no sympathetic strings, and a string that is neither
+  played nor still sounding (below `DRAFT_REST_LEVEL`, nearly 90 dB under a mezzo note) is not
+  computed, so an open string no longer rings along with the others. That is where a string
+  instrument's cost goes. A sparser body (12 radiating modes instead of 40) was tried first. It
+  saved nothing measurable, because the radiating field now runs as one vectorized bank, and it
+  moved some bands by 8 dB, so Draft keeps Live's body.
+- **Render** has a denser body: 240 radiating modes instead of 40. Live's 40 are kept at half their
+  power, and 200 more are spaced evenly *in Hz* between them, the way a plate's modes fall (a thin
+  plate's modal density is constant per Hz). Above 3 kHz on a violin they are 38 Hz apart and
+  overlap (half-power bandwidth over spacing 3.5, against Live's 0.44), which matches the dense,
+  overlapping response measured on real instruments. The whole field is then scaled, third octave
+  by third octave, until its response matches Live's for the same seed. So a maker's colour is the
+  same at every tier, and Render only details it more finely within each band. What that buys is
+  vibrato. Sweeping the upper harmonics across the detail makes them swell and fade 1.1-2.2 dB more
+  than at Live, on stopped notes up to ~700 Hz (the shimmer of a vibrato note). That is
+  `render_vibrato_sweeps_the_harmonics_across_more_of_the_body`.
+- Two measurements shaped Render's field:
+  - The new modes have random sign. A mode reaches a microphone in or out of phase depending on its
+    shape. With all 200 of one sign, their skirts added up in phase below the field, and everything
+    under it came out 5-8 dB too loud.
+  - Render *contains* Live's modes rather than being a fresh draw. With an independent dense field,
+    a note's harmonics met different peaks at each tier and single bands moved up to 8 dB; nested,
+    the largest is 2.5 dB.
+- Pitch is the same at every tier (within 3 cents of Render). Reshaping a Render body when a body
+  setting changes between notes takes 0.4 ms on the audio thread, and nothing allocates at any
+  tier (`tests/physmod_no_alloc.rs`).
+
+| Instrument (`tier_report`) | Draft vs Render: mean band change (dB) | Largest | Live vs Render: mean | Largest |
+|---|---|---|---|---|
+| Violin | 0.65 | 2.3 | 0.65 | 2.3 |
+| Cello | 0.40 | 1.5 | 0.40 | 1.4 |
+| Bass | 0.69 | 2.5 | 0.56 | 2.4 |
+| Viola d'amore (6 sympathetic) | 0.70 | 1.9 | 0.51 | 1.9 |
+
+A string phrase played 1% louder moves its bands by only 0.05 dB (a bowed string is far less chaotic
+than a cymbal), so the strings' tiers are held to a fixed distance instead: `every_tier_keeps_the_instruments_colour`
+checks 1 dB on average and 3.5 dB in any band.
+
+### A1: brass
+
+`brass::tier_tests`. The tiers are the rate the air column and lips run at (`engine::oversample`).
+
+- **Live** is 2x, as before.
+- **Draft** is 1x: half the cells, each stepped half as often, for about half of Live's cost. It is
+  the same below ~8 kHz (on a trombone B♭2, every harmonic up to the 16th within 1 dB of Live)
+  and in tune. It is darker in the last octave below its own Nyquist (−5 dB at 10 kHz), and
+  carries about 5-7 dB more energy between the harmonics (aliasing). At first Draft lost everything above 8 kHz. The
+  three-tap wall-loss filter, fitted to the boundary-layer law at 150 Hz and 1.5 kHz, puts its zero
+  at 22 kHz when run at 1x. Draft's filter is now fitted to Live's response at 1.5 and 8 kHz
+  instead (`Loss::fit_like`).
+- **Render** is 4x: cells of 1.9 mm, and the lips' and the steepened wavefront's upper harmonics
+  carried to 88 kHz before they are filtered away, instead of folding back from 44 kHz. It leaves
+  4-9 dB less energy between the harmonics at every dynamic
+  (`render_folds_less_back_between_the_harmonics`), while the band levels stay within 0.2-0.8 dB
+  of Live's. The cost grows with the square of the rate, so Render is 2-3x Live's cost (6x for
+  the tuba, whose bell is 2,400 cells at 4x). That is fine for an export, and heavy live.
+
+| Instrument, breath (`tier_report`) | Draft vs Render: mean (dB) | Largest | Live vs Render: mean | Largest | 2% more breath: mean |
+|---|---|---|---|---|---|
+| Trombone, 0.5 | 1.07 | 4.0 | 0.32 | 1.2 | 0.47 |
+| Trombone, 0.8 | 0.96 | 4.0 | 0.38 | 1.9 | 0.99 |
+| Trumpet, 0.5 | 1.75 | 5.2 | 0.52 | 1.5 | 0.54 |
+| Trumpet, 0.8 | 2.41 | 8.5 | 0.79 | 3.8 | 0.80 |
+| Horn, 0.5 | 0.90 | 3.8 | 0.41 | 3.6 | 0.64 |
+| Horn, 0.8 | 1.45 | 4.4 | 0.56 | 2.6 | 0.54 |
+| Tuba, 0.5 | 0.40 | 1.4 | 0.20 | 0.6 | 0.46 |
+| Tuba, 0.8 | 1.24 | 3.0 | 0.80 | 1.8 | 0.75 |
+
+| Energy between the harmonics, breath 0.8 (`alias_report`, dB) | Draft | Live | Render |
+|---|---|---|---|
+| Trombone B♭3 | −19.2 | −26.4 | −32.8 |
+| Trumpet B♭4 | −20.7 | −26.0 | −30.0 |
+| Horn F4 | −20.2 | −25.6 | −34.2 |
+| Tuba B♭2 | −33.2 | −39.0 | −46.3 |
+
+### A5: cheaper for everyone
+
+- The 2x decimator every string and brass voice runs (three per string instrument, two per brass
+  player) computed all 31 taps with a modulo per tap. A half-band filter's every other tap is zero
+  and the rest are symmetric: it now computes the centre and eight folded pairs over a history
+  that never wraps, for the same output (`the_folded_decimator_matches_the_full_half_band_filter`).
+- The strings' radiating field runs as one vectorized bank (all modes share the same drive).
+- Together they took Live strings from 4.0% to 2.7% of a core and Live brass from 3.1-5.0% to
+  2.2-3.6%, with no change in sound.
+
 ### A6: measured costs
 
 `cargo test --release --test phys_mod_cost -- --ignored --nocapture`, on the 4-core container this
 was built in. A kit's figure is wall time over audio time with its worker threads, which is what
 the audio thread waits for.
 
+A brass instrument's first build computes its resonance table (the same at every tier), so its cold
+build shows on whichever tier is built first: here, Draft.
+
 | Instrument | Build, cold (ms) | Build, warm (ms) | One core, playing (%) |
 |---|---|---|---|
-| Strings: violin | 0 | 0 | 4.0 |
-| Strings: cello | 0 | 0 | 4.1 |
-| Strings: bass | 0 | 0 | 4.0 |
-| Brass: trombone | 1144 | 0 | 3.6 |
-| Brass: trumpet | 2025 | 0 | 3.1 |
-| Brass: horn | 2378 | 0 | 3.5 |
-| Brass: tuba | 2077 | 1 | 5.0 |
-| Kit: groove with crash | 1281 | 115 | 56.1 |
-| Kit (draft): groove with crash | 374 | 99 | 34.7 |
-| Kit: one hard crash | 123 | 141 | 58.6 |
-| Kit (draft): one hard crash | 102 | 100 | 33.4 |
-| Kit: one snare hit | 133 | 135 | 53.8 |
+| Strings (draft): violin | 0 | 0 | 1.6 |
+| Strings (draft): cello | 0 | 0 | 1.6 |
+| Strings (draft): bass | 0 | 0 | 1.8 |
+| Strings: violin | 0 | 0 | 2.7 |
+| Strings: cello | 0 | 0 | 2.7 |
+| Strings: bass | 0 | 0 | 2.6 |
+| Strings (render): violin | 0 | 0 | 3.4 |
+| Strings (render): cello | 0 | 0 | 4.6 |
+| Strings (render): bass | 1 | 1 | 4.8 |
+| Brass (draft): trombone | 1016 | 0 | 1.3 |
+| Brass (draft): trumpet | 1933 | 0 | 1.0 |
+| Brass (draft): horn | 1785 | 0 | 1.1 |
+| Brass (draft): tuba | 1784 | 1 | 1.7 |
+| Brass: trombone | 0 | 0 | 2.6 |
+| Brass: trumpet | 0 | 0 | 2.2 |
+| Brass: horn | 0 | 0 | 2.7 |
+| Brass: tuba | 1 | 1 | 3.6 |
+| Brass (render): trombone | 0 | 0 | 7.3 |
+| Brass (render): trumpet | 0 | 0 | 5.5 |
+| Brass (render): horn | 0 | 0 | 7.5 |
+| Brass (render): tuba | 1 | 1 | 20.8 |
+| Kit: groove with crash | 1382 | 118 | 49.9 |
+| Kit (draft): groove with crash | 337 | 101 | 30.8 |
+| Kit: one hard crash | 118 | 112 | 54.4 |
+| Kit (draft): one hard crash | 102 | 100 | 27.5 |
+| Kit: one snare hit | 121 | 115 | 48.1 |
+
+Twelve string or brass tracks at Draft cost about what one or two kits do (around 20% of a core),
+against about 35% at Live.
 
 What the table says next: **a single snare hit costs the kit about as much as a whole groove.** The
 kit's fixed cost dominates, most likely the threads meeting every 32-sample block and sympathy
@@ -200,8 +312,8 @@ waking the other drums. That is the first A5 target, ahead of anything per mode.
 - **A2 freeze** and **A3 render ahead**: both are DAW features on top of `render_performance`.
   Freeze plays a pre-rendered track as audio. Render ahead does the same for the part of a
   sequenced track just ahead of the playhead.
-- **A4 adaptive**: step a kit from Live to Draft when the audio thread runs short of time. Draft is
-  now a rebuild away.
+- **A4 adaptive**: step a kit, string or brass track from Live to Draft when the audio thread runs
+  short of time. Draft is now a rebuild away for all three.
 - **A5**: the kit's fixed cost (above), then wider SIMD for the von Karman blocks.
 
 ---
@@ -371,6 +483,29 @@ it relies on Part A.
   A Render-tier option.
 - Always evaluate the dry sound as well as the recorded one, so the room can't hide problems in
   the source.
+
+## Part B status
+
+### B2.1 started: a denser body at Render
+
+Render's body (Part A1, strings) is the first step of B2.1: several hundred radiating modes where
+Live has 40, spaced the way a plate's modes are, overlapping above ~2 kHz as a real body's do.
+What it is not yet:
+
+- **Fitted to measured admittance.** The low modes are still the illustrative figures quoted from
+  modal surveys, and the dense field is drawn from Live's envelope. The next step is to fit the
+  envelope, the modal density and the damping to published bridge-admittance curves for violin,
+  viola, cello and bass. Because Render is matched band by band to Live, that fit can be made in
+  one place and every tier follows it.
+- **A bridge that rocks and bounces.** Still one lumped bridge-hill mode. That waits for the second
+  string polarisation (B2.3), which needs something to couple through.
+
+### Next in Part B
+
+- **B1, per-note expression.** It costs no CPU and makes everything after it playable in a song.
+- **B3.2, frequency-dependent bore losses.** The Draft brass work showed how much of the air
+  column's upper spectrum depends on the three-tap loss filter's shape near Nyquist. A loss filter
+  fitted across the band would make the brass tiers agree by construction, not by `fit_like`.
 
 ---
 

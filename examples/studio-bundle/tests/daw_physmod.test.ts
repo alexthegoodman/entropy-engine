@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     PHYSMOD_INSTRUMENT_PRESETS,
     applyPreset,
@@ -10,6 +10,7 @@ import {
     stringForFreq,
     stringsForSize,
 } from '../src/apps/daw_physmod';
+import { createWorld } from './daw_test_world';
 
 const cents = (a: number, b: number) => 1200 * Math.log2(a / b);
 
@@ -106,11 +107,49 @@ describe('bowed-string track settings', () => {
     expect(cfg.startTime).toBe(1.25);
   });
 
+  it('plays live unless the track asks for draft, and says so in each note', () => {
+    expect(defaultPhysMod().quality).toBe('live');
+    expect(repairPhysMod({ instrument: 'cello' }).quality).toBe('live');
+    expect(repairPhysMod({ quality: 'draft' }).quality).toBe('draft');
+    // Render is what an export asks for, never a track's own setting.
+    expect(repairPhysMod({ quality: 'render' }).quality).toBe('live');
+    const pm = { ...defaultPhysMod('hardanger'), quality: 'draft' as const };
+    expect(noteConfig('t1', pm, { freq: 440, velocity: 0.7 }).quality).toBe('draft');
+    // A preset keeps the tier.
+    applyPreset(pm, 'cello');
+    expect(pm.quality).toBe('draft');
+  });
+
   it('picks the string a player would', () => {
     const violin = instrumentPresetById('violin')!.strings;
     expect(stringForFreq(violin, 196)).toBe(0);
     expect(stringForFreq(violin, 440)).toBe(2);
     expect(stringForFreq(violin, 100)).toBe(0);
     expect(stringForFreq(violin, 2000)).toBe(3);
+  });
+});
+
+describe("The DAW's bowed strings: quality (production addon callbacks)", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); delete (globalThis as any).Entropy; });
+
+  it('plays in draft on a slow machine, rebuilding the instrument, and an export renders the finest model', async () => {
+    vi.resetModules();
+    const world = createWorld();
+    vi.spyOn(Date, 'now').mockImplementation(() => world.w.clock);
+    await world.open();
+    const w = world.w;
+    const tool = (name: string, args: any) => { const r = w.tools.get(name)!(args); world.render(); return r; };
+    tool('daw_set_track_params', { trackId: 'trk-lead', waveform: 'physmod' });
+    const prepared = () => w.modelPrepared.filter(p => p.kind === 'physmod' && p.id === 'trk-lead').at(-1)!.cfg;
+    world.advance(50);
+    expect(prepared().quality).toBe('live');
+    expect(tool('daw_physmod', { trackId: 'trk-lead', action: 'params', params: { quality: 'draft' } }).settings.quality).toBe('draft');
+    world.advance(50);
+    expect(prepared().quality).toBe('draft');
+    tool('daw_set_notes', { trackId: 'trk-lead', notes: [{ row: 0, step: 0, length: 2 }, { row: 2, step: 2, length: 2 }] });
+    tool('daw_export_wav', {});
+    const exported = w.physModExports.at(-1)!;
+    expect(exported.length).toBeGreaterThan(0);
+    expect(exported.every((e: any) => e.quality === 'render')).toBe(true);
   });
 });

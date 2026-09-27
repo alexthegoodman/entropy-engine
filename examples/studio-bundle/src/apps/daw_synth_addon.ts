@@ -111,6 +111,7 @@ import {
     noteConfig as brassNoteConfig,
     repairBrass,
 } from "./daw_brass";
+import { EXPORT_QUALITY, MODEL_QUALITIES, type ModelQuality } from "./daw_quality";
 import type { MatterHit, MatterKit, MatterPiece, MatterSettings } from "./daw_matter";
 import {
     MATTER_WAVEFORM,
@@ -2655,8 +2656,23 @@ function renderPhysModWindow(win: string) {
                 });
             });
             W.label(g, { text: `Strings: ${strings.map(f => midiToName(Math.round(69 + 12 * Math.log2(f / 440)))).join(" ")}${pm.sympathetic.length ? `  +${pm.sympathetic.length} sympathetic` : ""}` });
+            // Draft leaves sympathetic ringing out, for a slow machine or a busy song; the export
+            // is always the finest model.
+            qualityRow(g, pm.quality, "pm_quality_", (q) => { pm.quality = q; scheduleSave(); });
         });
     });
+    });
+}
+
+/** The Draft / Full switch a modelled instrument's window shows (see daw_quality.ts). Changing it
+ *  rebuilds the instrument (the old one rings out meanwhile). */
+function qualityRow(g: string, current: ModelQuality, idPrefix: string, set: (q: ModelQuality) => void) {
+    const W = Entropy.UI.Widget;
+    W.horizontal(g, (row: string) => {
+        W.label(row, { text: "Quality" });
+        for (const q of MODEL_QUALITIES) {
+            W.button(row, { text: radio(current === q.id) + q.label, id: idPrefix + q.id, onClick: () => set(q.id) });
+        }
     });
 }
 
@@ -2775,6 +2791,9 @@ function renderBrassWindow(win: string) {
                 });
             });
             W.label(g, { text: "They rebuild the air column, so they apply from the next note. Hand: 1 stops the bell (the horn's stopped note, brassy, played a semitone up). Bell: 1 points at the listener, brighter." });
+            // Draft runs the air column at half the rate, for a slow machine or a busy song; the
+            // export is always the finest model.
+            qualityRow(g, b.quality, "br_quality_", (q) => { b.quality = q; rebuildBrass(track); });
         });
         W.group(right, (g: string) => {
             W.label(g, { text: b.instrument === "trombone" ? "Tongue and slide" : "Tongue", bold: true });
@@ -3429,6 +3448,8 @@ function buildPhysModEvents(): any[] {
             startTime,
         });
         config.trackId = track.id;
+        // Whatever the track plays live, a bounce renders the finest model.
+        config.quality = EXPORT_QUALITY;
         events.push(config);
     }
     return events;
@@ -3444,7 +3465,8 @@ function buildBrassEvents(): any[] {
         const b = trackBrass(track);
         const { freq } = noteVoiceAndFreq(track, placed.note.row);
         const { startTime, velocity } = placedTiming(placed);
-        events.push(brassNoteConfig(track.id, b, { freq, velocity, duration: brassHeldSeconds(b, placed.lengthSteps * sd), startTime }));
+        // Whatever the track plays live, a bounce renders the finest model.
+        events.push({ ...brassNoteConfig(track.id, b, { freq, velocity, duration: brassHeldSeconds(b, placed.lengthSteps * sd), startTime }), quality: EXPORT_QUALITY });
     }
     return events;
 }
@@ -3460,7 +3482,7 @@ function buildMatterEvents(): any[] {
         const { startTime, velocity } = placedTiming(placed);
         const hit = matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime, duration: Math.max(0.03, placed.lengthSteps * sd * 0.95) });
         // Whatever the track plays live, a bounce renders the full model.
-        events.push({ ...hit, kit: { ...hit.kit, quality: "render" } });
+        events.push({ ...hit, kit: { ...hit.kit, quality: EXPORT_QUALITY } });
     }
     return events;
 }
@@ -6389,7 +6411,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_physmod",
-        description: "Play and shape a physically modeled bowed-string instrument: a track whose waveform is \"physmod\" (daw_set_track_params with waveform \"physmod\" makes one). The sound comes from a physical model - strings as travelling waves, a bow gripping them through rosin friction, a bridge and resonant body they share - so a violinist's controls behave physically: more bow force brightens until the tone turns raucous, too little force for the bow position gives an airy 'surface sound', bowing nearer the bridge needs more force and sounds brighter, a faster bow is louder. Notes go to the string a player would use; overlapping notes slur, simultaneous ones double-stop, and open strings ring in sympathy. Actions: \"info\" (current settings), \"instrument\" (a preset: violin, viola, cello, bass, or invented ones - hardanger with sympathetic strings, glass violin, octobass, wolf cello), \"params\" (bowForce 0-1, bowVelocity 0-1, bowPosition 0.02-0.5 fraction of the string from the bridge, articulation arco|pizzicato|colLegno, attackSkill 0-1, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slide s, damping 0-1, brightness 0-1, ring 0-1, stringMass 0-1, stiffness 0-1, rosin 0-1, bowNoise 0-1, bodySize -1..2.5 (0 violin, 0.13 viola, 0.72 cello, 1 bass, beyond is the laboratory), bodyMix 0-1, bodyResonance 0-1, coupling 0-1, tuningFollowsSize true|false to morph the tuning continuously with bodySize), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, and what the bow did: helmholtz / surfaceSound / raucous, slips per period, how long the attack took to settle - so a change can be checked without listening).",
+        description: "Play and shape a physically modeled bowed-string instrument: a track whose waveform is \"physmod\" (daw_set_track_params with waveform \"physmod\" makes one). The sound comes from a physical model - strings as travelling waves, a bow gripping them through rosin friction, a bridge and resonant body they share - so a violinist's controls behave physically: more bow force brightens until the tone turns raucous, too little force for the bow position gives an airy 'surface sound', bowing nearer the bridge needs more force and sounds brighter, a faster bow is louder. Notes go to the string a player would use; overlapping notes slur, simultaneous ones double-stop, and open strings ring in sympathy. Actions: \"info\" (current settings), \"instrument\" (a preset: violin, viola, cello, bass, or invented ones - hardanger with sympathetic strings, glass violin, octobass, wolf cello), \"params\" (bowForce 0-1, bowVelocity 0-1, bowPosition 0.02-0.5 fraction of the string from the bridge, articulation arco|pizzicato|colLegno, attackSkill 0-1, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slide s, damping 0-1, brightness 0-1, ring 0-1, stringMass 0-1, stiffness 0-1, rosin 0-1, bowNoise 0-1, bodySize -1..2.5 (0 violin, 0.13 viola, 0.72 cello, 1 bass, beyond is the laboratory), bodyMix 0-1, bodyResonance 0-1, coupling 0-1, tuningFollowsSize true|false to morph the tuning continuously with bodySize, quality draft|live (draft leaves sympathetic ringing out - no sympathetic strings, open strings don't ring along - for about half the cost, for a slow machine or a busy song; an export always renders the finest model, with a denser body)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, and what the bow did: helmholtz / surfaceSound / raucous, slips per period, how long the attack took to settle - so a change can be checked without listening).",
         parameters: {
             type: "object",
             properties: {
@@ -6406,7 +6428,7 @@ addon.onInit(async () => {
                         damping: { type: "number" }, brightness: { type: "number" }, ring: { type: "number" },
                         stringMass: { type: "number" }, stiffness: { type: "number" }, rosin: { type: "number" }, bowNoise: { type: "number" },
                         bodySize: { type: "number" }, bodyMix: { type: "number" }, bodyResonance: { type: "number" }, coupling: { type: "number" },
-                        tuningFollowsSize: { type: "boolean" }
+                        tuningFollowsSize: { type: "boolean" }, quality: { type: "string", enum: MODEL_QUALITIES.map(q => q.id) }
                     }
                 },
                 note: { type: "number", description: "For hear: MIDI note (default 60)." }
@@ -6438,6 +6460,7 @@ addon.onInit(async () => {
                 }
                 if (typeof p.articulation === "string") pm.articulation = merged.articulation;
                 if (typeof p.tuningFollowsSize === "boolean") pm.tuningFollowsSize = p.tuningFollowsSize;
+                if (typeof p.quality === "string") pm.quality = merged.quality;
                 for (const k of ["bowForce", "bowVelocity", "bowPosition", "vibratoDepth"] as const) {
                     if (typeof p[k] === "number") setBowLive(track, k === "bowForce" ? "force" : k === "bowVelocity" ? "velocity" : k === "bowPosition" ? "position" : "vibratoDepth", (pm as any)[k]);
                 }
@@ -6464,7 +6487,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_brass",
-        description: "Play and shape a physically modeled brass instrument: a track whose waveform is \"brass\" (daw_set_track_params with waveform \"brass\" makes one). The sound comes from a physical model - the player's lips, blown open by the breath, driving an air column built from a real instrument's bore (trombone, trumpet, horn or tuba), radiating through its bell - so a brass player's controls behave physically: more breath is louder and, past mezzo, much brighter as the pressure wave in the tubing steepens toward a shock (the blazing fortissimo); looser lips fall to the partial below, tighter ones pop up to the next; a player with low attack skill blooms slowly and cracks high notes. The player picks the partial and slide position or valves a player would (the horn is a double horn and uses its F side low) and tunes by ear; a note that starts before the last ends slurs into it (legato: a soft tongue; glissando: the trombone's slide is heard). A mute in the bell, the horn player's hand (hand 1 is stopped horn: brassy and buzzing) and which way the bell faces all change the air column or the sound and apply from the next note. Actions: \"info\" (current settings), \"instrument\" (trombone, trumpet, horn, tuba), \"style\" (a way of playing: chorale, section, fanfare, blazing, glissando, rough), \"params\" (breath 0-1 (0.5 is about 2.8 kPa, a comfortable mezzo; 1 is 16 kPa), lipTension -1..1, aperture 0-1, articulation tongued|legato|glissando, attackSkill 0-1, tongue s (a few ms is 'ta'), release s, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slideTime s, breathNoise 0-1, brassiness 0-4 (the laboratory: 1 is real air), mute open|straight|cup|harmon, hand 0-1 (null for the instrument's usual), bellFacing 0-1 (1 at the listener; null for usual)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, how fast it spoke, the partial and slide position or valves the player used, the mouth pressure, and how steep the wavefront at the bell got - so a change can be checked without listening).",
+        description: "Play and shape a physically modeled brass instrument: a track whose waveform is \"brass\" (daw_set_track_params with waveform \"brass\" makes one). The sound comes from a physical model - the player's lips, blown open by the breath, driving an air column built from a real instrument's bore (trombone, trumpet, horn or tuba), radiating through its bell - so a brass player's controls behave physically: more breath is louder and, past mezzo, much brighter as the pressure wave in the tubing steepens toward a shock (the blazing fortissimo); looser lips fall to the partial below, tighter ones pop up to the next; a player with low attack skill blooms slowly and cracks high notes. The player picks the partial and slide position or valves a player would (the horn is a double horn and uses its F side low) and tunes by ear; a note that starts before the last ends slurs into it (legato: a soft tongue; glissando: the trombone's slide is heard). A mute in the bell, the horn player's hand (hand 1 is stopped horn: brassy and buzzing) and which way the bell faces all change the air column or the sound and apply from the next note. Actions: \"info\" (current settings), \"instrument\" (trombone, trumpet, horn, tuba), \"style\" (a way of playing: chorale, section, fanfare, blazing, glissando, rough), \"params\" (breath 0-1 (0.5 is about 2.8 kPa, a comfortable mezzo; 1 is 16 kPa), lipTension -1..1, aperture 0-1, articulation tongued|legato|glissando, attackSkill 0-1, tongue s (a few ms is 'ta'), release s, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slideTime s, breathNoise 0-1, brassiness 0-4 (the laboratory: 1 is real air), mute open|straight|cup|harmon, hand 0-1 (null for the instrument's usual), bellFacing 0-1 (1 at the listener; null for usual), quality draft|live (draft runs the air column at the engine rate for about half the cost - the same below ~8 kHz, darker above - for a slow machine or a busy song; an export always renders the finest model, at four times the rate)), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, how fast it spoke, the partial and slide position or valves the player used, the mouth pressure, and how steep the wavefront at the bell got - so a change can be checked without listening).",
         parameters: {
             type: "object",
             properties: {
@@ -6482,7 +6505,8 @@ addon.onInit(async () => {
                         vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, vibratoDelay: { type: "number" },
                         slideTime: { type: "number" }, breathNoise: { type: "number" }, brassiness: { type: "number" },
                         mute: { type: "string", enum: BRASS_MUTES.map(m => m.id) },
-                        hand: { type: ["number", "null"] }, bellFacing: { type: ["number", "null"] }
+                        hand: { type: ["number", "null"] }, bellFacing: { type: ["number", "null"] },
+                        quality: { type: "string", enum: MODEL_QUALITIES.map(q => q.id) }
                     }
                 },
                 note: { type: "number", description: "For hear: MIDI note (default: the instrument's audition note, e.g. 58, B-flat 3, on the trombone)." }
@@ -6515,6 +6539,7 @@ addon.onInit(async () => {
                 if (typeof p.articulation === "string") b.articulation = merged.articulation;
                 let rebuilt = false;
                 if (typeof p.mute === "string") { b.mute = merged.mute; rebuilt = true; }
+                if (typeof p.quality === "string") { b.quality = merged.quality; rebuilt = true; }
                 for (const k of ["hand", "bellFacing"] as const) {
                     if (typeof p[k] === "number" || p[k] === null) { b[k] = merged[k]; rebuilt = true; }
                 }

@@ -6,6 +6,7 @@
 //! settings travel with each note, so the widget, these ops and the live player all publish to and
 //! read the same `BrassShared` by that id.
 
+use crate::audio::quality::Quality;
 use crate::audio::brass::{self, Articulation, BrassInstrument, BrassParams};
 use crate::deno::addon_ops::AddonContext;
 use deno_core::{op2, OpState};
@@ -93,6 +94,8 @@ pub struct BrassNoteConfig {
     pub hand: Option<f32>,
     /// 0 (the bell pointing away) .. 1 (at the listener); omitted, the instrument's usual way.
     pub bell_facing: Option<f32>,
+    /// "draft", "live" (default) or "render" (see `crate::audio::quality`).
+    pub quality: Option<String>,
     /// Offline events only: seconds from the start of the render.
     pub start_time: Option<f64>,
 }
@@ -123,6 +126,7 @@ impl BrassNoteConfig {
             mute: self.mute.as_deref().and_then(brass::Mute::from_name).unwrap_or(d.mute),
             hand: self.hand.filter(|h| h.is_finite()).map(|h| h.clamp(0.0, 1.0)),
             bell_facing: self.bell_facing.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0)),
+            quality: self.quality.as_deref().and_then(Quality::from_name).unwrap_or(d.quality),
         }
     }
 

@@ -7,6 +7,7 @@
 //! One test in this binary on purpose: the allocator is global.
 
 use entropy_engine::audio::physmod::{InstrumentCommand, PhysModInstrumentVoice, PhysModLive, PhysModParams, PhysModShared, Articulation};
+use entropy_engine::audio::quality::Quality;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -45,8 +46,17 @@ static A: Counting = Counting;
 
 #[test]
 fn a_live_instrument_allocates_nothing_on_the_audio_thread() {
+    // At every quality tier: Render's body rescales its dense field when the body changes, and
+    // Draft empties strings as they rest.
+    for quality in Quality::ALL {
+        play(quality);
+    }
+}
+
+fn play(quality: Quality) {
+    ALLOCS.store(0, Ordering::Relaxed);
     let shared = Arc::new(PhysModShared::default());
-    let base = PhysModParams { sympathetic: [587.33, 659.25, 0.0, 0.0, 0.0, 0.0], ..Default::default() };
+    let base = PhysModParams { sympathetic: [587.33, 659.25, 0.0, 0.0, 0.0, 0.0], quality, ..Default::default() };
     let (mut voice, handle) = PhysModInstrumentVoice::new(shared.clone(), &base);
     let done = Arc::new(AtomicBool::new(false));
 
@@ -58,7 +68,9 @@ fn a_live_instrument_allocates_nothing_on_the_audio_thread() {
             let live = Arc::new(PhysModLive::from_params(&base));
             let notes = [(1u64, 440.0f32, Articulation::Arco), (2, 493.88, Articulation::Arco), (3, 523.25, Articulation::Arco), (4, 659.25, Articulation::Pizzicato), (5, 293.66, Articulation::Arco), (6, 369.99, Articulation::Arco)];
             for (k, &(id, freq, articulation)) in notes.iter().enumerate() {
-                let p = PhysModParams { freq, articulation, ..base };
+                // A brighter body from the fourth note on: the body is rebuilt as the note arrives.
+                let brightness = if k >= 3 { 0.8 } else { base.brightness };
+                let p = PhysModParams { freq, articulation, brightness, ..base };
                 let _ = handle.send(InstrumentCommand::NoteOn { id, params: p, gated: true, live: Some(live.clone()) });
                 std::thread::sleep(std::time::Duration::from_millis(60));
                 live.bow_force.store((0.3 + 0.1 * k as f32).to_bits(), Ordering::Relaxed);
@@ -91,7 +103,8 @@ fn a_live_instrument_allocates_nothing_on_the_audio_thread() {
     ON_AUDIO_THREAD.with(|c| c.set(false));
     sender.join().unwrap();
     assert!(done.load(Ordering::Relaxed));
-    assert!(peak > 0.01, "the phrase should have sounded (peak {peak})");
-    assert!(shared.string_count() == 6, "4 bowed + 2 sympathetic strings published");
-    assert_eq!(ALLOCS.load(Ordering::Relaxed), 0, "the audio thread allocated");
+    assert!(peak > 0.01, "{quality:?}: the phrase should have sounded (peak {peak})");
+    let strings = if quality == Quality::Draft { 4 } else { 6 };
+    assert_eq!(shared.string_count(), strings, "{quality:?}: 4 bowed strings and the sympathetic ones (none in Draft) published");
+    assert_eq!(ALLOCS.load(Ordering::Relaxed), 0, "{quality:?}: the audio thread allocated");
 }

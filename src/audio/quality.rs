@@ -5,8 +5,10 @@
 //! nonlinear coupling reaches...), chosen per instrument where the instrument is built - never a
 //! vague "quality" slider inside the physics. The tests pin `Render`; `Draft` must stay within a
 //! stated distance of it (see the tier tests next to each instrument). `Live` is what a track
-//! plays in real time by default, and today it is `Render` wherever `Render` fits in real time:
-//! the tiers separate once the fidelity work raises `Render` beyond what plays live.
+//! plays in real time by default. For the drums it is `Render` (it fits in real time); for the
+//! cymbals, strings and brass `Render` goes further than a machine should be asked to play live
+//! for every track - a denser string body, a brass air column at four times the rate - and `Live`
+//! is the model as it was before the tiers existed.
 //!
 //! An export (a bounce, a frozen track) always renders at `Render`, whatever the track plays live.
 

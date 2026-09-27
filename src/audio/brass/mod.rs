@@ -37,6 +37,8 @@ pub mod lips;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tier_tests;
 
 pub use engine::{breath_pressure, lip_center, lip_mass, obstruction, Articulation, BrassInstrument, BrassLive, BrassParams, BrassReport, Engine, Fingering, Mechanism, Mute, ResonanceTable, F_SIDE};
 
@@ -47,6 +49,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rodio::Source;
 
 use super::analysis::ENGINE_SAMPLE_RATE;
+use super::quality::Quality;
 
 /// Renders one note offline at `sr` Hz for `seconds` (held for the note's `duration`, then
 /// released), mono. Also returns a report of the note taken just before its release.
@@ -465,6 +468,7 @@ pub enum BrassCommand {
 pub struct BrassHandle {
     queue: Mutex<BrassQueue>,
     construction: (BrassInstrument, Mute, u32),
+    quality: Quality,
     /// Set once the voice has been built.
     ready: AtomicBool,
 }
@@ -479,7 +483,7 @@ impl BrassHandle {
     /// A handle for a player of `p`'s instrument, taking commands at once: they wait in the queue
     /// until the voice is built (see `BrassInstrumentVoice::with_handle`).
     pub fn new(p: &BrassParams) -> Arc<Self> {
-        Arc::new(Self { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), construction: p.construction(), ready: AtomicBool::new(false) })
+        Arc::new(Self { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), construction: p.construction(), quality: p.quality, ready: AtomicBool::new(false) })
     }
 
     /// Queues a command, or hands it back if the audio side has stopped.
@@ -503,9 +507,10 @@ impl BrassHandle {
     }
 
     /// Whether the running player plays the instrument `p` asks for, with the same mute and hand
-    /// (those change the air column, so a different one needs a new player).
+    /// (those change the air column, so a different one needs a new player), at the same quality
+    /// tier.
     pub fn same_instrument(&self, p: &BrassParams) -> bool {
-        self.construction == p.construction()
+        self.construction == p.construction() && self.quality == p.quality
     }
 
     /// Asks the running voice to let the note go and stop.

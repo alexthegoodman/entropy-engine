@@ -7,6 +7,7 @@
 //! construction (strings, body, rosin...) travels with each note, so `Widget.physModString`, these
 //! ops and the live instrument all just publish to and read the same `PhysModShared` by that id.
 
+use crate::audio::quality::Quality;
 use crate::audio::physmod::{self, PhysModParams};
 use crate::deno::addon_ops::AddonContext;
 use deno_core::{op2, OpState};
@@ -120,6 +121,8 @@ pub struct PhysModNoteConfig {
     pub coupling: Option<f32>,
     pub body_resonance: Option<f32>,
     pub body_seed: Option<u32>,
+    /// "draft", "live" (default) or "render" (see `crate::audio::quality`).
+    pub quality: Option<String>,
     /// Offline events only: seconds from the start of the render.
     pub start_time: Option<f64>,
 }
@@ -173,6 +176,7 @@ impl PhysModNoteConfig {
             coupling: self.coupling.unwrap_or(d.coupling).clamp(0.0, 1.0),
             body_resonance: self.body_resonance.unwrap_or(d.body_resonance).clamp(0.0, 1.0),
             body_seed: self.body_seed.unwrap_or(d.body_seed),
+            quality: self.quality.as_deref().and_then(Quality::from_name).unwrap_or(d.quality),
         }
     }
 

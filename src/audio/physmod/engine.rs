@@ -16,6 +16,7 @@ use super::body::{Body, BodySpec, COUPLED_MODES};
 use super::dsp::{DcBlock, Decimator2, Noise, OnePole};
 use super::friction::FrictionCurve;
 use super::string::{BowedString, Excitation, StringSpec};
+use crate::audio::quality::Quality;
 use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -157,6 +158,9 @@ pub struct PhysModParams {
     pub body_resonance: f32,
     /// Picks the body's high-frequency mode field (a different maker, same family).
     pub body_seed: u32,
+    /// How much of the instrument is modelled (see `crate::audio::quality` and
+    /// `Engine::new`). Part of the build: an engine keeps the tier it was built at.
+    pub quality: Quality,
 }
 
 impl Default for PhysModParams {
@@ -191,8 +195,17 @@ impl Default for PhysModParams {
             coupling: 0.35,
             body_resonance: 0.5,
             body_seed: 1,
+            quality: Quality::Live,
         }
     }
+}
+
+/// The sympathetic strings an instrument is built with: none at `Draft`.
+fn sympathetic_strings(p: &PhysModParams) -> Vec<f32> {
+    if p.quality == Quality::Draft {
+        return Vec::new();
+    }
+    p.sympathetic.iter().copied().filter(|f| *f > 0.0).collect()
 }
 
 /// Body frequency divisor for a `body_size`: 4^size, so 0 -> 1 (violin), 1 -> 4 (bass).
@@ -308,7 +321,7 @@ impl PhysModParams {
         FrictionCurve { mu_s: 0.55 + 0.5 * r, mu_d: 0.3, v0: 0.2 - 0.18 * r }
     }
 
-    fn body_spec(&self) -> BodySpec {
+    pub(crate) fn body_spec(&self) -> BodySpec {
         BodySpec {
             size: body_scale(self.body_size),
             resonance: 4f32.powf((self.body_resonance.clamp(0.0, 1.0) - 0.5) * 2.0),
@@ -538,7 +551,13 @@ pub struct Engine {
     stats_samples: u32,
     /// Output samples rendered so far.
     clock: u64,
+    /// The tier it was built at.
+    quality: Quality,
 }
+
+/// Below this level (`BowedString::level`) an unplayed string counts as rung down, and `Draft`
+/// stops computing it: nearly 90 dB below a mezzo note (`tier_tests`).
+const DRAFT_REST_LEVEL: f32 = 2.0e-5;
 
 /// Gains that put the three output paths at comparable loudness for a mid-register mezzo note
 /// (measured, see the calibration test at the bottom of this file).
@@ -547,8 +566,16 @@ const RADIATING_OUT: f32 = 4.4;
 const DIRECT_OUT: f32 = 1.4;
 
 impl Engine {
+    /// Builds the instrument at `instrument.quality`:
+    ///
+    /// * `Live`: the model as it has always been.
+    /// * `Render`: the same strings and coupled body, with the dense radiating field (see `body`).
+    /// * `Draft`: a sparse radiating field, and no sympathetic ringing - no extra sympathetic
+    ///   strings, and a string that is neither played nor still sounding is not computed, so an open
+    ///   string no longer starts ringing in sympathy with the others (see `next_frame`).
     pub fn new(sr: f32, instrument: &PhysModParams) -> Self {
         let sr_os = sr * OVERSAMPLE as f32;
+        let quality = instrument.quality;
         let (open, n_bowed) = instrument.open_strings();
         let mut strings = Vec::with_capacity(MAX_ALL_STRINGS);
         let mut players = Vec::with_capacity(MAX_ALL_STRINGS);
@@ -556,7 +583,7 @@ impl Engine {
             strings.push(BowedString::new(instrument.string_spec(f), sr_os));
             players.push(Player::new());
         }
-        let symp: Vec<f32> = instrument.sympathetic.iter().copied().filter(|f| *f > 0.0).collect();
+        let symp = sympathetic_strings(instrument);
         for &f in &symp {
             let mut spec = instrument.string_spec(f);
             // Sympathetic strings are thin and lightly loaded.
@@ -571,7 +598,7 @@ impl Engine {
             n_symp: symp.len(),
             strings,
             players,
-            body: Body::new(instrument.body_spec(), sr_os, sr),
+            body: Body::new(instrument.body_spec(), sr_os, sr, quality),
             instrument: *instrument,
             dec_f: Decimator2::new(),
             dec_l: Decimator2::new(),
@@ -587,6 +614,7 @@ impl Engine {
             last_bridge_force: 0.0,
             stats_samples: 0,
             clock: 0,
+            quality,
         };
         e.apply_construction(instrument);
         e
@@ -596,12 +624,18 @@ impl Engine {
         self.sr
     }
 
+    /// The tier it was built at.
+    pub fn quality(&self) -> Quality {
+        self.quality
+    }
+
     /// Whether this engine was built for the same set of strings (count and tuning) as `p` asks
     /// for. When it wasn't, a caller should build a new engine rather than reuse this one.
     pub fn same_strings(&self, p: &PhysModParams) -> bool {
         let (open, n) = p.open_strings();
-        let symp: Vec<f32> = p.sympathetic.iter().copied().filter(|f| *f > 0.0).collect();
-        n == self.n_bowed && symp.len() == self.n_symp && open.iter().take(n).zip(self.strings.iter()).all(|(f, s)| (f - s.spec.open_freq).abs() < 1.0e-3) && symp.iter().zip(self.strings[self.n_bowed..].iter()).all(|(f, s)| (f - s.spec.open_freq).abs() < 1.0e-3)
+        let symp = sympathetic_strings(p);
+        p.quality == self.quality
+            && n == self.n_bowed && symp.len() == self.n_symp && open.iter().take(n).zip(self.strings.iter()).all(|(f, s)| (f - s.spec.open_freq).abs() < 1.0e-3) && symp.iter().zip(self.strings[self.n_bowed..].iter()).all(|(f, s)| (f - s.spec.open_freq).abs() < 1.0e-3)
     }
 
     /// Takes the instrument-level settings (body, string construction, rosin) from `p`. Safe on
@@ -945,6 +979,21 @@ impl Engine {
         self.control_countdown -= 1;
 
         let n_all = self.strings.len();
+        // Draft computes only the strings that are sounding: one that is not being played and has
+        // rung down is emptied and left out until a note starts on it (so it no longer picks up the
+        // others in sympathy).
+        let mut skip = [false; MAX_ALL_STRINGS];
+        if self.quality == Quality::Draft {
+            for s in 0..self.n_bowed {
+                let string = &mut self.strings[s];
+                if self.players[s].phase == Phase::Idle && string.level < DRAFT_REST_LEVEL {
+                    if string.level > 0.0 {
+                        string.silence();
+                    }
+                    skip[s] = true;
+                }
+            }
+        }
         let bow_noise = self.instrument.bow_noise.clamp(0.0, 1.0);
         let grit_a = OnePole::coef_for(1800.0, self.sr_os);
         let mut forces = [0.0f32; OVERSAMPLE];
@@ -954,6 +1003,9 @@ impl Engine {
             let v_bridge = self.body.bridge_velocity;
             let mut total = 0.0;
             for s in 0..n_all {
+                if skip[s] {
+                    continue;
+                }
                 let mut ex = Excitation::default();
                 let mut glide = 0.02;
                 if s < self.n_bowed {

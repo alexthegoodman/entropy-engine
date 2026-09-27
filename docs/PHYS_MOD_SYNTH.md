@@ -194,8 +194,8 @@ tests keep those measurements in place.
 |---|---|---|
 | String | `string.rs` | Four-segment digital waveguide (finger↔bow, bow↔bridge, both directions), cubic-Lagrange fractional delays, losses at bridge / nut / fingertip, optional stiffness dispersion solved per note for a target inharmonicity `B`. Rebuilds its own displacement shape for the view. |
 | Bow | `friction.rs` | McIntyre–Schumacher–Woodhouse friction: hyperbolic curve solved in closed form against the string impedance each sample, stick/slip hysteresis. Physical units underneath (N, m/s, fraction of string). |
-| Body | `body.rs` | 10 coupled modes (A0, CBR, B1±, …, the bridge hill) whose summed velocity is the bridge's motion, fed back into every string; 40 seeded radiating modes up to ~10 kHz, stereo. Scales continuously with instrument size. |
-| Instrument + player | `engine.rs` | Strings (4 bowed + up to 6 sympathetic), shared body, 2× oversampling. A virtual player per string: string choice, double stops vs slurs (40 ms chord window), bow reversal, guided attack and attack assist (`attack_skill`), intonation by ear, delayed vibrato, pizzicato, col legno, ring/damp on release. |
+| Body | `body.rs` | 10 coupled modes (A0, CBR, B1±, …, the bridge hill) whose summed velocity is the bridge's motion, fed back into every string; 40 seeded radiating modes up to ~10 kHz, stereo (240 at the `Render` tier: Live's 40 plus 200 of random sign spaced evenly in Hz, matched band by band to Live's response; see [PHYS_MOD_FIDELITY.md](PHYS_MOD_FIDELITY.md), Part A1). The radiating field runs as one vectorized bank. Scales continuously with instrument size. |
+| Instrument + player | `engine.rs` | Strings (4 bowed + up to 6 sympathetic; at `Draft` no sympathetic strings, and a string that is neither played nor sounding is not computed), shared body, 2× oversampling. A virtual player per string: string choice, double stops vs slurs (40 ms chord window), bow reversal, guided attack and attack assist (`attack_skill`), intonation by ear, delayed vibrato, pizzicato, col legno, ring/damp on release. |
 | Measurement | `analysis.rs` | Pitch (cents), level, centroid, harmonics, bow regime, attack time. Shared by tests, `Entropy.PhysMod.analyzeNote`, and the DAW's AI tool. |
 | Runtime | `mod.rs` | `PhysModShared` (lock-free state for the view), `PhysModVoice` (one self-contained note), `PhysModInstrumentVoice` (one live instrument per track: notes share strings and body), `render_performance` (offline bounces through one instrument). |
 
@@ -269,4 +269,4 @@ the note, the pace at which the string's period can be measured.
   sound is always the simulation itself.
 - Not modelled yet: bow width, torsional waves, thermal (temperature-dependent) friction, the
   string's second polarisation.
-- A whole instrument costs about 4% of one core (plus ~1% per sympathetic string) in release builds.
+- A whole instrument costs about 2.7% of one core at `Live` (plus ~1% per sympathetic string) in release builds, 1.6-1.8% at `Draft` and 3.4-4.8% at `Render` (the table in [PHYS_MOD_FIDELITY.md](PHYS_MOD_FIDELITY.md), "Measured costs").
