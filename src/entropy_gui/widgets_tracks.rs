@@ -150,6 +150,8 @@ impl Track {
 pub struct TrackViewOptions {
     /// Lane height in px. `0.0` uses the default (44).
     pub lane_h: f32,
+    /// Height of a placeholder (empty) lane; 0 uses `lane_h`.
+    pub placeholder_lane_h: f32,
     /// Header gutter width in px. `0.0` uses the default (120).
     pub label_w: f32,
     /// Grid that move / trim / draw snap to. `0` disables snapping.
@@ -254,14 +256,30 @@ impl TrackView {
         let had_view = ctx.memory(|m| m.has_timeline_view(view_id));
         let (mut scroll_x, mut zoom) = ctx.memory(|m| m.get_timeline_view(view_id));
 
-        let height = RULER_H + tracks.len().max(1) as f32 * lane_h;
+        // An empty (placeholder) lane can be slimmer than a lane with an instrument on it.
+        let lane_hs: Vec<f32> = tracks
+            .iter()
+            .map(|t| if t.placeholder && opts.placeholder_lane_h > 0.0 { opts.placeholder_lane_h } else { lane_h })
+            .collect();
+        let lanes_h: f32 = if tracks.is_empty() { lane_h } else { lane_hs.iter().sum() };
+        let height = RULER_H + lanes_h;
         // Leave a strip on the right so the canvas does not run under a surrounding scrollbar.
-        let size = vec2((ui.available_size().x - opts.right_gutter).max(200.0), height.max(80.0));
+        // An empty view still gets some room to draw into; a real lane list is exactly as tall as it is.
+        let min_h = if tracks.is_empty() { 80.0 } else { RULER_H + 16.0 };
+        let size = vec2((ui.available_size().x - opts.right_gutter).max(200.0), height.max(min_h));
         let (bg_response, painter) = ui.allocate_painter(size, Sense::click());
         let canvas_rect = bg_response.rect;
         let label_col = Rect::from_min_max(canvas_rect.min, pos2(canvas_rect.min.x + label_w, canvas_rect.max.y));
         let grid_rect = Rect::from_min_max(pos2(canvas_rect.min.x + label_w, canvas_rect.min.y), canvas_rect.max);
         let lanes_top = grid_rect.min.y + RULER_H;
+        let lane_ys: Vec<f32> = lane_hs
+            .iter()
+            .scan(lanes_top, |y, h| {
+                let top = *y;
+                *y += h;
+                Some(top)
+            })
+            .collect();
 
         // A tempo change changes how many milliseconds a bar lasts. Keeping zoom in ms/px would make
         // the song grow or shrink on screen; rescaling it with the bar keeps pixels-per-bar fixed
@@ -331,7 +349,7 @@ impl TrackView {
 
         // ---- lane backgrounds (below everything else in the grid) ----
         for (i, track) in tracks.iter().enumerate() {
-            let y0 = lanes_top + i as f32 * lane_h;
+            let (y0, lane_h) = (lane_ys[i], lane_hs[i]);
             let lane_rect = Rect::from_min_size(pos2(grid_rect.min.x, y0), vec2(grid_rect.width(), lane_h));
             let mut bg = if i % 2 == 1 { LANE_ODD } else { LANE_EVEN };
             if opts.active_track.as_deref() == Some(track.id.as_str()) {
@@ -339,7 +357,7 @@ impl TrackView {
             }
             gp.rect_filled(lane_rect, 0.0_f32, bg);
         }
-        let lanes_bottom = lanes_top + tracks.len().max(1) as f32 * lane_h;
+        let lanes_bottom = lanes_top + lanes_h;
         let lanes_area = Rect::from_min_max(pos2(grid_rect.min.x, lanes_top), pos2(grid_rect.max.x, lanes_bottom));
 
         // ---- gridlines: alternating bar shading, bar lines, beat lines, snap lines ----
@@ -450,7 +468,7 @@ impl TrackView {
 
         // ---- headers (label gutter): registered before clips, they never overlap them ----
         for (i, track) in tracks.iter().enumerate() {
-            let y0 = lanes_top + i as f32 * lane_h;
+            let (y0, lane_h) = (lane_ys[i], lane_hs[i]);
             let label_rect = Rect::from_min_size(pos2(label_col.min.x, y0), vec2(label_w, lane_h));
             let is_active = opts.active_track.as_deref() == Some(track.id.as_str());
             let label_id = view_id.with(("track_label", &track.id));
@@ -508,11 +526,13 @@ impl TrackView {
                 pos2(mute_rect.map_or(label_rect.max.x - 4.0, |r| r.min.x - 4.0), label_rect.max.y),
             ));
             let two_line = lane_h >= 30.0 && !track.sublabel.is_empty();
+            // Roomier lanes get larger type, so a 56px lane does not read as a 34px one padded out.
+            let (name_size, sub_size, line_gap) = if lane_h >= 48.0 { (13.0, 10.5, 8.0) } else { (11.5, 9.5, 6.5) };
             if two_line {
-                text_painter.text(pos2(text_x, label_rect.center().y - 6.0), Align2::LEFT_CENTER, &track.label, FontId::proportional(11.5), name_color);
-                text_painter.text(pos2(text_x, label_rect.center().y + 7.0), Align2::LEFT_CENTER, &track.sublabel, FontId::proportional(9.5), TEXT_DIM);
+                text_painter.text(pos2(text_x, label_rect.center().y - line_gap), Align2::LEFT_CENTER, &track.label, FontId::proportional(name_size), name_color);
+                text_painter.text(pos2(text_x, label_rect.center().y + line_gap + 1.0), Align2::LEFT_CENTER, &track.sublabel, FontId::proportional(sub_size), TEXT_DIM);
             } else {
-                text_painter.text(pos2(text_x, label_rect.center().y), Align2::LEFT_CENTER, &track.label, FontId::proportional(11.5), name_color);
+                text_painter.text(pos2(text_x, label_rect.center().y), Align2::LEFT_CENTER, &track.label, FontId::proportional(if track.placeholder { 10.5 } else { name_size }), name_color);
             }
 
             for (rect, letter, on, on_color) in [
@@ -531,7 +551,7 @@ impl TrackView {
         // ---- lanes: clips first, then the empty-space draw gesture ----
         let mut lane_draw_events: Vec<TrackViewEvent> = Vec::new();
         for (i, track) in tracks.iter().enumerate() {
-            let y0 = lanes_top + i as f32 * lane_h;
+            let (y0, lane_h) = (lane_ys[i], lane_hs[i]);
             let lane_rect = Rect::from_min_size(pos2(grid_rect.min.x, y0), vec2(grid_rect.width(), lane_h));
             gp.line_segment([pos2(lane_rect.min.x, y0 + lane_h), pos2(lane_rect.max.x, y0 + lane_h)], Stroke::new(1.0, Color32::from_black_alpha(80)));
             let accent = track.color.unwrap_or(Color32::from_gray(90));

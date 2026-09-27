@@ -223,21 +223,23 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `UI.createWindow({ decorations: false })` | Strips the title bar, outer border and resize handle, leaving only the rounded background - a plain floating card. It also stops dragging, so pair it with a fixed/centered position. Default `true`. |
 | `UI.drawRect` / `UI.drawText` | Draws a raw rectangle or text string directly in screen space for HUD overlays outside the widget system. |
 | `UI.clear()` | Clears drawn HUD elements. |
+| `UI.createTab({ title, onRender, scroll })` | A full-work-area tab. `scroll: false` lays it out to the window instead of inside a page-long vertical scroll, for an app that fills the window itself with `Widget.bar` and `Widget.split` (the DAW does). |
 | `UI.setTheme(config)` | Overrides colors, corner radius, spacing, and padding for your addon's UI. Every field is optional; unset fields use the default theme. |
 | `UI.selectDialogueOption(index)` | Programmatically picks a dialogue-tree option (see `DialogueSystem` under Behaviors). |
-| `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. `label`/`button` take optional `fontSize` (default 14) and `alpha` (0-1, for a caller-driven fade - there is no engine-side tweening) overrides; `button` also takes `frame: false` for a borderless icon-tile look (fill/border only appear on hover). |
+| `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. `label`/`button` take optional `fontSize` (default 14) and `alpha` (0-1, for a caller-driven fade - there is no engine-side tweening) overrides; `button` also takes `frame: false` for a borderless icon-tile look (fill/border only appear on hover), `selected` for a toggle that is on, `accent` (RGBA) for the one filled primary action in a bar, and `minWidth`. `label` also takes `color`, `monospace` (fixed-width digits for a readout that changes as you watch) and `wrap` (break at spaces to fit the width). |
 | `Widget.slider` / `numericInput` | Drag-to-adjust and type-a-number inputs for numeric values. |
 | `Widget.knob` | A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up raises the value, down lowers it); label and value are drawn on the knob itself rather than beside it. |
 | `Widget.dropdown` | A select-one-of-N dropdown. |
+| `Widget.segmented` | Two to five mutually exclusive options as one row of buttons, where a dropdown would hide them. Same `options`/`selectedIndex`/`onChange` as `dropdown`, plus `label`, `compact` and an `accent` tint. |
 | `Widget.colorInput` | An RGBA color swatch/cycler. |
 | `Widget.textInput` | A single-line text field. |
 | `Widget.hyperlink` | A clickable link-styled label that opens a URL. |
 | `Widget.codeEditor` | A syntax-aware multiline code editor panel. |
 | `Widget.miniMap` | A top-down map view with draggable brush painting, markers, and polylines for terrain and mask painting tools. |
 | `Widget.snarl` | A node-graph editor (drag nodes, wire connections) for visual behavior/logic graphs. `height` sets the canvas height in points; omit it to fill the space left in the window. |
-| `Widget.pianoRoll` | A step-sequencer grid for note/drum patterns, with a movable playhead. |
+| `Widget.pianoRoll` | A step-sequencer grid for note/drum patterns: a key column, a ruler in bars and beats, notes shaded by velocity, a hover preview of where a click paints, and a playhead. `rowHeight` fixes the rows; `fillHeight` stretches them to the room left (18-56 points); rows that do not fit scroll under the wheel. `color`, `highlightRows` (tint a scale's roots) and `showVelocity` (a velocity lane underneath) style it. |
 | `Widget.keyframeTimeline` | A per-property animation curve editor: draggable keyframes on a scrubbable timeline. |
-| `Widget.tracks` | A multi-track clip editor (like a video/audio timeline) with draggable, resizable clips. |
+| `Widget.tracks` | A multi-track clip editor (like a video/audio timeline) with draggable, resizable clips. `options.placeholderLaneHeight` draws empty (placeholder) lanes slimmer than `laneHeight`. |
 | `Widget.oscilloscope` | Draws a triggered waveform from the master mix or a track. It supports mono, stereo, and XY modes, afterglow, gain, and a fixed width for side-by-side layouts. |
 | `Widget.spectrum` | Draws a log-frequency spectrum from the master mix or a track, with filled or bar styles, peak hold, hover readout, configurable FFT size, range, tilt, and fall speed. |
 | `Widget.levelMeter` | Draws a stereo peak and RMS meter with peak hold and a click-to-clear clip latch for the master mix or a track. |
@@ -245,14 +247,17 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.kanban` | A kanban board with columns, movable cards, selection, deletion, and add-card callbacks. Your addon owns the board data. |
 | `Widget.sheetGrid` | A spreadsheet grid: lettered column headers (A, B, C...), numbered rows, one selected cell with arrow-key/Tab/Enter navigation, inline cell editing (double-click, or type over a selected cell), and an optional colored border per cell. Right-click a row/column header to insert or delete it. `editing` shares one edit session with your own formula bar, however the user started typing - see `SheetGridConfig`'s doc comment. `options.maxHeight` scrolls the rows inside a capped box with the column header fixed above it. Your addon owns the cells and any formula evaluation. |
 | `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes, icons and right-aligned detail text per row. `maxHeight` scrolls the rows inside a capped box, `width` fixes its width. Your addon supplies the visible rows and owns expanded state. |
-| `Widget.tabBar` | A non-fullscreen tab strip inside a window (`Entropy.UI.createTab` tabs own the whole work area). Tabs stretch to fill one line, or wrap at natural width when they do not fit. Your addon owns `selected`, updates it in `onSelect(id)`, and draws only the selected tab's widgets after the bar. |
+| `Widget.tabBar` | A non-fullscreen tab strip inside a window (`Entropy.UI.createTab` tabs own the whole work area). Tabs stretch to fill one line, or wrap at natural width when they do not fit; `stretch: false` packs them at natural width from the left (a view switcher in a header). The underline glides to a newly picked tab. Your addon owns `selected`, updates it in `onSelect(id)`, and draws only the selected tab's widgets after the bar. |
 | `Widget.wavetable` | A wavetable as sculptable 3D terrain (phase across, frame into the screen, level up) with a single-cycle pen strip, the selected frame's harmonics and a keyboard. Mouse and pen both work: a pen presses with its own pressure, leans the brush with its tilt, and its eraser end lowers; the pen's side button, the right mouse button and Alt orbit. Config: `table`, `tool` (`raise`/`lower`/`smooth`/`level`/`orbit`), `radius`, `strength`, `frame`, `height`, `width`, `keyboard`, `held`. Callbacks: `onEdit` (save now), `onStrokeStart`/`onStrokeEnd`, `onFrame`, `onTool`, `onKeyDown`/`onKeyUp`. |
 | `Widget.reverbEq` | A track's reverb and EQ as one neon picture. Top: a 3D room the size of the reverb's room, with a source, a listener and the first reflections off every wall pulsing along their paths; its floor is a waterfall (frequency across, time toward you, level up). The **Decay** view draws the reverb's tail as it will sound, shaped by the EQ; **Live** draws what the track is playing. Drag orbits, the wheel zooms. Bottom: a six-band EQ over the track's live spectrum: drag a node for frequency and gain, the wheel over it for Q, right-click or double-click to switch it. Config: `source` (track id), `reverb` (`roomSize`, `time`, `damping`, `mix`), `eq` (`bands`, `output`), `selectedBand`, `view`, `caption`, `height`, `width`. Callbacks: `onBand(index, band)` on every step of a drag, `onEditEnd` (save now), `onSelect`, `onView`. |
 | `Widget.physModString` | A physically modeled bowed string, drawn the same neon-terrain style as `Widget.wavetable`: up to four strings side by side, nut to bridge, the sounding one glowing with its live cycle shape. Dragging inside the bowing zone (the bridge half of the active string) moves the bow; the right mouse button, Alt or a pen's barrel button orbit. Config: `instrument`, `bowPosition`, `bowForce`, `bodySize`, `activeString`, `height`, `width`, `keyboard`, `held`. Callbacks: `onBowDrag(position, force)`, `onKeyDown`/`onKeyUp`. |
 | `Widget.padGrid` | A drum-machine pad bank: rounded pads with a name, waveform thumbnail (trim range dimmed), colour accent, selection ring, and a `glow` you drive to pulse a pad when it is hit. Kinds: `empty`, `synth`, `sample`, `missing`. Callbacks: `onPadClick`, `onPadClear` (right-click), `onAdd`. |
 | `Widget.docEditor` + `docEditorToggleBold/Italic`, `docEditorSetFontFamily/Size/Color`, `docEditorSetPaginated`, `docEditorLoadSample`, `docEditorFontNames` | A multi-page word processor that can be paginated or continuous, with mixed bold, italic, font, size, and color per run. The document text stays on the Rust side; build the toolbar from ordinary widgets and drive formatting with the `docEditor*` calls. |
 | `Widget.html(windowId, html, options)` | Renders an HTML string with `<style>` and inline CSS as laid-out UI with block/flex layout, inherited text color, and images. JavaScript is never executed. |
-| `Widget.collapsingHeader` / `horizontal` / `vertical` / `group` / `separator` | Layout helpers for expandable sections, rows, stacks, framed groups, and dividers. |
+| `Widget.collapsingHeader` / `horizontal` / `vertical` / `group` / `separator` / `spacer` | Layout helpers for expandable sections, rows, stacks, framed groups, dividers and empty space. |
+| `Widget.bar(windowId, config, left, center?, right?)` | A full-width strip of fixed `height` (a header, a toolbar, a status bar) with a `fill`, an optional `border` hairline (bottom, or top with `borderTop`), and up to three zones: `left` from the left edge, `center` centred, `right` against the right edge. Bars, splits and the next widget stack flush. |
+| `Widget.split(windowId, config, main, side?)` | The rest of the window as `main` beside a fixed-width `side` panel (an inspector): `sideWidth`, `sideOpen`, `reserveBottom` (room for a status bar under it), `mainFill`/`sideFill`/`divider` colors, `mainPadding`/`sidePadding`, and `scrollMain`/`scrollSide`. It fills the height when the tab was created with `createTab({ scroll: false })`; inside a scrolling page it is `minHeight` tall. |
+| `Widget.card(windowId, config, render)` | A boxed group on a filled, rounded background (`fill`, `stroke`, `radius`, `padding`, and an optional fixed `width`). In a column it spans the width; in a row it wraps its content. |
 | `Icons.get(name, style?)` / `label(name, text, style?)` / `has` / `names` | Phosphor icons (1,530, by kebab-case name such as `play` or `arrow-counter-clockwise`) as characters: `get` returns a string you put in any label, `label` returns `"<icon> <text>"`, so every widget shows them with no extra option. Styles are `regular`, `bold` and `fill`. **Known limit:** in the real window only `regular` draws; `bold` and `fill` glyphs are laid out (they take space) but come out blank, although the headless pixel tier draws them. Use `regular`. An unknown name logs once and returns an empty string. Rust: `entropy_gui::icons`. The fonts are in `src/fonts/phosphor/` (Light and Thin are there but not embedded). |
 
 </details>
@@ -484,21 +489,30 @@ subtitle path. The controls cover seek, volume, speed, repeat, captions and full
 and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
 by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
 
-The DAW's **Music Video** button (transport bar) turns the open song into an MP4 you can post where
+The DAW is one window with no page to scroll. A header holds the song (with Songs, History and Save
+version), the transport (Play, Song or Pattern loop, the position, BPM) and the window toggles and
+Export. Under it, **Arrange**, **Piano Roll** and **Mixer** are tabs (keys 1, 2 and 3), so each view
+gets the full height: the arrangement's empty channels shrink to slim lanes, and the piano roll's
+rows stretch to fill the view (or pick S, M or L), with root notes tinted, a velocity lane, and a
+strip showing where the pattern plays in the song. The right-hand **inspector** (key I) holds the
+active track's **Sound** (instrument, voice, preview), **Character**, **FX** and **Moves**. A status
+bar at the bottom shows hints, the selected clip and export messages.
+
+The DAW's **Music Video** button (the film-strip icon in the header) turns the open song into an MP4 you can post where
 a WAV won't go. Pick one of six visualizer styles, a size (HD, Full HD, square, vertical for
 Shorts/Reels), a frame rate, a colour theme or your own colours, how hard it reacts, and a
 title/artist overlay or background picture. The preview moves with the song while it plays.
 **Export MP4...** bounces the song and renders the video in the background, with progress in a
-toast. The look is saved with the song. **Hide Analyzer** / **Show Analyzer** puts the Analyzer
-window away and brings it back. `cargo test --release --test daw_visualizer_live -- --nocapture`
+toast. The look is saved with the song. The chart icon in the header puts the Analyzer window away
+and brings it back. `cargo test --release --test daw_visualizer_live -- --nocapture`
 drives both in the real window and checks the exported file. `cargo test --lib music_video` covers
 the renderer and the encoder by themselves.
 
-The DAW's **Reverb & EQ** button shows the active track's reverb as a 3D room, its tail as a
+The DAW's **Reverb & EQ** button (the cube icon in the header) shows the active track's reverb as a 3D room, its tail as a
 waterfall, and a six-band EQ (after the reverb on the track's bus, so it shapes the tail too) with
 draggable nodes over what the track is playing. Both are saved with the song and apply in the WAV
 export. The instrument windows (Drum Rack, Wavetable, Bowed String, Brass, Kit, Water, Guitar Input)
-share one **Instruments** menu so the transport bar keeps its room.
+share one **Instruments** menu so the header keeps its room.
 `cargo test --test reverb_eq_view_bdd` covers the widget headlessly, and
 `cargo test --test daw_space_live -- --nocapture` drives the window in the real DAW.
 

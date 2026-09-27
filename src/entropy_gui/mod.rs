@@ -38,7 +38,9 @@ pub mod widgets_physmod;
 pub mod widgets_keyframe_timeline;
 pub mod widgets_node_graph;
 pub mod widgets_pads;
+pub mod widgets_piano_roll;
 pub mod widgets_sheet;
+pub mod widgets_layout;
 pub mod widgets_tabs;
 pub mod widgets_tracks;
 pub mod widgets_tree;
@@ -52,7 +54,7 @@ pub use containers::window::Window;
 pub use context::{
     Context, FullOutput, Key, KeyEvent, Modifiers, PlatformOutput, RawInput, TexturesDelta, UiPrefs, ViewportId,
 };
-pub use draw_list::{DrawCommand, DrawTexture, TextureId};
+pub use draw_list::{DrawCommand, DrawMark, DrawTexture, TextureId};
 pub use geometry::{
     pos2, vec2, Align, Align2, CornerRadius, CursorIcon, Direction, FontFamily, FontId, Layout, Margin, Pos2, Rect,
     StrokeKind, Vec2,
@@ -74,6 +76,8 @@ pub use widgets_keyframe_timeline::{Keyframe, KeyframeRow, KeyframeTimeline, Key
 pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
 pub use widgets_pads::{Pad, PadEvent, PadGrid, PadGridOptions, PadGridResponse, PadKind};
 pub use widgets_sheet::{col_letters, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions, SheetResponse};
+pub use widgets_layout::{card, Bar, BarStyle, BarZone, CardStyle, Segmented, Split, SplitStyle};
+pub use widgets_piano_roll::{PianoRoll, PianoRollEvent, PianoRollNote, PianoRollStyle};
 pub use widgets_tabs::{layout_tabs, Tab, TabBar, TabBarEvent, TabBarResponse, TabSlot};
 pub use widgets_tracks::{MiniNote, Track, TrackClip, TrackView, TrackViewEvent, TrackViewOptions, TrackViewResponse};
 pub use widgets_tree::{TreeEvent, TreeNode, TreeResponse, TreeView};
@@ -100,11 +104,15 @@ pub struct RichText {
     /// button in/out frame by frame (its own animation timer drives this every frame; there is no
     /// engine-side tweening) without needing a whole separate "ghost" draw path.
     pub alpha: f32,
+    /// Fixed-width digits, for readouts that change while you watch them (a position, a tempo).
+    pub monospace: bool,
+    /// Break onto further lines at word boundaries to fit the available width (labels only).
+    pub wrap: bool,
 }
 
 impl RichText {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), strong: false, italics: false, color: None, font_size: None, alpha: 1.0 }
+        Self { text: text.into(), strong: false, italics: false, color: None, font_size: None, alpha: 1.0, monospace: false, wrap: false }
     }
     pub fn strong(mut self) -> Self {
         self.strong = true;
@@ -120,6 +128,14 @@ impl RichText {
     }
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = Some(size);
+        self
+    }
+    pub fn monospace(mut self) -> Self {
+        self.monospace = true;
+        self
+    }
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
         self
     }
     pub fn alpha(mut self, a: f32) -> Self {

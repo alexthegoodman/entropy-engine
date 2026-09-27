@@ -255,6 +255,14 @@ impl Ui {
         // Clamp to a single row's height as a single-pass estimate.
         if matches!(layout.main_dir, Direction::LeftToRight | Direction::RightToLeft) {
             let row_height = self.style().spacing.interact_size.y;
+            // A row nested in a taller, vertically centred row (a toolbar) is centred with its
+            // siblings rather than pinned to the toolbar's top edge.
+            let parent_is_centred_row = matches!(self.layout.main_dir, Direction::LeftToRight | Direction::RightToLeft)
+                && self.layout.cross_align == Align::Center
+                && self.max_rect.height() > row_height + 1.0;
+            if parent_is_centred_row {
+                region.min.y = self.max_rect.center().y - row_height * 0.5;
+            }
             region.max.y = region.min.y + row_height;
         }
         let mut child = Ui::new(self.ctx.clone(), self.next_auto_id("child"), region, layout, self.clip_rect, self.draw_target);

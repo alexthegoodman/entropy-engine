@@ -2063,7 +2063,7 @@ function renderSpaceWindow(win: string) {
 // the song into an MP4 with an audio-reactive visualizer. The look is saved with the song
 // (daw_visualizer.ts); the preview and the export are drawn by the same renderer (src/music_video),
 // so what the preview shows is what the file will contain. The export bounces the song to a
-// temporary WAV exactly like Export Song to WAV, then renders on a background thread while the DAW
+// temporary WAV exactly like Export WAV, then renders on a background thread while the DAW
 // keeps working; progress shows here and in a toast.
 
 let visualizerWindowId: string | null = null;
@@ -4849,20 +4849,6 @@ function saveStatusText(): string {
 }
 
 // The song bar: which song is open, whether it is saved, and the way into Songs and History.
-function renderSongBar(win: string) {
-    const W = Entropy.UI.Widget;
-    W.horizontal(win, (row: string) => {
-        W.label(row, { text: withIcon("music-notes", currentSongName()), bold: true });
-        W.label(row, { text: saveStatusText() });
-        W.button(row, { text: withIcon("folder-open", songsVisible ? "Hide Songs" : "Songs"), id: "songs_toggle", selected: songsVisible, tooltip: "Your songs: open, copy, rename or delete", shortcut: "Ctrl+O", onClick: () => { setSongsVisible(!songsVisible); } });
-        W.button(row, { text: withIcon("clock-counter-clockwise", historyVisible ? "Hide History" : "History"), id: "history_toggle", selected: historyVisible, tooltip: "Earlier versions of this song", onClick: () => { setHistoryVisible(!historyVisible); } });
-        W.button(row, { text: withIcon("floppy-disk", "Save version"), id: "song_save_version", tooltip: "Keep a version of the song as it is now (it is always saved)", shortcut: "Ctrl+S", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
-    });
-    // The outcome of a library action shows as an app-wide toast (see `toast`), which does not
-    // push the layout down the way an inline row here did. The Songs and History windows still
-    // show it inline, next to what was done.
-}
-
 function renderToast(win: string) {
     const t = libraryToast;
     if (!t) return;
@@ -5187,6 +5173,60 @@ const SNAP_MODES: SnapMode[] = ["bar", "beat", "step"];
 const SNAP_LABELS = ["Bar", "Beat", "Step"];
 const TRANSPORT_MODES: TransportMode[] = ["song", "pattern"];
 
+// The workspace: one view fills the main area (Arrange, Piano Roll or Mixer) and the inspector
+// beside it holds the active track's sound, character, effects and moves. Neither is saved with
+// the song; they are how this window is arranged, not part of the music.
+type DawView = "arrange" | "roll" | "mixer";
+type InspectorTab = "sound" | "character" | "fx" | "moves";
+const DAW_VIEWS: { id: DawView; label: string; icon: IconName; key: string }[] = [
+    { id: "arrange", label: "Arrange", icon: "rows", key: "1" },
+    { id: "roll", label: "Piano Roll", icon: "piano-keys", key: "2" },
+    { id: "mixer", label: "Mixer", icon: "sliders-horizontal", key: "3" },
+];
+const INSPECTOR_TABS: { id: InspectorTab; label: string }[] = [
+    { id: "sound", label: "Sound" },
+    { id: "character", label: "Character" },
+    { id: "fx", label: "FX" },
+    { id: "moves", label: "Moves" },
+];
+let dawView: DawView = "arrange";
+let inspectorOpen = true;
+let inspectorTab: InspectorTab = "sound";
+// Scroll the arrangement along with the playhead while the song plays.
+let followPlayhead = true;
+// Piano roll row height: "Fit" stretches the rows to the room there is.
+const ROLL_SIZES = ["Fit", "S", "M", "L"];
+const ROLL_ROW_HEIGHTS = [0, 20, 28, 38];
+let rollSize = 0;
+
+function setDawView(view: string) {
+    const next = DAW_VIEWS.find(v => v.id === view);
+    if (next) dawView = next.id;
+}
+
+function openMoves() {
+    inspectorOpen = true;
+    inspectorTab = "moves";
+}
+
+// The workspace palette: the tracks widget's navy greys, with amber for time (playhead, play) and
+// one lighter step per layer so the header, toolbars, views and cards read as separate surfaces.
+type RGBA = [number, number, number, number];
+const rgb = (r: number, g: number, b: number, a = 1): RGBA => [r / 255, g / 255, b / 255, a];
+const UI = {
+    header: rgb(19, 22, 32),
+    nav: rgb(16, 18, 25),
+    toolbar: rgb(18, 21, 31),
+    view: rgb(14, 16, 22),
+    panel: rgb(19, 22, 32),
+    card: rgb(24, 27, 38),
+    cardLine: rgb(36, 41, 56),
+    line: rgb(35, 40, 54),
+    dim: rgb(136, 144, 166),
+    amber: rgb(255, 189, 72),
+    warn: rgb(240, 139, 160),
+};
+
 // What the BPM box shows. It is a draft rather than a mirror of project.bpm: typing "1" on the
 // way to "140" must not be clamped to 20 under the user's fingers, so the box keeps what was
 // typed and only follows project.bpm when something other than typing changed it.
@@ -5253,46 +5293,55 @@ addon.onInit(async () => {
     // its slot on the track (see loadTrackInstrument), so the failure is visible instead of silent.
     project.tracks.forEach(t => { if (t.instrument) loadTrackInstrument(t, t.instrument); });
 
-    const renderInstrumentPanel = (tabId: string, track: Track) => {
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("plug", `${track.name} - Instrument (VST3)`), (tid: string) => {
+    const W = Entropy.UI.Widget;
+
+    // A card with a small caps-style title: how the inspector and the moves group their controls.
+    const section = (parent: string, id: string, title: string, body: (card: string) => void) => {
+        W.card(parent, { id, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 10 }, (card: string) => {
+            W.label(card, { text: title, bold: true, fontSize: 12.5 });
+            body(card);
+        });
+    };
+
+    // The track's plugin, when it plays through a VST3 instead of the built-in voice.
+    const renderInstrumentPanel = (parent: string, track: Track) => {
+        section(parent, "instrument_panel", withIcon("plug", "Instrument (VST3)"), (tid: string) => {
             const runtime = vst3Runtime[track.id];
 
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.button(tid2, {
+            W.horizontal(tid, (tid2: string) => {
+                W.button(tid2, {
                     text: vst3Catalog.length === 0 ? "Find VST3 plugins" : "Rescan",
                     id: "vst3_scan",
                     onClick: () => { scanVst3Plugins(vst3Catalog.length > 0); }
                 });
-                Entropy.UI.Widget.label(tid2, { text: vst3ScanStatus });
             });
+            W.label(tid, { text: vst3ScanStatus, color: UI.dim, fontSize: 12, wrap: true });
 
             if (vst3Catalog.length > 0) {
-                Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                    Entropy.UI.Widget.button(tid2, {
-                        text: radio(!track.instrument) + "Built-in",
-                        id: "vst3_use_builtin",
-                        onClick: () => { clearTrackInstrument(track); persist(); }
-                    });
-                    vst3Catalog.forEach(plugin => {
-                        Entropy.UI.Widget.button(tid2, {
-                            text: radio(track.instrument?.path === plugin.path) + plugin.name,
-                            id: "vst3_use_" + vst3Slug(plugin.name),
-                            onClick: () => {
-                                loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
-                                persist();
-                            }
-                        });
+                W.button(tid, {
+                    text: radio(!track.instrument) + "Built-in",
+                    id: "vst3_use_builtin",
+                    onClick: () => { clearTrackInstrument(track); persist(); }
+                });
+                vst3Catalog.forEach(plugin => {
+                    W.button(tid, {
+                        text: radio(track.instrument?.path === plugin.path) + plugin.name,
+                        id: "vst3_use_" + vst3Slug(plugin.name),
+                        onClick: () => {
+                            loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
+                            persist();
+                        }
                     });
                 });
             }
 
             if (track.instrument) {
-                Entropy.UI.Widget.label(tid, { text: runtime?.status ?? "Not loaded", bold: true });
+                W.label(tid, { text: runtime?.status ?? "Not loaded", bold: true });
                 if (runtime?.ok) {
                     const db = runtime.peak > 0.00001 ? (20 * Math.log10(runtime.peak)).toFixed(1) + " dB" : "silent";
-                    Entropy.UI.Widget.label(tid, { text: `Output level: ${db}` });
-                    Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                        Entropy.UI.Widget.button(tid2, {
+                    W.label(tid, { text: `Output level: ${db}` });
+                    W.horizontal(tid, (tid2: string) => {
+                        W.button(tid2, {
                             text: "Open Editor",
                             id: "vst3_open_editor",
                             onClick: () => {
@@ -5300,12 +5349,12 @@ addon.onInit(async () => {
                                 if (!r.ok) vst3Runtime[track.id].status = `Editor: ${r.error}`;
                             }
                         });
-                        Entropy.UI.Widget.button(tid2, {
+                        W.button(tid2, {
                             text: "Close Editor",
                             id: "vst3_close_editor",
                             onClick: () => { addon.Vst3.closeEditor(track.id); }
                         });
-                        Entropy.UI.Widget.button(tid2, {
+                        W.button(tid2, {
                             text: "All Notes Off",
                             id: "vst3_all_notes_off",
                             onClick: () => { addon.Vst3.allNotesOff(track.id); }
@@ -5313,38 +5362,41 @@ addon.onInit(async () => {
                     });
                 }
             }
-        }, "instrument_panel", true);
+        });
     };
 
-    // The transport bar: everything you reach for while the song is running, in one row.
-    const renderTransportBar = (tabId: string) => {
+    // ---- Header: the song on the left, the transport in the middle, windows and export on the right ----
+    const renderHeader = (tabId: string) => {
         syncBpmDraft();
-        Entropy.UI.Widget.group(tabId, (tid: string) => {
-            renderSongBar(tid);
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.button(tid2, {
-                    text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),
-                    id: "transport_toggle",
-                    onClick: () => { transport.playing ? stop() : play(); }
-                });
-                Entropy.UI.Widget.button(tid2, {
+        W.bar(tabId, { id: "daw_header", height: 52, fill: UI.header, border: UI.line, paddingX: 12 },
+            (left: string) => {
+                W.label(left, { text: withIcon("music-notes", currentSongName()), bold: true, fontSize: 15 });
+                W.label(left, { text: saveStatusText(), color: UI.dim, fontSize: 12 });
+                W.button(left, { text: icon("folder-open"), id: "songs_toggle", frame: false, selected: songsVisible, tooltip: "Your songs: open, copy, rename or delete", shortcut: "Ctrl+O", onClick: () => { setSongsVisible(!songsVisible); } });
+                W.button(left, { text: icon("clock-counter-clockwise"), id: "history_toggle", frame: false, selected: historyVisible, tooltip: "Earlier versions of this song", onClick: () => { setHistoryVisible(!historyVisible); } });
+                W.button(left, { text: icon("floppy-disk"), id: "song_save_version", frame: false, tooltip: "Keep a version of the song as it is now (it is always saved)", shortcut: "Ctrl+S", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
+            },
+            (center: string) => {
+                W.button(center, {
                     text: withIcon("skip-back", "Rewind"),
                     id: "transport_rewind",
+                    frame: false,
                     tooltip: "Back to the start of the song",
                     onClick: () => { rewind(); }
                 });
-                Entropy.UI.Widget.textInput(tid2, {
-                    label: "BPM",
-                    id: "bpm_input",
-                    value: bpmDraft,
-                    width: 64,
-                    onChange: (v: string) => { commitBpmText(v); }
+                // While playing, the button brightens on every beat and fades until the next: a
+                // click you can see.
+                const beatPhase = transport.playing ? (currentStepFloat() / Math.max(1, project.stepsPerBeat)) % 1 : 1;
+                const glow = Math.pow(1 - beatPhase, 3) * 0.45;
+                const playFill: RGBA = [0, 1, 2].map(i => UI.amber[i] + (1 - UI.amber[i]) * glow).concat(1) as RGBA;
+                W.button(center, {
+                    text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),
+                    id: "transport_toggle",
+                    accent: playFill,
+                    minWidth: 84,
+                    onClick: () => { transport.playing ? stop() : play(); }
                 });
-                Entropy.UI.Widget.button(tid2, { text: "-", id: "bpm_down", tooltip: "Slower: 1 BPM down", onClick: () => { nudgeBpm(-1); } });
-                Entropy.UI.Widget.button(tid2, { text: "+", id: "bpm_up", tooltip: "Faster: 1 BPM up", onClick: () => { nudgeBpm(1); } });
-                Entropy.UI.Widget.label(tid2, { text: positionReadout(), bold: true });
-                Entropy.UI.Widget.dropdown(tid2, {
-                    label: "Play",
+                W.segmented(center, {
                     id: "transport_mode",
                     options: ["Song", "Pattern loop"],
                     selectedIndex: TRANSPORT_MODES.indexOf(transport.mode),
@@ -5356,37 +5408,48 @@ addon.onInit(async () => {
                         if (wasPlaying) play();
                     }
                 });
-                Entropy.UI.Widget.button(tid2, {
-                    text: withIcon("download-simple", "Export Song to WAV"),
-                    id: "export_wav",
-                    disabled: !!wavExport,
-                    onClick: () => { exportPatternToWav(); }
+                W.label(center, { text: positionReadout(), monospace: true, color: UI.amber, fontSize: 13.5 });
+                W.textInput(center, {
+                    label: "BPM",
+                    id: "bpm_input",
+                    value: bpmDraft,
+                    width: 52,
+                    onChange: (v: string) => { commitBpmText(v); }
                 });
-                Entropy.UI.Widget.button(tid2, {
-                    text: visualizerVisible ? "Hide Music Video" : withIcon("film-strip", "Music Video"),
-                    id: "toggle_visualizer",
-                    selected: visualizerVisible,
-                    tooltip: "Turn the song into an MP4 with a visualizer that moves to the music",
-                    onClick: () => { setVisualizerVisible(!visualizerVisible); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: analyzerVisible ? "Hide Analyzer" : withIcon("chart-bar", "Show Analyzer"),
+                W.button(center, { text: "-", id: "bpm_down", tooltip: "Slower: 1 BPM down", onClick: () => { nudgeBpm(-1); } });
+                W.button(center, { text: "+", id: "bpm_up", tooltip: "Faster: 1 BPM up", onClick: () => { nudgeBpm(1); } });
+            },
+            (right: string) => {
+                W.button(right, {
+                    text: icon("chart-bar"),
                     id: "toggle_analyzer",
+                    frame: false,
+                    selected: analyzerVisible,
+                    tooltip: analyzerVisible ? "Hide the analyzer" : "Show the analyzer: spectrum, scope and levels",
                     onClick: () => { setAnalyzerVisible(!analyzerVisible); }
                 });
-                Entropy.UI.Widget.button(tid2, {
-                    text: withIcon("cube", "Reverb & EQ"),
+                W.button(right, {
+                    text: icon("cube"),
                     id: "toggle_space",
+                    frame: false,
                     selected: spaceVisible,
-                    tooltip: "The track's reverb as a 3D room, and its EQ over what it is playing",
+                    tooltip: "Reverb & EQ: the track's reverb as a 3D room, and its EQ over what it is playing",
                     onClick: () => { setSpaceVisible(!spaceVisible); }
+                });
+                W.button(right, {
+                    text: icon("film-strip"),
+                    id: "toggle_visualizer",
+                    frame: false,
+                    selected: visualizerVisible,
+                    tooltip: "Music video: turn the song into an MP4 with a visualizer that moves to the music",
+                    onClick: () => { setVisualizerVisible(!visualizerVisible); }
                 });
                 // The instrument windows share one menu so the bar does not run out of room. It
                 // always shows its title; picking an entry opens (or closes) that window, and the
                 // open ones are ticked.
                 const instruments = instrumentWindows();
                 const open = instruments.filter(i => i.open).length;
-                Entropy.UI.Widget.dropdown(tid2, {
+                W.dropdown(right, {
                     label: "",
                     id: "instrument_windows",
                     options: [
@@ -5396,15 +5459,81 @@ addon.onInit(async () => {
                     selectedIndex: 0,
                     onChange: (idx: string) => { instruments[parseInt(idx, 10) - 1]?.toggle(); }
                 });
+                W.button(right, {
+                    text: withIcon("download-simple", "Export WAV"),
+                    id: "export_wav",
+                    disabled: !!wavExport,
+                    tooltip: "Render the whole song to a WAV file",
+                    onClick: () => { exportPatternToWav(); }
+                });
+                W.levelMeter(right, { id: "meter_master", source: "master", width: 16, height: 32 });
             });
-            const bpmValue = parseFloat(bpmDraft);
-            if (!(bpmValue >= BPM_MIN && bpmValue <= BPM_MAX)) {
-                Entropy.UI.Widget.label(tid, { text: `BPM must be between ${BPM_MIN} and ${BPM_MAX}.` });
-            }
-            if (lastExportStatus) {
-                Entropy.UI.Widget.label(tid, { text: lastExportStatus });
-            }
-        });
+    };
+
+    // ---- The view switcher, what is being edited, and the inspector toggle ----
+    const renderViewBar = (tabId: string, track: Track | undefined) => {
+        W.bar(tabId, { id: "daw_views", height: 40, fill: UI.nav, border: UI.line, paddingX: 8 },
+            (left: string) => {
+                W.tabBar(left, {
+                    id: "daw_view",
+                    stretch: false,
+                    tabs: DAW_VIEWS.map(v => ({ id: v.id, label: withIcon(v.icon, v.label) })),
+                    selected: dawView,
+                    onSelect: (id: string) => { setDawView(id); }
+                });
+            },
+            undefined,
+            (right: string) => {
+                if (track) {
+                    W.label(right, { text: "Editing", color: UI.dim, fontSize: 12 });
+                    W.label(right, { text: `${track.name}  ›  ${activePattern(track).name}`, bold: true, color: trackRgba(track), fontSize: 12.5 });
+                }
+                W.button(right, {
+                    text: withIcon("sidebar-simple", "Inspector"),
+                    id: "toggle_inspector",
+                    frame: false,
+                    selected: inspectorOpen,
+                    tooltip: "Show or hide the track inspector",
+                    shortcut: "I",
+                    onClick: () => { inspectorOpen = !inspectorOpen; }
+                });
+            });
+    };
+
+    // ---- Status bar: hints and warnings on the left, the selection on the right ----
+    const selectionText = (): string => {
+        const selected = selectedClip();
+        const t = selected ? findTrack(selected.trackId) : undefined;
+        const pat = t?.patterns.find(p => p.id === selected?.patternId);
+        if (!selected || !t || !pat) return "";
+        const bar = barSteps(project.stepsPerBeat);
+        return `${t.name} - ${pat.name}: bar ${Math.floor(selected.startStep / bar) + 1} for ${(selected.lengthSteps / bar).toFixed(selected.lengthSteps % bar === 0 ? 0 : 2)} bar(s)`;
+    };
+
+    const viewHint = (): string => {
+        if (dawView === "roll") return "Click or drag to paint, click a note to erase. Pick the pattern and its length above.";
+        if (dawView === "mixer") return "Levels, gain, mute and solo for every track.";
+        return "Drag on an empty lane to draw a clip. Drag a clip to move it, drag its edges to resize, right-click for Duplicate or Delete. Hold Alt to skip snapping, Ctrl+wheel to zoom.";
+    };
+
+    const renderStatusBar = (tabId: string) => {
+        W.bar(tabId, { id: "daw_status", height: 28, fill: UI.nav, border: UI.line, borderTop: true, paddingX: 12 },
+            (left: string) => {
+                const bpmValue = parseFloat(bpmDraft);
+                if (!(bpmValue >= BPM_MIN && bpmValue <= BPM_MAX)) {
+                    W.label(left, { text: `BPM must be between ${BPM_MIN} and ${BPM_MAX}.`, color: UI.warn, fontSize: 12 });
+                }
+                if (lastExportStatus) {
+                    W.label(left, { text: lastExportStatus, fontSize: 12 });
+                }
+                const hint = dawView === "arrange" && arrangementStatus ? arrangementStatus : (lastExportStatus ? "" : viewHint());
+                if (hint) W.label(left, { text: hint, color: UI.dim, fontSize: 12 });
+            },
+            undefined,
+            (right: string) => {
+                const sel = selectionText();
+                if (sel) W.label(right, { text: sel, fontSize: 12 });
+            });
     };
 
     const arrangementTracks = () => laneTracks(project.tracks).map((track, channel) => {
@@ -5434,79 +5563,6 @@ addon.onInit(async () => {
             })
         };
     });
-
-    const renderArrangement = (tabId: string) => {
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("rows", "Arrangement"), (tid: string) => {
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.dropdown(tid2, {
-                    label: "Snap",
-                    id: "arr_snap",
-                    options: SNAP_LABELS,
-                    selectedIndex: Math.max(0, SNAP_MODES.indexOf(project.snap)),
-                    onChange: (idx: string) => { setSnap(SNAP_MODES[parseInt(idx, 10)] ?? "bar"); }
-                });
-                Entropy.UI.Widget.numericInput(tid2, {
-                    label: "Song bars",
-                    id: "arr_bars",
-                    value: project.songBars,
-                    onChange: (v: string) => { setSongBars(parseFloat(v) || project.songBars); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: "+ Synth Track",
-                    id: "add_synth_track",
-                    onClick: () => { addTrack("synth"); persist(); }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: "+ Drum Track",
-                    id: "add_drum_track",
-                    onClick: () => { addTrack("drum"); persist(); }
-                });
-            });
-
-            const bar = barSteps(project.stepsPerBeat);
-            const sm = stepMs(project.bpm, project.stepsPerBeat);
-            const selected = selectedClip();
-            Entropy.UI.Widget.tracks(tid, {
-                id: "arrangement",
-                durationMs: stepToMs(songSteps(project), project.bpm, project.stepsPerBeat),
-                playheadMs: Math.round(currentStepFloat() % Math.max(1, songSteps(project)) * sm),
-                tracks: arrangementTracks(),
-                selected: selected ? { track: selected.trackId, clip: selected.id } : undefined,
-                options: {
-                    laneHeight: 34,
-                    labelWidth: 176,
-                    snapMs: Math.max(1, Math.round(snapUnitSteps(project.snap, project.stepsPerBeat) * sm)),
-                    barMs: Math.max(1, Math.round(bar * sm)),
-                    beatMs: Math.max(1, Math.round(project.stepsPerBeat * sm)),
-                    fitOnOpen: true,
-                    zoomNeedsCtrl: true,
-                    allowDraw: true,
-                    laneNumbers: true,
-                    activeTrack: project.activeTrackId ?? undefined,
-                    followPlayhead: transport.playing,
-                    rightGutter: 16
-                },
-                onSeek: onArrangementSeek,
-                onClipSelected: onArrangementClipSelected,
-                onClipMoved: onArrangementClipMoved,
-                onClipResized: onArrangementClipResized,
-                onClipDelete: onArrangementClipDelete,
-                onClipDuplicate: onArrangementClipDuplicate,
-                onClipCreate: onArrangementClipCreate,
-                onTrackClicked: onArrangementTrackClicked,
-                onTrackMute: onArrangementTrackMute,
-                onTrackSolo: onArrangementTrackSolo,
-                onBackgroundClicked: onArrangementBackground
-            });
-
-            const t = selected ? findTrack(selected.trackId) : undefined;
-            const pat = t?.patterns.find(p => p.id === selected?.patternId);
-            const hint = selected && t && pat
-                ? `${t.name} - ${pat.name}: bar ${Math.floor(selected.startStep / bar) + 1} for ${(selected.lengthSteps / bar).toFixed(selected.lengthSteps % bar === 0 ? 0 : 2)} bar(s)`
-                : "Drag on an empty lane to draw a clip. Drag a clip to move it, drag its edges to resize, right-click for Duplicate or Delete. Hold Alt to skip snapping, Ctrl+wheel to zoom.";
-            Entropy.UI.Widget.label(tid, { text: arrangementStatus || hint });
-        }, "arrangement_panel", true);
-    };
 
     // Oscilloscope, spectrum, goniometer and a level meter over one source: the whole mix or a
     // single track. All four read the audio engine's analysis taps Rust-side when they are drawn;
@@ -5584,414 +5640,173 @@ addon.onInit(async () => {
         Entropy.UI.Widget.label(win, { text: analyzerReadout() });
     };
 
-    const renderDAWUI = (tabId: string) => {
-        renderTransportBar(tabId);
-        renderArrangement(tabId);
-
-        // Mixer: one channel-strip group per track, laid out side by side like a real mixing
-        // console instead of a flat vertical list of rows.
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("sliders-horizontal", "Mixer"), (tid: string) => {
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                    Entropy.UI.Widget.label(tid3, { text: "Master", bold: true });
-                    Entropy.UI.Widget.levelMeter(tid3, { id: "meter_master", source: "master", width: 34, height: 84, showScale: true });
+    // ---- Arrange: a slim toolbar over the sixteen channels ----
+    const renderArrangeView = (tid: string) => {
+        W.bar(tid, { id: "arr_toolbar", height: 42, fill: UI.toolbar, border: UI.line, paddingX: 10 },
+            (left: string) => {
+                W.segmented(left, {
+                    label: "Snap",
+                    id: "arr_snap",
+                    options: SNAP_LABELS,
+                    selectedIndex: Math.max(0, SNAP_MODES.indexOf(project.snap)),
+                    onChange: (idx: string) => { setSnap(SNAP_MODES[parseInt(idx, 10)] ?? "bar"); }
                 });
-                project.tracks.forEach(track => {
-                    Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                        Entropy.UI.Widget.button(tid3, {
-                            text: (track.id === project.activeTrackId ? icon("play") + " " : "") + track.name,
-                            id: "select_track_" + project.tracks.indexOf(track),
-                            onClick: () => { project.activeTrackId = track.id; }
-                        });
-                        Entropy.UI.Widget.levelMeter(tid3, { id: "meter_" + track.id, source: track.id, width: 34, height: 44 });
-                        Entropy.UI.Widget.slider(tid3, {
-                            label: "Gain",
-                            value: track.gain, min: 0, max: 1,
-                            onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
-                        });
-                        Entropy.UI.Widget.horizontal(tid3, (tid4: string) => {
-                            Entropy.UI.Widget.checkbox(tid4, {
-                                label: "M",
-                                value: track.muted,
-                                onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
-                            });
-                            Entropy.UI.Widget.checkbox(tid4, {
-                                label: "S",
-                                value: track.solo,
-                                onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
-                            });
-                        });
-                        Entropy.UI.Widget.button(tid3, {
-                            text: withIcon("trash", "Delete"),
-                            onClick: () => {
-                                removeTrack(track);
-                                persist();
-                            }
-                        });
-                    });
+                W.numericInput(left, {
+                    label: "Song bars",
+                    id: "arr_bars",
+                    value: project.songBars,
+                    onChange: (v: string) => { setSongBars(parseFloat(v) || project.songBars); }
                 });
+                W.button(left, { text: withIcon("plus", "Synth track"), id: "add_synth_track", frame: false, tooltip: "A new synth track on the lowest free channel", onClick: () => { addTrack("synth"); persist(); } });
+                W.button(left, { text: withIcon("plus", "Drum track"), id: "add_drum_track", frame: false, tooltip: "A new drum rack on the lowest free channel", onClick: () => { addTrack("drum"); persist(); } });
+            },
+            undefined,
+            (right: string) => {
+                W.button(right, { text: withIcon("magic-wand", "Moves"), id: "arr_open_moves", frame: false, tooltip: "One-click edits: variations, builds, drops and echoes", onClick: openMoves });
+                W.button(right, { text: withIcon("arrow-line-right", "Follow"), id: "arr_follow", frame: false, selected: followPlayhead, tooltip: "Scroll with the playhead while the song plays", onClick: () => { followPlayhead = !followPlayhead; } });
             });
-        }, "mixer_panel", true);
 
-        const track = getActiveTrack();
+        const bar = barSteps(project.stepsPerBeat);
+        const sm = stepMs(project.bpm, project.stepsPerBeat);
+        const selected = selectedClip();
+        W.tracks(tid, {
+            id: "arrangement",
+            durationMs: stepToMs(songSteps(project), project.bpm, project.stepsPerBeat),
+            playheadMs: Math.round(currentStepFloat() % Math.max(1, songSteps(project)) * sm),
+            tracks: arrangementTracks(),
+            selected: selected ? { track: selected.trackId, clip: selected.id } : undefined,
+            options: {
+                laneHeight: 56,
+                // Empty channels stay one click away but take half the room.
+                placeholderLaneHeight: 28,
+                labelWidth: 196,
+                snapMs: Math.max(1, Math.round(snapUnitSteps(project.snap, project.stepsPerBeat) * sm)),
+                barMs: Math.max(1, Math.round(bar * sm)),
+                beatMs: Math.max(1, Math.round(project.stepsPerBeat * sm)),
+                fitOnOpen: true,
+                zoomNeedsCtrl: true,
+                allowDraw: true,
+                laneNumbers: true,
+                activeTrack: project.activeTrackId ?? undefined,
+                followPlayhead: transport.playing && followPlayhead,
+                rightGutter: 16
+            },
+            onSeek: onArrangementSeek,
+            onClipSelected: onArrangementClipSelected,
+            onClipMoved: onArrangementClipMoved,
+            onClipResized: onArrangementClipResized,
+            onClipDelete: onArrangementClipDelete,
+            onClipDuplicate: onArrangementClipDuplicate,
+            onClipCreate: onArrangementClipCreate,
+            onTrackClicked: onArrangementTrackClicked,
+            onTrackMute: onArrangementTrackMute,
+            onTrackSolo: onArrangementTrackSolo,
+            onBackgroundClicked: onArrangementBackground
+        });
+    };
+
+    // ---- Piano Roll: the pattern being edited gets the whole view ----
+    const renderRollView = (tid: string, track: Track | undefined) => {
         if (!track) {
-            Entropy.UI.Widget.label(tabId, { text: "Add a track to begin." });
+            W.label(tid, { text: "Add a track to begin." });
             return;
         }
-
-        renderInstrumentPanel(tabId, track);
-
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("piano-keys", `${track.name} - Voice`), (tid: string) => {
-            if (track.instrument) {
-                Entropy.UI.Widget.label(tid, { text: `${track.instrument.name} is this track's instrument - the built-in oscillator and envelope are bypassed. Gain, mute, solo and Effects still apply.` });
-                return;
-            }
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                    Entropy.UI.Widget.label(tid3, { text: "Oscillator", bold: true });
-
-                    if (track.kind === "synth") {
-                        const wfIndex = Math.max(0, WAVEFORMS.indexOf(track.voice.waveform));
-                        Entropy.UI.Widget.dropdown(tid3, {
-                            label: "Waveform",
-                            options: WAVEFORMS,
-                            selectedIndex: wfIndex,
-                            onChange: (idx: string) => { track.voice.waveform = WAVEFORMS[parseInt(idx, 10)]; persist(); }
-                        });
-
-                        const scaleIndex = Math.max(0, SCALE_NAMES.indexOf(track.scale));
-                        Entropy.UI.Widget.dropdown(tid3, {
-                            label: "Scale",
-                            options: SCALE_NAMES,
-                            selectedIndex: scaleIndex,
-                            onChange: (idx: string) => { track.scale = SCALE_NAMES[parseInt(idx, 10)]; persist(); }
-                        });
-
-                        Entropy.UI.Widget.numericInput(tid3, {
-                            label: "Root Note (MIDI)",
-                            value: track.rootNote,
-                            onChange: (v: string) => { track.rootNote = parseFloat(v) || track.rootNote; persist(); }
-                        });
-
-                        Entropy.UI.Widget.numericInput(tid3, {
-                            label: "Rows (octave span)",
-                            value: track.rows,
-                            onChange: (v: string) => { track.rows = Math.max(1, Math.round(parseFloat(v)) || track.rows); persist(); }
-                        });
-                    }
-
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
-                        value: track.voice.cutoff, min: 100, max: 20000,
-                        onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); }
-                    });
-
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Resonance",
-                        value: track.voice.resonance, min: 0.1, max: 10,
-                        onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); }
-                    });
-                });
-
-                Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                    Entropy.UI.Widget.label(tid3, { text: "Envelope", bold: true });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Attack",
-                        value: track.voice.attack, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Decay",
-                        value: track.voice.decay, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Sustain",
-                        value: track.voice.sustain, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Release",
-                        value: track.voice.release, min: 0, max: 2,
-                        onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
-                    });
-                });
-            });
-        });
-
-        // FX: each track owns exactly one shared delay + reverb Entropy.AudioEffect instance
-        // (see syncTrackBus) - these sliders edit that instance's live params, not a per-note
-        // config anymore.
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("sparkle", "Effects"), (tid: string) => {
-            Entropy.UI.Widget.button(tid, {
-                text: withIcon("cube", spaceVisible ? "Hide Reverb & EQ" : "Open Reverb & EQ"),
-                id: "effects_open_space",
-                tooltip: "See the reverb as a 3D room and shape the track with a six-band EQ",
-                onClick: () => { setSpaceVisible(!spaceVisible); }
-            });
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                    Entropy.UI.Widget.label(tid3, { text: "Delay", bold: true });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Time (s)",
-                        value: track.voice.delayTime, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Feedback",
-                        value: track.voice.delayFeedback, min: 0, max: 0.95,
-                        onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Mix",
-                        value: track.voice.delayMix, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
-                    });
-                });
-
-                Entropy.UI.Widget.group(tid2, (tid3: string) => {
-                    Entropy.UI.Widget.label(tid3, { text: "Reverb", bold: true });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Room Size (m)",
-                        value: track.voice.reverbRoomSize, min: 10, max: 30,
-                        onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Time (s)",
-                        value: track.voice.reverbTime, min: 0.1, max: 6,
-                        onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Damping",
-                        value: track.voice.reverbDamping, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
-                    });
-                    Entropy.UI.Widget.slider(tid3, {
-                        label: "Mix",
-                        value: track.voice.reverbMix, min: 0, max: 1,
-                        onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
-                    });
-                });
-            });
-        });
-
-        // Character: one knob per idea. Pump, Gate, Grit and Space are effects on this track's bus;
-        // Bounce and Humanize shape the notes as they play; Acid drives the built-in synth's filter.
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("lightning", `${track.name} - Character`), (tid: string) => {
-            const ch = trackCharacter(track);
-            const knob = (row: string, name: KnobName, label: string) => Entropy.UI.Widget.knob(row, {
-                id: "char_" + name, label, value: ch[name], min: 0, max: 1,
-                onChange: (v: string) => { setCharacterKnob(track, name, parseFloat(v)); }
-            });
-            Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                Entropy.UI.Widget.group(row, (g: string) => {
-                    Entropy.UI.Widget.label(g, { text: "Groove", bold: true });
-                    Entropy.UI.Widget.horizontal(g, (r: string) => {
-                        knob(r, "pump", "Pump");
-                        knob(r, "bounce", "Bounce");
-                        knob(r, "humanize", "Humanize");
-                    });
-                });
-                Entropy.UI.Widget.group(row, (g: string) => {
-                    Entropy.UI.Widget.label(g, { text: "Gate", bold: true });
-                    Entropy.UI.Widget.horizontal(g, (r: string) => {
-                        knob(r, "gate", "Depth");
-                        Entropy.UI.Widget.dropdown(r, {
-                            label: "Pattern", id: "char_gate_pattern", options: GATE_PATTERN_LABELS,
-                            selectedIndex: Math.max(0, GATE_PATTERNS.indexOf(ch.gatePattern)),
-                            onChange: (idx: string) => { setGatePattern(track, GATE_PATTERNS[parseInt(idx, 10)] ?? "sixteenths"); }
-                        });
-                    });
-                });
-                Entropy.UI.Widget.group(row, (g: string) => {
-                    Entropy.UI.Widget.label(g, { text: "Tone", bold: true });
-                    Entropy.UI.Widget.horizontal(g, (r: string) => {
-                        knob(r, "acid", "Acid");
-                        knob(r, "grit", "Grit");
-                        knob(r, "space", "Space");
-                    });
-                });
-            });
-            if (ch.acid > 0 && !acidApplies(track)) {
-                Entropy.UI.Widget.label(tid, { text: "Acid's filter envelope and drive belong to the built-in oscillators (sine, square, saw, triangle, noise); this track follows only the cutoff and resonance it sets." });
-            }
-        }, "character_panel", true);
-
-        // Preview plays through this track's own persistent bus (ensureTrackBus/syncTrackBus),
-        // so it's an honest preview of the track's actual gain/mute/solo/FX, not a bypassed
-        // one-off - the tradeoff is a muted track previews silent too.
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("speaker-high", "Preview"), (tid: string) => {
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                const previewRows = track.kind === "drum" ? ensureRack(track).length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
-                for (let r = 0; r < previewRows; r++) {
-                    const { freq } = noteVoiceAndFreq(track, r);
-                    const label = track.kind === "drum" ? (padAt(track, r)?.name || `Pad ${r + 1}`) : midiToName(rowToMidi(r, track.rootNote, track.scale));
-                    Entropy.UI.Widget.button(tid2, {
-                        text: label,
-                        id: "preview_row_" + r,
-                        onClick: () => {
-                            if (trackUsesVst3(track)) {
-                                playVst3Note(track, r, 1.0, 0.5);
-                                return;
-                            }
-                            if (track.kind === "drum") {
-                                playPad(track, r, 1.0, 0.5);
-                                return;
-                            }
-                            if (isWavetableTrack(track)) {
-                                wavetableNote(track, freq, 1.0, 0.5);
-                                return;
-                            }
-                            addon.Audio.playNoteOnTrack(track.id, builtInNoteConfig(track, freq, 1.0, 0.5));
-                        }
-                    });
-                }
-            });
-        });
-
-        // Moves: one-click edits. The pattern row works on the pattern below; the arrangement row
-        // works at the section boundary nearest the playhead, or on the selected clip.
-        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("magic-wand", "Moves"), (tid: string) => {
-            const act = (fn: () => string) => () => { fn(); };
-            Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                Entropy.UI.Widget.knob(row, {
-                    id: "move_amount", label: "Amount", value: moveOpts.amount, min: 0, max: 1,
-                    onChange: (v: string) => { const x = parseFloat(v); if (Number.isFinite(x)) moveOpts.amount = Math.max(0, Math.min(1, x)); }
-                });
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Vary", id: "move_focus", options: VARIATION_LABELS,
-                    selectedIndex: Math.max(0, VARIATION_FOCI.indexOf(moveOpts.focus)),
-                    onChange: (idx: string) => { moveOpts.focus = VARIATION_FOCI[parseInt(idx, 10)] ?? "mixed"; }
-                });
-                Entropy.UI.Widget.checkbox(row, {
-                    label: "As new pattern", value: moveOpts.variationAsNew,
-                    onChange: (v: any) => { moveOpts.variationAsNew = v === true || v === "true"; }
-                });
-                Entropy.UI.Widget.button(row, { text: withIcon("shuffle", "Make Variation"), id: "move_variation", onClick: act(() => variationMove(track)) });
-                Entropy.UI.Widget.button(row, { text: "Thin Out", id: "move_thin", onClick: act(() => thinOutMove(track)) });
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Stutter", id: "move_stutter_rate", options: ["1/8", "1/16", "1/32"],
-                    selectedIndex: Math.max(0, STUTTER_RATES.indexOf(moveOpts.stutterRate)),
-                    onChange: (idx: string) => { moveOpts.stutterRate = STUTTER_RATES[parseInt(idx, 10)] ?? "16th"; }
-                });
-                Entropy.UI.Widget.button(row, { text: "Stutter", id: "move_stutter", onClick: act(() => stutterMove(track)) });
-                Entropy.UI.Widget.button(row, { text: "Octave Spark", id: "move_spark", onClick: act(() => octaveSparkMove(track)) });
-                Entropy.UI.Widget.button(row, { text: "Answer", id: "move_answer", onClick: act(() => answerMove(track)) });
-            });
-            Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                Entropy.UI.Widget.checkbox(row, {
-                    label: "Align attacks", value: moveOpts.kickAlign,
-                    onChange: (v: any) => { moveOpts.kickAlign = v === true || v === "true"; }
-                });
-                Entropy.UI.Widget.button(row, { text: "Kick Lock", id: "move_kick_lock", onClick: act(() => kickLockMove(track)) });
-                Entropy.UI.Widget.separator(row);
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Build", id: "move_build_bars", options: ["2 bars", "4 bars"],
-                    selectedIndex: moveOpts.buildBars === 2 ? 0 : 1,
-                    onChange: (idx: string) => { moveOpts.buildBars = idx === "0" ? 2 : 4; }
-                });
-                Entropy.UI.Widget.checkbox(row, {
-                    label: "Filter sweep", value: moveOpts.buildSweep,
-                    onChange: (v: any) => { moveOpts.buildSweep = v === true || v === "true"; }
-                });
-                Entropy.UI.Widget.button(row, { text: withIcon("fire", "Build"), id: "move_build", onClick: act(buildMove) });
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Gap", id: "move_gap_length", options: ["Last beat", "Half bar"],
-                    selectedIndex: moveOpts.gapLength === "beat" ? 0 : 1,
-                    onChange: (idx: string) => { moveOpts.gapLength = idx === "0" ? "beat" : "half"; }
-                });
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Cut", id: "move_gap_scope", options: ["Drums", "Everything"],
-                    selectedIndex: moveOpts.gapScope === "drums" ? 0 : 1,
-                    onChange: (idx: string) => { moveOpts.gapScope = idx === "0" ? "drums" : "all"; }
-                });
-                Entropy.UI.Widget.checkbox(row, {
-                    label: "Keep tails", value: moveOpts.keepTails,
-                    onChange: (v: any) => { moveOpts.keepTails = v === true || v === "true"; }
-                });
-                Entropy.UI.Widget.button(row, { text: "Drop Gap", id: "move_drop_gap", onClick: act(dropGapMove) });
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Echo", id: "move_echo_length", options: ["1 beat", "Half bar"],
-                    selectedIndex: moveOpts.echoLength === "beat" ? 0 : 1,
-                    onChange: (idx: string) => { moveOpts.echoLength = idx === "0" ? "beat" : "half"; }
-                });
-                Entropy.UI.Widget.button(row, { text: withIcon("wave-sine", "Echo Out"), id: "move_echo_out", onClick: act(echoOutMove) });
-                Entropy.UI.Widget.button(row, {
-                    text: withIcon("arrow-counter-clockwise", undoStack.length ? `Undo ${undoStack[undoStack.length - 1].label}` : "Undo"),
-                    id: "move_undo", onClick: act(undoMove)
-                });
-            });
-            if (kickPreview) {
-                const lines = kickPreviewLines();
-                Entropy.UI.Widget.label(tid, { text: `Kick Lock preview (playing now): ${lines.length} note${lines.length === 1 ? "" : "s"} change.`, bold: true });
-                for (const line of lines) Entropy.UI.Widget.label(tid, { text: line });
-                Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                    Entropy.UI.Widget.button(row, { text: "Apply", id: "move_kick_apply", onClick: act(applyKickPreview) });
-                    Entropy.UI.Widget.button(row, { text: "Cancel", id: "move_kick_cancel", onClick: () => { cancelKickPreview(); moveStatus = "Kick Lock cancelled."; } });
-                });
-            }
-            for (const cut of projectCuts()) {
-                const names = cut.trackIds.map(id => findTrack(id)?.name).filter(Boolean).join(", ");
-                Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                    Entropy.UI.Widget.label(row, { text: `Hard cut: ${names || "no tracks"} silent from ${barLabel(cut.startStep)} to ${barLabel(cut.endStep)}` });
-                    Entropy.UI.Widget.button(row, { text: withIcon("trash", "Remove"), id: "move_cut_remove_" + cut.id, onClick: () => { removeCut(cut.id); } });
-                });
-            }
-            Entropy.UI.Widget.label(tid, {
-                text: moveStatus || `Build and Drop Gap work before the bar nearest the playhead (now ${barLabel(boundaryStep())}); Echo Out and Answer use the selected clip.`
-            });
-        }, "moves_panel", true);
-
-        // The pattern the piano roll below is editing: pick, add, duplicate, resize, or send it
-        // to the clip that is selected in the arrangement.
         const pattern = activePattern(track);
-        Entropy.UI.Widget.label(tabId, { text: `Piano Roll - ${track.name} / ${pattern.name} (click/drag to paint, click a note to erase)`, bold: true });
-        Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
-            Entropy.UI.Widget.dropdown(tid, {
-                label: "Pattern",
-                id: "pattern_select",
-                options: track.patterns.map(p => p.name),
-                selectedIndex: Math.max(0, track.patterns.findIndex(p => p.id === pattern.id)),
-                onChange: (idx: string) => {
-                    const chosen = track.patterns[parseInt(idx, 10)];
-                    if (chosen) track.activePatternId = chosen.id;
-                }
-            });
-            Entropy.UI.Widget.button(tid, {
-                text: "+ New Pattern",
-                id: "pattern_new",
-                onClick: () => { addPattern(track); persist(); }
-            });
-            Entropy.UI.Widget.button(tid, {
-                text: "Duplicate Pattern",
-                id: "pattern_duplicate",
-                onClick: () => { duplicatePattern(track); persist(); }
-            });
-            Entropy.UI.Widget.button(tid, {
-                text: "Use In Selected Clip",
-                id: "pattern_assign",
-                onClick: () => {
-                    const clip = selectedClip();
-                    if (clip && clip.trackId === track.id) {
-                        clip.patternId = activePattern(track).id;
-                        persist();
+        W.bar(tid, { id: "roll_toolbar", height: 42, fill: UI.toolbar, border: UI.line, paddingX: 10 },
+            (left: string) => {
+                W.dropdown(left, {
+                    label: "",
+                    id: "roll_track",
+                    options: project.tracks.map(t => t.name),
+                    selectedIndex: Math.max(0, project.tracks.indexOf(track)),
+                    onChange: (idx: string) => {
+                        const chosen = project.tracks[parseInt(idx, 10)];
+                        if (chosen) project.activeTrackId = chosen.id;
                     }
-                }
-            });
-            Entropy.UI.Widget.dropdown(tid, {
-                label: "Length",
-                id: "pattern_length",
-                options: PATTERN_LENGTH_LABELS,
-                selectedIndex: patternLengthIndex(pattern),
-                onChange: (idx: string) => {
-                    const bars = PATTERN_LENGTH_BARS[parseInt(idx, 10)];
-                    if (bars) {
-                        activePattern(track).steps = Math.max(1, Math.round(bars * barSteps(project.stepsPerBeat)));
-                        persist();
+                });
+                W.dropdown(left, {
+                    label: "Pattern",
+                    id: "pattern_select",
+                    options: track.patterns.map(p => p.name),
+                    selectedIndex: Math.max(0, track.patterns.findIndex(p => p.id === pattern.id)),
+                    onChange: (idx: string) => {
+                        const chosen = track.patterns[parseInt(idx, 10)];
+                        if (chosen) track.activePatternId = chosen.id;
                     }
-                }
+                });
+                W.button(left, { text: icon("plus"), id: "pattern_new", frame: false, tooltip: "New empty pattern", onClick: () => { addPattern(track); persist(); } });
+                W.button(left, { text: icon("copy"), id: "pattern_duplicate", frame: false, tooltip: "Duplicate this pattern, to make a variation of it", onClick: () => { duplicatePattern(track); persist(); } });
+                W.segmented(left, {
+                    label: "Length",
+                    id: "pattern_length",
+                    options: PATTERN_LENGTH_LABELS,
+                    selectedIndex: patternLengthIndex(pattern),
+                    onChange: (idx: string) => {
+                        const bars = PATTERN_LENGTH_BARS[parseInt(idx, 10)];
+                        if (bars) {
+                            activePattern(track).steps = Math.max(1, Math.round(bars * barSteps(project.stepsPerBeat)));
+                            persist();
+                        }
+                    }
+                });
+                const clip = selectedClip();
+                W.button(left, {
+                    text: withIcon("check-circle", "Use in selected clip"),
+                    id: "pattern_assign",
+                    frame: false,
+                    disabled: !(clip && clip.trackId === track.id),
+                    tooltip: "Play this pattern in the clip selected in the song",
+                    onClick: () => {
+                        const selected = selectedClip();
+                        if (selected && selected.trackId === track.id) {
+                            selected.patternId = activePattern(track).id;
+                            persist();
+                        }
+                    }
+                });
+            },
+            undefined,
+            (right: string) => {
+                W.button(right, { text: withIcon("magic-wand", "Moves"), id: "roll_open_moves", frame: false, tooltip: "One-click edits to this pattern", onClick: openMoves });
+                W.segmented(right, {
+                    label: "Rows",
+                    id: "roll_rows",
+                    options: ROLL_SIZES,
+                    selectedIndex: rollSize,
+                    compact: true,
+                    onChange: (idx: string) => { rollSize = Math.max(0, Math.min(ROLL_SIZES.length - 1, parseInt(idx, 10) || 0)); }
+                });
             });
-        });
+
+        // Where this track plays in the song: its own lane of the arrangement, small. Clicking a
+        // clip selects it (and so its pattern), clicking the ruler seeks.
+        const lane = arrangementTracks().find(l => l.id === track.id);
+        if (lane) {
+            const bar = barSteps(project.stepsPerBeat);
+            const sm = stepMs(project.bpm, project.stepsPerBeat);
+            const selected = selectedClip();
+            W.tracks(tid, {
+                id: "roll_context",
+                durationMs: stepToMs(songSteps(project), project.bpm, project.stepsPerBeat),
+                playheadMs: Math.round(currentStepFloat() % Math.max(1, songSteps(project)) * sm),
+                tracks: [{ ...lane, label: "In song", sublabel: undefined, controls: false }],
+                selected: selected ? { track: selected.trackId, clip: selected.id } : undefined,
+                options: {
+                    laneHeight: 26,
+                    labelWidth: 72,
+                    snapMs: Math.max(1, Math.round(snapUnitSteps(project.snap, project.stepsPerBeat) * sm)),
+                    barMs: Math.max(1, Math.round(bar * sm)),
+                    beatMs: Math.max(1, Math.round(project.stepsPerBeat * sm)),
+                    fitOnOpen: true,
+                    zoomNeedsCtrl: true,
+                    activeTrack: track.id,
+                    followPlayhead: transport.playing && followPlayhead,
+                    rightGutter: 16
+                },
+                onSeek: onArrangementSeek,
+                onClipSelected: onArrangementClipSelected
+            });
+        }
 
         // The widget draws whole steps: a 32nd note (length 0.5) shows as one step.
         const displayCells = pattern.notes.map(n => ({
@@ -6000,8 +5815,15 @@ addon.onInit(async () => {
             length: Math.max(1, Math.round(n.length)),
             velocity: n.velocity
         }));
+        // Tint the root note of every octave so a melody's shape is easy to read.
+        const highlightRows: number[] = [];
+        if (track.kind === "synth" && !isMatterTrack(track)) {
+            for (let r = 0; r < track.rows; r++) {
+                if ((rowToMidi(r, track.rootNote, track.scale) - track.rootNote) % 12 === 0) highlightRows.push(toDisplayRow(track, r));
+            }
+        }
 
-        Entropy.UI.Widget.pianoRoll(tabId, {
+        W.pianoRoll(tid, {
             id: "daw_pianoroll_" + track.id,
             rows: track.rows,
             steps: pattern.steps,
@@ -6009,10 +5831,425 @@ addon.onInit(async () => {
             rowLabels: rowLabelsFor(track),
             cells: displayCells,
             playhead: transport.playing ? pianoRollPlayhead(project, track, currentStepFloat(), transport.mode) : -1,
+            rowHeight: ROLL_ROW_HEIGHTS[rollSize] || undefined,
+            fillHeight: rollSize === 0,
+            color: trackRgba(track),
+            highlightRows,
+            showVelocity: true,
             onNoteDown: (displayRow: number, step: number) => handleNoteDown(toDisplayRow(track, displayRow), step),
             onNoteDrag: (displayRow: number, step: number) => handleNoteDrag(toDisplayRow(track, displayRow), step),
             onNoteUp: (displayRow: number, step: number) => handleNoteUp(toDisplayRow(track, displayRow), step)
         });
+    };
+
+    // ---- Mixer: one channel strip per track, the master first ----
+    const renderMixerView = (tid: string) => {
+        W.spacer(tid, 12);
+        W.horizontal(tid, (row: string) => {
+            W.spacer(row, 4);
+            W.card(row, { id: "strip_master", width: 96, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 12 }, (c: string) => {
+                W.label(c, { text: "Master", bold: true });
+                W.label(c, { text: "Output", color: UI.dim, fontSize: 11.5 });
+                W.levelMeter(c, { id: "meter_master_strip", source: "master", width: 44, height: 220, showScale: true });
+            });
+            project.tracks.forEach(track => {
+                W.card(row, { id: "strip_" + track.id, width: 168, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 12 }, (c: string) => {
+                    W.button(c, {
+                        text: (track.id === project.activeTrackId ? icon("play") + " " : "") + track.name,
+                        id: "select_track_" + project.tracks.indexOf(track),
+                        color: trackRgba(track),
+                        frame: false,
+                        tooltip: "Edit this track in the piano roll and the inspector",
+                        onClick: () => { project.activeTrackId = track.id; }
+                    });
+                    W.label(c, { text: `Channel ${track.channel + 1}`, color: UI.dim, fontSize: 11.5 });
+                    W.levelMeter(c, { id: "meter_" + track.id, source: track.id, width: 34, height: 160 });
+                    W.slider(c, {
+                        label: "Gain",
+                        value: track.gain, min: 0, max: 1,
+                        onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
+                    });
+                    W.horizontal(c, (r: string) => {
+                        W.checkbox(r, {
+                            label: "M",
+                            value: track.muted,
+                            onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
+                        });
+                        W.checkbox(r, {
+                            label: "S",
+                            value: track.solo,
+                            onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
+                        });
+                    });
+                    W.button(c, {
+                        text: withIcon("trash", "Delete"),
+                        frame: false,
+                        onClick: () => {
+                            removeTrack(track);
+                            persist();
+                        }
+                    });
+                });
+            });
+        });
+    };
+
+    // ---- Inspector: Sound ----
+    const renderSoundTab = (side: string, track: Track) => {
+        renderInstrumentPanel(side, track);
+
+        section(side, "voice_panel", withIcon("piano-keys", "Voice"), (tid: string) => {
+            if (track.instrument) {
+                W.label(tid, { text: `${track.instrument.name} is this track's instrument - the built-in oscillator and envelope are bypassed. Gain, mute, solo and Effects still apply.`, wrap: true });
+                return;
+            }
+            W.label(tid, { text: "Oscillator", color: UI.dim, fontSize: 11.5 });
+            if (track.kind === "synth") {
+                const wfIndex = Math.max(0, WAVEFORMS.indexOf(track.voice.waveform));
+                W.dropdown(tid, {
+                    label: "Waveform",
+                    options: WAVEFORMS,
+                    selectedIndex: wfIndex,
+                    onChange: (idx: string) => { track.voice.waveform = WAVEFORMS[parseInt(idx, 10)]; persist(); }
+                });
+                const scaleIndex = Math.max(0, SCALE_NAMES.indexOf(track.scale));
+                W.dropdown(tid, {
+                    label: "Scale",
+                    options: SCALE_NAMES,
+                    selectedIndex: scaleIndex,
+                    onChange: (idx: string) => { track.scale = SCALE_NAMES[parseInt(idx, 10)]; persist(); }
+                });
+                W.numericInput(tid, {
+                    label: "Root Note (MIDI)",
+                    value: track.rootNote,
+                    onChange: (v: string) => { track.rootNote = parseFloat(v) || track.rootNote; persist(); }
+                });
+                W.numericInput(tid, {
+                    label: "Rows (octave span)",
+                    value: track.rows,
+                    onChange: (v: string) => { track.rows = Math.max(1, Math.round(parseFloat(v)) || track.rows); persist(); }
+                });
+            }
+            W.slider(tid, {
+                label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
+                value: track.voice.cutoff, min: 100, max: 20000,
+                onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Resonance",
+                value: track.voice.resonance, min: 0.1, max: 10,
+                onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); }
+            });
+            W.label(tid, { text: "Envelope", color: UI.dim, fontSize: 11.5 });
+            W.slider(tid, {
+                label: "Attack",
+                value: track.voice.attack, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Decay",
+                value: track.voice.decay, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Sustain",
+                value: track.voice.sustain, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Release",
+                value: track.voice.release, min: 0, max: 2,
+                onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
+            });
+        });
+
+        // Preview plays through this track's own persistent bus (ensureTrackBus/syncTrackBus),
+        // so it's an honest preview of the track's actual gain/mute/solo/FX, not a bypassed
+        // one-off - the tradeoff is a muted track previews silent too.
+        section(side, "preview_panel", withIcon("speaker-high", "Preview"), (tid: string) => {
+            const previewRows = track.kind === "drum" ? ensureRack(track).length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
+            const PER_ROW = 5;
+            for (let from = 0; from < previewRows; from += PER_ROW) {
+                W.horizontal(tid, (tid2: string) => {
+                    for (let r = from; r < Math.min(previewRows, from + PER_ROW); r++) {
+                        const { freq } = noteVoiceAndFreq(track, r);
+                        const label = track.kind === "drum" ? (padAt(track, r)?.name || `Pad ${r + 1}`) : midiToName(rowToMidi(r, track.rootNote, track.scale));
+                        W.button(tid2, {
+                            text: label,
+                            id: "preview_row_" + r,
+                            minWidth: 48,
+                            onClick: () => {
+                                if (trackUsesVst3(track)) {
+                                    playVst3Note(track, r, 1.0, 0.5);
+                                    return;
+                                }
+                                if (track.kind === "drum") {
+                                    playPad(track, r, 1.0, 0.5);
+                                    return;
+                                }
+                                if (isWavetableTrack(track)) {
+                                    wavetableNote(track, freq, 1.0, 0.5);
+                                    return;
+                                }
+                                addon.Audio.playNoteOnTrack(track.id, builtInNoteConfig(track, freq, 1.0, 0.5));
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    };
+
+    // ---- Inspector: Character. One knob per idea: Pump, Gate, Grit and Space are effects on this
+    // track's bus; Bounce and Humanize shape the notes as they play; Acid drives the built-in
+    // synth's filter. ----
+    const renderCharacterTab = (side: string, track: Track) => {
+        const ch = trackCharacter(track);
+        const knob = (row: string, name: KnobName, label: string) => W.knob(row, {
+            id: "char_" + name, label, value: ch[name], min: 0, max: 1,
+            onChange: (v: string) => { setCharacterKnob(track, name, parseFloat(v)); }
+        });
+        section(side, "character_groove", "Groove", (g: string) => {
+            W.horizontal(g, (r: string) => {
+                knob(r, "pump", "Pump");
+                knob(r, "bounce", "Bounce");
+                knob(r, "humanize", "Humanize");
+            });
+        });
+        section(side, "character_gate", "Gate", (g: string) => {
+            W.horizontal(g, (r: string) => {
+                knob(r, "gate", "Depth");
+                W.segmented(r, {
+                    label: "Pattern", id: "char_gate_pattern", options: GATE_PATTERN_LABELS,
+                    selectedIndex: Math.max(0, GATE_PATTERNS.indexOf(ch.gatePattern)),
+                    onChange: (idx: string) => { setGatePattern(track, GATE_PATTERNS[parseInt(idx, 10)] ?? "sixteenths"); }
+                });
+            });
+        });
+        section(side, "character_tone", "Tone", (g: string) => {
+            W.horizontal(g, (r: string) => {
+                knob(r, "acid", "Acid");
+                knob(r, "grit", "Grit");
+                knob(r, "space", "Space");
+            });
+            if (ch.acid > 0 && !acidApplies(track)) {
+                W.label(g, { text: "Acid's filter envelope and drive belong to the built-in oscillators (sine, square, saw, triangle, noise); this track follows only the cutoff and resonance it sets.", color: UI.dim, fontSize: 11.5, wrap: true });
+            }
+        });
+    };
+
+    // ---- Inspector: FX. Each track owns exactly one shared delay + reverb Entropy.AudioEffect
+    // instance (see syncTrackBus) - these sliders edit that instance's live params. ----
+    const renderFxTab = (side: string, track: Track) => {
+        W.button(side, {
+            text: withIcon("cube", spaceVisible ? "Hide Reverb & EQ" : "Open Reverb & EQ"),
+            id: "effects_open_space",
+            tooltip: "See the reverb as a 3D room and shape the track with a six-band EQ",
+            onClick: () => { setSpaceVisible(!spaceVisible); }
+        });
+        section(side, "fx_delay", withIcon("sparkle", "Delay"), (tid: string) => {
+            W.slider(tid, {
+                label: "Time (s)",
+                value: track.voice.delayTime, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Feedback",
+                value: track.voice.delayFeedback, min: 0, max: 0.95,
+                onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Mix",
+                value: track.voice.delayMix, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
+            });
+        });
+        section(side, "fx_reverb", withIcon("sparkle", "Reverb"), (tid: string) => {
+            W.slider(tid, {
+                label: "Room Size (m)",
+                value: track.voice.reverbRoomSize, min: 10, max: 30,
+                onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Time (s)",
+                value: track.voice.reverbTime, min: 0.1, max: 6,
+                onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Damping",
+                value: track.voice.reverbDamping, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
+            });
+            W.slider(tid, {
+                label: "Mix",
+                value: track.voice.reverbMix, min: 0, max: 1,
+                onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
+            });
+        });
+    };
+
+    // ---- Inspector: Moves. One-click edits: the first card works on the pattern in the piano
+    // roll, the second at the section boundary nearest the playhead, or on the selected clip. ----
+    const renderMovesTab = (side: string, track: Track) => {
+        const act = (fn: () => string) => () => { fn(); };
+        section(side, "moves_pattern", `Pattern  ·  ${activePattern(track).name}`, (c: string) => {
+            W.horizontal(c, (row: string) => {
+                W.knob(row, {
+                    id: "move_amount", label: "Amount", value: moveOpts.amount, min: 0, max: 1,
+                    onChange: (v: string) => { const x = parseFloat(v); if (Number.isFinite(x)) moveOpts.amount = Math.max(0, Math.min(1, x)); }
+                });
+                W.vertical(row, (col: string) => {
+                    W.segmented(col, {
+                        id: "move_focus", options: VARIATION_LABELS, compact: true,
+                        selectedIndex: Math.max(0, VARIATION_FOCI.indexOf(moveOpts.focus)),
+                        onChange: (idx: string) => { moveOpts.focus = VARIATION_FOCI[parseInt(idx, 10)] ?? "mixed"; }
+                    });
+                    W.checkbox(col, {
+                        label: "As new pattern", value: moveOpts.variationAsNew,
+                        onChange: (v: any) => { moveOpts.variationAsNew = v === true || v === "true"; }
+                    });
+                });
+            });
+            W.button(c, { text: withIcon("shuffle", "Make Variation"), id: "move_variation", accent: UI.amber, minWidth: 284, onClick: act(() => variationMove(track)) });
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: "Thin Out", id: "move_thin", minWidth: 138, onClick: act(() => thinOutMove(track)) });
+                W.button(row, { text: "Octave Spark", id: "move_spark", minWidth: 138, onClick: act(() => octaveSparkMove(track)) });
+            });
+            W.button(c, { text: "Answer", id: "move_answer", minWidth: 138, tooltip: "Answers the selected clip: a call-and-response phrase in the next clip", onClick: act(() => answerMove(track)) });
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: "Stutter", id: "move_stutter", minWidth: 88, onClick: act(() => stutterMove(track)) });
+                W.segmented(row, {
+                    id: "move_stutter_rate", options: ["1/8", "1/16", "1/32"], compact: true,
+                    selectedIndex: Math.max(0, STUTTER_RATES.indexOf(moveOpts.stutterRate)),
+                    onChange: (idx: string) => { moveOpts.stutterRate = STUTTER_RATES[parseInt(idx, 10)] ?? "16th"; }
+                });
+            });
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: "Kick Lock", id: "move_kick_lock", minWidth: 88, onClick: act(() => kickLockMove(track)) });
+                W.checkbox(row, {
+                    label: "Align attacks", value: moveOpts.kickAlign,
+                    onChange: (v: any) => { moveOpts.kickAlign = v === true || v === "true"; }
+                });
+            });
+            if (kickPreview) {
+                const lines = kickPreviewLines();
+                W.label(c, { text: `Kick Lock preview (playing now): ${lines.length} note${lines.length === 1 ? "" : "s"} change.`, bold: true, wrap: true });
+                for (const line of lines) W.label(c, { text: line, fontSize: 12, wrap: true });
+                W.horizontal(c, (row: string) => {
+                    W.button(row, { text: "Apply", id: "move_kick_apply", accent: UI.amber, onClick: act(applyKickPreview) });
+                    W.button(row, { text: "Cancel", id: "move_kick_cancel", onClick: () => { cancelKickPreview(); moveStatus = "Kick Lock cancelled."; } });
+                });
+            }
+        });
+
+        section(side, "moves_song", `Song  ·  before ${barLabel(boundaryStep())}`, (c: string) => {
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: withIcon("fire", "Build"), id: "move_build", minWidth: 96, onClick: act(buildMove) });
+                W.segmented(row, {
+                    id: "move_build_bars", options: ["2 bars", "4 bars"], compact: true,
+                    selectedIndex: moveOpts.buildBars === 2 ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.buildBars = idx === "0" ? 2 : 4; }
+                });
+            });
+            W.checkbox(c, {
+                label: "Filter sweep", value: moveOpts.buildSweep,
+                onChange: (v: any) => { moveOpts.buildSweep = v === true || v === "true"; }
+            });
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: "Drop Gap", id: "move_drop_gap", minWidth: 96, onClick: act(dropGapMove) });
+                W.segmented(row, {
+                    id: "move_gap_length", options: ["Last beat", "Half bar"], compact: true,
+                    selectedIndex: moveOpts.gapLength === "beat" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.gapLength = idx === "0" ? "beat" : "half"; }
+                });
+            });
+            W.horizontal(c, (row: string) => {
+                W.segmented(row, {
+                    label: "Cut", id: "move_gap_scope", options: ["Drums", "Everything"], compact: true,
+                    selectedIndex: moveOpts.gapScope === "drums" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.gapScope = idx === "0" ? "drums" : "all"; }
+                });
+                W.checkbox(row, {
+                    label: "Keep tails", value: moveOpts.keepTails,
+                    onChange: (v: any) => { moveOpts.keepTails = v === true || v === "true"; }
+                });
+            });
+            W.horizontal(c, (row: string) => {
+                W.button(row, { text: withIcon("wave-sine", "Echo Out"), id: "move_echo_out", minWidth: 96, onClick: act(echoOutMove) });
+                W.segmented(row, {
+                    id: "move_echo_length", options: ["1 beat", "Half bar"], compact: true,
+                    selectedIndex: moveOpts.echoLength === "beat" ? 0 : 1,
+                    onChange: (idx: string) => { moveOpts.echoLength = idx === "0" ? "beat" : "half"; }
+                });
+            });
+            for (const cut of projectCuts()) {
+                const names = cut.trackIds.map(id => findTrack(id)?.name).filter(Boolean).join(", ");
+                W.label(c, { text: `Hard cut: ${names || "no tracks"} silent from ${barLabel(cut.startStep)} to ${barLabel(cut.endStep)}`, fontSize: 12, wrap: true });
+                W.button(c, { text: withIcon("trash", "Remove"), id: "move_cut_remove_" + cut.id, frame: false, tooltip: "Remove this hard cut", onClick: () => { removeCut(cut.id); } });
+            }
+        });
+
+        W.button(side, {
+            text: withIcon("arrow-counter-clockwise", undoStack.length ? `Undo ${undoStack[undoStack.length - 1].label}` : "Undo"),
+            id: "move_undo", minWidth: 308, disabled: undoStack.length === 0, onClick: act(undoMove)
+        });
+        W.label(side, {
+            text: moveStatus || `Build and Drop Gap work before the bar nearest the playhead (now ${barLabel(boundaryStep())}); Echo Out and Answer use the selected clip.`,
+            color: moveStatus ? undefined : UI.dim,
+            fontSize: 12,
+            wrap: true
+        });
+    };
+
+    const renderInspector = (side: string, track: Track | undefined) => {
+        if (!track) {
+            W.label(side, { text: "Add a track to begin." });
+            return;
+        }
+        W.label(side, { text: track.name, bold: true, fontSize: 17, color: trackRgba(track) });
+        W.label(side, { text: instrumentSummary(track), color: UI.dim, fontSize: 12, wrap: true });
+        W.tabBar(side, {
+            id: "inspector_tab",
+            tabs: INSPECTOR_TABS,
+            selected: inspectorTab,
+            onSelect: (id: string) => {
+                const next = INSPECTOR_TABS.find(t => t.id === id);
+                if (next) inspectorTab = next.id;
+            }
+        });
+        if (inspectorTab === "sound") renderSoundTab(side, track);
+        else if (inspectorTab === "character") renderCharacterTab(side, track);
+        else if (inspectorTab === "fx") renderFxTab(side, track);
+        else renderMovesTab(side, track);
+    };
+
+    // The whole workspace, top to bottom: header, view bar, the view beside the inspector, and
+    // the status bar. Nothing scrolls as a page; each part sizes or scrolls itself.
+    const renderDAWUI = (tabId: string) => {
+        const track = getActiveTrack();
+        renderHeader(tabId);
+        renderViewBar(tabId, track);
+        W.split(tabId, {
+            id: "daw_workspace_" + dawView,
+            sideWidth: 340,
+            sideOpen: inspectorOpen,
+            reserveBottom: 28,
+            minHeight: 640,
+            mainFill: UI.view,
+            sideFill: UI.panel,
+            divider: UI.line,
+            sidePadding: 14,
+            // The arrangement and mixer can outgrow the window; the piano roll fits itself to it.
+            scrollMain: dawView !== "roll",
+            scrollSide: true
+        },
+            (main: string) => {
+                if (dawView === "roll") renderRollView(main, track);
+                else if (dawView === "mixer") renderMixerView(main);
+                else renderArrangeView(main);
+            },
+            (side: string) => renderInspector(side, track));
+        renderStatusBar(tabId);
     };
 
     if (Entropy.Composer) {
@@ -6026,20 +6263,23 @@ addon.onInit(async () => {
     // is drawing them.
     const tabId = addon.UI.createTab({
         title: withIcon("piano-keys", "DAW"),
+        // The workspace fills the window itself: header, views, inspector and status bar.
+        scroll: false,
         onRender: async () => {
             renderDAWUI(tabId);
         }
     });
 
-    // The analyzer floats over the tab, bottom-right by default; drag it wherever suits. The engine
-    // draws tabs first and windows on top of them.
+    // The analyzer floats over the tab, bottom right of the main view by default (clear of the
+    // inspector, over the room under the lanes); drag it wherever suits. The engine draws tabs
+    // first and windows on top of them.
     const [screenW, screenH] = Entropy.Window.getSize();
     analyzerWindowId = Entropy.UI.createWindow({
         title: "Analyzer",
         width: 720,
         height: 330,
-        x: Math.max(16, screenW - 736),
-        y: Math.max(16, screenH - 346),
+        x: Math.max(16, screenW - 352 - 736),
+        y: Math.max(16, screenH - 346 - 36),
         onRender: () => renderAnalyzer(analyzerWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
         onClose: () => { analyzerVisible = false; }
@@ -6187,8 +6427,15 @@ addon.onInit(async () => {
     Entropy.UI.setWindowVisible(historyWindowId, historyVisible);
 
     // Ctrl+S keeps a version (the song itself is always saved), Ctrl+O shows the song list.
+    // 1, 2 and 3 switch between Arrange, Piano Roll and Mixer; I shows or hides the inspector.
     Entropy.Input?.onKeyDown?.((key: string, ctrl: boolean) => {
-        if (!ctrl) return;
+        if (!ctrl) {
+            if (Entropy.UI.keyboardState?.()?.typing) return;
+            const view = DAW_VIEWS.find(v => v.key === key);
+            if (view) dawView = view.id;
+            else if (key.toLowerCase() === "i") inspectorOpen = !inspectorOpen;
+            return;
+        }
         const k = key.toLowerCase();
         if (k === "s") libraryAction("save a version", () => saveVersionNow());
         else if (k === "o") setSongsVisible(!songsVisible);

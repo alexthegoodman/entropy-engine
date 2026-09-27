@@ -15,6 +15,7 @@ Feature: The running DAW arranges a song on sixteen channels
     Then I capture "arrangement-03-new-channel"
 
     When I send the widget event "TRACKS_CLIP_SELECTED|arrangement|trk-bass|clip-bass-2"
+    And I send the widget event "TABBAR_SELECTED|daw_view|roll"
     And I advance 4 frames
     And I click "pattern_duplicate"
     And I advance 4 frames
@@ -25,7 +26,8 @@ Feature: The running DAW arranges a song on sixteen channels
     And I advance 10 frames
     Then I capture "arrangement-04-variation"
 
-    When I send the widget event "TRACKS_TRACK_MUTE|arrangement|trk-pad"
+    When I send the widget event "TABBAR_SELECTED|daw_view|arrange"
+    And I send the widget event "TRACKS_TRACK_MUTE|arrangement|trk-pad"
     And I send the widget event "TRACKS_TRACK_SOLO|arrangement|trk-lead"
     And I advance 10 frames
     Then I capture "arrangement-05-mute-solo"
@@ -42,3 +44,12 @@ Feature: The running DAW arranges a song on sixteen channels
     And I wait 600 milliseconds
     And I advance 5 frames
     Then I capture "arrangement-07-stopped"
+
+    When I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 6 frames
+    Then I capture "arrangement-08-mixer"
+
+    When I send the widget event "TABBAR_SELECTED|daw_view|arrange"
+    And I send the widget event "TABBAR_SELECTED|inspector_tab|moves"
+    And I advance 6 frames
+    Then I capture "arrangement-09-moves"

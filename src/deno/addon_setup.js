@@ -760,7 +760,7 @@ function nextWidgetId(windowId, label, explicitId) {
 // Presentation options any widget config may carry (tooltip, shortcut, unit, defaultValue,
 // step, decimals, min, max, speed, disabled, selected). Sent as an `Extras` entry right before
 // the widget itself - see `UiWidget::Extras` in addon_ops.rs.
-const WIDGET_EXTRA_KEYS = ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed", "disabled", "selected"];
+const WIDGET_EXTRA_KEYS = ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed", "disabled", "selected", "accent", "color", "monospace", "minWidth", "wrap"];
 function emitWidgetExtras(windowId, config, only) {
     if (!config || typeof config !== 'object') return;
     let extras = null;
@@ -1306,6 +1306,7 @@ globalThis.Entropy = {
                 const bold = typeof config === 'object' ? (config?.bold || false) : false;
                 const fontSize = typeof config === 'object' ? (config?.fontSize || 0) : 0;
                 const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
+                if (typeof config === 'object') emitWidgetExtras(windowId, config, ["tooltip", "color", "monospace", "wrap"]);
                 ops.op_ui_widget_label(windowId, text, bold, fontSize, alpha);
             },
             button: (windowId, config) => {
@@ -1315,7 +1316,7 @@ globalThis.Entropy = {
                 const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
                 const frame = typeof config === 'object' && config?.frame !== undefined ? config.frame : true;
 
-                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "disabled", "selected"]);
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "disabled", "selected", "accent", "color", "minWidth"]);
                 ops.op_ui_widget_button(windowId, text, id, fontSize, alpha, frame);
                 bindListener('_entropy_event_listeners', id, config?.onClick);
             },
@@ -1425,7 +1426,12 @@ globalThis.Entropy = {
                 const playhead = config?.playhead ?? -1;
                 const id = nextWidgetId(windowId, "pianoroll", config?.id);
 
-                ops.op_ui_widget_piano_roll(windowId, rows, steps, stepsPerBeat, rowLabels, cells, playhead, id);
+                // Sizing and look: { rowHeight, fillHeight, color, highlightRows, showVelocity }.
+                const options = {};
+                for (const key of ["rowHeight", "fillHeight", "color", "highlightRows", "showVelocity"]) {
+                    if (config?.[key] !== undefined && config?.[key] !== null) options[key] = config[key];
+                }
+                ops.op_ui_widget_piano_roll(windowId, rows, steps, stepsPerBeat, rowLabels, cells, playhead, id, options);
 
                 if (config?.onNoteDown || config?.onNoteDrag || config?.onNoteUp) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
@@ -1759,11 +1765,67 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // ---- Page structure (see src/entropy_gui/widgets_layout.rs) ----
+            // A full-width strip of fixed height with up to three zones laid out left to right:
+            // `left` from the left edge, `center` centred, `right` against the right edge. Config:
+            // { id, height, fill, border, borderTop, paddingX } - colors are [r, g, b, a] in 0..1.
+            bar: (windowId, config, left, center, right) => {
+                const id = nextWidgetId(windowId, "bar", config?.id);
+                ops.op_ui_widget_layout(windowId, "barStart", id, config || null);
+                [left, center, right].forEach((zone, index) => {
+                    if (typeof zone !== 'function') return;
+                    ops.op_ui_widget_layout(windowId, "barZone", id, index);
+                    zone(windowId);
+                });
+                ops.op_ui_widget_layout(windowId, "barEnd", id, null);
+            },
+            // The rest of the window: `main` beside a fixed-width `side` panel on the right (omit
+            // `side`, or pass sideOpen: false, for the main area alone). Config: { id, sideWidth,
+            // sideOpen, reserveBottom, minHeight, mainFill, sideFill, divider, mainPadding,
+            // sidePadding, scrollMain, scrollSide }. Fills the height only in a tab created with
+            // { scroll: false }; inside a scrolling page it is minHeight tall.
+            split: (windowId, config, main, side) => {
+                const id = nextWidgetId(windowId, "split", config?.id);
+                ops.op_ui_widget_layout(windowId, "splitStart", id, config || null);
+                if (typeof main === 'function') main(windowId);
+                if (typeof side === 'function') {
+                    ops.op_ui_widget_layout(windowId, "splitSide", id, null);
+                    side(windowId);
+                }
+                ops.op_ui_widget_layout(windowId, "splitEnd", id, null);
+            },
+            // A boxed group of widgets on a filled, rounded background. Config: { id, fill, stroke,
+            // radius, padding }.
+            card: (windowId, config, render) => {
+                const id = nextWidgetId(windowId, "card", config?.id);
+                ops.op_ui_widget_layout(windowId, "cardStart", id, config || null);
+                render(windowId);
+                ops.op_ui_widget_layout(windowId, "cardEnd", id, null);
+            },
+            // Empty space along the current row or column (8 points by default).
+            spacer: (windowId, config) => {
+                const size = typeof config === 'number' ? config : (config?.size ?? 8);
+                ops.op_ui_widget_layout(windowId, "spacer", "", size);
+            },
+            // Mutually exclusive options as one row of buttons - for two to five choices, where a
+            // dropdown would hide them. onChange gets the picked index as a string, like dropdown.
+            segmented: (windowId, config) => {
+                const label = config?.label || "";
+                const id = nextWidgetId(windowId, "segmented_" + label, config?.id);
+                ops.op_ui_widget_segmented(windowId, id, {
+                    label,
+                    options: config?.options || [],
+                    selectedIndex: config?.selectedIndex ?? 0,
+                    compact: config?.compact ?? false,
+                    accent: config?.accent ?? null,
+                });
+                bindListener('_entropy_event_listeners', id, config?.onChange);
+            },
             // A non-fullscreen tab strip inside a window. The addon owns which tab is selected: pass
             // it as `selected`, update it in `onSelect`, and draw only that tab's widgets after it.
             tabBar: (windowId, config) => {
                 const id = nextWidgetId(windowId, "tabbar", config?.id);
-                ops.op_ui_widget_tab_bar(windowId, config?.tabs || [], config?.selected || "", id);
+                ops.op_ui_widget_tab_bar(windowId, config?.tabs || [], config?.selected || "", id, config?.stretch ?? true);
 
                 if (config?.onSelect) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {

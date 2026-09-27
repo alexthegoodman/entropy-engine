@@ -58,7 +58,7 @@ fn daw_arrangement_live_feature() {
 
     // ---- Screenshots: real, populated, and each one different from the last ----
     let artifacts: Vec<String> = result["artifacts"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
-    assert_eq!(artifacts.len(), 7, "{artifacts:#?}");
+    assert_eq!(artifacts.len(), 9, "{artifacts:#?}");
     let mut hashes = HashSet::new();
     for path in &artifacts {
         let bytes = fs::read(path).expect("screenshot exists");

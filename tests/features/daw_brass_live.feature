@@ -7,7 +7,11 @@ Feature: The running DAW plays its brass instrument
     Given the real DAW is running in test mode
     When I advance 40 frames
     And I call the tool "daw_set_track_params" with {"trackId":"trk-lead","waveform":"brass"}
+    And I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 2 frames
     And I click "select_track_2"
+    And I advance 2 frames
+    And I send the widget event "TABBAR_SELECTED|daw_view|arrange"
     # Opens "Brass" from the transport bar's Instruments menu (entry 4).
     And I set "instrument_windows" to "4"
     And I advance 45 frames

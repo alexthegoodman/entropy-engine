@@ -10,7 +10,11 @@ Feature: The running DAW shows a track's reverb as a 3D room and shapes it with 
     Given the real DAW is running in test mode
     When I advance 40 frames
     And I click "toggle_analyzer"
+    And I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 2 frames
     And I click "select_track_2"
+    And I advance 2 frames
+    And I send the widget event "TABBAR_SELECTED|daw_view|arrange"
     And I advance 10 frames
     Then I capture "space-00-transport-bar"
     When I click "toggle_space"

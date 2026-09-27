@@ -35,7 +35,11 @@ Feature: The running DAW shows real audio on its analyzer
 
   Scenario: One note on one track has the pitch of its row
     When I set "analyzer_source" to "3"
+    And I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 2 frames
     And I click "select_track_2"
+    And I advance 2 frames
+    And I send the widget event "TABBAR_SELECTED|daw_view|arrange"
     And I advance 8 frames
     And I click "preview_row_0"
     And I wait 200 milliseconds
