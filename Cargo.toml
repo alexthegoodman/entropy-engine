@@ -253,6 +253,10 @@ wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"
 js-sys = "0.3.83"
 
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+# Inspect exported tracks in daw_visualizer_live; Windows playback/export uses Media Foundation.
+mp4 = "0.14"
+
 [dev-dependencies]
 # Native Gherkin runner for black-box behavior scenarios. The test binary, rather than libtest,
 # owns execution so readable feature output and screenshot hooks stay available in CI.
