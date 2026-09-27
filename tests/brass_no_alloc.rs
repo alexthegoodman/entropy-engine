@@ -7,6 +7,7 @@
 //! One test in this binary on purpose: the allocator is global.
 
 use entropy_engine::audio::brass::{Articulation, BrassCommand, BrassInstrumentVoice, BrassLive, BrassParams, BrassShared};
+use entropy_engine::audio::quality::Quality;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -45,8 +46,16 @@ static A: Counting = Counting;
 
 #[test]
 fn a_live_brass_player_allocates_nothing_on_the_audio_thread() {
+    // At every quality tier (each runs the air column at its own rate).
+    for quality in Quality::ALL {
+        play(quality);
+    }
+}
+
+fn play(quality: Quality) {
+    ALLOCS.store(0, Ordering::Relaxed);
     let shared = Arc::new(BrassShared::default());
-    let base = BrassParams { vibrato_depth: 15.0, ..Default::default() };
+    let base = BrassParams { vibrato_depth: 15.0, quality, ..Default::default() };
     let (mut voice, handle) = BrassInstrumentVoice::new(shared.clone(), &base);
     let done = Arc::new(AtomicBool::new(false));
 
@@ -100,7 +109,7 @@ fn a_live_brass_player_allocates_nothing_on_the_audio_thread() {
     ON_AUDIO_THREAD.with(|c| c.set(false));
     sender.join().unwrap();
     assert!(done.load(Ordering::Relaxed));
-    assert!(peak > 0.01, "the phrase should have sounded (peak {peak})");
-    assert!(shared.version() > 10, "the player should have published its state");
-    assert_eq!(ALLOCS.load(Ordering::Relaxed), 0, "the audio thread allocated");
+    assert!(peak > 0.01, "{quality:?}: the phrase should have sounded (peak {peak})");
+    assert!(shared.version() > 10, "{quality:?}: the player should have published its state");
+    assert_eq!(ALLOCS.load(Ordering::Relaxed), 0, "{quality:?}: the audio thread allocated");
 }

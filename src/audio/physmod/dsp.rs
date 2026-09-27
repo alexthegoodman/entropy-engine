@@ -206,11 +206,25 @@ const HB_TAPS: usize = 31;
 /// rate (so short bridge-side segments near the top of the range still get at least a couple of
 /// samples of delay, and the friction solve sees a finer time step), and this brings it back down
 /// without folding the model's upper partials into audible aliases.
+///
+/// A half-band filter's every other tap is zero (the sinc crosses zero there) and the rest are
+/// symmetric, so of its 31 taps only the centre and eight pairs are computed, each input kept once
+/// in a history twice its length so no index ever wraps: a quarter of the arithmetic of the
+/// straightforward filter, for the same output.
 pub struct Decimator2 {
-    taps: [f32; HB_TAPS],
-    hist: [f32; HB_TAPS],
-    pos: usize,
+    /// The centre tap, and the nonzero side taps from the outside in.
+    centre: f32,
+    side: [f32; HB_SIDE],
+    /// The last `2 * HB_SIDE` second samples of each pair, written twice (at `i` and `i + 2 * HB_SIDE`).
+    odd: [f32; 4 * HB_SIDE],
+    /// The last `HB_SIDE` first samples of each pair, likewise.
+    even: [f32; 2 * HB_SIDE],
+    p: usize,
+    q: usize,
 }
+
+/// Nonzero taps each side of the centre.
+const HB_SIDE: usize = (HB_TAPS + 1) / 4;
 
 impl Decimator2 {
     pub fn new() -> Self {
@@ -228,19 +242,28 @@ impl Decimator2 {
         for t in taps.iter_mut() {
             *t /= sum;
         }
-        Self { taps, hist: [0.0; HB_TAPS], pos: 0 }
+        // Oldest to newest, the window holds (second, first) samples of each pair in turn: the
+        // nonzero side taps fall on the second samples (even offsets from the start), the centre on
+        // a first sample.
+        Self { centre: taps[HB_TAPS / 2], side: std::array::from_fn(|j| taps[2 * j]), odd: [0.0; 4 * HB_SIDE], even: [0.0; 2 * HB_SIDE], p: 0, q: 0 }
     }
 
     /// Feeds two oversampled samples, returns one at the base rate.
     #[inline]
     pub fn process(&mut self, a: f32, b: f32) -> f32 {
-        self.hist[self.pos] = a;
-        self.pos = (self.pos + 1) % HB_TAPS;
-        self.hist[self.pos] = b;
-        self.pos = (self.pos + 1) % HB_TAPS;
-        let mut acc = 0.0;
-        for k in 0..HB_TAPS {
-            acc += self.taps[k] * self.hist[(self.pos + k) % HB_TAPS];
+        let (n_odd, n_even) = (2 * HB_SIDE, HB_SIDE);
+        self.p = (self.p + 1) % n_odd;
+        self.odd[self.p] = b;
+        self.odd[self.p + n_odd] = b;
+        self.q = (self.q + 1) % n_even;
+        self.even[self.q] = a;
+        self.even[self.q + n_even] = a;
+        // The last 2 * HB_SIDE second samples, oldest first, and the first sample HB_SIDE - 1 pairs
+        // back (the centre of the window).
+        let w = &self.odd[self.p + 1..self.p + 1 + n_odd];
+        let mut acc = self.centre * self.even[self.q + 1];
+        for j in 0..HB_SIDE {
+            acc += self.side[j] * (w[j] + w[n_odd - 1 - j]);
         }
         acc
     }
@@ -323,5 +346,32 @@ mod tests {
         let k = (crossing * w / TAU).round();
         let shift = crossing - k * TAU / w;
         assert!((shift - pd).abs() < 0.05, "measured {shift}, analytic {pd}");
+    }
+
+    #[test]
+    fn the_folded_decimator_matches_the_full_half_band_filter() {
+        // The straightforward filter: all 31 taps over a wrapping history.
+        let mut taps = [0.0f32; HB_TAPS];
+        let mid = (HB_TAPS / 2) as f32;
+        for (i, t) in taps.iter_mut().enumerate() {
+            let n = i as f32 - mid;
+            let sinc = if n == 0.0 { 1.0 } else { (PI * n * 0.5).sin() / (PI * n * 0.5) };
+            *t = sinc * (0.42 - 0.5 * (TAU * i as f32 / (HB_TAPS - 1) as f32).cos() + 0.08 * (2.0 * TAU * i as f32 / (HB_TAPS - 1) as f32).cos());
+        }
+        let sum: f32 = taps.iter().sum();
+        let mut hist = [0.0f32; HB_TAPS];
+        let mut pos = 0;
+        let mut d = Decimator2::new();
+        let mut noise = Noise(7);
+        for _ in 0..2000 {
+            let (a, b) = (noise.bipolar(), noise.bipolar());
+            hist[pos] = a;
+            pos = (pos + 1) % HB_TAPS;
+            hist[pos] = b;
+            pos = (pos + 1) % HB_TAPS;
+            let want: f32 = (0..HB_TAPS).map(|k| taps[k] / sum * hist[(pos + k) % HB_TAPS]).sum();
+            let got = d.process(a, b);
+            assert!((got - want).abs() < 1.0e-5, "{got} vs {want}");
+        }
     }
 }

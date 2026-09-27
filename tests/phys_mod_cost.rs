@@ -38,8 +38,8 @@ fn ms(f: impl FnOnce()) -> f64 {
     t.elapsed().as_secs_f64() * 1e3
 }
 
-fn string_instrument(name: &str, strings: [f32; 4], body_size: f32) -> Row {
-    let base = physmod::PhysModParams { strings, body_size, ..Default::default() };
+fn string_instrument(name: &str, strings: [f32; 4], body_size: f32, quality: Quality) -> Row {
+    let base = physmod::PhysModParams { strings, body_size, quality, ..Default::default() };
     let build_cold_ms = ms(|| drop(physmod::Engine::new(SR, &base)));
     let build_warm_ms = ms(|| drop(physmod::Engine::new(SR, &base)));
     // Eight overlapping notes up the instrument, two seconds of ring after.
@@ -50,16 +50,24 @@ fn string_instrument(name: &str, strings: [f32; 4], body_size: f32) -> Row {
         })
         .collect();
     let core_pct = core_pct(|| physmod::render_performance(&notes, 2.0));
-    Row { name: name.into(), build_cold_ms, build_warm_ms, core_pct }
+    Row { name: tiered(name, quality), build_cold_ms, build_warm_ms, core_pct }
 }
 
-fn brass_instrument(instrument: brass::BrassInstrument, low: f32) -> Row {
-    let base = brass::BrassParams { instrument, ..Default::default() };
+/// "Strings: violin" at `Live`, "Strings (draft): violin" otherwise.
+fn tiered(name: &str, quality: Quality) -> String {
+    match (quality, name.split_once(": ")) {
+        (Quality::Live, _) | (_, None) => name.into(),
+        (q, Some((family, what))) => format!("{family} ({}): {what}", q.name()),
+    }
+}
+
+fn brass_instrument(instrument: brass::BrassInstrument, low: f32, quality: Quality) -> Row {
+    let base = brass::BrassParams { instrument, quality, ..Default::default() };
     let build_cold_ms = ms(|| drop(brass::Engine::new(SR, &base)));
     let build_warm_ms = ms(|| drop(brass::Engine::new(SR, &base)));
     let notes: Vec<(f64, brass::BrassParams)> = (0..8).map(|i| (i as f64 * 0.5, brass::BrassParams { freq: low * 2f32.powf((i * 2) as f32 / 12.0), duration: 0.45, ..base })).collect();
     let core_pct = core_pct(|| brass::render_performance(&notes, 1.0));
-    Row { name: format!("Brass: {}", instrument.name()), build_cold_ms, build_warm_ms, core_pct }
+    Row { name: tiered(&format!("Brass: {}", instrument.name()), quality), build_cold_ms, build_warm_ms, core_pct }
 }
 
 fn kit(name: &str, spec: matter::KitSpec, hits: &[(f64, matter::KitHit)]) -> Row {
@@ -73,13 +81,16 @@ fn kit(name: &str, spec: matter::KitSpec, hits: &[(f64, matter::KitHit)]) -> Row
 #[ignore]
 fn instrument_costs() {
     use matter::{KitHit, Piece};
-    let mut rows = vec![
-        string_instrument("Strings: violin", [196.0, 293.66, 440.0, 659.25], 0.0),
-        string_instrument("Strings: cello", [65.41, 98.0, 146.83, 220.0], 0.72),
-        string_instrument("Strings: bass", [41.2, 55.0, 73.42, 98.0], 1.0),
-    ];
-    for (i, low) in [(brass::BrassInstrument::TenorTrombone, 116.54), (brass::BrassInstrument::Trumpet, 233.08), (brass::BrassInstrument::Horn, 174.61), (brass::BrassInstrument::Tuba, 58.27)] {
-        rows.push(brass_instrument(i, low));
+    let mut rows = Vec::new();
+    for quality in Quality::ALL {
+        rows.push(string_instrument("Strings: violin", [196.0, 293.66, 440.0, 659.25], 0.0, quality));
+        rows.push(string_instrument("Strings: cello", [65.41, 98.0, 146.83, 220.0], 0.72, quality));
+        rows.push(string_instrument("Strings: bass", [41.2, 55.0, 73.42, 98.0], 1.0, quality));
+    }
+    for quality in Quality::ALL {
+        for (i, low) in [(brass::BrassInstrument::TenorTrombone, 116.54), (brass::BrassInstrument::Trumpet, 233.08), (brass::BrassInstrument::Horn, 174.61), (brass::BrassInstrument::Tuba, 58.27)] {
+            rows.push(brass_instrument(i, low, quality));
+        }
     }
     // A bar of groove at 120 bpm, twice: kick, snare, toms and the crash on the one.
     let mut groove = Vec::new();

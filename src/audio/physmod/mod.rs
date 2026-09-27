@@ -41,6 +41,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rodio::Source;
 
 use super::analysis::ENGINE_SAMPLE_RATE;
+use super::quality::Quality;
 
 /// Lowest note the strings can hold at the engine rate (see `string::LINE_CAPACITY`).
 pub const MIN_FREQ: f32 = 12.0;
@@ -479,8 +480,8 @@ pub enum InstrumentCommand {
 /// it never blocks on the caller.
 pub struct InstrumentHandle {
     queue: Mutex<InstrumentQueue>,
-    /// The string tuning the running engine was built for.
-    tuning: Mutex<([f32; MAX_STRINGS], [f32; MAX_SYMPATHETIC])>,
+    /// The string tuning and quality tier the running engine was built for.
+    tuning: Mutex<([f32; MAX_STRINGS], [f32; MAX_SYMPATHETIC], Quality)>,
     /// Set once the voice has been built.
     ready: AtomicBool,
 }
@@ -497,7 +498,7 @@ impl InstrumentHandle {
     pub fn new(p: &PhysModParams) -> Arc<Self> {
         Arc::new(Self {
             queue: Mutex::new(InstrumentQueue { commands: Vec::with_capacity(64), alive: true }),
-            tuning: Mutex::new((p.open_strings().0, p.sympathetic)),
+            tuning: Mutex::new((p.open_strings().0, p.sympathetic, p.quality)),
             ready: AtomicBool::new(false),
         })
     }
@@ -523,10 +524,11 @@ impl InstrumentHandle {
         self.queue.lock().unwrap_or_else(|p| p.into_inner()).alive
     }
 
-    /// Whether the running engine was built for the same strings as `p` wants.
+    /// Whether the running engine was built for the same strings, at the same quality tier, as `p`
+    /// wants.
     pub fn same_tuning(&self, p: &PhysModParams) -> bool {
         let t = self.tuning.lock().unwrap_or_else(|p| p.into_inner());
-        t.0 == p.open_strings().0 && t.1 == p.sympathetic
+        t.0 == p.open_strings().0 && t.1 == p.sympathetic && t.2 == p.quality
     }
 
     /// Asks the running voice to let everything ring out and stop.
@@ -773,3 +775,5 @@ pub fn remove_shared(id: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tier_tests;

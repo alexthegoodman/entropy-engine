@@ -46,6 +46,9 @@ const MAX_DELAY_SLEW: f32 = 0.5;
 pub const BETA_AIR: f32 = 1.2;
 /// Forward cylinder segments for the nonlinear propagation.
 const SEGMENTS: usize = 4;
+/// A bore run below this rate is a `Draft` one, whose loss filter copies the `Live` one's (see
+/// `Loss::fit_like`).
+const DRAFT_RATE_BELOW: f32 = 60_000.0;
 /// Frequencies at which the cylinder's loss filter matches the boundary-layer attenuation.
 const LOSS_FIT_HZ: (f64, f64) = (150.0, 1500.0);
 
@@ -150,6 +153,21 @@ impl Loss {
         let q1 = 1.0 - (std::f64::consts::TAU * f1 / sr as f64).cos();
         let q2 = 1.0 - (std::f64::consts::TAU * f2 / sr as f64).cos();
         // t1 / t2 = (1 - 2b q1) / (1 - 2b q2)  =>  b = (t1 - t2) / (2 (t1 q2 - t2 q1))
+        let b = ((t1 - t2) / (2.0 * (t1 * q2 - t2 * q1))).clamp(0.0, 0.25);
+        let g = t1 / (1.0 - 2.0 * b * q1);
+        Self { g: g as f32, b: b as f32 }
+    }
+
+    /// The filter at `sr` that loses what `reference` does at `ref_sr`, matched at 1.5 and 8 kHz
+    /// rather than at the physical law's `LOSS_FIT_HZ`: the air column run at the engine rate
+    /// (`Quality::Draft`) keeping the top octaves of the one run at twice it. Fitted to the law at
+    /// the engine rate instead, the three taps' zero at 22 kHz took 9 dB more at 10 kHz, and a
+    /// Draft trombone lost everything above 8 kHz.
+    fn fit_like(reference: Loss, ref_sr: f32, sr: f32) -> Self {
+        let q = |f: f64, sr: f32| 1.0 - (std::f64::consts::TAU * f / sr as f64).cos();
+        let (f1, f2) = (1500.0, 8000.0);
+        let t = |f: f64| reference.g as f64 * (1.0 - 2.0 * reference.b as f64 * q(f, ref_sr));
+        let (t1, t2, q1, q2) = (t(f1), t(f2), q(f1, sr), q(f2, sr));
         let b = ((t1 - t2) / (2.0 * (t1 * q2 - t2 * q1))).clamp(0.0, 0.25);
         let g = t1 / (1.0 - 2.0 * b * q1);
         Self { g: g as f32, b: b as f32 }
@@ -338,6 +356,9 @@ impl AirBore {
             let rc = self.profile.cylinder_radius;
             let cells: f32 = self.cell_radii.iter().map(|&r| dx * rc / r).sum();
             self.fwd_loss = Loss::fit(rc, len + cells, self.sr);
+            if self.sr < DRAFT_RATE_BELOW {
+                self.fwd_loss = Loss::fit_like(Loss::fit(rc, len + cells, 2.0 * self.sr), 2.0 * self.sr, self.sr);
+            }
             self.bwd_loss = self.fwd_loss;
             self.slowing = excess_delay(self.tuning_hz as f64, &self.cell_radii, self.profile.cylinder_radius, len, self.sr) as f32;
         }

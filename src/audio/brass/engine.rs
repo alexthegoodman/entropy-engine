@@ -18,9 +18,24 @@ use super::bore::{BoreProfile, Obstruction};
 use super::impedance::Reference;
 use super::lips::{LipSpec, Lips};
 use crate::audio::physmod::dsp::{DcBlock, Decimator2, Noise, OnePole};
+use crate::audio::quality::Quality;
 
-/// The model runs at twice the engine rate (cells then stand for ~3.9 mm of bore).
+/// At `Live` the model runs at twice the engine rate (cells then stand for ~3.9 mm of bore).
 pub const OVERSAMPLE: usize = 2;
+/// The most it runs at (`Render`).
+pub const MAX_OVERSAMPLE: usize = 4;
+
+/// How many times the engine rate the air column and lips run at, per quality tier: `Draft` at
+/// the engine rate (cells of ~7.8 mm, about half the work), `Live` at twice it, `Render` at four
+/// times (cells of ~1.9 mm, a finer bore, and the steepened wavefronts of loud playing carried up
+/// to 88 kHz before they are filtered away, instead of folding back from 44 kHz).
+pub fn oversample(quality: Quality) -> usize {
+    match quality {
+        Quality::Draft => 1,
+        Quality::Live => OVERSAMPLE,
+        Quality::Render => MAX_OVERSAMPLE,
+    }
+}
 /// Player decisions every this many output samples.
 const CONTROL_EVERY: u32 = 32;
 /// Mouth pressure range of the breath control, Pa: the knob is logarithmic between them.
@@ -362,6 +377,9 @@ pub struct BrassParams {
     /// 0 (the bell pointing away from the listener) .. 1 (straight at them). `None` is the
     /// instrument's usual direction.
     pub bell_facing: Option<f32>,
+    /// How finely the instrument is modelled (see `oversample`). Part of the build: a player keeps
+    /// the tier it was built at.
+    pub quality: Quality,
 }
 
 impl Default for BrassParams {
@@ -388,6 +406,7 @@ impl Default for BrassParams {
             mute: Mute::Open,
             hand: None,
             bell_facing: None,
+            quality: Quality::Live,
         }
     }
 }
@@ -849,6 +868,9 @@ impl PitchEar {
 pub struct Engine {
     sr: f32,
     sr_os: f32,
+    /// Oversampling factor (`oversample(quality)`).
+    os: usize,
+    quality: Quality,
     instrument: BrassInstrument,
     construction: (BrassInstrument, Mute, u32),
     /// Every valve combination and the tube it adds (empty for a slide).
@@ -868,6 +890,9 @@ pub struct Engine {
     ear: PitchEar,
     dec: Decimator2,
     dec_axis: Decimator2,
+    /// The first halving at 4x.
+    dec_hi: Decimator2,
+    dec_axis_hi: Decimator2,
     dc: DcBlock,
     noise: Noise,
     noise_lp: OnePole,
@@ -905,12 +930,15 @@ impl Engine {
         let mut bore_profile = profile.clone();
         bore_profile.cylinder_length += tuning;
         let table = table_for(p.construction(), &profile, tuning);
-        let sr_os = sr * OVERSAMPLE as f32;
+        let os = oversample(p.quality);
+        let sr_os = sr * os as f32;
         let lip_spec = instrument.lips();
         let combos = valve_combos(instrument.mechanism(), total + tuning);
         Self {
             sr,
             sr_os,
+            os,
+            quality: p.quality,
             instrument,
             construction: p.construction(),
             combos,
@@ -926,6 +954,8 @@ impl Engine {
             ear: PitchEar::default(),
             dec: Decimator2::new(),
             dec_axis: Decimator2::new(),
+            dec_hi: Decimator2::new(),
+            dec_axis_hi: Decimator2::new(),
             dc: DcBlock::default(),
             noise: Noise(0x2545_f491),
             noise_lp: OnePole::default(),
@@ -948,6 +978,11 @@ impl Engine {
 
     pub fn instrument(&self) -> BrassInstrument {
         self.instrument
+    }
+
+    /// The tier it was built at.
+    pub fn quality(&self) -> Quality {
+        self.quality
     }
 
     pub fn table(&self) -> &ResonanceTable {
@@ -1277,9 +1312,9 @@ impl Engine {
         let aperture = 2f32.powf((p.aperture.clamp(0.0, 1.0) - 0.5) * 2.0);
         let ear_a = OnePole::coef_for(self.player.fingering.resonance * 1.6, self.sr_os);
         let noise_a = OnePole::coef_for(3000.0, self.sr_os);
-        let mut out = [0.0f32; OVERSAMPLE];
-        let mut axis = [0.0f32; OVERSAMPLE];
-        for (o, ax) in out.iter_mut().zip(axis.iter_mut()) {
+        let mut out = [0.0f32; MAX_OVERSAMPLE];
+        let mut axis = [0.0f32; MAX_OVERSAMPLE];
+        for (o, ax) in out.iter_mut().zip(axis.iter_mut()).take(self.os) {
             let incoming = self.bore.incoming();
             let z0 = self.bore.z_in();
             // The tongue behind the lips gates the flow; breath noise rides on it.
@@ -1300,15 +1335,24 @@ impl Engine {
                 pl.guide_phase = (pl.guide_phase + p.freq * dt).fract();
                 let (s, c) = (std::f32::consts::TAU * pl.guide_phase).sin_cos();
                 let (h, v) = (open * (1.0 - c), open * w * s);
-                self.lips.steer(h, v, GUIDE_STRENGTH * pl.guide * fade);
+                // The pull per tick, set so it pulls as hard per second at every rate as at `Live`'s.
+                let g = 1.0 - (1.0 - GUIDE_STRENGTH * pl.guide * fade).powf(OVERSAMPLE as f32 / self.os as f32);
+                self.lips.steer(h, v, g);
                 pl.guide_left -= 1;
             }
             self.ear.listen(self.lips.pressure, ear_a);
             *o = self.bore.radiated;
             *ax = self.bore.radiated_on_axis;
         }
-        let power = self.dec.process(out[0], out[1]);
-        let on_axis = self.dec_axis.process(axis[0], axis[1]);
+        let (power, on_axis) = match self.os {
+            1 => (out[0], axis[0]),
+            2 => (self.dec.process(out[0], out[1]), self.dec_axis.process(axis[0], axis[1])),
+            _ => {
+                let (a, b) = (self.dec_hi.process(out[0], out[1]), self.dec_hi.process(out[2], out[3]));
+                let (c, d) = (self.dec_axis_hi.process(axis[0], axis[1]), self.dec_axis_hi.process(axis[2], axis[3]));
+                (self.dec.process(a, b), self.dec_axis.process(c, d))
+            }
+        };
         // Where the bell points: toward the listener adds the highs it beams on its axis; away,
         // they are shaded (the player and the bell's rim in the way); sideways is the power alone.
         let f = self.facing;

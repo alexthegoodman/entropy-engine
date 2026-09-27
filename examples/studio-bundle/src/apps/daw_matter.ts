@@ -5,6 +5,8 @@
 // The engine (src/audio/matter/) builds the kit from its tunings, so there is no engine-side data to
 // export or import here, only settings - as with the bowed string and the brass.
 
+import { MODEL_QUALITIES, repairQuality, type ModelQuality } from "./daw_quality";
+
 export const MATTER_WAVEFORM = "matter";
 
 export type MatterPiece = "kick" | "snare" | "rack-tom" | "floor-tom" | "crash" | "ride" | "splash";
@@ -86,11 +88,8 @@ export interface MatterKit {
     quality: MatterQuality;
 }
 
-export type MatterQuality = "draft" | "live";
-export const MATTER_QUALITIES: { id: MatterQuality; label: string }[] = [
-    { id: "draft", label: "Draft (light on the CPU)" },
-    { id: "live", label: "Full" },
-];
+export type MatterQuality = ModelQuality;
+export const MATTER_QUALITIES = MODEL_QUALITIES;
 
 export type MatterHands = "sticks" | "mallets";
 
@@ -169,7 +168,7 @@ function repairKit(saved: any): MatterKit {
         snareTension: num(s.snareTension, d.snareTension, ...r.snareTension),
         sympathetic: typeof s.sympathetic === "boolean" ? s.sympathetic : d.sympathetic,
         brushes: s.brushes === true,
-        quality: s.quality === "draft" ? "draft" : "live",
+        quality: repairQuality(s.quality),
     };
 }
 
