@@ -1,5 +1,5 @@
-// Exercises the video export path added alongside this addon: a Windows/Media-Foundation H.264
-// encoder (src/video_export/encode.rs) and the offscreen frame-at-a-time state machine that
+// Exercises the video export path added alongside this addon: an H.264 encoder (Media Foundation
+// on Windows, src/video_export/encode.rs; OpenH264 elsewhere, src/openh264_codec/encode.rs) and the offscreen frame-at-a-time state machine that
 // drives it (src/video_export/exporter.rs's start_export/step_export, one step per real call to
 // EntropyPipeline::render_display_frame, via the new Entropy.Video.export/pollExport ops - see
 // src/deno/addon_ops.rs `op_video_export_*`). Export does *not* block the window or this addon's
@@ -32,6 +32,7 @@ const EXPORT_DURATION_MS = 3000;
 const ORBIT_RADIUS = 6;
 
 let statusText = "Idle";
+let timingText = "";
 let exporting = false;
 let orbitAngle = 0;
 
@@ -77,7 +78,7 @@ function setupUI() {
     const win = Entropy.UI.createWindow({
         title: "Video Export Demo",
         width: 340,
-        height: 150,
+        height: 180,
         onRender: () => renderUI(win)
     });
 }
@@ -85,12 +86,15 @@ function setupUI() {
 function renderUI(win: string) {
     Entropy.UI.Widget.label(win, { text: "Video Export Demo", bold: true });
     Entropy.UI.Widget.label(win, { text: statusText });
+    if (timingText) Entropy.UI.Widget.label(win, { text: timingText });
 
     Entropy.UI.Widget.button(win, {
+        id: "export_btn",
         text: exporting ? "Exporting..." : `Export ${EXPORT_DURATION_MS / 1000}s Clip to MP4`,
         onClick: () => {
             if (exporting) return;
             exporting = true;
+            timingText = "";
             statusText = `Exporting ${EXPORT_DURATION_MS / 1000}s @ ${EXPORT_FPS}fps...`;
             Entropy.Video.export({
                 outputPath: OUTPUT_PATH,
@@ -143,8 +147,9 @@ addon.onUpdatePlus("Global", (_time: number) => {
             exporting = false;
             statusText = result.error
                 ? `Export failed: ${result.error}`
-                : `Exported ${result.frameCount} frames to ${result.outputPath} in ${result.elapsedMs}ms`;
-            Entropy.println(`[video-export-demo] ${statusText}`);
+                : `Exported ${result.frameCount} frames to ${result.outputPath}`;
+            timingText = result.error ? "" : `Took ${result.elapsedMs}ms`;
+            Entropy.println(`[video-export-demo] ${statusText} ${timingText}`);
         }
         // Not frozen - onUpdatePlus keeps ticking during export - but step_export overwrites
         // the camera every real frame anyway (see the file-level note), so setting it here too

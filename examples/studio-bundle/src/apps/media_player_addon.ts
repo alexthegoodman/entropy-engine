@@ -1,11 +1,11 @@
-// Windows Media Foundation player. The playlist, transport and subtitle state live in this addon;
-// decoding, audio and frame upload live in Entropy.Video.
+// Media player. The playlist, transport and subtitle state live in this addon; decoding, audio and
+// frame upload live in Entropy.Video (Media Foundation on Windows, OpenH264 + symphonia elsewhere).
 import { parseSubtitles, subtitleAt, type Cue } from "./media_player_model";
 
 const addonInfo = {
     name: "Media Player",
     version: "1.0.0",
-    description: "Plays a video file with audio via Windows Media Foundation",
+    description: "Plays a video file with audio via Entropy.Video",
     author: ["Entropy Team", "Claude"],
     capabilities: {
         audio: true,

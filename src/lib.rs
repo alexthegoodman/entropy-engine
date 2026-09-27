@@ -31,6 +31,12 @@ pub mod renderer_text;
 pub mod renderer_videos;
 #[cfg(target_os = "windows")]
 pub mod media_player;
+// Same `MediaPlayer` API as the Media Foundation one above, backed by OpenH264 + symphonia.
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[path = "media_player/openh264.rs"]
+pub mod media_player;
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+pub mod openh264_codec;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stylus;
 pub mod screen_capture;

@@ -763,11 +763,11 @@ impl AddonEngine {
             yumon_instances: HashMap::new(),
             npc_motion_states: HashMap::new(),
             on_action_callbacks: Vec::new(),
-            #[cfg(target_os = "windows")]
+            #[cfg(not(target_arch = "wasm32"))]
             video_players: HashMap::new(),
-            #[cfg(target_os = "windows")]
+            #[cfg(not(target_arch = "wasm32"))]
             pending_video_export: None,
-            #[cfg(target_os = "windows")]
+            #[cfg(not(target_arch = "wasm32"))]
             video_export_result: None,
         };
         runtime.op_state().borrow_mut().put(context);
