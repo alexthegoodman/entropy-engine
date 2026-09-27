@@ -31,4 +31,5 @@ pub mod sophia;
 pub mod render_frame;
 pub mod render_egui;
 pub mod render_addon_frame;
+pub mod frame_profile;
 pub mod script_editor;

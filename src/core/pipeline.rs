@@ -2180,7 +2180,8 @@ impl EntropyPipeline {
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
         let surface = gpu_resources.surface.as_ref().unwrap();
 
-        let output = match surface.get_current_texture() {
+        crate::core::frame_profile::begin_frame();
+        let output = match crate::core::frame_profile::time("acquire surface", || surface.get_current_texture()) {
             Ok(output) => output,
             // Lost/Outdated happen on real, recoverable events - window resize/move,
             // display mode change, DXGI device reset - not programmer error. Reconfigure
@@ -2257,6 +2258,7 @@ impl EntropyPipeline {
 
             let raw_input = gui.state.take_egui_input(&window);
             let egui_ctx = gui.ctx.clone();
+            let ui_started = std::time::Instant::now();
             let full_output = egui_ctx.run(raw_input, |ctx| {
                 if game_mode {
                     if let Some(editor) = &mut self.export_editor {
@@ -2269,8 +2271,10 @@ impl EntropyPipeline {
                 }
             });
 
+            crate::core::frame_profile::record("ui (js + layout)", ui_started.elapsed());
             gui.state.handle_platform_output(&window, full_output.platform_output);
 
+            let upload_started = std::time::Instant::now();
             let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [output.texture.width(), output.texture.height()],
@@ -2282,6 +2286,7 @@ impl EntropyPipeline {
             }
 
             gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
+            crate::core::frame_profile::record("ui upload", upload_started.elapsed());
 
             pending_egui_draw = Some((encoder, tris, screen_descriptor));
         }
@@ -2291,7 +2296,7 @@ impl EntropyPipeline {
         // panels elsewhere - see egui_sidebar.rs's Tab::Viewport for that history). Passing
         // `None` here means no scissor at all, i.e. always full screen: the (translucent)
         // panels below then composite as glass on top of it instead of sitting beside it.
-        self.render_addon_frame(Some(&view), current_time, None);
+        crate::core::frame_profile::time("scene (addon update + 3d)", || self.render_addon_frame(Some(&view), current_time, None));
 
         // Re-blur the frame we just drew into a small offscreen target so the glass
         // panels (painted next, in the egui pass) have something to sample as their
@@ -2304,6 +2309,7 @@ impl EntropyPipeline {
             gpu_resources.queue.submit(Some(blur_encoder.finish()));
         }
 
+        let ui_draw_started = std::time::Instant::now();
         if let Some((mut encoder, tris, screen_descriptor)) = pending_egui_draw {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2327,6 +2333,7 @@ impl EntropyPipeline {
 
             gpu_resources.queue.submit(Some(encoder.finish()));
         }
+        crate::core::frame_profile::record("ui draw + submit", ui_draw_started.elapsed());
 
         // This must stay after `gui.renderer.render`: `render_addon_frame` captures a scene
         // before entropy_gui is composited, while browser BDD evidence must include controls,
@@ -2353,7 +2360,7 @@ impl EntropyPipeline {
             gpu_resources.queue.submit(Some(encoder.finish()));
         }
 
-        output.present();
+        crate::core::frame_profile::time("present", || output.present());
     }
     
     fn ui(&mut self, gui: &mut Gui) {

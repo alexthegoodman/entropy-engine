@@ -104,41 +104,87 @@ pub struct KanbanBoard {
 
 /// Greedy word-wrap using real glyph metrics, capped at `max_lines` with a trailing "…" on
 /// the last line if the text didn't fit.
+///
+/// The text is shaped once, as a single line, and each word's ink extent read off that; a line
+/// spanning words `a..=b` is as wide as from `a`'s first glyph to the end of `b`'s last one.
+/// (This used to re-measure the growing line after every word - quadratic in the word count,
+/// and run for every card twice a frame.)
 fn wrap_text(ctx: &crate::entropy_gui::context::Context, text: &str, font_id: FontId, max_width: f32, max_lines: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
+    let mut words: Vec<(usize, usize)> = Vec::new();
+    let mut start = None;
+    for (i, ch) in text.char_indices() {
+        match (ch.is_whitespace(), start) {
+            (true, Some(s)) => {
+                words.push((s, i));
+                start = None;
+            }
+            (false, None) => start = Some(i),
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        words.push((s, text.len()));
+    }
+    if words.is_empty() {
+        return Vec::new();
+    }
 
-    for word in text.split_whitespace() {
-        let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
-        let w = Painter::measure_text(ctx, font_id, &candidate).x;
-        if w <= max_width || current.is_empty() {
-            current = candidate;
-        } else {
-            lines.push(std::mem::take(&mut current));
-            current = word.to_string();
+    // Ink extent (left, right) of each word in the single-line shaping.
+    let shaped = Painter::shaped(ctx, font_id, text);
+    let mut extents: Vec<Option<(f32, f32)>> = vec![None; words.len()];
+    let mut w = 0usize;
+    for g in &shaped.glyphs {
+        while w < words.len() && g.byte_offset >= words[w].1 {
+            w += 1;
+        }
+        if w == words.len() {
+            break;
+        }
+        if g.byte_offset < words[w].0 {
+            continue;
+        }
+        let (l, r) = (g.x, g.x + g.width);
+        extents[w] = Some(extents[w].map_or((l, r), |(el, er)| (el.min(l), er.max(r))));
+    }
+
+    let mut lines = Vec::new();
+    let mut line_start = 0usize;
+    let mut line_left = 0.0f32;
+    let mut next = 0usize;
+    for (k, ext) in extents.iter().enumerate() {
+        if k == line_start {
+            line_left = ext.map_or(0.0, |e| e.0);
+            continue;
+        }
+        let right = ext.map_or(line_left, |e| e.1);
+        if right - line_left > max_width {
+            lines.push((line_start, k));
+            line_start = k;
+            line_left = ext.map_or(0.0, |e| e.0);
             if lines.len() == max_lines {
+                next = k;
                 break;
             }
         }
     }
-    if lines.len() < max_lines && !current.is_empty() {
-        lines.push(current);
+    let truncated = lines.len() == max_lines;
+    if !truncated {
+        lines.push((line_start, words.len()));
     }
 
-    if lines.len() == max_lines {
-        // Might still be mid-word or have trailing text left unconsumed - either way, mark
-        // truncation by appending "…" to the last line (trimming to make room if needed).
-        let consumed: usize = lines.iter().map(|l| l.len() + 1).sum();
-        if consumed < text.len() {
-            let last = lines.last_mut().unwrap();
-            while Painter::measure_text(ctx, font_id, &format!("{last}…")).x > max_width && !last.is_empty() {
-                last.pop();
-            }
-            last.push('…');
+    let join = |(a, b): (usize, usize)| words[a..b].iter().map(|&(s, e)| &text[s..e]).collect::<Vec<_>>().join(" ");
+    let mut out: Vec<String> = lines.into_iter().map(join).collect();
+
+    if truncated && next < words.len() {
+        // Text is left over - mark truncation by appending "…" to the last line (trimming to
+        // make room if needed).
+        let last = out.last_mut().unwrap();
+        while Painter::measure_text(ctx, font_id, &format!("{last}…")).x > max_width && !last.is_empty() {
+            last.pop();
         }
+        last.push('…');
     }
-
-    lines
+    out
 }
 
 impl KanbanBoard {
@@ -273,7 +319,10 @@ impl KanbanBoard {
                 let card_h = card_heights[ci][idx];
                 let card_rect = Rect::from_min_size(pos2(column_rect.min.x + CARD_INSET, cursor_y), vec2(COLUMN_W - CARD_INSET * 2.0, card_h));
 
-                if !is_dragged {
+                // Cards scrolled out of view cost nothing to paint (they still take part in
+                // layout and hit-testing above/below).
+                let visible = card_rect.intersect(painter.clip_rect()).is_positive();
+                if !is_dragged && visible {
                     Self::paint_card(&painter, &ctx, card_rect, card, selected == Some((col.id.as_str(), card.id.as_str())), &visuals, title_font, desc_font, tag_font, card_inner_w);
                 }
 
@@ -387,5 +436,39 @@ impl KanbanBoard {
                 x += w + 4.0;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrapped_lines_fit_keep_every_word_and_truncate_with_an_ellipsis() {
+        let ctx = crate::entropy_gui::context::Context::default();
+        let font = FontId::proportional(DESC_SIZE);
+        let text = "Plan Claude Code work here, or point a Claude Code session at cc-manager/tasks.json directly - both read and write the same file.";
+        let lines = wrap_text(&ctx, text, font, 200.0, usize::MAX);
+        assert!(lines.len() > 1);
+        assert_eq!(lines.join(" "), text.split_whitespace().collect::<Vec<_>>().join(" "));
+        for line in &lines {
+            if line.contains(' ') {
+                assert!(Painter::measure_text(&ctx, font, line).x <= 200.0 + 1.0, "{line:?} overflows");
+            }
+        }
+        // Greedy: the next line's first word would not have fit on this one.
+        for pair in lines.windows(2) {
+            let first_next = pair[1].split(' ').next().unwrap();
+            assert!(Painter::measure_text(&ctx, font, &format!("{} {first_next}", pair[0])).x > 200.0 - 1.0);
+        }
+
+        let capped = wrap_text(&ctx, text, font, 200.0, 2);
+        assert_eq!(capped.len(), 2);
+        assert!(capped[1].ends_with('…'));
+        assert!(Painter::measure_text(&ctx, font, &capped[1]).x <= 200.0 + 1.0);
+        assert_eq!(wrap_text(&ctx, "short", font, 200.0, 2), vec!["short".to_string()]);
+        assert!(wrap_text(&ctx, "   ", font, 200.0, 2).is_empty());
+        // One word wider than the line still gets a line of its own.
+        assert_eq!(wrap_text(&ctx, "supercalifragilisticexpialidocious", font, 20.0, usize::MAX).len(), 1);
     }
 }
