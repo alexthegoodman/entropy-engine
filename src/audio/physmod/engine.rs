@@ -34,13 +34,21 @@ const CONTROL_EVERY: u32 = 8;
 const _: () = assert!(MAX_STRINGS == 4 && MAX_SYMPATHETIC == 6);
 
 /// Periods of guided stick-slip at the start of a stroke, and how many more to fade it over.
-const GUIDE_PERIODS: f32 = 3.0;
+///
+/// Sixteen periods is a few tens of milliseconds on a violin but ~0.25 s at the bottom of a cello:
+/// what it takes the guided motion to settle to the point where friction alone keeps it going
+/// (measured on short détaché notes: with 3 periods only about a third of cello and a sixth of
+/// bass notes came out clean, with 8 about a half and a third, with 12 three quarters and a half;
+/// 16 settles nearly every violin and viola note, and the gains stop beyond ~20).
+const GUIDE_PERIODS: f32 = 16.0;
 const GUIDE_FADE: f32 = 2.0;
 /// Notes starting within this many seconds of a held note form a chord (double stop) with it;
 /// later ones slur from it.
 const CHORD_WINDOW: f32 = 0.04;
 /// How quickly (seconds) the player's ear pulls a bowed note back in tune.
 const INTONATION_TAU: f32 = 0.08;
+/// ...and never faster than this many periods of the note (see `control`).
+const INTONATION_PERIODS: f32 = 12.0;
 /// Fraction of the guided slip spent ramping in (and out).
 const GUIDE_RAMP: f32 = 0.15;
 /// The default instrument: a violin, G3 D4 A4 E5.
@@ -122,9 +130,9 @@ pub struct PhysModParams {
     /// 0..1: how cleanly the player starts a stroke. A bowed note's first few periods are chaotic -
     /// the string can fall into double slipping or crunch before settling (in this model as on a
     /// real violin: it is why beginners squeak). At 1 the player guides the contact through an
-    /// ideal stick-slip cycle for the first few periods (a "perfect attack" in Guettler's sense)
-    /// and then lets friction take over completely; at 0 the start is left entirely to the
-    /// friction physics.
+    /// ideal stick-slip cycle for the first periods of a stroke (`GUIDE_PERIODS`; a "perfect
+    /// attack" in Guettler's sense) and then lets friction take over completely; at 0 the start is
+    /// left entirely to the friction physics.
     pub attack_skill: f32,
 
     // ---------------------------------------------------------------- construction
@@ -217,13 +225,58 @@ pub fn bow_speed(knob: f32) -> f32 {
 /// Bow force in newtons for the 0..1 control, around `center` (the force the middle of the control
 /// means - see `force_center`): two decades, logarithmic.
 pub fn bow_newtons(knob: f32, center: f32) -> f32 {
-    center * 10f32.powf((knob.clamp(0.0, 1.0) - 0.5) * 2.0)
+    bow_newtons_spanned(knob, center, 1.0)
+}
+
+/// `bow_newtons` with the control's range scaled by `span` (see `force_span`): `span` 1 is two
+/// decades, 0.5 one decade, always around the same centre.
+pub fn bow_newtons_spanned(knob: f32, center: f32, span: f32) -> f32 {
+    center * 10f32.powf((knob.clamp(0.0, 1.0) - 0.5) * 2.0 * span)
 }
 
 /// The inverse of `bow_newtons`.
 pub fn bow_knob(newtons: f32, center: f32) -> f32 {
-    if newtons > 0.0 && center > 0.0 { 0.5 + 0.5 * (newtons / center).log10() } else { 0.0 }
+    bow_knob_spanned(newtons, center, 1.0)
 }
+
+/// The inverse of `bow_newtons_spanned`.
+pub fn bow_knob_spanned(newtons: f32, center: f32, span: f32) -> f32 {
+    if newtons > 0.0 && center > 0.0 { 0.5 + 0.5 * (newtons / center).log10() / span.max(1.0e-3) } else { 0.0 }
+}
+
+/// How much of its range the force control spans on a note, relative to a violin's G string: the
+/// width (in decades) of this note's playable window at the normal bow position, over the width of
+/// the violin G's, capped at 1.
+///
+/// The window is much narrower on low, heavy strings - in this model about 1.2 decades on the violin
+/// G, 0.6 on the cello C, 0.2 on the bass E (measured; `schelleng_window` fits it) - so with one
+/// fixed scale for every string, a force a violinist would call "firm" (0.65 or so) lands above the
+/// top of a cello's or bass's window and the stroke breaks into crunch and multiple slipping, which
+/// is heard as a note that won't settle on its pitch: short notes on the bottom strings came out a
+/// wrong octave or a hollow, wandering pitch. Scaling the control by the window keeps each position
+/// on it the same *place in the window* on every string - the way a player's arm adapts to a string
+/// without thinking - while the ends of the control still reach surface sound and crunch. Notes
+/// whose window is at least as wide as the violin G's (the whole violin, most of the viola) are
+/// unchanged.
+pub fn force_span(bow_speed: f32, nominal_impedance: f32, freq: f32) -> f32 {
+    let curve = FrictionCurve::default();
+    let decades = |z: f32, f: f32| {
+        let (lo, hi) = schelleng_window(bow_speed, NORMAL_BETA, z, &curve, f);
+        (hi / lo.max(1.0e-9)).log10()
+    };
+    let reference = decades(string_impedance(VIOLIN_TUNING[0], 0.0, 0.5), VIOLIN_TUNING[0]);
+    (decades(nominal_impedance, freq) / reference.max(1.0e-3)).clamp(MIN_FORCE_SPAN, 1.0).powf(FORCE_SPAN_MARGIN)
+}
+
+/// `force_span` is the window ratio to this power: a little narrower still on the low strings,
+/// whose window is at its narrowest where it matters most - a note re-bowed while the last one
+/// rings. (At 1, a bass line bowed at 0.7 fell into steady double slipping on about one re-bowed
+/// note in four; at 1.25 none did, with no change on the violin.)
+const FORCE_SPAN_MARGIN: f32 = 1.25;
+
+/// The narrowest `force_span`: below this (an octobass's bottom string, whose fitted window closes
+/// entirely) the control keeps a little range so it still does something.
+const MIN_FORCE_SPAN: f32 = 0.12;
 
 /// Where a player's "normal" bow force sits for a note: the middle of the playable window at a
 /// normal bow position (`NORMAL_BETA`) for this string's nominal weight, this pitch and this bow
@@ -356,10 +409,16 @@ struct Player {
     pluck_force: f32,
     /// Oversampled ticks since the current stroke began (for the guided attack), or u32::MAX.
     guide_t: u32,
+    /// Periods of the guided cycle elapsed, accumulated tick by tick (so a finger that moves while
+    /// the guide runs - vibrato, a slide - bends its clock instead of jumping its phase).
+    guide_phase: f32,
     /// Engine clock (output samples) when the current note began.
     started_at: u64,
     /// The player's intonation correction: a factor on the finger's pitch (see `control`).
     intonation: f32,
+    /// Seconds before the player's ear starts listening to a new note (while a slurred finger is
+    /// still sliding there, the string is not yet at the note's pitch).
+    ear_wait: f32,
     /// Extra force (fraction) the player is leaning in with to get a stroke to speak, and the
     /// (ticks, releases) mark it last measured from.
     assist: f32,
@@ -390,8 +449,10 @@ impl Player {
             pluck_len: 0,
             pluck_force: 0.0,
             guide_t: u32::MAX,
+            guide_phase: 0.0,
             started_at: 0,
             intonation: 1.0,
+            ear_wait: 0.0,
             assist: 0.0,
             assist_mark: (0, 0),
             grit_lp: OnePole::default(),
@@ -630,6 +691,8 @@ impl Engine {
 
         let slide_secs = if legato { p.slide.max(0.002) } else { 0.0015 };
         pl.glide = 1.0 - (-1.0 / (slide_secs * self.sr_os / 3.0)).exp();
+        string.reset_period_estimate();
+        pl.ear_wait = slide_secs;
 
         match p.articulation {
             Articulation::Arco => {
@@ -643,6 +706,7 @@ impl Engine {
                     // (not on a string crossing inside a slur, which is smooth by intent).
                     pl.bite = if carried_dir.is_some() { 0.0 } else { 0.8 * p.velocity.clamp(0.0, 1.0).powi(2) };
                     pl.guide_t = 0;
+                    pl.guide_phase = 0.0;
                 }
                 string.retune(p.freq, p.bow_position);
                 if !legato && string.level < 1.0e-4 {
@@ -761,11 +825,29 @@ impl Engine {
         // exactly the free string's: in this model the friction sharpens a clean stroke by a few
         // cents (up to ~10 at the top of the E string), heavy force flattens it.
         let wanted = p.freq * 2f32.powf(cents / 1200.0);
+        // It listens only once the note is really this note: not while a slurred finger is still
+        // sliding (what it would hear is the slide), and not to a period measured on the previous
+        // note - that is thrown away when a note starts (in `note_on`) and again for as long as
+        // the slide lasts, so the estimate it acts on is this note's own. (A leftover estimate
+        // from a note a semitone or two away looks like a believable period, and the ear would
+        // "correct" the new note by up to its full 3% - half a semitone - before catching up; the
+        // lag is per period, so the lower the string, the longer and worse.)
+        // Nor during the guided start: the releases then keep the guide's clock, not the string's
+        // own time.
+        if pl.ear_wait > 0.0 || pl.guide_t != u32::MAX {
+            pl.ear_wait -= dt;
+            string.reset_period_estimate();
+        }
         // (Only for stopped notes: an open string has no finger to move.)
         if pl.phase == Phase::Bowing && stopped_note && string.period_estimate > 0.0 && string.helmholtz_confidence > 0.97 {
             let actual_freq = string.sample_rate() / string.period_estimate;
             let err = (wanted / actual_freq).ln();
-            pl.intonation = (pl.intonation * (err * dt / INTONATION_TAU).exp()).clamp(0.97, 1.03);
+            // The period estimate is a running average over ~10 periods, so the ear can't usefully
+            // react faster than that: on a low string, correcting at the violin's pace against an
+            // estimate a quarter of a second behind overshot, and the note swung 20 cents either
+            // side of its pitch before settling.
+            let tau = INTONATION_TAU.max(INTONATION_PERIODS / actual_freq);
+            pl.intonation = (pl.intonation * (err * dt / tau).exp()).clamp(0.97, 1.03);
         } else if pl.phase != Phase::Bowing {
             pl.intonation = 1.0;
         }
@@ -781,7 +863,8 @@ impl Engine {
         // the E without thinking about it), but not by the `string_mass` construction setting - a
         // string made heavier in the lab genuinely needs more force, and should be heard to.
         let z_nominal = string_impedance(string.spec.open_freq, self.instrument.body_size, 0.5);
-        let f_target_mag = bow_newtons(force_knob, force_center(v_target_mag, z_nominal, p.freq));
+        let span = force_span(v_target_mag, z_nominal, p.freq);
+        let f_target_mag = bow_newtons_spanned(force_knob, force_center(v_target_mag, z_nominal, p.freq), span);
 
         // Attack assist (part of `attack_skill`): early in a stroke, if the string is slipping more
         // than once a period although the force asked for is inside the playable window - the
@@ -807,14 +890,24 @@ impl Engine {
         } else {
             pl.assist = 0.0;
         }
-        let f_target_mag = f_target_mag * (1.0 + pl.assist);
+        // The assist and an accent's bite are extra force on top of what was asked for, scaled to
+        // the window like the control is: a +50% bite fits well inside a violin's window but is
+        // wider than a bass E's whole window, and would start every accented bass note in crunch.
+        let boost = |extra: f32| f_target_mag * (1.0 + extra).powf(span);
+        let f_bite = boost(pl.assist + pl.bite);
+        let f_target_mag = boost(pl.assist);
         let attack = p.attack.max(0.003);
         let release = p.release.max(0.01);
         let ring = p.ring.clamp(0.0, 1.0);
+        // How far the bow has got up to speed in this stroke's direction (0 at a bow change).
+        let up_to_speed = if v_target_mag > 0.0 { (pl.v_bow * pl.dir / v_target_mag).clamp(0.0, 1.0) } else { 1.0 };
         let (v_target, f_target, tau_v, tau_f) = match pl.phase {
-            // Speed ramps up over the attack; force arrives faster (plus any accent bite), so the
-            // bow is gripping by the time it is moving.
-            Phase::Bowing => (pl.dir * v_target_mag, f_target_mag * (1.0 + pl.bite), attack / 3.0, attack / 6.0),
+            // Speed ramps up over the attack; force arrives with it (plus any accent bite), keeping
+            // the force-to-speed ratio - which is what decides where in the playable window the
+            // stroke is - where it will settle. (Full force on a bow still at half speed is
+            // above the window, and on a low string's narrow window the stroke breaks into crunch
+            // before it has started.) Force still leads a little, so the bow grips as it moves.
+            Phase::Bowing => (pl.dir * v_target_mag, f_bite * (0.25 + 0.75 * up_to_speed), attack / 3.0, attack / 6.0),
             // Lifting: with a ringing release the bow leaves while still moving (force first);
             // with a stopped release the bow stops on the string and damps it (speed first).
             Phase::Releasing => (0.0, 0.0, release * (0.25 + 0.75 * ring), release * (1.0 - 0.75 * ring)),
@@ -875,11 +968,13 @@ impl Engine {
                     if pl.guide_t != u32::MAX {
                         // The guided attack: an ideal Helmholtz stick-slip cycle at the bow point
                         // (stuck to the bow for 1 - beta of each period, one smooth slip pulse for
-                        // beta of it, zero mean), imposed for GUIDE_PERIODS then faded out.
+                        // beta of it, zero mean), for GUIDE_PERIODS then faded out. The string holds
+                        // to the sticking part and slips by its own friction where it can (see
+                        // `BowedString::tick`).
                         let string = &self.strings[s];
                         let period = self.sr_os / string.freq();
                         let beta = string.beta();
-                        let n_per = pl.guide_t as f32 / period;
+                        let n_per = pl.guide_phase;
                         let w = pl.p.attack_skill.clamp(0.0, 1.0) * (1.0 - (n_per - GUIDE_PERIODS) / GUIDE_FADE).clamp(0.0, 1.0);
                         if w <= 0.0 || pl.phase != Phase::Bowing {
                             pl.guide_t = u32::MAX;
@@ -901,6 +996,7 @@ impl Engine {
                             ex.guide_weight = w;
                             ex.guide_stuck = stuck;
                             pl.guide_t += 1;
+                            pl.guide_phase += 1.0 / period;
                         }
                     }
                     if pl.pluck_t < pl.pluck_len {
@@ -952,16 +1048,17 @@ impl Engine {
             } else {
                 (false, 0.0, 0.0)
             };
-            // Knob units: invert `bow_newtons` around this note's force centre.
-            let center = if bowed {
+            // Knob units: invert `bow_newtons_spanned` around this note's force centre and span.
+            let (center, span) = if bowed {
                 let pl = &self.players[i];
                 let dyn_ = 0.3 + 0.7 * pl.p.velocity.clamp(0.0, 1.0);
-                let speed_knob = pl.controls().1;
-                force_center(bow_speed(speed_knob) * dyn_, string_impedance(s.spec.open_freq, self.instrument.body_size, 0.5), pl.p.freq)
+                let speed = bow_speed(pl.controls().1) * dyn_;
+                let z = string_impedance(s.spec.open_freq, self.instrument.body_size, 0.5);
+                (force_center(speed, z, pl.p.freq), force_span(speed, z, pl.p.freq))
             } else {
-                1.0
+                (1.0, 1.0)
             };
-            let to_knob = |f: f32| bow_knob(f, center);
+            let to_knob = |f: f32| bow_knob_spanned(f, center, span);
             // Contact statistics over at least four periods (a report window can be shorter than
             // one period of a bass note); until then, the last full measurement stands.
             let st = s.stats;
