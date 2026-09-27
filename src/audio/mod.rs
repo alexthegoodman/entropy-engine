@@ -535,12 +535,33 @@ pub fn render_mix_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
+    render_mix_to_wav_with_progress(events, sample_events, wavetable_events, physmod_events, brass_events, matter_events, water_events, vst3_tracks, routing, sample_rate, output_path, |_| Ok(()))
+}
+
+/// Offline bounce with coarse instrument progress and incremental WAV-writing progress.
+/// Returning an error from the callback stops the bounce at the next checkpoint.
+pub fn render_mix_to_wav_with_progress(
+    events: &[NoteEvent],
+    sample_events: &[SampleEvent],
+    wavetable_events: &[WavetableEvent],
+    physmod_events: &[PhysModEvent],
+    brass_events: &[BrassEvent],
+    matter_events: &[MatterEvent],
+    water_events: &[WaterEvent],
+    vst3_tracks: &[vst3::Vst3RenderTrack],
+    routing: &MixRouting,
+    sample_rate: u32,
+    output_path: &Path,
+    mut progress: impl FnMut(f32) -> Result<(), String>,
+) -> Result<(f64, Vec<String>), String> {
+    progress(0.0)?;
     let sr = sample_rate as f32;
 
     let mut voice_bufs: Vec<(usize, Option<usize>, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
     let mut total_frames: usize = 0;
 
     for (i, hit) in sample_events.iter().enumerate() {
+        progress(0.1 * i as f32 / std::cmp::Ord::max(sample_events.len(), 1) as f32)?;
         // A pad whose file has gone missing is skipped rather than failing the whole export.
         let Ok(sample) = samples::load(&hit.path) else { continue };
         let voice = SampleVoice::new(sample, hit.params, None);
@@ -556,6 +577,7 @@ pub fn render_mix_to_wav(
     }
 
     for (i, hit) in wavetable_events.iter().enumerate() {
+        progress(0.1 + 0.1 * i as f32 / std::cmp::Ord::max(wavetable_events.len(), 1) as f32)?;
         let Some(shared) = wavetable::shared_for(&hit.table) else { continue };
         let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.005) + 0.5;
         let mut buf = wavetable::render_note(shared, hit.params, limit);
@@ -611,7 +633,10 @@ pub fn render_mix_to_wav(
         }
     }
     let water_bufs = by_water.iter().map(|(_, bus, spec, mix, notes)| (*bus, matter::water_voice::render_water_performance(*spec, *mix, notes, 20.0)));
-    for (bus, buf) in physmod_bufs.chain(brass_bufs).chain(matter_bufs).chain(water_bufs) {
+    let instrument_count = by_instrument.len() + by_player.len() + by_kit.len() + by_water.len();
+    progress(0.2)?;
+    for (i, (bus, buf)) in physmod_bufs.chain(brass_bufs).chain(matter_bufs).chain(water_bufs).enumerate() {
+        progress(0.2 + 0.2 * (i + 1) as f32 / std::cmp::Ord::max(instrument_count, 1) as f32)?;
         let mut buf = buf;
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
@@ -623,6 +648,7 @@ pub fn render_mix_to_wav(
     }
 
     for (i, event) in events.iter().enumerate() {
+        progress(0.4 + 0.2 * i as f32 / std::cmp::Ord::max(events.len(), 1) as f32)?;
         let mut node = build_note_node(&event.voice, &event.params, sr);
         let total_dur = note_total_duration(&event.params);
         let n_frames = (total_dur * sr as f64).ceil() as usize;
@@ -655,6 +681,7 @@ pub fn render_mix_to_wav(
     // erroring - an empty export is a legitimate, if useless, thing to ask for.
     total_frames = std::cmp::Ord::max(total_frames, 1);
 
+    progress(0.6)?;
     let mut master = vec![0.0f32; total_frames * 2];
     // One buffer per bus that something plays through, allocated on first use.
     let mut bus_bufs: Vec<Option<Vec<f32>>> = vec![None; routing.buses.len()];
@@ -672,6 +699,7 @@ pub fn render_mix_to_wav(
 
     let mut vst3_warnings = Vec::new();
     for (t, track) in vst3_tracks.iter().enumerate() {
+        progress(0.65 + 0.15 * t as f32 / std::cmp::Ord::max(vst3_tracks.len(), 1) as f32)?;
         let target = match routing.bus(routing.vst3, t) {
             Some(b) => bus_bufs[b].get_or_insert_with(|| vec![0.0f32; total_frames * 2]),
             None => &mut master,
@@ -693,6 +721,7 @@ pub fn render_mix_to_wav(
     }
 
     for (b, buf) in bus_bufs.iter_mut().enumerate() {
+        progress(0.8 + 0.1 * b as f32 / std::cmp::Ord::max(routing.buses.len(), 1) as f32)?;
         let Some(buf) = buf else { continue };
         routing.buses[b].process(buf, sr);
         for (m, v) in master.iter_mut().zip(buf.iter()) {
@@ -703,6 +732,7 @@ pub fn render_mix_to_wav(
     // Peak-normalize only when notes actually stack loud enough to clip - most single-track
     // patterns never hit this, but a busy multi-track pattern easily can, and clamping alone
     // (without scaling down first) would audibly distort rather than just get quieter.
+    progress(0.9)?;
     let peak = master.iter().fold(0.0f32, |m, &v| m.max(v.abs()));
     let scale = if peak > 1.0 { 0.98 / peak } else { 1.0 };
 
@@ -713,7 +743,10 @@ pub fn render_mix_to_wav(
         sample_format: hound::SampleFormat::Int,
     };
     let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
-    for &sample in &master {
+    for (i, &sample) in master.iter().enumerate() {
+        if i % 8192 == 0 {
+            progress(0.9 + 0.09 * i as f32 / std::cmp::Ord::max(master.len(), 1) as f32)?;
+        }
         let v = (sample * scale).clamp(-1.0, 1.0);
         writer
             .write_sample((v * i16::MAX as f32) as i16)
@@ -721,6 +754,7 @@ pub fn render_mix_to_wav(
     }
     writer.finalize().map_err(|e| e.to_string())?;
 
+    progress(1.0)?;
     Ok((total_frames as f64 / sample_rate as f64, vst3_warnings))
 }
 
@@ -1902,5 +1936,42 @@ mod character_path_tests {
         let recovered = window(1.45);
         assert!(ducked < recovered * 0.4, "the pumped track ducks on the beat: {ducked} vs {recovered}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod export_progress_tests {
+    use super::*;
+
+    #[test]
+    fn progress_is_monotonic_and_preserves_the_bounced_audio() {
+        let dir = std::env::temp_dir().join(format!("entropy-wav-progress-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("original.wav");
+        let tracked = dir.join("tracked.wav");
+        let events = [NoteEvent { start_time: 0.0, voice: "sine".into(), params: NoteParams { duration: 0.05, ..Default::default() } }];
+        let routing = MixRouting::default();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &original).unwrap();
+        let mut updates = Vec::new();
+        render_mix_to_wav_with_progress(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &tracked, |p| {
+            updates.push(p);
+            Ok(())
+        }).unwrap();
+        assert_eq!(updates.first(), Some(&0.0));
+        assert_eq!(updates.last(), Some(&1.0));
+        assert!(updates.windows(2).all(|p| p[0] <= p[1]));
+        assert!(updates.iter().any(|p| *p > 0.0 && *p < 1.0));
+        assert_eq!(std::fs::read(original).unwrap(), std::fs::read(tracked).unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cancellation_before_writing_does_not_create_an_output() {
+        let path = std::env::temp_dir().join(format!("entropy-wav-cancel-{}.wav", uuid::Uuid::new_v4()));
+        let result = render_mix_to_wav_with_progress(&[], &[], &[], &[], &[], &[], &[], &[], &MixRouting::default(), 44_100, &path, |p| {
+            if p >= 0.6 { Err("cancelled".into()) } else { Ok(()) }
+        });
+        assert_eq!(result.unwrap_err(), "cancelled");
+        assert!(!path.exists());
     }
 }

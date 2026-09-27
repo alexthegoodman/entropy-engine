@@ -1752,37 +1752,43 @@ function editVisualizer(change: (p: VisualizerPrefs) => VisualizerPrefs | void) 
 }
 
 function exportMusicVideo() {
-    if (musicVideo.exporting) return;
+    if (musicVideo.exporting || wavExport) return;
     const songName = currentSongName();
     const outputPath = Entropy.Video.chooseMusicVideoPath(musicVideoFileName(songName));
     if (!outputPath) {
         musicVideo.status = "Export cancelled.";
         return;
     }
-    musicVideo.status = "Rendering the song's audio...";
-    const wav = renderSongWav({ tempFile: true });
-    if (!wav.success || !wav.path) {
-        musicVideo.status = `Couldn't render the song's audio: ${wav.error ?? "unknown error"}`;
-        return;
-    }
-    const started = Entropy.Video.exportMusicVideo({
-        wavPath: wav.path,
-        outputPath,
-        settings: engineSettings(visualizerPrefs(), songName),
-        deleteWav: true,
-    });
-    if (!started.ok) {
-        musicVideo.status = `Export failed: ${started.error}`;
-        return;
-    }
+    // Capture settings now, so edits made while bouncing do not change the export.
+    const settings = engineSettings(visualizerPrefs(), songName);
     musicVideo.exporting = true;
-    musicVideo.status = "Starting the export...";
-    Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: musicVideo.status, progress: 0, durationMs: 0, actionLabel: "Cancel", onAction: () => Entropy.Video.cancelMusicVideo() });
+    musicVideo.status = "Rendering the song's audio...";
+    startWavExport(true, wav => {
+        if (!wav.success || !wav.path) {
+            musicVideo.exporting = false;
+            musicVideo.status = `Couldn't render the song's audio: ${wav.error ?? "unknown error"}`;
+            return;
+        }
+        const started = Entropy.Video.exportMusicVideo({ wavPath: wav.path, outputPath, settings, deleteWav: true });
+        if (!started.ok) {
+            musicVideo.exporting = false;
+            musicVideo.status = `Export failed: ${started.error}`;
+            Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: musicVideo.status, kind: "error", durationMs: 0 });
+            return;
+        }
+        musicVideo.status = "Starting the video export...";
+        Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: musicVideo.status, progress: 0, durationMs: 0, actionLabel: "Cancel", onAction: cancelMusicVideoExport });
+    });
+}
+
+function cancelMusicVideoExport() {
+    if (wavExport?.video) addon.Audio.cancelWavExport();
+    else Entropy.Video.cancelMusicVideo();
 }
 
 /** Called every frame: carries the background export's progress into the panel and the toast. */
 function pollMusicVideoExport() {
-    if (!musicVideo.exporting) return;
+    if (!musicVideo.exporting || wavExport?.video) return;
     const status: MusicVideoStatus | null = Entropy.Video.pollMusicVideo();
     if (!status) {
         musicVideo.exporting = false;
@@ -1801,7 +1807,7 @@ function pollMusicVideoExport() {
             durationMs: status.error ? 0 : 6000,
         });
     } else if (changed) {
-        Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: text, progress: status.progress, durationMs: 0, actionLabel: "Cancel", onAction: () => Entropy.Video.cancelMusicVideo() });
+        Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: text, progress: status.progress, durationMs: 0, actionLabel: "Cancel", onAction: cancelMusicVideoExport });
     }
 }
 
@@ -1822,12 +1828,12 @@ function renderVisualizerWindow(win: string) {
                 W.button(row, {
                     text: musicVideo.exporting ? "Exporting..." : withIcon("film-strip", "Export MP4..."),
                     id: "music_video_export",
-                    disabled: musicVideo.exporting,
+                    disabled: musicVideo.exporting || !!wavExport,
                     tooltip: `Renders the whole song at ${size.width} x ${size.height}, ${p.fps} fps, with its audio`,
                     onClick: () => exportMusicVideo(),
                 });
                 if (musicVideo.exporting) {
-                    W.button(row, { text: "Cancel", id: "music_video_cancel", onClick: () => Entropy.Video.cancelMusicVideo() });
+                    W.button(row, { text: "Cancel", id: "music_video_cancel", onClick: cancelMusicVideoExport });
                 }
             });
             if (musicVideo.status) W.label(left, { text: musicVideo.status });
@@ -3397,20 +3403,65 @@ function buildVst3Events(): { path: string; state: string | null; notes: any[]; 
     return Array.from(byTrack.values());
 }
 
-function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string; vst3Warnings?: string[] } {
-    const result = renderSongWav();
+type WavResult = { success: boolean; path?: string; durationSeconds?: number; error?: string; vst3Warnings?: string[] };
+let wavExport: { video: boolean; complete: (result: WavResult) => void; lastPercent: number } | null = null;
+const WAV_EXPORT_TOAST = "daw-wav-export";
+
+function startWavExport(video: boolean, complete: (result: WavResult) => void): WavResult {
+    if (wavExport) return { success: false, error: "An audio export is already running" };
+    const started = renderSongWav({ tempFile: video, background: true });
+    if (!started.success) {
+        complete(started);
+        Entropy.UI.toast?.({ id: video ? MUSIC_VIDEO_TOAST : WAV_EXPORT_TOAST, message: started.error ?? "Audio export failed", kind: "error", durationMs: 6000 });
+        return started;
+    }
+    wavExport = { video, complete, lastPercent: -1 };
+    showWavExportProgress(0);
+    return started;
+}
+
+function showWavExportProgress(progress: number) {
+    if (!wavExport) return;
+    const percent = Math.floor(progress * 100);
+    if (percent === wavExport.lastPercent) return;
+    wavExport.lastPercent = percent;
+    const text = `${wavExport.video ? "Rendering video audio" : "Exporting WAV"}: ${percent}%`;
+    if (wavExport.video) musicVideo.status = text;
+    else lastExportStatus = text;
+    Entropy.UI.toast?.({ id: wavExport.video ? MUSIC_VIDEO_TOAST : WAV_EXPORT_TOAST, message: text, progress, durationMs: 0, actionLabel: "Cancel", onAction: () => addon.Audio.cancelWavExport() });
+}
+
+function pollWavExport() {
+    if (!wavExport) return;
+    const status = addon.Audio.pollWavExport();
+    if (status && !status.done) {
+        showWavExportProgress(status.progress);
+        return;
+    }
+    const job = wavExport;
+    wavExport = null;
+    const result: WavResult = status?.result ?? { success: false, error: "Audio export stopped unexpectedly" };
+    job.complete(result);
+    // On success the video callback replaces the audio toast with video progress.
+    if (!job.video || !result.success) {
+        Entropy.UI.toast?.({ id: job.video ? MUSIC_VIDEO_TOAST : WAV_EXPORT_TOAST, message: job.video ? musicVideo.status : lastExportStatus ?? "", kind: result.success ? "success" : result.error === "Export cancelled" ? "info" : "error", durationMs: 6000 });
+    }
+}
+
+function exportPatternToWav(): WavResult {
     const lost = Object.keys(sampleMissing).length;
-    const vst3Failed = result.vst3Warnings?.length ?? 0;
-    lastExportStatus = result.success
-        ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
-            + (vst3Failed > 0 ? ` (${vst3Failed} VST3 track${vst3Failed === 1 ? "" : "s"} could not be rendered: ${result.vst3Warnings!.join("; ")})` : "")
-            + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
-        : `Export failed: ${result.error}`;
-    return result;
+    return startWavExport(false, result => {
+        const vst3Failed = result.vst3Warnings?.length ?? 0;
+        lastExportStatus = result.success
+            ? `Exported ${(result.durationSeconds ?? 0).toFixed(2)}s to ${result.path}`
+                + (vst3Failed > 0 ? ` (${vst3Failed} VST3 track${vst3Failed === 1 ? "" : "s"} could not be rendered: ${result.vst3Warnings!.join("; ")})` : "")
+                + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
+            : `Export failed: ${result.error}`;
+    });
 }
 
 /** Bounces the whole song offline. Asks where to save unless `tempFile` (the music video export). */
-function renderSongWav(options?: { tempFile?: boolean }) {
+function renderSongWav(options?: { tempFile?: boolean; background?: boolean }) {
     const events = buildPatternEvents();
     const sampleEvents = buildSampleEvents();
     const wavetableEvents = buildWavetableEvents();
@@ -4869,6 +4920,7 @@ addon.onInit(async () => {
                 Entropy.UI.Widget.button(tid2, {
                     text: withIcon("download-simple", "Export Song to WAV"),
                     id: "export_wav",
+                    disabled: !!wavExport,
                     onClick: () => { exportPatternToWav(); }
                 });
                 Entropy.UI.Widget.button(tid2, {
@@ -5727,6 +5779,7 @@ addon.onInit(async () => {
         }
 
         tickLibrary();
+        pollWavExport();
         pollMusicVideoExport();
 
         if (!transport.playing) return;
@@ -6867,7 +6920,7 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
 
     addon.registerTool({
         name: "daw_export_wav",
-        description: "Render the whole arrangement (all unmuted tracks, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, so this only completes when a human picks a location - it is not silent/headless.",
+        description: "Render the whole arrangement (all unmuted tracks, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, then starts a background bounce. Audio progress and completion appear in the DAW; success here means the job started.",
         parameters: { type: "object", properties: {} }
     }, () => {
         return exportPatternToWav();

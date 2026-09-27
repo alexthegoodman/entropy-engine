@@ -131,7 +131,14 @@ describe("The DAW's Analyzer toggle and Music Video panel (production addon call
         const { w, click, world } = await openDaw();
         click("toggle_visualizer");
         click("music_video_export");
-        expect(w.wavOptions.at(-1)).toEqual({ tempFile: true });
+        expect(w.wavOptions.at(-1)).toEqual({ tempFile: true, background: true });
+        expect(w.musicVideoStarts).toHaveLength(0);
+        w.wavPolls.push({ done: false, progress: 0.35 });
+        world.advance(50);
+        expect(w.labels).toContain("Rendering video audio: 35%");
+        expect(w.musicVideoStarts).toHaveLength(0);
+        w.musicVideoPolls.push({ framesDone: 0, totalFrames: 600, progress: 0, done: false, outputPath: "/videos/song.mp4", elapsedMs: 0 });
+        world.advance(50);
         expect(w.musicVideoStarts).toHaveLength(1);
         expect(w.musicVideoStarts[0]).toMatchObject({ wavPath: "test.wav", outputPath: "/videos/song.mp4", deleteWav: true });
         expect(w.musicVideoStarts[0].settings).toMatchObject({ style: "bars", width: 1280, title: "Demo song" });
@@ -149,7 +156,35 @@ describe("The DAW's Analyzer toggle and Music Video panel (production addon call
         expect(w.buttons.has("music_video_cancel")).toBe(false);
         // A second export can start.
         click("music_video_export");
+        world.advance(50);
         expect(w.musicVideoStarts).toHaveLength(2);
+    });
+
+    it("cancels during the audio bounce without starting video encoding", async () => {
+        const { w, click, world } = await openDaw();
+        click("toggle_visualizer");
+        click("music_video_export");
+        click("music_video_cancel");
+        expect(w.wavCancels).toBe(1);
+        expect(w.musicVideoCancels).toBe(0);
+        world.advance(50);
+        expect(w.musicVideoStarts).toHaveLength(0);
+        expect(w.labels.some(text => text.includes("Export cancelled"))).toBe(true);
+        expect(w.buttons.has("music_video_cancel")).toBe(false);
+    });
+
+    it("shows WAV progress and final warnings while frame updates continue", async () => {
+        const { w, click, world } = await openDaw();
+        w.nextVst3Warnings = ["Missing plugin"];
+        click("export_wav");
+        expect(w.wavOptions.at(-1)).toEqual({ tempFile: false, background: true });
+        w.wavPolls.push({ done: false, progress: 0.5 });
+        world.advance(50);
+        expect(w.labels).toContain("Exporting WAV: 50%");
+        world.advance(50);
+        expect(w.labels.some(text => text.includes("Exported 1.00s to test.wav") && text.includes("Missing plugin"))).toBe(true);
+        click("export_wav");
+        expect(w.exports).toHaveLength(2);
     });
 
     it("does nothing when the save dialog is cancelled", async () => {

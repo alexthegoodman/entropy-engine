@@ -81,8 +81,10 @@ const audioAPI = {
     // hear each other.
     // waterEvents: [{trackId, water?, mix?, action, pitch?, speed?, ..., startTime}] - water notes
     // (see Entropy.Water); notes on one track are played on one water instrument.
-    // options: { tempFile?: boolean } - tempFile writes to the system temp directory without a save
+    // options: { tempFile?: boolean, background?: boolean } - tempFile writes to the system temp directory without a save
     // dialog (for handing the bounce straight to Video.exportMusicVideo).
+    pollWavExport: () => ops.op_audio_poll_wav_export(),
+    cancelWavExport: () => ops.op_audio_cancel_wav_export(),
     renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents, options) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,

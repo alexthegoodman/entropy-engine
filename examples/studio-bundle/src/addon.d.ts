@@ -346,6 +346,8 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
+    pollWavExport: () => { progress: number; done: boolean; result: RenderPatternWavResult | null } | null;
+    cancelWavExport: () => void;
     renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
@@ -944,6 +946,8 @@ export interface NoteConfig {
 
 /** The last argument of `Audio.renderPatternToWav`. */
 export interface RenderWavOptions {
+  /** Start a background bounce; pollWavExport returns progress and the final result. */
+  background?: boolean;
   /** Write to a fresh file in the system temp directory instead of showing a save dialog. */
   tempFile?: boolean;
 }
@@ -3223,6 +3227,8 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
+    pollWavExport: () => { progress: number; done: boolean; result: RenderPatternWavResult | null } | null;
+    cancelWavExport: () => void;
     renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already

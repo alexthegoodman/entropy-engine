@@ -2909,6 +2909,54 @@ pub struct RenderPatternWavResult {
     pub vst3_warnings: Vec<String>,
 }
 
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WavExportStatus {
+    pub progress: f32,
+    pub done: bool,
+    pub result: Option<RenderPatternWavResult>,
+}
+
+struct WavExportJob {
+    status: Arc<Mutex<WavExportStatus>>,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for WavExportJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[op2]
+#[serde]
+pub fn op_audio_poll_wav_export(state: &mut OpState) -> Option<WavExportStatus> {
+    let status = state.try_borrow::<WavExportJob>()?.status.lock().unwrap().clone();
+    if status.done {
+        state.try_take::<WavExportJob>();
+    }
+    Some(status)
+}
+
+#[op2(fast)]
+pub fn op_audio_cancel_wav_export(state: &mut OpState) {
+    if let Some(job) = state.try_borrow::<WavExportJob>() {
+        job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+// Remove an unpublished WAV even if rendering unwinds.
+struct WavStagingFile(PathBuf);
+impl Drop for WavStagingFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn wav_export_error(error: impl Into<String>) -> RenderPatternWavResult {
+    RenderPatternWavResult { success: false, path: None, duration_seconds: 0.0, error: Some(error.into()), vst3_warnings: Vec::new() }
+}
+
 /// Optional last argument of `Audio.renderPatternToWav`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -2917,6 +2965,9 @@ pub struct RenderWavOptions {
     /// DAW's music-video export bounces this way, then hands the path to `exportMusicVideo`).
     #[serde(default)]
     pub temp_file: bool,
+    /// Return immediately; use pollWavExport for progress and the final result.
+    #[serde(default)]
+    pub background: bool,
 }
 
 #[op2]
@@ -2945,6 +2996,10 @@ pub fn op_audio_render_pattern_wav(
         };
     }
 
+    let background = options.as_ref().is_some_and(|o| o.background);
+    if state.try_borrow::<WavExportJob>().is_some() {
+        return wav_export_error("An audio export is already pending; poll its result first");
+    }
     let file_path = if options.as_ref().is_some_and(|o| o.temp_file) {
         Some(std::env::temp_dir().join(format!("entropy-bounce-{}.wav", Uuid::new_v4())))
     } else {
@@ -2964,114 +3019,151 @@ pub fn op_audio_render_pattern_wav(
         };
     };
 
-    // Track buses by id, and each event's bus - see `crate::audio::MixRouting`.
-    let buses: Vec<crate::audio::character::TrackBusRender> = track_buses
-        .iter()
-        .map(|b| crate::audio::character::TrackBusRender {
-            gain: b.gain as f32,
-            effects: b.effects.iter().filter_map(|e| e.to_params()).collect(),
-            silences: b.silences.iter().map(|s| (s[0], s[1])).collect(),
-        })
-        .collect();
-    let bus_of = |track: &Option<String>| track.as_ref().and_then(|t| track_buses.iter().position(|b| &b.track == t));
-    let note_routes: Vec<Option<usize>> = events.iter().map(|e| bus_of(&e.track)).collect();
-    let sample_routes: Vec<Option<usize>> = sample_events.iter().map(|e| bus_of(&e.track)).collect();
-    let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
-    let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
-    let brass_routes: Vec<Option<usize>> = brass_events.iter().map(|e| bus_of(&e.track_id)).collect();
-    // A hit that names no piece the kit has is left out (with its route, so the two stay parallel).
-    let matter_hits: Vec<(crate::audio::MatterEvent, Option<usize>)> = matter_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
-    let matter_routes: Vec<Option<usize>> = matter_hits.iter().map(|h| h.1).collect();
-    let matter_hits: Vec<crate::audio::MatterEvent> = matter_hits.into_iter().map(|h| h.0).collect();
-    // Water notes likewise (an unknown action or surface is left out, with its route).
-    let water_notes: Vec<(crate::audio::WaterEvent, Option<usize>)> = water_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
-    let water_routes: Vec<Option<usize>> = water_notes.iter().map(|n| n.1).collect();
-    let water_notes: Vec<crate::audio::WaterEvent> = water_notes.into_iter().map(|n| n.0).collect();
-    let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
+    let status = Arc::new(Mutex::new(WavExportStatus::default()));
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let thread_status = status.clone();
+    let thread_cancel = cancel.clone();
+    let render = move || {
+        // Write beside the destination, publishing only a complete WAV. Failure/cancellation
+        // must not leave a partial export or destroy an existing destination file.
+        let staging = WavStagingFile(output_path.with_file_name(format!(".entropy-bounce-{}.wav", Uuid::new_v4())));
+        let staging_path = &staging.0;
+        // Track buses by id, and each event's bus - see `crate::audio::MixRouting`.
+        let buses: Vec<crate::audio::character::TrackBusRender> = track_buses
+            .iter()
+            .map(|b| crate::audio::character::TrackBusRender {
+                gain: b.gain as f32,
+                effects: b.effects.iter().filter_map(|e| e.to_params()).collect(),
+                silences: b.silences.iter().map(|s| (s[0], s[1])).collect(),
+            })
+            .collect();
+        let bus_of = |track: &Option<String>| track.as_ref().and_then(|t| track_buses.iter().position(|b| &b.track == t));
+        let note_routes: Vec<Option<usize>> = events.iter().map(|e| bus_of(&e.track)).collect();
+        let sample_routes: Vec<Option<usize>> = sample_events.iter().map(|e| bus_of(&e.track)).collect();
+        let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
+        let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
+        let brass_routes: Vec<Option<usize>> = brass_events.iter().map(|e| bus_of(&e.track_id)).collect();
+        // A hit that names no piece the kit has is left out (with its route, so the two stay parallel).
+        let matter_hits: Vec<(crate::audio::MatterEvent, Option<usize>)> = matter_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
+        let matter_routes: Vec<Option<usize>> = matter_hits.iter().map(|h| h.1).collect();
+        let matter_hits: Vec<crate::audio::MatterEvent> = matter_hits.into_iter().map(|h| h.0).collect();
+        // Water notes likewise (an unknown action or surface is left out, with its route).
+        let water_notes: Vec<(crate::audio::WaterEvent, Option<usize>)> = water_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
+        let water_routes: Vec<Option<usize>> = water_notes.iter().map(|n| n.1).collect();
+        let water_notes: Vec<crate::audio::WaterEvent> = water_notes.into_iter().map(|n| n.0).collect();
+        let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
 
-    let note_events: Vec<crate::audio::NoteEvent> = events
-        .into_iter()
-        .map(|e| crate::audio::NoteEvent {
-            start_time: e.start_time,
-            voice: e.waveform,
-            params: crate::audio::NoteParams {
-                freq: e.freq,
-                duration: e.duration,
-                cutoff: e.cutoff,
-                resonance: e.resonance,
-                gain: e.gain,
-                attack: e.attack,
-                decay: e.decay,
-                sustain: e.sustain,
-                release: e.release,
-                delay_time: e.delay_time,
-                delay_feedback: e.delay_feedback,
-                delay_mix: e.delay_mix,
-                reverb_room_size: e.reverb_room_size,
-                reverb_time: e.reverb_time,
-                reverb_damping: e.reverb_damping,
-                reverb_mix: e.reverb_mix,
-                filter_env: e.filter_env,
-                filter_decay: e.filter_decay,
-                drive: e.drive,
+        let note_events: Vec<crate::audio::NoteEvent> = events
+            .into_iter()
+            .map(|e| crate::audio::NoteEvent {
+                start_time: e.start_time,
+                voice: e.waveform,
+                params: crate::audio::NoteParams {
+                    freq: e.freq,
+                    duration: e.duration,
+                    cutoff: e.cutoff,
+                    resonance: e.resonance,
+                    gain: e.gain,
+                    attack: e.attack,
+                    decay: e.decay,
+                    sustain: e.sustain,
+                    release: e.release,
+                    delay_time: e.delay_time,
+                    delay_feedback: e.delay_feedback,
+                    delay_mix: e.delay_mix,
+                    reverb_room_size: e.reverb_room_size,
+                    reverb_time: e.reverb_time,
+                    reverb_damping: e.reverb_damping,
+                    reverb_mix: e.reverb_mix,
+                    filter_env: e.filter_env,
+                    filter_decay: e.filter_decay,
+                    drive: e.drive,
+                },
+            })
+            .collect();
+
+        let sample_hits: Vec<crate::audio::samples::SampleEvent> = sample_events
+            .into_iter()
+            .map(|e| crate::audio::samples::SampleEvent { start_time: e.start_time, path: e.path, params: e.params.to_params() })
+            .collect();
+
+        let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
+        let physmod_hits: Vec<crate::audio::PhysModEvent> = physmod_events.iter().map(|e| e.to_event()).collect();
+        let brass_hits: Vec<crate::audio::BrassEvent> = brass_events.iter().map(|e| e.to_event()).collect();
+
+        let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
+            .into_iter()
+            .map(|t| vst3::Vst3RenderTrack {
+                plugin_path: PathBuf::from(t.path),
+                state: t.state.and_then(|b64| B64.decode(b64).ok()),
+                notes: t
+                    .notes
+                    .into_iter()
+                    .map(|n| vst3::OfflineNoteEvent {
+                        start_time: n.start_time,
+                        duration: n.duration,
+                        channel: n.channel,
+                        note: n.note,
+                        velocity: n.velocity,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        let routing = crate::audio::MixRouting {
+            buses: &buses,
+            notes: &note_routes,
+            samples: &sample_routes,
+            wavetable: &wavetable_routes,
+            physmod: &physmod_routes,
+            brass: &brass_routes,
+            matter: &matter_routes,
+            water: &water_routes,
+            vst3: &vst3_routes,
+        };
+        let outcome = crate::audio::render_mix_to_wav_with_progress(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &staging_path, |progress| {
+            if thread_cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err("Export cancelled".to_string());
+            }
+            thread_status.lock().unwrap().progress = progress;
+            Ok(())
+        }).and_then(|result| {
+            std::fs::rename(&staging_path, &output_path).map_err(|e| e.to_string())?;
+            Ok(result)
+        });
+        match outcome {
+            Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
+                success: true,
+                path: Some(output_path.to_string_lossy().into_owned()),
+                duration_seconds,
+                error: None,
+                vst3_warnings,
             },
-        })
-        .collect();
-
-    let sample_hits: Vec<crate::audio::samples::SampleEvent> = sample_events
-        .into_iter()
-        .map(|e| crate::audio::samples::SampleEvent { start_time: e.start_time, path: e.path, params: e.params.to_params() })
-        .collect();
-
-    let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
-    let physmod_hits: Vec<crate::audio::PhysModEvent> = physmod_events.iter().map(|e| e.to_event()).collect();
-    let brass_hits: Vec<crate::audio::BrassEvent> = brass_events.iter().map(|e| e.to_event()).collect();
-
-    let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
-        .into_iter()
-        .map(|t| vst3::Vst3RenderTrack {
-            plugin_path: PathBuf::from(t.path),
-            state: t.state.and_then(|b64| B64.decode(b64).ok()),
-            notes: t
-                .notes
-                .into_iter()
-                .map(|n| vst3::OfflineNoteEvent {
-                    start_time: n.start_time,
-                    duration: n.duration,
-                    channel: n.channel,
-                    note: n.note,
-                    velocity: n.velocity,
-                })
-                .collect(),
-        })
-        .collect();
-
-    let routing = crate::audio::MixRouting {
-        buses: &buses,
-        notes: &note_routes,
-        samples: &sample_routes,
-        wavetable: &wavetable_routes,
-        physmod: &physmod_routes,
-        brass: &brass_routes,
-        matter: &matter_routes,
-        water: &water_routes,
-        vst3: &vst3_routes,
+            Err(e) => RenderPatternWavResult {
+                success: false,
+                path: None,
+                duration_seconds: 0.0,
+                error: Some(e),
+                vst3_warnings: Vec::new(),
+            },
+        }
     };
-    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &output_path) {
-        Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
-            success: true,
-            path: Some(output_path.to_string_lossy().into_owned()),
-            duration_seconds,
-            error: None,
-            vst3_warnings,
-        },
-        Err(e) => RenderPatternWavResult {
-            success: false,
-            path: None,
-            duration_seconds: 0.0,
-            error: Some(e),
-            vst3_warnings: Vec::new(),
-        },
+    if !background {
+        return render();
+    }
+    let final_status = status.clone();
+    match std::thread::Builder::new().name("audio-export".into()).spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(render))
+            .unwrap_or_else(|_| wav_export_error("The audio export worker crashed"));
+        let mut status = final_status.lock().unwrap();
+        status.done = true;
+        status.result = Some(result);
+    }) {
+        Ok(_) => {
+            state.put(WavExportJob { status, cancel });
+            RenderPatternWavResult { success: true, path: None, duration_seconds: 0.0, error: None, vst3_warnings: Vec::new() }
+        }
+        Err(e) => wav_export_error(format!("Couldn't start audio export: {e}")),
     }
 }
 

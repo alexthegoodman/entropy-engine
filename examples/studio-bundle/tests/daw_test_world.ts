@@ -65,6 +65,9 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         played: [] as { id: string; cfg: any; at?: number }[],
         buses: new Map<string, any>(),
         exports: [] as any[][],
+        wavPolls: [] as any[],
+        wavResult: null as any,
+        wavCancels: 0,
         // Drum rack. `folders` is the fake disk (path -> entries) and `samples` what the fake engine
         // can decode (path -> info); a path in neither does not exist. `previews`, `sampleHits` and
         // `sampleExports` record what the addon asked the engine to play.
@@ -262,6 +265,17 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 return { ok: true, played };
             },
             removeWater: (id: string) => { w.removedWater.push(id); },
+            pollWavExport: () => {
+                if (w.wavPolls.length) return w.wavPolls.shift();
+                const result = w.wavResult;
+                w.wavResult = null;
+                return result ? { done: true, progress: 1, result } : null;
+            },
+            cancelWavExport: () => {
+                w.wavCancels++;
+                w.wavPolls.length = 0;
+                w.wavResult = { success: false, error: "Export cancelled" };
+            },
             renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[], options?: any) => {
                 w.wavOptions.push(options);
                 w.brassExports.push(brassEvents ?? []);
@@ -275,7 +289,12 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 w.busExports.push(trackBuses ?? []);
                 const vst3Warnings = w.nextVst3Warnings;
                 w.nextVst3Warnings = [];
-                return { success: true, path: "test.wav", durationSeconds: 1, vst3Warnings };
+                const result = { success: true, path: "test.wav", durationSeconds: 1, vst3Warnings };
+                if (options?.background) {
+                    w.wavResult = result;
+                    return { success: true, path: null, durationSeconds: 0, vst3Warnings: [] };
+                }
+                return result;
             },
             loadSample: (path: string) => w.samples[path]
                 ? { ok: true, ...w.samples[path] }
