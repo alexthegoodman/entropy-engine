@@ -321,6 +321,13 @@ impl BowedString {
         self.target_a = one_way - self.target_b;
     }
 
+    /// Forgets the vibrating period measured so far (see `period_estimate`): a new note is a new
+    /// pitch, and a period left over from the last one would be heard as this one being out of tune.
+    pub fn reset_period_estimate(&mut self) {
+        self.period_estimate = 0.0;
+        self.helmholtz_confidence = 0.0;
+    }
+
     /// Snaps the lengths to their targets (a new note on a silent string, not a slide).
     pub fn snap(&mut self) {
         self.len_a = self.target_a;

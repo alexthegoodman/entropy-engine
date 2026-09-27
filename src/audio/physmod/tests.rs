@@ -46,6 +46,60 @@ fn cello_and_bass_registers_are_in_tune() {
     assert!(a.cents.abs() < 10.0, "bass 49 Hz came out {:.2} Hz ({:+.1} cents)", a.f0, a.cents);
 }
 
+#[test]
+fn a_new_note_is_not_pulled_out_of_tune_by_the_last_ones_pitch() {
+    // The opening of a sample song's cello part: détaché notes, several starting while the bow is
+    // still lifting from the one before on the same string. The player's ear once took the previous
+    // note's period for the new one's and "corrected" the E (164.81 Hz, after an F on the same
+    // string) ~45 cents flat.
+    let base = PhysModParams {
+        strings: [65.41, 98.0, 146.83, 220.0], body_size: 0.72, bow_force: 0.5, bow_velocity: 0.66, bow_position: 0.1,
+        attack_skill: 1.0, vibrato_depth: 6.0, ..Default::default()
+    };
+    let part: [(f64, f32, f32, f32); 5] = [(0.0, 146.83, 0.403, 0.6), (0.489, 110.0, 0.403, 0.5), (0.978, 146.83, 0.248, 0.5), (1.304, 174.61, 0.403, 0.6), (1.793, 164.81, 0.403, 0.5)];
+    let notes: Vec<PerformedNote> = part.iter().map(|&(start, freq, duration, velocity)| PerformedNote { start, params: PhysModParams { freq, duration, velocity, ..base } }).collect();
+    let out = left(&render_performance(&notes, 0.1));
+    for &(start, freq, duration, _) in &part {
+        let (a, b) = (start as f32 + 0.25 * duration, start as f32 + duration);
+        let f = pitch(&out[(a * SR) as usize..(b * SR) as usize], SR, freq);
+        let cents = 1200.0 * (f / freq).log2();
+        println!("{freq} Hz: {cents:+.1} cents");
+        assert!(cents.abs() < 12.0, "the note {freq} Hz at {start} s came out {f:.2} Hz ({cents:+.1} cents)");
+    }
+}
+
+#[test]
+fn the_force_control_spans_each_strings_playable_window() {
+    // The whole violin keeps the full two-decade control; lower, heavier strings (whose window is
+    // narrower) get a proportionally narrower one, so the same setting is the same place in it.
+    let v = bow_speed(0.5);
+    let span = |open: f32, size: f32, f: f32| force_span(v, string_impedance(open, size, 0.5), f);
+    for &f in &[196.0f32, 293.66, 440.0, 1318.5] {
+        assert_eq!(span(196.0, 0.0, f), 1.0, "violin {f} Hz");
+    }
+    let (cello_c, bass_a, bass_e) = (span(65.41, 0.72, 65.41), span(55.0, 1.0, 55.0), span(41.2, 1.0, 41.2));
+    assert!(cello_c < 0.7 && bass_a < cello_c && bass_e < bass_a && bass_e > 0.1, "cello C {cello_c:.2}, bass A {bass_a:.2}, bass E {bass_e:.2}");
+    // And the knob round-trips through it.
+    let c = 1.3;
+    assert!((bow_knob_spanned(bow_newtons_spanned(0.7, c, 0.4), c, 0.4) - 0.7).abs() < 1.0e-4);
+}
+
+#[test]
+fn a_firm_bow_speaks_on_the_cello_and_bass_as_on_the_violin() {
+    // 0.35 and 0.66 on the force control: a light and a firm stroke (the sample songs' cellos and
+    // basses are bowed at 0.55-0.7). With one fixed scale for every string, 0.66 was above the
+    // whole playable window of the low strings and they never settled into Helmholtz motion.
+    let cello = [65.41, 98.0, 146.83, 220.0];
+    let bass = [41.2, 55.0, 73.42, 98.0];
+    for &force in &[0.35f32, 0.66] {
+        for (name, strings, size, f) in [("violin", VIOLIN_TUNING, 0.0, 196.0), ("cello", cello, 0.72, 65.41), ("cello", cello, 0.72, 87.31), ("bass", bass, 1.0, 55.0), ("bass", bass, 1.0, 73.42)] {
+            let p = PhysModParams { strings, body_size: size, bow_force: force, ..plain(f) };
+            let (secs, win) = timing(f);
+            assert!(clean_helmholtz(&p, secs, win), "{name} {f} Hz at force {force} did not settle");
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Helmholtz motion
 
 #[test]
@@ -1001,5 +1055,43 @@ fn strings_stiffness_report() {
             let c = super::string::dispersion_coefficient(b, f0, SR * 2.0);
             println!("{f0:>5.0} Hz stiffness {st:.1}: partial {n} / ({n} x f1) = {ratio:.4}, theory {ideal:.4}, allpass coefficient {c:+.3}");
         }
+    }
+}
+
+/// Every chromatic note of each orchestral instrument's range with the DAW's default playing (vibrato,
+/// bow noise), measured over time: the median pitch early (0.1-0.4 s, what a short note is heard as)
+/// and late (0.6-1.2 s).
+#[test]
+#[ignore]
+fn strings_chromatic_tuning_report() {
+    println!("profile: {}", profile());
+    let insts: [(&str, [f32; 4], f32, i32, i32); 4] = [
+        ("violin", VIOLIN_TUNING, 0.0, 55, 88),
+        ("viola", [130.81, 196.0, 293.66, 440.0], 0.13, 48, 81),
+        ("cello", [65.41, 98.0, 146.83, 220.0], 0.72, 36, 69),
+        ("bass", [41.2, 55.0, 73.42, 98.0], 1.0, 28, 55),
+    ];
+    for (name, strings, body, lo, hi) in insts {
+        let mut good = 0;
+        for m in lo..=hi {
+            let f = 440.0 * 2f32.powf((m - 69) as f32 / 12.0);
+            let p = PhysModParams { freq: f, strings, body_size: body, gain: 0.7, duration: 2.0, ..Default::default() };
+            let out = left(&render_note(Arc::new(PhysModShared::default()), p, 1.2));
+            let win = ((6.0 / f).max(0.05) * SR) as usize;
+            let track: Vec<(f32, f32)> = (0..out.len().saturating_sub(win)).step_by((0.025 * SR) as usize).map(|i| {
+                let hz = pitch(&out[i..i + win], SR, f);
+                ((i + win / 2) as f32 / SR, if hz > 0.0 { 1200.0 * (hz / f).log2() } else { f32::NAN })
+            }).collect();
+            let median = |a: f32, b: f32| {
+                let mut xs: Vec<f32> = track.iter().filter(|(t, c)| *t >= a && *t < b && c.is_finite()).map(|x| x.1).collect();
+                xs.sort_by(|a, b| a.total_cmp(b));
+                xs.get(xs.len() / 2).copied().unwrap_or(f32::NAN)
+            };
+            let (early, late) = (median(0.1, 0.4), median(0.6, 1.2));
+            let ok = early.abs() < 12.0 && late.abs() < 12.0;
+            good += ok as usize;
+            println!("{name:<6} midi {m:>3} {f:>8.2} Hz  early {early:+7.1} c  late {late:+7.1} c{}", if ok { "" } else { "  <-- out" });
+        }
+        println!("== {name}: {good}/{} notes in tune", hi - lo + 1);
     }
 }

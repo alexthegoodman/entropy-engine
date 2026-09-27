@@ -243,6 +243,14 @@ The fitted laws the engine uses — `force_center` (where the middle of the forc
 centre, 180 window edges at three bow positions for the window (fitted exponents: F_min ∝ β^-2.5,
 F_max ∝ β^-1.4, against Schelleng's -2 and -1).
 
+The force knob is also scaled per note by `force_span`: the width of that note's playable window
+over the violin G string's (capped at 1). The window is about 1.2 decades wide on the violin G but
+only ~0.6 on the cello C and ~0.2 on the bass E, so with one fixed scale a "firm" 0.65 fell above
+the whole window of the low strings and the stroke never settled (heard as notes out of tune or in
+the wrong octave). With the span, each knob position is the same place in the window on every
+string; the whole violin is unchanged. An accent's bite and the attack assist scale the same way,
+and during the attack the force rises with the bow speed rather than ahead of it.
+
 ## Known limits
 
 - The bottom five or so bass notes take 0.3–0.5 s to settle into clean motion (25–35 periods).
