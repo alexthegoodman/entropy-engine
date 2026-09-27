@@ -31,6 +31,7 @@ describe("Canvas Surfaces MCP world building through the production addon", () =
     let clock: number;
     let last: Result;
     let before: Result;
+    let remembered: string;
     const emit = (name: string, ...args: any[]) => listeners[name]?.forEach(fn => fn(...args));
     const frame = () => { clock += 1 / 30; update(clock); };
 
@@ -94,6 +95,9 @@ describe("Canvas Surfaces MCP world building through the production addon", () =
 
     const steps: [RegExp, (...m: string[]) => void][] = [
         [/^an empty scene$/, emptyScene],
+        [/^I remember the scene revision$/, () => { expect(last.revision, JSON.stringify(last)).toEqual(expect.any(String)); remembered = last.revision; }],
+        [/^I call "canvas_get_scene" since the remembered revision$/, () => { call("canvas_get_scene", { sinceRevision: remembered }); }],
+        [/^the result has no field "(.+)"$/, path => expect(field(last, path), path).toBeUndefined()],
         [/^the village quest world$/, village],
         [/^the Mossbridge level built from its script$/, () => { for (const { tool, args } of level.calls) ok(tool, args); }],
         [/^the level fits the budget$/, () => { const stats = tools.get("canvas_world_stats")!.callback({}); expect([stats.surfaces, stats.groups, stats.logicNodes, stats.logicWires, stats.clips], JSON.stringify(stats)).toEqual([70, 32, 60, 47, 1]); expect(stats.estimatedSaveMB, JSON.stringify(stats)).toBeLessThan(6); expect(stats.estimatedMemoryMB, JSON.stringify(stats)).toBeLessThan(400); }],

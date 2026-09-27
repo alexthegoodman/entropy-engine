@@ -96,6 +96,7 @@ import type { PaintLayer, PaintSettings, RGB } from "./canvas_paint";
 import { SceneLibrary } from "./canvas_scene_library";
 import { bytesToBase64, base64ToBytes, validateScene, uniformFill, fillBytes } from "./canvas_scene_format";
 import type { SavedScene, SavedSurface } from "./canvas_scene_format";
+import { createStateRevisions } from "../state_revisions";
 
 const addonInfo = {
     name: "Canvas Surfaces",
@@ -3483,12 +3484,49 @@ function runPlaytest(steps: Args[]): Record<string, unknown> {
     } finally { run.restore(); }
 }
 
-const TOOL_HANDLERS: Record<CanvasToolName, (args: Args) => unknown> = {
-    canvas_get_scene: () => ({
+// The whole scene as canvas_get_scene reports it. Revisions and diffs are always taken over this full
+// view, whatever a single call asked to see.
+function sceneState() {
+    return {
         name: sceneName, sceneId: currentSceneId, unsavedChanges: sceneIsDirty(), playing: !!gameSession,
         surfaces: surfaces.map(surfaceInfo), groups: groups.map(groupInfo), clips: clips.map(c => ({ id: c.id, name: c.name, duration: c.duration, tracks: c.tracks.length })),
         logic: { nodes: logic.nodes.length, wires: logic.connections.length }, world: worldInfo(),
-    }),
+    };
+}
+const sceneRevisions = createStateRevisions();
+/** The ids of a group and every group nested under it. */
+function groupAndDescendants(root: Group): Set<string> {
+    const ids = new Set([root.id]);
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const g of groups) if (g.parentId && ids.has(g.parentId) && !ids.has(g.id)) { ids.add(g.id); grew = true; }
+    }
+    return ids;
+}
+
+const TOOL_HANDLERS: Record<CanvasToolName, (args: Args) => unknown> = {
+    canvas_get_scene: a => {
+        const state = sceneState();
+        const detail = a.detail ?? "full";
+        if (detail !== "full" && detail !== "summary") fail('detail must be "full" or "summary".');
+        if (a.sinceRevision !== undefined && (a.group !== undefined || detail !== "full")) fail("sinceRevision reports changes across the whole scene, so it cannot be combined with group or detail.");
+        if (a.group !== undefined) {
+            const ids = groupAndDescendants(findGroup(a.group));
+            return {
+                revision: sceneRevisions.revisionOf(state),
+                groups: groups.filter(g => ids.has(g.id)).map(groupInfo),
+                surfaces: surfaces.filter(s => s.parentId && ids.has(s.parentId)).map(surfaceInfo),
+            };
+        }
+        if (detail === "summary") {
+            return {
+                revision: sceneRevisions.revisionOf(state), ...state,
+                surfaces: surfaces.map(s => ({ id: s.id, name: s.name, kind: s.kind, parent: s.parentId ? nameOf(s.parentId) : null })),
+                groups: groups.map(g => ({ id: g.id, name: g.name, parent: g.parentId ? nameOf(g.parentId) : null })),
+            };
+        }
+        return sceneRevisions.read(state, a.sinceRevision);
+    },
     canvas_world_stats: () => statsInfo(),
     canvas_new_scene: a => {
         editingOnly();

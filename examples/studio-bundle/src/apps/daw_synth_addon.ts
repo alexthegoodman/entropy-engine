@@ -37,6 +37,7 @@ import {
     triggersAt,
 } from "./daw_arrangement";
 import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
+import { createStateRevisions, SINCE_REVISION_DESCRIPTION } from "./state_revisions";
 import type { Character, HardCut, KickLockChange, MoveContext, StutterRate, VariationFocus } from "./daw_moves";
 import {
     GATE_PATTERNS,
@@ -6285,11 +6286,9 @@ addon.onInit(async () => {
         };
     });
 
-    addon.registerTool({
-        name: "daw_get_state",
-        description: "Get the current DAW project: BPM, song length in bars, and every track (id, name, kind, channel, mute/solo, gain, voice params, scale/rootNote for synth tracks, its patterns) plus the arrangement (which pattern plays where, in bars). Call this before editing so you know track ids, pattern ids and row semantics.",
-        parameters: { type: "object", properties: {} }
-    }, () => {
+    // The whole project as daw_get_state reports it. Revisions and diffs are always taken over this
+    // full view, whatever a single call asked to see.
+    const dawState = () => {
         const bar = barSteps(project.stepsPerBeat);
         return {
             song: { id: library.currentSongId, name: currentSongName() },
@@ -6301,8 +6300,6 @@ addon.onInit(async () => {
             playing: transport.playing,
             mode: transport.mode,
             activeTrackId: project.activeTrackId,
-            drumRowLayout: defaultRack().map((d, i) => ({ row: i, name: d.name })),
-            availableScales: SCALE_NAMES,
             tracks: project.tracks.map(t => ({
                 id: t.id,
                 name: t.name,
@@ -6341,6 +6338,43 @@ addon.onInit(async () => {
                 startBar: c.startStep / bar, bars: c.lengthSteps / bar
             }))
         };
+    };
+    const stateRevisions = createStateRevisions();
+
+    addon.registerTool({
+        name: "daw_get_state",
+        description: "Get the current DAW project: BPM, song length in bars, and every track (id, name, kind, channel, mute/solo, gain, voice params, scale/rootNote for synth tracks, its row layout and rack, its patterns) plus the arrangement (which pattern plays where, in bars). Call this before editing so you know track ids, pattern ids and row semantics. " +
+            "Every result carries a revision. The edit tools already return what they changed, so you rarely need to read the whole project again: to see what changed since an earlier read (including edits the person made by hand), pass that read's revision as sinceRevision. " +
+            "To look at less, pass trackId for one track and its clips, or detail \"summary\" for one line per track.",
+        parameters: {
+            type: "object",
+            properties: {
+                sinceRevision: { type: "string", description: SINCE_REVISION_DESCRIPTION },
+                trackId: { type: "string", description: "Return only this track, and the arrangement clips on it." },
+                detail: { type: "string", enum: ["full", "summary"], description: "\"summary\" lists each track as id, name, kind, channel, mute/solo and pattern count, and counts the arrangement clips. Default \"full\"." }
+            }
+        }
+    }, (args: any) => {
+        const state = dawState();
+        const since = args?.sinceRevision, trackId = args?.trackId, detail = args?.detail ?? "full";
+        if (detail !== "full" && detail !== "summary") return { success: false, error: 'detail must be "full" or "summary".' };
+        if (since !== undefined && (trackId !== undefined || detail !== "full")) {
+            return { success: false, error: "sinceRevision reports changes across the whole project, so it cannot be combined with trackId or detail." };
+        }
+        if (trackId !== undefined) {
+            const track = state.tracks.find(t => t.id === trackId);
+            if (!track) return { success: false, error: `No track "${trackId}". Tracks: ${state.tracks.map(t => t.id).join(", ") || "(none)"}.` };
+            return { revision: stateRevisions.revisionOf(state), track, arrangement: state.arrangement.filter(c => c.trackId === trackId) };
+        }
+        if (detail === "summary") {
+            const { tracks, arrangement, ...rest } = state;
+            return {
+                revision: stateRevisions.revisionOf(state), ...rest,
+                tracks: tracks.map(t => ({ id: t.id, name: t.name, kind: t.kind, channel: t.channel, muted: t.muted, solo: t.solo, patterns: t.patterns.length })),
+                arrangementClips: arrangement.length
+            };
+        }
+        return stateRevisions.read(state, since);
     });
 
     addon.registerTool({

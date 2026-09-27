@@ -87,6 +87,8 @@ describe("The DAW arranges tracks on a 16-channel timeline (production addon cal
                 if (withTrack) args.trackId = w.lastCreatedTrackId;
                 return args;
             };
+            let remembered = "";
+            const resultField = (path: string): unknown => path.split(".").reduce((v: any, k) => v?.[k], w.lastToolResult);
             const callTool = (name: string, args: any) => {
                 w.lastToolResult = w.tools.get(name)!(args);
                 if (name === "daw_create_track") w.lastCreatedTrackId = w.lastToolResult.id;
@@ -201,6 +203,15 @@ describe("The DAW arranges tracks on a 16-channel timeline (production addon cal
                 [/^I call the tool "(.+)" with (\{.*\})$/, (name, json) => callTool(name, toolArgs(json, false))],
                 [/^I call the tool "(.+)" for that track with (\{.*\})$/, (name, json) => callTool(name, toolArgs(json, true))],
                 [/^the tool result skipped (\d+) clips?$/, n => expect(w.lastToolResult.skipped).toHaveLength(+n)],
+                [/^I remember the state revision$/, () => { expect(w.lastToolResult.revision, JSON.stringify(w.lastToolResult)).toEqual(expect.any(String)); remembered = w.lastToolResult.revision; }],
+                [/^I call the tool "(.+)" since the remembered revision$/, name => callTool(name, { sinceRevision: remembered })],
+                [/^the tool result field "(.+)" equals (.+)$/, (path, json) => expect(resultField(path), JSON.stringify(w.lastToolResult)).toEqual(JSON.parse(json))],
+                [/^the tool result has no field "(.+)"$/, path => expect(resultField(path), path).toBeUndefined()],
+                [/^every arrangement clip in the tool result is on "(.+)"$/, id => {
+                    expect(w.lastToolResult.arrangement.length).toBeGreaterThan(0);
+                    for (const c of w.lastToolResult.arrangement) expect(c.trackId).toBe(id);
+                }],
+                [/^the tool failed saying "(.+)"$/, text => { expect(w.lastToolResult.success, JSON.stringify(w.lastToolResult)).toBe(false); expect(w.lastToolResult.error).toContain(text); }],
             ];
 
             for (const text of scenario.steps) {

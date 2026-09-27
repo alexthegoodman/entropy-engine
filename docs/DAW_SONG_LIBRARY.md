@@ -48,7 +48,7 @@ Everything lives under the app's data folder, in the DAW's own store folder (`En
 
 ## For the assistant
 
-The `daw_songs` tool lists, opens, creates (from any template), renames, duplicates and deletes songs. It also lists, saves and restores versions. `daw_get_state` includes the open song's id and name.
+The `daw_songs` tool lists, opens, creates (from any template), renames, duplicates and deletes songs. It also lists, saves and restores versions. `daw_get_state` includes the open song's id and name. Every `daw_get_state` result carries a `revision`; pass it back as `sinceRevision` to get only what changed since that read, or use `trackId` / `detail: "summary"` to read less.
 
 ## Code
 

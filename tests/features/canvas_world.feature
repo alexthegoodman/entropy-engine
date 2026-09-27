@@ -220,3 +220,49 @@ Feature: An MCP client can block out, light, script and playtest a small RPG wor
     Then the playtest failed mentioning "solid surface"
     When I playtest the Mossbridge "gap_west" check
     Then the playtest failed mentioning "solid surface"
+
+  Scenario: The AI reads only what changed in the scene since its last look
+    Given an empty scene
+    When I call "canvas_create_surface" with {"kind":"box","name":"Crate","position":[0,0.5,0]}
+    And I call "canvas_create_surface" with {"kind":"plane","name":"Sign","position":[2,1,0]}
+    And I call "canvas_get_scene"
+    And I remember the scene revision
+    And I call "canvas_get_scene" since the remembered revision
+    Then the call succeeds
+    And the result field "unchanged" equals true
+    And the result has no field "surfaces"
+    When I call "canvas_update_surface" with {"surface":"Crate","position":[3,0.5,0]}
+    And I call "canvas_delete" with {"ref":"Sign"}
+    And I call "canvas_create_surface" with {"kind":"sphere","name":"Ball","position":[0,1,4]}
+    And I call "canvas_get_scene" since the remembered revision
+    Then the result field "changes.surfaces.changed.0.name" equals "Crate"
+    And the result field "changes.surfaces.changed.0.position" equals [3,0.5,0]
+    And the result has no field "changes.surfaces.changed.0.kind"
+    And the result field "changes.surfaces.added.0.name" equals "Ball"
+    And the result field "changes.surfaces.removed.length" equals 1
+    And the result has no field "changes.world"
+    And the result has no field "surfaces"
+
+  Scenario: A scene revision that is no longer kept gives the whole scene
+    Given an empty scene
+    When I call "canvas_create_surface" with {"kind":"box","name":"Crate","position":[0,0.5,0]}
+    And I call "canvas_get_scene" with {"sinceRevision":"gone-1"}
+    Then the result field "fullState" equals true
+    And the result field "surfaces.0.name" equals "Crate"
+
+  Scenario: The AI can look at one group, or a summary, and still diff from there
+    Given the village quest world
+    When I call "canvas_get_scene" with {"group":"Hero"}
+    Then the call succeeds
+    And the result field "groups.0.name" equals "Hero"
+    And the result has no field "world"
+    When I call "canvas_get_scene" with {"detail":"summary"}
+    Then the result has no field "surfaces.0.position"
+    And the result field "world.player.name" equals "Hero"
+    When I remember the scene revision
+    And I call "canvas_update_group" with {"group":"Cottage","position":[12,0,8]}
+    And I call "canvas_get_scene" since the remembered revision
+    Then the result field "changes.groups.changed.0.name" equals "Cottage"
+    And the result field "changes.groups.changed.0.position" equals [12,0,8]
+    When I call "canvas_get_scene" with {"group":"Hero","sinceRevision":"gone-1"}
+    Then the call fails mentioning "cannot be combined"

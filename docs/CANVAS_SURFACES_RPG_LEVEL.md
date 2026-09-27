@@ -37,6 +37,9 @@ or the open scene has brush strokes, stop and ask: Alex's drawing lives in the o
 new scene named `Mossbridge` (step 1 below). Never pass `confirmDiscard: true` unless Alex said so for
 that scene, and never `overwrite: true` on a surface with strokes.
 
+Later reads don't need the whole scene again: pass the `revision` from your last `canvas_get_scene` as
+`sinceRevision` to get only what changed, or use `group` / `detail: "summary"` to read less.
+
 ## 2. The game
 
 **The Lantern Keeper of Mossbridge.** The village lantern on the north hill has gone out and the village
