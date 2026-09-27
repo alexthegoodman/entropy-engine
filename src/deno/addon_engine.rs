@@ -646,7 +646,20 @@ impl AddonEngine {
     pub fn new(project_id: Option<String>, data_dir: Option<PathBuf>, art_assets_dir: Option<PathBuf>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_addons::init_ops_and_esm();
-        
+
+        // Opt-in V8 flags for profiling addon JS, e.g. `ENTROPY_V8_FLAGS=--perf-basic-prof` so
+        // `perf` can name JIT-compiled addon functions. Must be set before the first isolate.
+        if let Ok(flags) = std::env::var("ENTROPY_V8_FLAGS") {
+            static SET_FLAGS: std::sync::Once = std::sync::Once::new();
+            SET_FLAGS.call_once(|| {
+                let args: Vec<String> = std::iter::once("entropy".to_string()).chain(flags.split_whitespace().map(str::to_string)).collect();
+                let unrecognized = deno_core::v8_set_flags(args);
+                if unrecognized.len() > 1 {
+                    eprintln!("ENTROPY_V8_FLAGS: V8 did not recognize {:?}", &unrecognized[1..]);
+                }
+            });
+        }
+
         let mut runtime = JsRuntime::new(RuntimeOptions {
             module_loader: Some(loader),
             extensions: vec![
@@ -3833,7 +3846,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
                 let func = v8::Local::new(tc, cb);
                 let receiver = v8::undefined(tc);
+                let js_started = std::time::Instant::now();
                 let _ = func.call(tc, receiver.into(), &[]); 
+                crate::core::frame_profile::record("  ui onRender (js)", js_started.elapsed());
                 
                 if tc.has_caught() {
                     if let Some(exception) = tc.exception() {
@@ -4017,7 +4032,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let tc = &mut v8::TryCatch::new(scope);
             let func = v8::Local::new(tc, cb);
             let receiver = v8::undefined(tc);
+            let js_started = std::time::Instant::now();
             let _ = func.call(tc, receiver.into(), &[]);
+            crate::core::frame_profile::record("  ui onRender (js)", js_started.elapsed());
             if tc.has_caught() {
                 if let Some(exception) = tc.exception() {
                     let msg = exception.to_rust_string_lossy(tc);

@@ -197,6 +197,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             let ui_model_layout = ui_model_bind_group_layout.as_ref().expect("No ui model layout");
             let group_layout = group_bind_group_layout.as_ref().expect("No group layout");
 
+            let _update_started = std::time::Instant::now();
             addon_engine.update(
                 renderer_state, 
                 ui_polygons,
@@ -211,6 +212,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 addon_name.to_string(),
                 pipeline.alpha_renderer.as_mut()
             );
+            crate::core::frame_profile::record("  addon update (js)", _update_started.elapsed());
         }
 
         // Addons that declare `capabilities.needsViewport = false` (e.g. the DAW) don't need
