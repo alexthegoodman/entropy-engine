@@ -22,4 +22,4 @@ mod encode;
 
 pub use audio::Mp4AudioDecoder;
 pub use decode::{Mp4VideoDecoder, VideoInfo};
-pub use encode::Mp4VideoEncoder;
+pub use encode::{AacAudioConfig, Mp4VideoEncoder};

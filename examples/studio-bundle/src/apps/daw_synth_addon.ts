@@ -144,6 +144,11 @@ import {
     viewNoteConfig as waterViewNoteConfig,
 } from "./daw_water";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
+import type { MusicVideoStatus, VisualizerPrefs } from "./daw_visualizer";
+import {
+    COLOR_THEMES, TITLE_FONTS, VIDEO_FPS, VIDEO_SIZES, VISUALIZER_STYLES, applyTheme, defaultVisualizer, displayTitle, engineSettings,
+    exportStatusText, musicVideoFileName, readVisualizer, themeIndex, videoSize,
+} from "./daw_visualizer";
 import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
 import {
     SongLibrary,
@@ -349,6 +354,8 @@ interface DAWProject {
     guitar?: GuitarPrefs;
     // Stretches where Drop Gap (without tails) silences tracks outright - see daw_moves.ts's HardCut.
     cuts?: HardCut[];
+    // The song's music video look (see daw_visualizer.ts). Optional: older saves have none.
+    visualizer?: VisualizerPrefs;
 }
 
 function defaultSynthVoice(waveform = "saw"): VoiceParams {
@@ -1700,6 +1707,209 @@ let rackVisible = false;
 function setRackVisible(visible: boolean) {
     rackVisible = visible;
     if (rackWindowId) Entropy.UI.setWindowVisible(rackWindowId, visible);
+}
+
+// The Analyzer floats bottom-right and starts open; the transport bar's toggle (or its own close
+// button) puts it away when the arrangement needs the room.
+let analyzerWindowId: string | null = null;
+let analyzerVisible = true;
+
+function setAnalyzerVisible(visible: boolean) {
+    analyzerVisible = visible;
+    if (analyzerWindowId) Entropy.UI.setWindowVisible(analyzerWindowId, visible);
+}
+
+// --- Music Video ---------------------------------------------------------------------------------
+// A song can't always be shared as a WAV, and a filmed music video is expensive: this window turns
+// the song into an MP4 with an audio-reactive visualizer. The look is saved with the song
+// (daw_visualizer.ts); the preview and the export are drawn by the same renderer (src/music_video),
+// so what the preview shows is what the file will contain. The export bounces the song to a
+// temporary WAV exactly like Export Song to WAV, then renders on a background thread while the DAW
+// keeps working; progress shows here and in a toast.
+
+let visualizerWindowId: string | null = null;
+let visualizerVisible = false;
+const musicVideo = {
+    exporting: false,
+    status: "",
+};
+const MUSIC_VIDEO_TOAST = "daw-music-video";
+
+function visualizerPrefs(): VisualizerPrefs {
+    if (!project.visualizer) project.visualizer = defaultVisualizer();
+    return project.visualizer;
+}
+
+function setVisualizerVisible(visible: boolean) {
+    visualizerVisible = visible;
+    if (visualizerWindowId) Entropy.UI.setWindowVisible(visualizerWindowId, visible);
+}
+
+function editVisualizer(change: (p: VisualizerPrefs) => VisualizerPrefs | void) {
+    const next = change(visualizerPrefs());
+    if (next) project.visualizer = next;
+    persist();
+}
+
+function exportMusicVideo() {
+    if (musicVideo.exporting) return;
+    const songName = currentSongName();
+    const outputPath = Entropy.Video.chooseMusicVideoPath(musicVideoFileName(songName));
+    if (!outputPath) {
+        musicVideo.status = "Export cancelled.";
+        return;
+    }
+    musicVideo.status = "Rendering the song's audio...";
+    const wav = renderSongWav({ tempFile: true });
+    if (!wav.success || !wav.path) {
+        musicVideo.status = `Couldn't render the song's audio: ${wav.error ?? "unknown error"}`;
+        return;
+    }
+    const started = Entropy.Video.exportMusicVideo({
+        wavPath: wav.path,
+        outputPath,
+        settings: engineSettings(visualizerPrefs(), songName),
+        deleteWav: true,
+    });
+    if (!started.ok) {
+        musicVideo.status = `Export failed: ${started.error}`;
+        return;
+    }
+    musicVideo.exporting = true;
+    musicVideo.status = "Starting the export...";
+    Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: musicVideo.status, progress: 0, durationMs: 0, actionLabel: "Cancel", onAction: () => Entropy.Video.cancelMusicVideo() });
+}
+
+/** Called every frame: carries the background export's progress into the panel and the toast. */
+function pollMusicVideoExport() {
+    if (!musicVideo.exporting) return;
+    const status: MusicVideoStatus | null = Entropy.Video.pollMusicVideo();
+    if (!status) {
+        musicVideo.exporting = false;
+        return;
+    }
+    const text = exportStatusText(status);
+    const changed = text !== musicVideo.status;
+    musicVideo.status = text;
+    if (status.done) {
+        musicVideo.exporting = false;
+        Entropy.println("DAW: " + text);
+        Entropy.UI.toast?.({
+            id: MUSIC_VIDEO_TOAST,
+            message: text,
+            kind: status.error ? "error" : status.cancelled ? "info" : "success",
+            durationMs: status.error ? 0 : 6000,
+        });
+    } else if (changed) {
+        Entropy.UI.toast?.({ id: MUSIC_VIDEO_TOAST, message: text, progress: status.progress, durationMs: 0, actionLabel: "Cancel", onAction: () => Entropy.Video.cancelMusicVideo() });
+    }
+}
+
+const PREVIEW_WIDTH = 480;
+
+function renderVisualizerWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const p = visualizerPrefs();
+    const songName = currentSongName();
+    const settings = engineSettings(p, songName);
+    const size = videoSize(p);
+
+    W.horizontal(win, (columns: string) => {
+        W.vertical(columns, (left: string) => {
+            W.musicVisualizer(left, { id: "music_video_preview", source: "master", settings, width: PREVIEW_WIDTH, maxHeight: 420 });
+            W.label(left, { text: transport.playing ? `Previewing "${displayTitle(p, songName)}" live.` : "Press Play to see the preview move with the song.", alpha: 0.7 });
+            W.horizontal(left, (row: string) => {
+                W.button(row, {
+                    text: musicVideo.exporting ? "Exporting..." : withIcon("film-strip", "Export MP4..."),
+                    id: "music_video_export",
+                    disabled: musicVideo.exporting,
+                    tooltip: `Renders the whole song at ${size.width} x ${size.height}, ${p.fps} fps, with its audio`,
+                    onClick: () => exportMusicVideo(),
+                });
+                if (musicVideo.exporting) {
+                    W.button(row, { text: "Cancel", id: "music_video_cancel", onClick: () => Entropy.Video.cancelMusicVideo() });
+                }
+            });
+            if (musicVideo.status) W.label(left, { text: musicVideo.status });
+        });
+
+        W.vertical(columns, (right: string) => {
+            W.dropdown(right, {
+                label: "Style", id: "music_video_style",
+                options: VISUALIZER_STYLES.map(v => v.label),
+                selectedIndex: Math.max(0, VISUALIZER_STYLES.findIndex(v => v.id === p.style)),
+                onChange: (idx: string) => editVisualizer(v => { v.style = VISUALIZER_STYLES[parseInt(idx, 10)]?.id ?? v.style; }),
+            });
+            W.dropdown(right, {
+                label: "Size", id: "music_video_size",
+                options: VIDEO_SIZES.map(v => v.label),
+                selectedIndex: Math.max(0, VIDEO_SIZES.findIndex(v => v.id === p.size)),
+                onChange: (idx: string) => editVisualizer(v => { v.size = VIDEO_SIZES[parseInt(idx, 10)]?.id ?? v.size; }),
+            });
+            W.dropdown(right, {
+                label: "Frame rate", id: "music_video_fps",
+                options: VIDEO_FPS.map(f => `${f} fps`),
+                selectedIndex: Math.max(0, (VIDEO_FPS as readonly number[]).indexOf(p.fps)),
+                onChange: (idx: string) => editVisualizer(v => { v.fps = VIDEO_FPS[parseInt(idx, 10)] ?? v.fps; }),
+            });
+            const theme = themeIndex(p);
+            W.dropdown(right, {
+                label: "Colours", id: "music_video_theme",
+                options: [...COLOR_THEMES.map(t => t.label), ...(theme < 0 ? ["Custom"] : [])],
+                selectedIndex: theme < 0 ? COLOR_THEMES.length : theme,
+                onChange: (idx: string) => {
+                    const t = COLOR_THEMES[parseInt(idx, 10)];
+                    if (t) editVisualizer(v => applyTheme(v, t.id));
+                },
+            });
+            W.horizontal(right, (row: string) => {
+                W.colorInput(row, { label: "Main", id: "music_video_primary", color: p.primary, onChange: (c: number[]) => editVisualizer(v => { v.primary = [c[0], c[1], c[2], c[3] ?? 1]; }) });
+                W.colorInput(row, { label: "Accent", id: "music_video_secondary", color: p.secondary, onChange: (c: number[]) => editVisualizer(v => { v.secondary = [c[0], c[1], c[2], c[3] ?? 1]; }) });
+            });
+            W.horizontal(right, (row: string) => {
+                W.colorInput(row, { label: "Sky", id: "music_video_background", color: p.background, onChange: (c: number[]) => editVisualizer(v => { v.background = [c[0], c[1], c[2], 1]; }) });
+                W.colorInput(row, { label: "Floor", id: "music_video_background_bottom", color: p.backgroundBottom, onChange: (c: number[]) => editVisualizer(v => { v.backgroundBottom = [c[0], c[1], c[2], 1]; }) });
+            });
+            W.slider(right, { label: "Sensitivity", id: "music_video_sensitivity", value: p.sensitivity, min: 0.25, max: 3, decimals: 2, defaultValue: 1, onChange: (x: string) => editVisualizer(v => { v.sensitivity = parseFloat(x); }) });
+            W.slider(right, { label: "Smoothing", id: "music_video_smoothing", value: p.smoothing, min: 0, max: 1, decimals: 2, defaultValue: 0.5, onChange: (x: string) => editVisualizer(v => { v.smoothing = parseFloat(x); }) });
+            W.slider(right, { label: "Glow", id: "music_video_glow", value: p.glow, min: 0, max: 1, decimals: 2, defaultValue: 0.6, onChange: (x: string) => editVisualizer(v => { v.glow = parseFloat(x); }) });
+            if (p.style === "bars" || p.style === "radial" || p.style === "rings") {
+                W.slider(right, { label: "Bars", id: "music_video_bars", value: p.barCount, min: 8, max: 128, decimals: 0, step: 1, defaultValue: 48, onChange: (x: string) => editVisualizer(v => { v.barCount = Math.round(parseFloat(x)); }) });
+            }
+            if (p.style !== "particles" && p.style !== "horizon") {
+                W.checkbox(right, { label: p.style === "wave" ? "Mirror (second, inverted trace)" : "Mirror (bass in the middle)", id: "music_video_mirror", value: p.mirror, onChange: (x: any) => editVisualizer(v => { v.mirror = x === true || x === "true"; }) });
+            }
+            W.separator(right);
+            W.textInput(right, { label: "Title", id: "music_video_title", value: p.title, width: 220, onChange: (x: string) => editVisualizer(v => { v.title = x; }) });
+            if (!p.title.trim()) W.label(right, { text: `Uses the song's name: "${songName}"`, alpha: 0.6 });
+            W.textInput(right, { label: "Artist", id: "music_video_artist", value: p.artist, width: 220, onChange: (x: string) => editVisualizer(v => { v.artist = x; }) });
+            W.dropdown(right, {
+                label: "Font", id: "music_video_font",
+                options: [...TITLE_FONTS],
+                selectedIndex: Math.max(0, (TITLE_FONTS as readonly string[]).indexOf(p.font)),
+                onChange: (idx: string) => editVisualizer(v => { v.font = TITLE_FONTS[parseInt(idx, 10)] ?? v.font; }),
+            });
+            W.checkbox(right, { label: "Progress bar", id: "music_video_progress", value: p.showProgress, onChange: (x: any) => editVisualizer(v => { v.showProgress = x === true || x === "true"; }) });
+            W.horizontal(right, (row: string) => {
+                W.button(row, {
+                    text: withIcon("image", p.backgroundImage ? "Change Picture..." : "Background Picture..."),
+                    id: "music_video_image",
+                    onClick: () => {
+                        const picked = Entropy.Video.chooseMusicVideoImage();
+                        if (picked) editVisualizer(v => { v.backgroundImage = picked; });
+                    },
+                });
+                if (p.backgroundImage) {
+                    W.button(row, { text: "Remove", id: "music_video_image_clear", onClick: () => editVisualizer(v => { v.backgroundImage = null; }) });
+                }
+            });
+            if (p.backgroundImage) {
+                W.label(right, { text: p.backgroundImage.split(/[\\/]/).pop() ?? p.backgroundImage, alpha: 0.6 });
+                W.slider(right, { label: "Darken picture", id: "music_video_dim", value: p.backgroundDim, min: 0, max: 1, decimals: 2, defaultValue: 0.45, onChange: (x: string) => editVisualizer(v => { v.backgroundDim = parseFloat(x); }) });
+            }
+            W.button(right, { text: "Reset Look", id: "music_video_reset", tooltip: "Back to the default style and colours (keeps the title and artist)", onClick: () => editVisualizer(v => ({ ...defaultVisualizer(), title: v.title, artist: v.artist })) });
+        });
+    });
 }
 
 // --- Guitar input ------------------------------------------------------------------------------
@@ -3188,15 +3398,7 @@ function buildVst3Events(): { path: string; state: string | null; notes: any[]; 
 }
 
 function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string; vst3Warnings?: string[] } {
-    const events = buildPatternEvents();
-    const sampleEvents = buildSampleEvents();
-    const wavetableEvents = buildWavetableEvents();
-    const physModEvents = buildPhysModEvents();
-    const brassEvents = buildBrassEvents();
-    const matterEvents = buildMatterEvents();
-    const waterEvents = buildWaterEvents();
-    const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents);
+    const result = renderSongWav();
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -3205,6 +3407,19 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
             + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
         : `Export failed: ${result.error}`;
     return result;
+}
+
+/** Bounces the whole song offline. Asks where to save unless `tempFile` (the music video export). */
+function renderSongWav(options?: { tempFile?: boolean }) {
+    const events = buildPatternEvents();
+    const sampleEvents = buildSampleEvents();
+    const wavetableEvents = buildWavetableEvents();
+    const physModEvents = buildPhysModEvents();
+    const brassEvents = buildBrassEvents();
+    const matterEvents = buildMatterEvents();
+    const waterEvents = buildWaterEvents();
+    const vst3Events = buildVst3Events();
+    return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, options);
 }
 
 // --- Arrangement editing -----------------------------------------------------
@@ -3826,6 +4041,7 @@ function repairProject(saved: any): DAWProject {
     saved.cuts = repairCuts(saved.cuts);
     const repaired = saved as DAWProject;
     if (saved.guitar) repaired.guitar = readGuitarPrefs(saved.guitar);
+    if (saved.visualizer) repaired.visualizer = readVisualizer(saved.visualizer);
     if (!repaired.tracks.some(t => t.id === repaired.activeTrackId)) repaired.activeTrackId = repaired.tracks[0]?.id ?? null;
     return repaired;
 }
@@ -4656,6 +4872,18 @@ addon.onInit(async () => {
                     onClick: () => { exportPatternToWav(); }
                 });
                 Entropy.UI.Widget.button(tid2, {
+                    text: visualizerVisible ? "Hide Music Video" : withIcon("film-strip", "Music Video"),
+                    id: "toggle_visualizer",
+                    selected: visualizerVisible,
+                    tooltip: "Turn the song into an MP4 with a visualizer that moves to the music",
+                    onClick: () => { setVisualizerVisible(!visualizerVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: analyzerVisible ? "Hide Analyzer" : withIcon("chart-bar", "Show Analyzer"),
+                    id: "toggle_analyzer",
+                    onClick: () => { setAnalyzerVisible(!analyzerVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
                     text: rackVisible ? "Hide Drum Rack" : "Show Drum Rack",
                     id: "toggle_rack",
                     onClick: () => { setRackVisible(!rackVisible); }
@@ -5322,14 +5550,29 @@ addon.onInit(async () => {
     // The analyzer floats over the tab, bottom-right by default; drag it wherever suits. The engine
     // draws tabs first and windows on top of them.
     const [screenW, screenH] = Entropy.Window.getSize();
-    const analyzerWindow: string = Entropy.UI.createWindow({
+    analyzerWindowId = Entropy.UI.createWindow({
         title: "Analyzer",
         width: 720,
         height: 330,
         x: Math.max(16, screenW - 736),
         y: Math.max(16, screenH - 346),
-        onRender: () => renderAnalyzer(analyzerWindow)
+        onRender: () => renderAnalyzer(analyzerWindowId!),
+        // The title bar's close button (or Escape) hid it; keep the toggle in step.
+        onClose: () => { analyzerVisible = false; }
     });
+    Entropy.UI.setWindowVisible(analyzerWindowId, analyzerVisible);
+
+    // The music video panel, hidden until asked for: preview on the left, the look on the right.
+    visualizerWindowId = Entropy.UI.createWindow({
+        title: "Music Video",
+        width: Math.min(960, screenW - 32),
+        height: Math.max(520, Math.min(700, screenH - 72)),
+        x: Math.max(16, Math.round((screenW - Math.min(960, screenW - 32)) / 2)),
+        y: 56,
+        onRender: () => renderVisualizerWindow(visualizerWindowId!),
+        onClose: () => { visualizerVisible = false; }
+    });
+    Entropy.UI.setWindowVisible(visualizerWindowId, visualizerVisible);
 
     // The drum rack: sample browser, pad bank and pad editor side by side, top-left over the
     // arrangement (drag it wherever suits) and clear of the analyzer at the bottom right.
@@ -5484,6 +5727,7 @@ addon.onInit(async () => {
         }
 
         tickLibrary();
+        pollMusicVideoExport();
 
         if (!transport.playing) return;
 

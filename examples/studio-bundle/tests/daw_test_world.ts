@@ -143,6 +143,16 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         effects: new Map<string, any>(),
         lastCreatedTrackId: "",
         lastToolResult: null as any,
+        // The Music Video panel: its preview widgets and colour inputs as last drawn, and the fake
+        // Entropy.Video's side. `musicVideoPath` is what the save dialog answers (null = cancel);
+        // `musicVideoPolls` is what pollMusicVideo hands back, first to last.
+        musicVisualizers: new Map<string, any>(),
+        colorInputs: new Map<string, any>(),
+        musicVideoPath: "/videos/song.mp4" as string | null,
+        musicVideoStarts: [] as any[],
+        musicVideoPolls: [] as any[],
+        musicVideoCancels: 0,
+        wavOptions: [] as any[],
     };
 
     const wrap = (_win: string, body: (win: string) => void) => body("win");
@@ -157,6 +167,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         spectrum: (_win: string, c: any) => { w.spectra.set(c.id, c); },
         oscilloscope: (_win: string, c: any) => { w.scopes.set(c.id, c); },
         levelMeter: (_win: string, c: any) => { w.meters.set(c.id, c); },
+        musicVisualizer: (_win: string, c: any) => { w.musicVisualizers.set(c.id, c); },
+        colorInput: (_win: string, c: any) => { w.colorInputs.set(c.id ?? c.label, c); },
         numericInput: (_win: string, c: any) => { w.numerics.set(c.id ?? c.label, c); },
         textInput: (_win: string, c: any) => { w.textInputs.set(c.id ?? c.label, c); },
         dropdown: (_win: string, c: any) => { w.dropdowns.set(c.id ?? c.label, c); },
@@ -250,7 +262,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 return { ok: true, played };
             },
             removeWater: (id: string) => { w.removedWater.push(id); },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[]) => {
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[], options?: any) => {
+                w.wavOptions.push(options);
                 w.brassExports.push(brassEvents ?? []);
                 w.waterExports.push(waterEvents ?? []);
                 w.matterExports.push(matterEvents ?? []);
@@ -417,13 +430,20 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             setWindowVisible: (id: string, visible: boolean) => { w.windowVisible[id] = visible; },
         },
         Window: { getSize: () => [1400, 900] },
+        Video: {
+            chooseMusicVideoPath: () => w.musicVideoPath,
+            chooseMusicVideoImage: () => null,
+            exportMusicVideo: (cfg: any) => { w.musicVideoStarts.push(cfg); return { ok: true }; },
+            pollMusicVideo: () => w.musicVideoPolls.shift() ?? null,
+            cancelMusicVideo: () => { w.musicVideoCancels++; },
+        },
         Input: { onKeyDown: (cb: any) => { w.keyDown = cb; return () => {}; } },
         Composer: undefined,
     };
 
     const render = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
-        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
+        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.colorInputs.clear();
         w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();

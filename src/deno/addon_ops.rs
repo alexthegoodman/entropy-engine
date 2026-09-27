@@ -719,6 +719,8 @@ pub enum UiWidget {
     Oscilloscope { id: String, config: OscilloscopeConfig },
     Spectrum { id: String, config: SpectrumConfig },
     LevelMeter { id: String, config: LevelMeterConfig },
+    /// A live preview of a music-video visualizer style (`crate::music_video`).
+    MusicVisualizer { id: String, config: crate::deno::music_video_ops::MusicVisualizerConfig },
     Label { text: String, bold: Option<bool>, font_size: Option<f32>, alpha: f32 },
     Button { text: String, id: String, label: String, font_size: Option<f32>, alpha: f32, frame: bool },
     ColorInput { id: String, label: String, color: [f32; 4] },
@@ -1350,6 +1352,11 @@ pub struct AddonContext {
     pub pending_video_export: Option<crate::video_export::exporter::VideoExportRequest>,
     #[cfg(not(target_arch = "wasm32"))]
     pub video_export_result: Option<Result<crate::video_export::exporter::VideoExportResult, String>>,
+    /// The music video exporting on a background thread, if any (`Entropy.Video.exportMusicVideo`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub music_video_job: Option<crate::music_video::export::MusicVideoJob>,
+    /// `Widget.musicVisualizer` state by widget id: its visualizer, tracker and texture.
+    pub music_previews: HashMap<String, crate::deno::music_video_ops::MusicPreview>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2902,6 +2909,16 @@ pub struct RenderPatternWavResult {
     pub vst3_warnings: Vec<String>,
 }
 
+/// Optional last argument of `Audio.renderPatternToWav`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderWavOptions {
+    /// Write to a fresh file in the system temp directory instead of asking where to save (the
+    /// DAW's music-video export bounces this way, then hands the path to `exportMusicVideo`).
+    #[serde(default)]
+    pub temp_file: bool,
+}
+
 #[op2]
 #[serde]
 pub fn op_audio_render_pattern_wav(
@@ -2916,6 +2933,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] brass_events: Vec<crate::deno::brass_ops::BrassNoteConfig>,
     #[serde] matter_events: Vec<crate::deno::matter_ops::MatterHitConfig>,
     #[serde] water_events: Vec<crate::deno::water_ops::WaterNoteConfig>,
+    #[serde] options: Option<RenderWavOptions>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2927,10 +2945,14 @@ pub fn op_audio_render_pattern_wav(
         };
     }
 
-    let file_path = rfd::FileDialog::new()
-        .add_filter("WAV Audio", &["wav"])
-        .set_file_name(&suggested_name)
-        .save_file();
+    let file_path = if options.as_ref().is_some_and(|o| o.temp_file) {
+        Some(std::env::temp_dir().join(format!("entropy-bounce-{}.wav", Uuid::new_v4())))
+    } else {
+        rfd::FileDialog::new()
+            .add_filter("WAV Audio", &["wav"])
+            .set_file_name(&suggested_name)
+            .save_file()
+    };
 
     let Some(output_path) = file_path else {
         return RenderPatternWavResult {

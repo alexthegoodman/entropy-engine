@@ -241,6 +241,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.oscilloscope` | Draws a triggered waveform from the master mix or a track. It supports mono, stereo, and XY modes, afterglow, gain, and a fixed width for side-by-side layouts. |
 | `Widget.spectrum` | Draws a log-frequency spectrum from the master mix or a track, with filled or bar styles, peak hold, hover readout, configurable FFT size, range, tilt, and fall speed. |
 | `Widget.levelMeter` | Draws a stereo peak and RMS meter with peak hold and a click-to-clear clip latch for the master mix or a track. |
+| `Widget.musicVisualizer` | Live preview of a music-video visualizer style (see `Video.exportMusicVideo`), fed by the master mix or a track. It uses the export's own renderer, so the preview matches the file. |
 | `Widget.kanban` | A kanban board with columns, movable cards, selection, deletion, and add-card callbacks. Your addon owns the board data. |
 | `Widget.sheetGrid` | A spreadsheet grid: lettered column headers (A, B, C...), numbered rows, one selected cell with arrow-key/Tab/Enter navigation, inline cell editing (double-click, or type over a selected cell), and an optional colored border per cell. Right-click a row/column header to insert or delete it. `editing` shares one edit session with your own formula bar, however the user started typing - see `SheetGridConfig`'s doc comment. `options.maxHeight` scrolls the rows inside a capped box with the column header fixed above it. Your addon owns the cells and any formula evaluation. |
 | `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes, icons and right-aligned detail text per row. `maxHeight` scrolls the rows inside a capped box, `width` fixes its width. Your addon supplies the visible rows and owns expanded state. |
@@ -382,6 +383,10 @@ AAC audio (see [Linux](#linux)).
 | `Video.poll(handle)` | Reads current playback position and play/pause state. |
 | `Video.export(config)` | Renders your addon's current scene offscreen and encodes it to an H.264 MP4 at a given fps and duration. It returns immediately and advances one frame per real render frame, so the window and addon update loop keep running. |
 | `Video.pollExport()` | Polls for export progress or completion: output path, frames captured, elapsed time, or an error. |
+| `Video.exportMusicVideo({ wavPath, outputPath, settings })` | Renders a bounced song to an MP4 (H.264 video with the song as AAC audio) with an audio-reactive visualizer. It runs on a background thread at any resolution, and the GPU and window aren't involved. `settings` picks the style (`bars`, `radial`, `wave`, `particles`, `rings`, `horizon`), size, fps, colours, sensitivity, smoothing, glow, bar count, mirroring, title/artist text and font, a progress bar, and an optional background picture. |
+| `Video.pollMusicVideo()` / `cancelMusicVideo()` | Polls the running music video's progress. It returns the final result once (`done`, `error`, `cancelled`), then `null`. Cancelling removes the partial file. |
+| `Video.musicVideoStyles()` / `musicVideoDefaults()` | The style list (ids and labels) and the default settings. |
+| `Video.chooseMusicVideoPath(name)` / `chooseMusicVideoImage()` | Save and open dialogs for the MP4 and a background picture. |
 
 </details>
 
@@ -445,7 +450,8 @@ All studio-bundle examples share one binary - pass the example's name as an arg:
 ```bash
 cd examples/studio-bundle/
 
-// audio editor (arrangement, drum rack, guitar input, wavetable synth, quick knobs and moves)
+// audio editor (arrangement, drum rack, guitar input, wavetable synth, quick knobs and moves,
+// music video export)
 npm run build-daw
 cargo run --bin example --release -- daw
 
@@ -475,6 +481,16 @@ subtitle path. The controls cover seek, volume, speed, repeat, captions and full
 `cargo test --release --test video_export_live -- --nocapture` exports the `video-export-demo` clip
 and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
 by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
+
+The DAW's **Music Video** button (transport bar) turns the open song into an MP4 you can post where
+a WAV won't go. Pick one of six visualizer styles, a size (HD, Full HD, square, vertical for
+Shorts/Reels), a frame rate, a colour theme or your own colours, how hard it reacts, and a
+title/artist overlay or background picture. The preview moves with the song while it plays.
+**Export MP4...** bounces the song and renders the video in the background, with progress in a
+toast. The look is saved with the song. **Hide Analyzer** / **Show Analyzer** puts the Analyzer
+window away and brings it back. `cargo test --release --test daw_visualizer_live -- --nocapture`
+drives both in the real window and checks the exported file. `cargo test --lib music_video` covers
+the renderer and the encoder by themselves.
 
 ---
 
@@ -516,6 +532,8 @@ Differences from Windows:
   decoded by symphonia. OpenH264 is built from bundled source, so there's no extra system package.
   Unlike Media Foundation it only handles H.264 - HEVC/VP9/AV1 files report an error on `open`.
   Exports are Constrained Baseline H.264 with the frame size rounded down to even numbers.
+  Music videos (`Video.exportMusicVideo`) get their AAC audio track from fdk-aac, also built from
+  bundled source.
 
 Still Windows-only (compiled out with `#[cfg(target_os = "windows")]`; these wrap Win32 APIs, so a
 Cargo feature alone wouldn't make them work):

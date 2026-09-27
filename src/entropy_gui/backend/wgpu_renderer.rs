@@ -249,6 +249,12 @@ impl Renderer {
         );
     }
 
+    /// Forgets a texture from `register_native_texture` (its bind group, and with it the GPU
+    /// texture once nothing else holds it). Drawing with `id` afterwards draws nothing.
+    pub fn free_texture(&mut self, id: TextureId) {
+        self.native_textures.remove(&id);
+    }
+
     pub fn register_native_texture(&mut self, device: &wgpu::Device, view: &wgpu::TextureView, filter: wgpu::FilterMode) -> TextureId {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
