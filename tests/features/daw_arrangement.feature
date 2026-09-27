@@ -164,3 +164,42 @@ Feature: The DAW arranges tracks on a 16-channel timeline
     When I click "transport_toggle"
     And I advance 400 milliseconds
     Then track "Old drums" has played notes
+
+  Scenario: The AI reads only what changed since its last look at the project
+    Given the DAW is open
+    When I call the tool "daw_get_state" with {}
+    And I remember the state revision
+    And I call the tool "daw_get_state" since the remembered revision
+    Then the tool result field "unchanged" equals true
+    And the tool result has no field "tracks"
+    When I send the widget event "TRACKS_TRACK_MUTE|arrangement|trk-bass"
+    And I call the tool "daw_create_track" with {"name":"Arp","kind":"synth"}
+    And I call the tool "daw_get_state" since the remembered revision
+    Then the tool result field "changes.tracks.changed" equals [{"id":"trk-bass","name":"Bass","muted":true}]
+    And the tool result field "changes.tracks.added.0.name" equals "Arp"
+    And the tool result has no field "tracks"
+    And the tool result has no field "changes.bpm"
+
+  Scenario: A revision the DAW no longer has gives the whole project instead of a diff
+    Given the DAW is open
+    When I call the tool "daw_get_state" with {"sinceRevision":"gone-1"}
+    Then the tool result field "fullState" equals true
+    And the tool result field "tracks.1.name" equals "Bass"
+
+  Scenario: The AI can look at one track, or one line per track, and still diff from there
+    Given the DAW is open
+    When I call the tool "daw_get_state" with {"trackId":"trk-bass"}
+    Then the tool result field "track.name" equals "Bass"
+    And every arrangement clip in the tool result is on "trk-bass"
+    And the tool result has no field "tracks"
+    When I call the tool "daw_get_state" with {"detail":"summary"}
+    Then the tool result field "tracks.1" equals {"id":"trk-bass","name":"Bass","kind":"synth","channel":1,"muted":false,"solo":false,"patterns":2}
+    And the tool result has no field "arrangement"
+    When I remember the state revision
+    And I call the tool "daw_set_track_params" with {"trackId":"trk-bass","gain":0.9}
+    And I call the tool "daw_get_state" since the remembered revision
+    Then the tool result field "changes.tracks.changed" equals [{"id":"trk-bass","name":"Bass","gain":0.9}]
+    When I call the tool "daw_get_state" with {"trackId":"trk-bass","sinceRevision":"gone-1"}
+    Then the tool failed saying "cannot be combined"
+    When I call the tool "daw_get_state" with {"trackId":"trk-nope"}
+    Then the tool failed saying "No track"

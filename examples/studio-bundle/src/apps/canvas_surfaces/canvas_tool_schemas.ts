@@ -2,6 +2,8 @@
  * live in canvas_surface_addon.ts (they need its state); a test asserts every name here has exactly one
  * handler and every handler has a definition here. Descriptions are what an MCP client reads, so they say
  * what a call returns and which unit or convention applies. */
+import { SINCE_REVISION_DESCRIPTION } from "../state_revisions";
+
 export interface ToolSchema { description: string; parameters: { type: "object"; properties: Record<string, unknown>; required?: string[] }; }
 
 const ref = (what: string) => ({ type: "string", description: `Id or exact name of ${what}.` });
@@ -25,8 +27,14 @@ const action = {
 
 export const CANVAS_TOOLS = {
     canvas_get_scene: {
-        description: "Read the whole open scene: every surface (id, name, kind, position, rotation, size, parent, visible, solid), every group, animation clips, logic node counts, the world settings (player, walk bounds, lighting) and whether Play is running. Call this first in a session and after big edits. Positions of a surface with a parent are local to that parent group. Y is up, the ground is y = 0.",
-        parameters: object({}),
+        description: "Read the whole open scene: every surface (id, name, kind, position, rotation, size, parent, visible, solid), every group, animation clips, logic node counts, the world settings (player, walk bounds, lighting) and whether Play is running. Call this first in a session. Positions of a surface with a parent are local to that parent group. Y is up, the ground is y = 0. " +
+            "Every result carries a revision. The edit tools already return what they changed, so you rarely need the whole scene again: to see what changed since an earlier read (including painting or moving the person did by hand), pass that read's revision as sinceRevision. " +
+            'To look at less, pass group for one group and everything in it, or detail "summary" for just the names and parents of surfaces and groups.',
+        parameters: object({
+            sinceRevision: { type: "string", description: SINCE_REVISION_DESCRIPTION },
+            group: ref("a group; returns it, the groups nested in it and every surface in them"),
+            detail: { type: "string", enum: ["full", "summary"], description: '"summary" lists surfaces and groups as id, name, kind and parent only. Default "full".' },
+        }),
     },
     canvas_world_stats: {
         description: "Budget check. Reports surface count against the 128 limit, estimated memory (each surface holds about 5 MB of pixels while open), estimated saved scene size against the 256 MiB limit (unpainted single-colour surfaces are saved as a colour, so only painted ones cost real space), and node/wire/group/clip counts against their limits. Call it before adding a lot more and before saving.",
