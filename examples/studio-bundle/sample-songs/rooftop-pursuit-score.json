@@ -794,7 +794,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.18,
+      "gain": 0.144,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -5020,7 +5020,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.16,
+      "gain": 0.128,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -6697,7 +6697,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.26,
+      "gain": 0.208,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -8304,7 +8304,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.24,
+      "gain": 0.192,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -10417,7 +10417,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.26,
+      "gain": 0.208,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -11126,7 +11126,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.16,
+      "gain": 0.128,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -12350,7 +12350,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.11,
+      "gain": 0.088,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -12992,7 +12992,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.15,
+      "gain": 0.12,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -14171,7 +14171,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.3,
+      "gain": 0.24,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -18949,7 +18949,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.3,
+      "gain": 0.24,
       "muted": false,
       "solo": false,
       "patterns": [

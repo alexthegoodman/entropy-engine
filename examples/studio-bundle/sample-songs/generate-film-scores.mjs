@@ -84,8 +84,9 @@ const voice = (waveform, p = {}) => ({ waveform, cutoff: 4000, resonance: 1, att
 // --- The score builder -------------------------------------------------------------------------
 
 class Score {
-  constructor({ slug, name, bpm, bars }) {
-    Object.assign(this, { slug, name, bpm, bars });
+  /** `trim` scales every track's gain: the cue's overall level against the others. */
+  constructor({ slug, name, bpm, bars, trim = 1 }) {
+    Object.assign(this, { slug, name, bpm, bars, trim });
     this.tracks = []; this.notes = new Map(); this.sections = []; this.cuts = [];
   }
   /** kind: strings | brass | matter | water. `space` is the Space knob: the hall. */
@@ -93,7 +94,7 @@ class Score {
     const waveform = { strings: 'physmod', brass: 'brass', matter: 'matter', water: 'water' }[kind];
     const t = { id: `${this.slug}-${role}`, name, kind: 'synth', channel: this.tracks.length,
       colorIndex: this.tracks.length, rootNote: kind === 'matter' ? 0 : 24, scale: 'chromatic',
-      rows: kind === 'matter' ? 11 : 73, voice: voice(waveform, { reverbMix }), gain, muted: false, solo: false,
+      rows: kind === 'matter' ? 11 : 73, voice: voice(waveform, { reverbMix }), gain: +(gain * this.trim).toFixed(3), muted: false, solo: false,
       patterns: [], activePatternId: '', character: character({ space, humanize }),
       [{ strings: 'physmod', brass: 'brass', matter: 'matter', water: 'water' }[kind]]: settings };
     this.tracks.push(t); this.notes.set(t, []);
@@ -277,16 +278,16 @@ function foldedCity() {
 // =================================================================================================
 function tidewaterSignal() {
   const s = new Score({ slug: 'tidewater-signal', name: 'Tidewater Signal', bpm: 66, bars: 32 });
-  const surf = s.add('surf', 'Surf on the reef', 'water', 0.45, water('weather', { weatherSource: 'surf', dynamics: 0.6 }), { space: 0.1, humanize: 0 });
+  const surf = s.add('surf', 'Surf on the reef', 'water', 0.22, water('weather', { weatherSource: 'surf', dynamics: 0.6 }), { space: 0.1, humanize: 0 });
   const harp = s.add('glass', 'Glass harp - lullaby', 'water', 0.36, water('glass', { dynamics: 0.6 }), { space: 0.4, humanize: 0.12 });
   const eerie = s.add('glassviolin', 'Glass violin - the signal', 'strings', 0.13, pm('glass', { bowForce: 0.34, bowVelocity: 0.35, bowPosition: 0.06, vibratoDepth: 3, bowNoise: 0.3 }), { space: 0.55 });
-  const vln = s.add('violins', 'Violins', 'strings', 0.19, pm('violin', { vibratoDepth: 16, vibratoDelay: 0.25 }), { space: 0.35 });
-  const vla = s.add('violas', 'Violas', 'strings', 0.17, pm('viola', { bowForce: 0.45, vibratoDepth: 10 }));
-  const vc = s.add('cello', 'Solo cello', 'strings', 0.23, pm('cello', { vibratoDepth: 20, vibratoRate: 5, bowForce: 0.55, slide: 0.12 }));
+  const vln = s.add('violins', 'Violins', 'strings', 0.27, pm('violin', { vibratoDepth: 16, vibratoDelay: 0.25 }), { space: 0.35 });
+  const vla = s.add('violas', 'Violas', 'strings', 0.24, pm('viola', { bowForce: 0.45, vibratoDepth: 10 }));
+  const vc = s.add('cello', 'Solo cello', 'strings', 0.3, pm('cello', { vibratoDepth: 20, vibratoRate: 5, bowForce: 0.55, slide: 0.12 }));
   const cb = s.add('basses', 'Basses - pizzicato heartbeat', 'strings', 0.32, pm('bass', { articulation: 'pizzicato', ring: 0.6 }), { space: 0.2 });
   const tbn = s.add('trombones', 'Trombone shrieks', 'brass', 0.14, brass('trombone', 'glissando', { breath: 0.8, slideTime: 0.45, release: 0.3 }), { space: 0.4 });
-  const hn = s.add('horns', 'Horns - campfire chorale', 'brass', 0.15, brass('horn', 'chorale', { breath: 0.4 }), { space: 0.45 });
-  const kit = s.add('metal', 'Matter - hollow metal and toms', 'matter', 0.3, matter('war', 'sticks', { dynamics: 8, mix: { kick: 3, snare: 1, 'rack-tom': 2.5, 'floor-tom': 3, crash: 1.5, ride: 3.5, splash: 1.5 } }), { space: 0.3, humanize: 0 });
+  const hn = s.add('horns', 'Horns - campfire chorale', 'brass', 0.22, brass('horn', 'chorale', { breath: 0.4 }), { space: 0.45 });
+  const kit = s.add('metal', 'Matter - hollow metal and toms', 'matter', 0.22, matter('war', 'sticks', { dynamics: 8, mix: { kick: 3, snare: 1, 'rack-tom': 2.5, 'floor-tom': 3, crash: 1.5, ride: 3.5, splash: 1.5 } }), { space: 0.3, humanize: 0 });
 
   s.section('Shoreline', 0, 4); s.section('Something in the trees', 4, 4); s.section('By the fire', 8, 4);
   s.section('By the fire, answered', 12, 4); s.section('The hatch', 16, 4); s.section('We have to go back', 20, 4);
@@ -367,7 +368,7 @@ function tidewaterSignal() {
   s.n(tbn, 30, 0, 'A2', 8, 0.5); s.n(tbn, 30, 7.5, 'D#3', 8, 0.7); s.n(tbn, 30, 15.5, 'A3', 15, 0.9);
   each(30, 32, (b, i) => [0, 4, 8, 10, 12, 13, 14, 15].forEach((st, j) => s.n(kit, b, st, j % 2 ? K.rack : K.floor, 1, 0.45 + i * 0.2 + j * 0.03)));
   // ... and cuts to black on the last beat.
-  s.n(kit, 31, 12, K.crash, 1, 1); s.n(kit, 31, 12, K.kick, 1, 1); s.n(cb, 31, 12, 'A1', 2, 0.9);
+  s.n(kit, 31, 12, K.crash, 1, 0.85); s.n(kit, 31, 12, K.kick, 1, 0.85); s.n(cb, 31, 12, 'A1', 2, 0.9);
   s.silence(31, 13, 32, 0);
   return s.build('glass');
 }
@@ -513,7 +514,7 @@ function ashenCrown() {
 //    spiccato strings, a rock kit played like taiko, brass stabs and a key change for the last sprint.
 // =================================================================================================
 function rooftopPursuit() {
-  const s = new Score({ slug: 'rooftop-pursuit', name: 'Rooftop Pursuit', bpm: 140, bars: 64 });
+  const s = new Score({ slug: 'rooftop-pursuit', name: 'Rooftop Pursuit', bpm: 140, bars: 64, trim: 0.8 });
   const vln = s.add('violins', 'Violins - spiccato', 'strings', 0.18, pm('violin', { bowForce: 0.6, bowVelocity: 0.7, bowPosition: 0.08, vibratoDepth: 5, attackSkill: 1 }), { space: 0.22, humanize: 0.05 });
   const vla = s.add('violas', 'Violas - off-beats', 'strings', 0.16, pm('viola', { bowForce: 0.6, bowVelocity: 0.66, vibratoDepth: 4 }), { space: 0.22, humanize: 0.05 });
   const legno = s.add('legno', 'Cellos - col legno', 'strings', 0.26, pm('cello', { articulation: 'colLegno', brightness: 0.45, damping: 0.3 }), { space: 0.18, humanize: 0 });
@@ -619,17 +620,17 @@ function rooftopPursuit() {
 // =================================================================================================
 function lanterns() {
   const s = new Score({ slug: 'lanterns-over-the-sound', name: 'Lanterns Over the Sound', bpm: 76, bars: 32 });
-  const brook = s.add('brook', 'Brook', 'water', 0.5, water('weather', { weatherSource: 'brook', dynamics: 0.5 }), { space: 0.1, humanize: 0 });
+  const brook = s.add('brook', 'Brook', 'water', 0.35, water('weather', { weatherSource: 'brook', dynamics: 0.5 }), { space: 0.1, humanize: 0 });
   const harp = s.add('glass', 'Glass harp - arpeggios', 'water', 0.3, water('glass', { dynamics: 0.5 }), { space: 0.4, humanize: 0.1 });
-  const vln1 = s.add('violins1', 'Violins I', 'strings', 0.19, pm('violin', { vibratoDepth: 16, vibratoDelay: 0.2 }), { space: 0.35 });
-  const vln2 = s.add('violins2', 'Violins II', 'strings', 0.15, pm('violin', { vibratoDepth: 12, bodySeed: 7 }), { space: 0.35 });
-  const vla = s.add('violas', 'Violas', 'strings', 0.16, pm('viola', { vibratoDepth: 12 }));
-  const vc = s.add('cello', 'Cellos - the hymn', 'strings', 0.23, pm('cello', { vibratoDepth: 18, slide: 0.1, bowForce: 0.55 }));
-  const cb = s.add('basses', 'Basses', 'strings', 0.24, pm('bass', { vibratoDepth: 5 }), { space: 0.25 });
-  const hn = s.add('horns', 'Horns', 'brass', 0.16, brass('horn', 'chorale', { breath: 0.45, vibratoDepth: 6 }), { space: 0.45 });
-  const tpt = s.add('trumpet', 'Trumpet - distant', 'brass', 0.1, brass('trumpet', 'chorale', { breath: 0.42, mute: 'straight', vibratoDepth: 8 }), { space: 0.55 });
-  const low = s.add('lowbrass', 'Trombone and tuba', 'brass', 0.14, brass('trombone', 'chorale', { breath: 0.4 }), { space: 0.4 });
-  const kit = s.add('drums', 'Matter - timpani and swells', 'matter', 0.26, matter('mallets', 'mallets', { dynamics: 6 }), { space: 0.4, humanize: 0 });
+  const vln1 = s.add('violins1', 'Violins I', 'strings', 0.3, pm('violin', { vibratoDepth: 16, vibratoDelay: 0.2 }), { space: 0.35 });
+  const vln2 = s.add('violins2', 'Violins II', 'strings', 0.24, pm('violin', { vibratoDepth: 12, bodySeed: 7 }), { space: 0.35 });
+  const vla = s.add('violas', 'Violas', 'strings', 0.26, pm('viola', { vibratoDepth: 12 }));
+  const vc = s.add('cello', 'Cellos - the hymn', 'strings', 0.34, pm('cello', { vibratoDepth: 18, slide: 0.1, bowForce: 0.55 }));
+  const cb = s.add('basses', 'Basses', 'strings', 0.34, pm('bass', { vibratoDepth: 5 }), { space: 0.25 });
+  const hn = s.add('horns', 'Horns', 'brass', 0.26, brass('horn', 'chorale', { breath: 0.45, vibratoDepth: 6 }), { space: 0.45 });
+  const tpt = s.add('trumpet', 'Trumpet - distant', 'brass', 0.14, brass('trumpet', 'chorale', { breath: 0.42, mute: 'straight', vibratoDepth: 8 }), { space: 0.55 });
+  const low = s.add('lowbrass', 'Trombone - chorale bass', 'brass', 0.22, brass('trombone', 'chorale', { breath: 0.4 }), { space: 0.4 });
+  const kit = s.add('drums', 'Matter - timpani and swells', 'matter', 0.34, matter('mallets', 'mallets', { dynamics: 6 }), { space: 0.4, humanize: 0 });
 
   s.section('Still water', 0, 4); s.section('The hymn', 4, 4); s.section('The hymn, second verse', 8, 4);
   s.section('Lanterns rise', 12, 4); s.section('Across the sound', 16, 4); s.section('Across the sound, together', 20, 4);

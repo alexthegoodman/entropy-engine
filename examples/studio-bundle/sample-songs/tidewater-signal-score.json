@@ -353,7 +353,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.45,
+      "gain": 0.22,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -928,7 +928,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.19,
+      "gain": 0.27,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -1220,7 +1220,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.17,
+      "gain": 0.24,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -1477,7 +1477,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.23,
+      "gain": 0.3,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -2526,7 +2526,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.15,
+      "gain": 0.22,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -2707,7 +2707,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.3,
+      "gain": 0.22,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3035,7 +3035,7 @@
               "row": 0,
               "step": 60,
               "length": 1,
-              "velocity": 1
+              "velocity": 0.85
             },
             {
               "row": 4,
@@ -3047,7 +3047,7 @@
               "row": 5,
               "step": 60,
               "length": 1,
-              "velocity": 1
+              "velocity": 0.85
             },
             {
               "row": 3,

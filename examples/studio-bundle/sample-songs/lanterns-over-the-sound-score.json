@@ -409,7 +409,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.5,
+      "gain": 0.35,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -1667,7 +1667,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.19,
+      "gain": 0.3,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -2026,7 +2026,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.15,
+      "gain": 0.24,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -2233,7 +2233,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.16,
+      "gain": 0.26,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -2685,7 +2685,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.23,
+      "gain": 0.34,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3118,7 +3118,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.24,
+      "gain": 0.34,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3389,7 +3389,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.16,
+      "gain": 0.26,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3668,7 +3668,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.1,
+      "gain": 0.14,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3754,7 +3754,7 @@
     },
     {
       "id": "lanterns-over-the-sound-lowbrass",
-      "name": "Trombone and tuba",
+      "name": "Trombone - chorale bass",
       "kind": "synth",
       "channel": 9,
       "colorIndex": 9,
@@ -3777,7 +3777,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.14,
+      "gain": 0.22,
       "muted": false,
       "solo": false,
       "patterns": [
@@ -3904,7 +3904,7 @@
         "reverbDamping": 0.55,
         "reverbMix": 0.18
       },
-      "gain": 0.26,
+      "gain": 0.34,
       "muted": false,
       "solo": false,
       "patterns": [
