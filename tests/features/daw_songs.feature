@@ -21,12 +21,35 @@ Feature: Many songs, each with a version history
   Scenario: A new song never replaces the song you were working on
     Given the DAW is open
     When I click "bpm_up"
-    And I create a new song from "Neon Tide - EDM (rising violins)"
+    And I create a new song from "Neon Tide"
     Then the open song is "Neon Tide"
     And the open song is at 128 BPM
     And the library has 2 songs
     When I open the song "Demo song"
     Then the open song is at 97 BPM
+
+  Scenario: The template browser groups the sample songs into collections
+    Given the DAW is open
+    When I click "template_collection_film"
+    Then the template list shows only "Folded City, Tidewater Signal, Ashen Crown, Rooftop Pursuit, Lanterns Over the Sound"
+    When I set "template_search" to "glass harp"
+    Then the template list shows only "Folded City, Tidewater Signal, Lanterns Over the Sound"
+    When I select the template "Tidewater Signal"
+    Then the template card mentions "Only physically modeled instruments"
+    And the template card mentions "66 BPM · A minor · 32 bars (1:56)"
+    When I click "new_song_create"
+    Then the open song is "Tidewater Signal"
+    And the open song is at 66 BPM
+    And the library has 2 songs
+
+  Scenario: A template collection can be folded away
+    Given the DAW is open
+    Then the template list shows "Ion Runner"
+    When I fold the template collection "Showcase"
+    Then the template list does not show "Ion Runner"
+    And the template list shows "Neon Tide"
+    When I set "template_search" to "synthwave"
+    Then the template list shows only "Ion Runner"
 
   Scenario: The DAW reopens on the song that was open last
     Given the DAW is open
@@ -76,8 +99,8 @@ Feature: Many songs, each with a version history
 
   Scenario: Search narrows the song list
     Given the DAW is open
-    And I create a new song from "Afterhours - House (cello chops)"
-    And I create a new song from "Lowlight - Hip Hop (drum breakdown)"
+    And I create a new song from "Afterhours"
+    And I create a new song from "Lowlight"
     When I set "song_search" to "after"
     Then the song list shows only "Afterhours"
 

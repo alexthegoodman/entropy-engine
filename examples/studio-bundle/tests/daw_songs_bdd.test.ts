@@ -50,6 +50,7 @@ describe("The DAW keeps many songs with version history (production addon callba
                 t.onSelect(row.id);
                 world.render();
             };
+            const templateRows = () => tree("song_templates").nodes.filter((n: any) => n.depth === 1).map((n: any) => n.label);
             const showSongs = () => { world.render(); if (!w().trees.has("song_list")) click("songs_toggle"); };
             const showHistory = () => { world.render(); if (!w().trees.has("version_list")) click("history_toggle"); };
             const selectOldestVersion = () => {
@@ -89,13 +90,24 @@ describe("The DAW keeps many songs with version history (production addon callba
                     field.onChange(value);
                     world.render();
                 }],
-                [/^I create a new song from "(.+)"$/, label => {
+                [/^I create a new song from "(.+)"$/, name => {
                     showSongs();
-                    const d = w().dropdowns.get("new_song_template");
-                    const i = d.options.indexOf(label);
-                    if (i < 0) throw new Error(`no template ${label}; have ${d.options.join(", ")}`);
-                    d.onChange(String(i));
+                    selectIn("song_templates", name);
                     click("new_song_create");
+                }],
+                [/^I select the template "(.+)"$/, name => { showSongs(); selectIn("song_templates", name); }],
+                [/^I fold the template collection "(.+)"$/, name => { showSongs(); selectIn("song_templates", name); }],
+                [/^the template list shows only "(.+)"$/, names => {
+                    showSongs();
+                    expect(templateRows()).toEqual(names.split(", "));
+                }],
+                [/^the template list (shows|does not show) "(.+)"$/, (shows, name) => {
+                    showSongs();
+                    expect(templateRows().includes(name)).toBe(shows === "shows");
+                }],
+                [/^the template card mentions "(.+)"$/, text => {
+                    showSongs();
+                    expect(w().labels.some((l: string) => l.includes(text)), w().labels.join("\n")).toBe(true);
                 }],
                 [/^I select the song "(.+)"$/, name => { showSongs(); selectIn("song_list", name); }],
                 [/^I select the deleted song "(.+)"$/, name => { showSongs(); selectIn("trash_list", name); }],
