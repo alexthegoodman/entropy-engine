@@ -10,7 +10,8 @@ Feature: The running DAW plays samples from a folder on its drum pads
   Scenario: Browse, audition, put three samples on the kit, and hear them in the song
     Given the real DAW is running in test mode
     When I advance 20 frames
-    And I click "toggle_rack"
+    # Opens "Drum Rack" from the transport bar's Instruments menu (entry 1).
+    And I set "instrument_windows" to "1"
     And I advance 40 frames
     Then I capture "rack-01-browser"
 

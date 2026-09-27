@@ -140,7 +140,7 @@ describe("The DAW's water (production addon callbacks)", () => {
         // The lead becomes water, is selected, and the Water window is open.
         tool("daw_set_track_params", { trackId: "trk-lead", waveform: WATER_WAVEFORM });
         click(`select_track_${trackIndex("trk-lead")}`);
-        click("toggle_water");
+        world.openInstrument("Water");
         return { world, w, click, tool, state };
     }
 

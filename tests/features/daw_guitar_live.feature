@@ -9,7 +9,8 @@ Feature: The running DAW opens a real audio input from its Guitar Input panel
   Scenario: Open the panel, start the default input, and stop it again
     Given the real DAW is running in test mode
     When I advance 30 frames
-    And I click "toggle_guitar"
+    # Opens "Guitar Input" from the transport bar's Instruments menu (entry 7).
+    And I set "instrument_windows" to "7"
     And I advance 10 frames
     Then I see the label "Status: stopped"
     And I capture "guitar-01-panel-stopped"

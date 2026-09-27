@@ -94,8 +94,8 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
-    op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_destroy,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
+    op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
@@ -246,6 +246,7 @@ extension!(
         op_ui_widget_sheet_grid,
         op_ui_widget_pad_grid,
         op_ui_widget_wavetable,
+        op_ui_widget_reverb_eq,
         op_wavetable_ensure,
         op_wavetable_remove,
         op_wavetable_info,
@@ -379,6 +380,8 @@ extension!(
         op_audio_effect_set_reverb,
         op_audio_effect_create_character,
         op_audio_effect_set_character,
+        op_audio_effect_create_eq,
+        op_audio_effect_set_eq,
         op_audio_effect_destroy,
         op_audio_ensure_track_bus,
         op_audio_remove_track_bus,
@@ -4893,6 +4896,45 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             WavetableEvent::ToolSelected(t) => format!("WAVETABLE_TOOL|{}|{}", wt_id, t.name()),
                             WavetableEvent::KeyDown { midi, velocity } => format!("WAVETABLE_KEY_DOWN|{}|{}|{:.3}", wt_id, midi, velocity),
                             WavetableEvent::KeyUp { midi } => format!("WAVETABLE_KEY_UP|{}|{}", wt_id, midi),
+                        });
+                    }
+                }
+                UiWidget::ReverbEqView { id: rv_id, config } => {
+                    use crate::entropy_gui::{ReverbEqEvent, ReverbEqOptions, ReverbEqView, ReverbSettings, SpaceView};
+                    let (spectrum_db, sample_rate) = context
+                        .audio_engine
+                        .spectrum(&config.source, 4096)
+                        .map(|s| (s.bins_db, s.sample_rate))
+                        .unwrap_or_else(|| (Vec::new(), crate::audio::analysis::ENGINE_SAMPLE_RATE as f32));
+                    let d = ReverbEqOptions::default();
+                    let rd = ReverbSettings::default();
+                    let rv = config.reverb.clone().unwrap_or_default();
+                    let opts = ReverbEqOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        reverb: ReverbSettings {
+                            room_size: rv.room_size.unwrap_or(rd.room_size),
+                            time: rv.time.unwrap_or(rd.time),
+                            damping: rv.damping.unwrap_or(rd.damping),
+                            mix: rv.mix.unwrap_or(rd.mix),
+                        },
+                        eq: config.eq.as_ref().map(|e| e.to_params()).unwrap_or(d.eq),
+                        selected: config.selected_band.filter(|b| *b >= 0).map(|b| (b as usize).min(crate::audio::eq::EQ_BANDS - 1)),
+                        view: config.view.as_deref().and_then(SpaceView::from_name).unwrap_or(d.view),
+                        spectrum_db,
+                        sample_rate,
+                        caption: config.caption.clone(),
+                    };
+                    let resp = ReverbEqView::new(rv_id.as_str()).options(opts).show(ui);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            ReverbEqEvent::BandChanged { index, band } => format!(
+                                "REVERB_EQ_BAND|{}|{}|{}|{}|{:.3}|{:.4}|{:.4}",
+                                rv_id, index, band.kind.name(), band.enabled as u8, band.freq, band.gain_db, band.q
+                            ),
+                            ReverbEqEvent::BandSelected(b) => format!("REVERB_EQ_SELECT|{}|{}", rv_id, b.map(|b| b as i64).unwrap_or(-1)),
+                            ReverbEqEvent::EditEnded => format!("REVERB_EQ_EDIT_END|{}", rv_id),
+                            ReverbEqEvent::ViewSelected(v) => format!("REVERB_EQ_VIEW|{}|{}", rv_id, v.name()),
                         });
                     }
                 }

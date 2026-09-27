@@ -13,7 +13,8 @@ Feature: The running DAW sculpts a wavetable and plays it
     When I advance 40 frames
     And I call the tool "daw_set_track_params" with {"trackId":"trk-lead","waveform":"wavetable"}
     And I click "select_track_2"
-    And I click "toggle_wavetable"
+    # Opens "Wavetable" from the transport bar's Instruments menu (entry 2).
+    And I set "instrument_windows" to "2"
     And I advance 45 frames
     Then I capture "wavetable-01-open"
 

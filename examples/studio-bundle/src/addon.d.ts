@@ -431,6 +431,10 @@ export interface ScopedAPI {
      * replaces the signal, so put these after delay/reverb in a bus's `effectIds`. */
     createCharacter: (config: CharacterEffectConfig) => string;
     setCharacterParams: (effectId: string, config: CharacterEffectConfig) => void;
+    /** A six-band parametric EQ (see `EqEffectConfig`). Inline, like the character effects. */
+    createEq: (config?: EqEffectConfig) => string;
+    /** Settings glide over ~20 ms instead of jumping, so this is safe on every step of a drag. */
+    setEqParams: (effectId: string, config: EqEffectConfig) => void;
     /** Time/feedback/mix all update live, no rebuild. */
     setDelayParams: (effectId: string, config: DelayEffectConfig) => void;
     /** `mix` updates live; changing `roomSize`/`time`/`damping` rebuilds the effect's internal
@@ -521,6 +525,10 @@ export interface ScopedAPI {
       padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
+      /** A track's reverb and EQ as one neon picture: a 3D room with its reflections over a decay
+       * waterfall shaped by the EQ (or the live signal), and a six-band EQ with draggable nodes on
+       * the track's live spectrum. See `ReverbEqViewConfig`. */
+      reverbEq: (windowId: string, config: ReverbEqViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
@@ -1378,6 +1386,8 @@ export interface CharacterEffectConfig {
 export interface TrackBusRenderConfig {
   track: string;
   gain?: number;
+  /** The track's EQ, run ahead of `effects` as on the live bus. Omit for flat. */
+  eq?: EqEffectConfig;
   effects?: CharacterEffectConfig[];
   silences?: [number, number][];
 }
@@ -1748,6 +1758,48 @@ export interface PadGridConfig {
   /** A pad was right-clicked: take its sound off. */
   onPadClear?: (padId: string) => void;
   onAdd?: () => void;
+}
+
+export type EqBandKind = "lowcut" | "lowshelf" | "peak" | "highshelf" | "highcut";
+
+/** One EQ band. `gain` (dB) is ignored by the cuts; `q` is a bell's bandwidth, a shelf's slope or
+ * a cut's resonance (0.707 is Butterworth). */
+export interface EqBandConfig {
+  kind: EqBandKind;
+  enabled: boolean;
+  freq: number;
+  gain: number;
+  q: number;
+}
+
+/** A six-band EQ (src/audio/eq.rs). Bands are taken in order; a missing one keeps the default
+ * layout's band at that position (low cut, low shelf, bell, bell, high shelf, high cut). */
+export interface EqEffectConfig {
+  bands: EqBandConfig[];
+  /** Output trim, dB. */
+  output?: number;
+}
+
+/** `Widget.reverbEq`. The caller owns every value and hears about edits through the callbacks. */
+export interface ReverbEqViewConfig {
+  id?: string;
+  /** The track id whose live spectrum is shown (read Rust-side, no samples cross into JS). */
+  source: string;
+  reverb: { roomSize: number; time: number; damping: number; mix: number };
+  eq: EqEffectConfig;
+  /** 0-based; -1 for none. */
+  selectedBand?: number;
+  view?: "decay" | "live";
+  /** Shown along the bottom of the 3D view, e.g. the track's name. */
+  caption?: string;
+  height?: number;
+  width?: number;
+  /** A band's new settings, on every step of a drag, a wheel turn, or a switch. */
+  onBand?: (index: number, band: EqBandConfig) => void;
+  /** A drag or switch finished: save now. */
+  onEditEnd?: () => void;
+  onSelect?: (index: number) => void;
+  onView?: (view: "decay" | "live") => void;
 }
 
 export interface WavetableViewConfig {
@@ -2919,6 +2971,10 @@ export interface EntropyAPI {
       padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
+      /** A track's reverb and EQ as one neon picture: a 3D room with its reflections over a decay
+       * waterfall shaped by the EQ (or the live signal), and a six-band EQ with draggable nodes on
+       * the track's live spectrum. See `ReverbEqViewConfig`. */
+      reverbEq: (windowId: string, config: ReverbEqViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */

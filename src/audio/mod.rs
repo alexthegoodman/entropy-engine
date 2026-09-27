@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod brass;
 pub mod matter;
 pub mod character;
+pub mod eq;
 pub mod physmod;
 pub mod quality;
 pub mod samples;
@@ -837,6 +838,8 @@ pub enum EffectParams {
     /// Pump, Gate, Grit, Space or Fader - see character.rs. Unlike delay and reverb these are
     /// inline: their output replaces the signal instead of being mixed in on top of it.
     Character(character::CharacterParams),
+    /// The six-band parametric EQ - see eq.rs. Inline, like the character effects.
+    Eq(eq::EqParams),
 }
 
 enum EffectState {
@@ -846,6 +849,7 @@ enum EffectState {
     /// 32 delay lines - see `build_note_node`'s doc comment for what that costs per call).
     Reverb { node: Box<dyn AudioUnit>, room_size: f64, time: f64, damping: f64 },
     Character(Box<character::Character>),
+    Eq(Box<eq::Eq>),
 }
 
 impl EffectState {
@@ -858,6 +862,7 @@ impl EffectState {
                 out
             }
             EffectState::Character(c) => c.process(input),
+            EffectState::Eq(e) => e.process(input),
         }
     }
 }
@@ -905,8 +910,9 @@ impl EffectHandle {
                 p.mix,
             ),
             EffectParams::Character(p) => (EffectState::Character(Box::new(character::Character::new(p, sample_rate))), 1.0),
+            EffectParams::Eq(p) => (EffectState::Eq(Box::new(eq::Eq::new(p, sample_rate))), 1.0),
         };
-        let inline = matches!(params, EffectParams::Character(_));
+        let inline = matches!(params, EffectParams::Character(_) | EffectParams::Eq(_));
         EffectHandle { state: Mutex::new(state), mix: AtomicU32::new((mix.clamp(0.0, 1.0) as f32).to_bits()), sample_rate, inline }
     }
 
@@ -940,6 +946,11 @@ impl EffectHandle {
             EffectParams::Character(p) => {
                 if let EffectState::Character(c) = &mut *self.state.lock().unwrap() {
                     c.set(p);
+                }
+            }
+            EffectParams::Eq(p) => {
+                if let EffectState::Eq(e) = &mut *self.state.lock().unwrap() {
+                    e.set(p);
                 }
             }
         }
@@ -1963,7 +1974,7 @@ mod character_path_tests {
             params: NoteParams { freq, duration: 2.0, cutoff: 20_000.0, gain: 0.4, attack: 0.001, decay: 0.001, sustain: 1.0, release: 0.01, ..Default::default() },
         };
         let events = [note(220.0), note(5_512.5)];
-        let buses = [TrackBusRender { gain: 1.0, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
+        let buses = [TrackBusRender { gain: 1.0, eq: None, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
         let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
         render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
         let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();

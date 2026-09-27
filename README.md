@@ -247,6 +247,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes, icons and right-aligned detail text per row. `maxHeight` scrolls the rows inside a capped box, `width` fixes its width. Your addon supplies the visible rows and owns expanded state. |
 | `Widget.tabBar` | A non-fullscreen tab strip inside a window (`Entropy.UI.createTab` tabs own the whole work area). Tabs stretch to fill one line, or wrap at natural width when they do not fit. Your addon owns `selected`, updates it in `onSelect(id)`, and draws only the selected tab's widgets after the bar. |
 | `Widget.wavetable` | A wavetable as sculptable 3D terrain (phase across, frame into the screen, level up) with a single-cycle pen strip, the selected frame's harmonics and a keyboard. Mouse and pen both work: a pen presses with its own pressure, leans the brush with its tilt, and its eraser end lowers; the pen's side button, the right mouse button and Alt orbit. Config: `table`, `tool` (`raise`/`lower`/`smooth`/`level`/`orbit`), `radius`, `strength`, `frame`, `height`, `width`, `keyboard`, `held`. Callbacks: `onEdit` (save now), `onStrokeStart`/`onStrokeEnd`, `onFrame`, `onTool`, `onKeyDown`/`onKeyUp`. |
+| `Widget.reverbEq` | A track's reverb and EQ as one neon picture. Top: a 3D room the size of the reverb's room, with a source, a listener and the first reflections off every wall pulsing along their paths; its floor is a waterfall (frequency across, time toward you, level up). The **Decay** view draws the reverb's tail as it will sound, shaped by the EQ; **Live** draws what the track is playing. Drag orbits, the wheel zooms. Bottom: a six-band EQ over the track's live spectrum: drag a node for frequency and gain, the wheel over it for Q, right-click or double-click to switch it. Config: `source` (track id), `reverb` (`roomSize`, `time`, `damping`, `mix`), `eq` (`bands`, `output`), `selectedBand`, `view`, `caption`, `height`, `width`. Callbacks: `onBand(index, band)` on every step of a drag, `onEditEnd` (save now), `onSelect`, `onView`. |
 | `Widget.physModString` | A physically modeled bowed string, drawn the same neon-terrain style as `Widget.wavetable`: up to four strings side by side, nut to bridge, the sounding one glowing with its live cycle shape. Dragging inside the bowing zone (the bridge half of the active string) moves the bow; the right mouse button, Alt or a pen's barrel button orbit. Config: `instrument`, `bowPosition`, `bowForce`, `bodySize`, `activeString`, `height`, `width`, `keyboard`, `held`. Callbacks: `onBowDrag(position, force)`, `onKeyDown`/`onKeyUp`. |
 | `Widget.padGrid` | A drum-machine pad bank: rounded pads with a name, waveform thumbnail (trim range dimmed), colour accent, selection ring, and a `glow` you drive to pulse a pad when it is hit. Kinds: `empty`, `synth`, `sample`, `missing`. Callbacks: `onPadClick`, `onPadClear` (right-click), `onAdd`. |
 | `Widget.docEditor` + `docEditorToggleBold/Italic`, `docEditorSetFontFamily/Size/Color`, `docEditorSetPaginated`, `docEditorLoadSample`, `docEditorFontNames` | A multi-page word processor that can be paginated or continuous, with mixed bold, italic, font, size, and color per run. The document text stays on the Rust side; build the toolbar from ordinary widgets and drive formatting with the `docEditor*` calls. |
@@ -298,6 +299,7 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Audio.previewSample(path, config?)` / `stopPreview()` | Auditions a file on a shared preview bus (`"sample-preview"` for `analyze`), cutting off the previous audition. |
 | `Audio.analyze(source?, fftSize?)` | Returns peak, RMS, spectrum peak, spectral centroid, and audio-thread progress for `"master"` or a track id. Returns `null` for an unknown source. |
 | `AudioEffect.createDelay` / `createReverb` / `setDelayParams` / `setReverbParams` / `destroy` | Creates reusable delay and reverb effects, updates them live, and attaches them to track buses by id. |
+| `AudioEffect.createEq({bands, output?})` / `setEqParams(id, config)` | A six-band parametric EQ for a bus (low cut, low shelf, two bells, high shelf, high cut; each `{kind, enabled, freq, gain, q}`), RBJ biquads. Settings glide over ~20 ms, so it is safe to call on every step of a drag; a flat EQ is an exact bypass. Inline like the character effects. `Audio.renderPatternToWav`'s track buses take the same config as `eq`. |
 | `AudioEffect.createCharacter({kind, amount, pattern?, bpm?, beat?})` / `setCharacterParams(id, config)` | One-knob bus effects (see [docs/DAW_QUICK_MOVES.md](docs/DAW_QUICK_MOVES.md)): `pump` (beat-synced ducking), `gate` (rhythmic chopping; `pattern` 0 eighths, 1 sixteenths, 2 syncopated), `grit` (saturation into bit and sample-rate reduction, loudness-compensated), `space` (close and dry to distant and washed out) and `fader` (a declicked gain). They replace the signal rather than adding a wet copy, so chain them after delay and reverb. `beat` (0-4) puts pump and gate's bar clock on the song's position. |
 
 </details>
@@ -491,6 +493,14 @@ toast. The look is saved with the song. **Hide Analyzer** / **Show Analyzer** pu
 window away and brings it back. `cargo test --release --test daw_visualizer_live -- --nocapture`
 drives both in the real window and checks the exported file. `cargo test --lib music_video` covers
 the renderer and the encoder by themselves.
+
+The DAW's **Reverb & EQ** button shows the active track's reverb as a 3D room, its tail as a
+waterfall, and a six-band EQ (after the reverb on the track's bus, so it shapes the tail too) with
+draggable nodes over what the track is playing. Both are saved with the song and apply in the WAV
+export. The instrument windows (Drum Rack, Wavetable, Bowed String, Brass, Kit, Water, Guitar Input)
+share one **Instruments** menu so the transport bar keeps its room.
+`cargo test --test reverb_eq_view_bdd` covers the widget headlessly, and
+`cargo test --test daw_space_live -- --nocapture` drives the window in the real DAW.
 
 ---
 

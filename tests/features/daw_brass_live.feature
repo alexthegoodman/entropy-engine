@@ -8,7 +8,8 @@ Feature: The running DAW plays its brass instrument
     When I advance 40 frames
     And I call the tool "daw_set_track_params" with {"trackId":"trk-lead","waveform":"brass"}
     And I click "select_track_2"
-    And I click "toggle_brass"
+    # Opens "Brass" from the transport bar's Instruments menu (entry 4).
+    And I set "instrument_windows" to "4"
     And I advance 45 frames
     Then I capture "brass-01-open"
 

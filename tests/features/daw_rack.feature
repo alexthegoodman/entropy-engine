@@ -250,9 +250,9 @@ Feature: Drum tracks play samples from the Music folder
   Scenario: The rack is a window of its own, hidden until it is asked for
     Given the DAW is open
     Then the drum rack window is hidden
-    When I click "toggle_rack"
+    When I pick "Drum Rack" from the Instruments menu
     Then the drum rack window is shown
-    When I click "toggle_rack"
+    When I pick "Drum Rack" from the Instruments menu
     Then the drum rack window is hidden
 
   Scenario: With a synth track selected the rack asks for a drum track instead of showing pads
