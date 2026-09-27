@@ -117,6 +117,7 @@ import {
     MATTER_PIECES,
     MATTER_PRESETS,
     MATTER_ROWS,
+    MATTER_QUALITIES,
     KIT_RANGES,
     applyPreset as applyMatterPreset,
     defaultMatter,
@@ -1272,7 +1273,50 @@ function syncTrackBus(track: Track) {
     if (isWaterTrack(track)) prepareWater(track);
 }
 
+// --- Building string and brass instruments ahead of their first note ------------------------
+//
+// A string or brass track's instrument takes a moment to build (a brass instrument's first build
+// computes its resonance table), so it is built on the engine's own thread as soon as the track has
+// a bus and whenever its construction changes - never when the song first reaches the track, which
+// used to stall the whole frame (and the transport) for seconds. `modelKey` is what was last handed
+// over; the engine is asked again once a second anyway (a lookup when nothing changed), which also
+// rebuilds an instrument that shut itself down after a long rest.
+
+const modelKey: Record<string, string> = {};
+const modelPreparedAt: Record<string, number> = {};
+const MODEL_PREPARE_EVERY_MS = 1000;
+
+function prepareModelledInstrument(track: Track, now: number) {
+    let key: string;
+    let prepare: () => { ok: boolean };
+    if (isPhysModTrack(track)) {
+        const config = physModNoteConfig(track.id, trackPhysMod(track), { freq: 440, velocity: 0.8, duration: 0.5 });
+        key = "physmod" + JSON.stringify(config);
+        prepare = () => addon.Audio.preparePhysMod(track.id, config);
+    } else if (isBrassTrack(track)) {
+        const config = brassNoteConfig(track.id, trackBrass(track), { freq: 233.08, velocity: 0.8, duration: 0.5 });
+        key = "brass" + JSON.stringify(config);
+        prepare = () => addon.Audio.prepareBrass(track.id, config);
+    } else {
+        delete modelKey[track.id];
+        return;
+    }
+    if (modelKey[track.id] === key && now - (modelPreparedAt[track.id] ?? 0) < MODEL_PREPARE_EVERY_MS) return;
+    modelPreparedAt[track.id] = now;
+    // A track whose bus is not made yet is tried again next time (the key is not remembered).
+    if (prepare().ok) modelKey[track.id] = key;
+    else delete modelKey[track.id];
+}
+
+/** Once a frame: every string and brass track's instrument built, or being built, ahead of play. */
+function prepareModelledInstruments() {
+    const now = Date.now();
+    for (const track of project.tracks) prepareModelledInstrument(track as Track, now);
+}
+
 function removeTrackBus(track: Track) {
+    delete modelKey[track.id];
+    delete modelPreparedAt[track.id];
     releaseWavetableVoices(track);
     if (wtLoaded[track.id]) addon.Wavetable.remove(track.id);
     delete wtLoaded[track.id];
@@ -2879,6 +2923,13 @@ function renderMatterWindow(win: string) {
             });
             W.label(g, { text: `A full-velocity hit lands at ${m.dynamics.toFixed(1)} m/s; a ghost note at 0.4.` });
             W.button(g, { text: radio(m.kit.sympathetic) + "Pieces hear each other", id: "mt_sympathetic", onClick: () => { m.kit.sympathetic = !m.kit.sympathetic; commitMatter(track); scheduleSave(); } });
+            // Draft is for a machine that can't play the full kit live; the export is always full.
+            W.horizontal(g, (row: string) => {
+                W.label(row, { text: "Quality" });
+                for (const q of MATTER_QUALITIES) {
+                    W.button(row, { text: radio(m.kit.quality === q.id) + q.label, id: `mt_quality_${q.id}`, onClick: () => { m.kit.quality = q.id; commitMatter(track); scheduleSave(); } });
+                }
+            });
         });
         W.group(right, (g: string) => {
             W.label(g, { text: "Mix", bold: true });
@@ -3407,7 +3458,9 @@ function buildMatterEvents(): any[] {
         const track = placed.track as Track;
         if (!isMatterTrack(track)) continue;
         const { startTime, velocity } = placedTiming(placed);
-        events.push(matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime, duration: Math.max(0.03, placed.lengthSteps * sd * 0.95) }));
+        const hit = matterHitConfig(track.id, trackMatter(track), { row: placed.note.row, velocity, startTime, duration: Math.max(0.03, placed.lengthSteps * sd * 0.95) });
+        // Whatever the track plays live, a bounce renders the full model.
+        events.push({ ...hit, kit: { ...hit.kit, quality: "render" } });
     }
     return events;
 }
@@ -5904,6 +5957,7 @@ addon.onInit(async () => {
         }
 
         tickLibrary();
+        prepareModelledInstruments();
         pollWavExport();
         pollMusicVideoExport();
 
@@ -6493,7 +6547,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_matter",
-        description: "Play and shape a physically modeled drum kit: a track whose waveform is \"matter\" (daw_set_track_params with waveform \"matter\" makes one; its rows become the kit's: 0 Kick, 1 Snare, 2 Snare edge, 3 Rack tom, 4 Floor tom, 5 Crash, 6 Ride, 7 Ride bell, 8 Splash, 9 Brush sweep, 10 Brush swirl - the brush rows rub a wire brush across the snare for as long as the note lasts, velocity setting how fast and hard the hand moves). The sound comes from a physical model, with no samples: drumheads as stretched membranes with the air loading them and the air inside the shell coupling both heads, snare wires that are thrown off the head and land again, cymbals as bronze domes whose modes couple when they bend past their thickness (the crash's swell into a wash), and sticks, beaters and mallets meeting them through a contact solved every sample - so the controls behave physically: velocity is the stick's speed (a harder hit is brighter, and a slack tom's pitch glides down after it), a hit near the rim rings different modes from one near the centre, a felt beater is darker than plastic, looser snare wires buzz longer, and the pieces hear each other through the air (a tom or a kick sets the snare wires buzzing). Tunings rebuild the kit (heard a moment later: the old kit plays meanwhile); the mix, hands, beater and dynamics apply from the next hit. Actions: \"info\" (settings and rows), \"preset\" (studio, jazz, rock, funk, brushes, mallets), \"params\" (kick/snare/rackTom/floorTom: the heads' fundamentals in Hz (kick 35-90, snare 140-360, rack 90-260, floor 55-160); kickMuffling 0-1 (1 a pillow in the kick); snares true|false; snareTension N (0.03-1.5, 0.15 usual); sympathetic true|false; brushes true|false (the snare set up to be swirled all round); hands sticks|mallets; beater felt|plastic; dynamics m/s at full velocity (1-12)), \"mix\" ({kick, snare, rack-tom, floor-tom, crash, ride, splash}: each piece's level, 0-8), \"hear\" (strikes one row offline, alone, and reports its loudness, brightness, crack (energy above 4 kHz), strongest partial, how long it rings, the contact time and force, how fast the stick rebounded, a drum's pitch glide and the snare wires' landings; for a brush row, the brightness, the flatness of its spectrum and how the wires caught and slid (stick fraction, releases per second) - so a change can be checked without listening), and \"strike\" (plays a row live on the track's kit now).",
+        description: "Play and shape a physically modeled drum kit: a track whose waveform is \"matter\" (daw_set_track_params with waveform \"matter\" makes one; its rows become the kit's: 0 Kick, 1 Snare, 2 Snare edge, 3 Rack tom, 4 Floor tom, 5 Crash, 6 Ride, 7 Ride bell, 8 Splash, 9 Brush sweep, 10 Brush swirl - the brush rows rub a wire brush across the snare for as long as the note lasts, velocity setting how fast and hard the hand moves). The sound comes from a physical model, with no samples: drumheads as stretched membranes with the air loading them and the air inside the shell coupling both heads, snare wires that are thrown off the head and land again, cymbals as bronze domes whose modes couple when they bend past their thickness (the crash's swell into a wash), and sticks, beaters and mallets meeting them through a contact solved every sample - so the controls behave physically: velocity is the stick's speed (a harder hit is brighter, and a slack tom's pitch glides down after it), a hit near the rim rings different modes from one near the centre, a felt beater is darker than plastic, looser snare wires buzz longer, and the pieces hear each other through the air (a tom or a kick sets the snare wires buzzing). Tunings rebuild the kit (heard a moment later: the old kit plays meanwhile); the mix, hands, beater and dynamics apply from the next hit. Actions: \"info\" (settings and rows), \"preset\" (studio, jazz, rock, funk, brushes, mallets), \"params\" (kick/snare/rackTom/floorTom: the heads' fundamentals in Hz (kick 35-90, snare 140-360, rack 90-260, floor 55-160); kickMuffling 0-1 (1 a pillow in the kick); snares true|false; snareTension N (0.03-1.5, 0.15 usual); sympathetic true|false; brushes true|false (the snare set up to be swirled all round); quality draft|live (draft runs the cymbals for about a third of their cost - their wash a little less exact - for a slow machine or a busy song; the drums are unchanged; an export always renders the full model); hands sticks|mallets; beater felt|plastic; dynamics m/s at full velocity (1-12)), \"mix\" ({kick, snare, rack-tom, floor-tom, crash, ride, splash}: each piece's level, 0-8), \"hear\" (strikes one row offline, alone, and reports its loudness, brightness, crack (energy above 4 kHz), strongest partial, how long it rings, the contact time and force, how fast the stick rebounded, a drum's pitch glide and the snare wires' landings; for a brush row, the brightness, the flatness of its spectrum and how the wires caught and slid (stick fraction, releases per second) - so a change can be checked without listening), and \"strike\" (plays a row live on the track's kit now).",
         parameters: {
             type: "object",
             properties: {
@@ -6506,7 +6560,7 @@ addon.onInit(async () => {
                     properties: {
                         kick: { type: "number" }, snare: { type: "number" }, rackTom: { type: "number" }, floorTom: { type: "number" },
                         kickMuffling: { type: "number" }, snares: { type: "boolean" }, snareTension: { type: "number" },
-                        sympathetic: { type: "boolean" }, brushes: { type: "boolean" }, hands: { type: "string", enum: ["sticks", "mallets"] },
+                        sympathetic: { type: "boolean" }, brushes: { type: "boolean" }, quality: { type: "string", enum: ["draft", "live"] }, hands: { type: "string", enum: ["sticks", "mallets"] },
                         beater: { type: "string", enum: ["felt", "plastic"] }, dynamics: { type: "number" }
                     }
                 },

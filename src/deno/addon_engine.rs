@@ -50,7 +50,7 @@ use crate::deno::music_video_ops::{
     op_music_video_start, op_music_video_poll, op_music_video_cancel, op_ui_widget_music_visualizer,
 };
 use crate::deno::brass_ops::{
-    op_brass_info, op_brass_remove, op_audio_play_brass_on_track, op_audio_brass_note_on, op_audio_brass_note_off,
+    op_brass_info, op_brass_remove, op_audio_brass_prepare, op_audio_play_brass_on_track, op_audio_brass_note_on, op_audio_brass_note_off,
     op_audio_brass_set_control, op_brass_render_analyze,
 };
 use crate::deno::matter_ops::{
@@ -62,7 +62,7 @@ use crate::deno::water_ops::{
     op_water_render_analyze,
 };
 use crate::deno::physmod_ops::{
-    op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
+    op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_physmod_prepare, op_audio_play_physmod_on_track,
     op_audio_physmod_note_on, op_audio_physmod_note_off, op_audio_physmod_set_bow, op_physmod_render_analyze,
 };
 use crate::deno::vst3_ops::{
@@ -265,6 +265,7 @@ extension!(
         op_physmod_info,
         op_physmod_shape,
         op_physmod_remove,
+        op_audio_physmod_prepare,
         op_audio_play_physmod_on_track,
         op_audio_physmod_note_on,
         op_audio_physmod_note_off,
@@ -272,6 +273,7 @@ extension!(
         op_physmod_render_analyze,
         op_brass_info,
         op_brass_remove,
+        op_audio_brass_prepare,
         op_audio_play_brass_on_track,
         op_audio_brass_note_on,
         op_audio_brass_note_off,

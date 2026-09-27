@@ -186,6 +186,20 @@ impl PhysModNoteConfig {
     }
 }
 
+/// Builds (off the calling thread) or checks the track's bowed-string instrument ahead of its first
+/// note: `{ ok, status: "ready" | "building" }`. Notes sent while it builds wait for it and play
+/// late, so an addon prepares a track's instrument when a song loads or the instrument changes.
+#[op2]
+#[serde]
+pub fn op_audio_physmod_prepare(state: &mut OpState, #[serde] config: PhysModNoteConfig) -> Json {
+    let Some(ctx) = state.try_borrow::<AddonContext>() else { return err("Context not available") };
+    let Some(track) = config.track_id.clone() else { return err("a bowed-string instrument needs a trackId") };
+    match ctx.audio_engine.physmod_prepare(&track, &config.instrument_id(), config.to_params()) {
+        Ok(s) => json!({ "ok": true, "status": s.name() }),
+        Err(e) => err(e),
+    }
+}
+
 /// Plays one timed bowed-string note on a track's bus.
 #[op2]
 #[serde]

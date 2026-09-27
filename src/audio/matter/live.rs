@@ -17,6 +17,7 @@ use super::drum::Strike;
 use super::kit::{Kit, KitHit, KitSpec, Piece, BLOCK, FIELD, PIECES, SPECTRUM, TRACE_CAPTURE};
 use super::rub::MAX_TIPS;
 use crate::audio::analysis::ENGINE_SAMPLE_RATE;
+use crate::audio::quality::Quality;
 
 /// Points of the latest strike's force pulse published.
 pub const TRACE_POINTS: usize = 96;
@@ -112,6 +113,7 @@ pub struct MatterShared {
     snares: AtomicBool,
     sympathetic: AtomicBool,
     brushes: AtomicBool,
+    quality: AtomicU32,
     pieces: [PieceShared; PIECES],
     field: Vec<AtomicU32>,
     spec_hz: Vec<AtomicU32>,
@@ -132,6 +134,7 @@ impl Default for MatterShared {
             snares: AtomicBool::new(true),
             sympathetic: AtomicBool::new(true),
             brushes: AtomicBool::new(false),
+            quality: AtomicU32::new(1),
             pieces: std::array::from_fn(|_| PieceShared::default()),
             field: (0..PIECES * FIELD).map(|_| AtomicU32::new(0)).collect(),
             spec_hz: (0..PIECES * SPECTRUM).map(|_| AtomicU32::new(0)).collect(),
@@ -181,6 +184,7 @@ impl MatterShared {
             snares: self.snares.load(Ordering::Relaxed),
             sympathetic: self.sympathetic.load(Ordering::Relaxed),
             brushes: self.brushes.load(Ordering::Relaxed),
+            quality: Quality::ALL[self.quality.load(Ordering::Relaxed) as usize % Quality::ALL.len()],
         }
     }
 
@@ -191,6 +195,7 @@ impl MatterShared {
         self.snares.store(s.snares, Ordering::Relaxed);
         self.sympathetic.store(s.sympathetic, Ordering::Relaxed);
         self.brushes.store(s.brushes, Ordering::Relaxed);
+        self.quality.store(Quality::ALL.iter().position(|q| *q == s.quality).unwrap_or(1) as u32, Ordering::Relaxed);
     }
 
     pub fn piece(&self, piece: Piece) -> PieceView {

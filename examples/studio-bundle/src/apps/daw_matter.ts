@@ -80,7 +80,17 @@ export interface MatterKit {
     /** The snare set up for brushes: every mode pair of its head, so a swirl is heard as it goes
      *  round (it costs about half as much again to run). Brush rows play either way. */
     brushes: boolean;
+    /** How much of each piece is modelled live: "draft" for a slow machine or a busy song (the
+     *  cymbals couple fewer modes, for about a third of their cost; the drums are unchanged), "live"
+     *  the full model. An export always renders the full model, whatever the track plays live. */
+    quality: MatterQuality;
 }
+
+export type MatterQuality = "draft" | "live";
+export const MATTER_QUALITIES: { id: MatterQuality; label: string }[] = [
+    { id: "draft", label: "Draft (light on the CPU)" },
+    { id: "live", label: "Full" },
+];
 
 export type MatterHands = "sticks" | "mallets";
 
@@ -103,7 +113,7 @@ export interface MatterSettings {
  *  -15 dB, toms -18 to -21 dB, ride -27 dB against the snare), and a kit is mic'd to taste. */
 export const DEFAULT_MIX: Record<MatterPiece, number> = { kick: 3, snare: 1, "rack-tom": 2, "floor-tom": 2.5, crash: 2, ride: 3, splash: 1.5 };
 
-export const DEFAULT_KIT: MatterKit = { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true, brushes: false };
+export const DEFAULT_KIT: MatterKit = { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true, brushes: false, quality: "live" };
 
 export interface MatterPreset {
     id: string;
@@ -159,6 +169,7 @@ function repairKit(saved: any): MatterKit {
         snareTension: num(s.snareTension, d.snareTension, ...r.snareTension),
         sympathetic: typeof s.sympathetic === "boolean" ? s.sympathetic : d.sympathetic,
         brushes: s.brushes === true,
+        quality: s.quality === "draft" ? "draft" : "live",
     };
 }
 
@@ -183,7 +194,7 @@ export function repairMatter(saved: unknown): MatterSettings {
 export function applyPreset(m: MatterSettings, id: string): boolean {
     const p = matterPresetById(id);
     if (!p) return false;
-    m.kit = { ...DEFAULT_KIT, ...p.kit, sympathetic: m.kit.sympathetic };
+    m.kit = { ...DEFAULT_KIT, ...p.kit, sympathetic: m.kit.sympathetic, quality: m.kit.quality };
     Object.assign(m, p.settings ?? {});
     m.preset = id;
     return true;
@@ -193,7 +204,7 @@ export function applyPreset(m: MatterSettings, id: string): boolean {
 export function sameBuild(a: MatterKit, b: MatterKit): boolean {
     return a.kick === b.kick && a.snare === b.snare && a.rackTom === b.rackTom && a.floorTom === b.floorTom
         && a.kickMuffling === b.kickMuffling && a.snares === b.snares && a.snareTension === b.snareTension
-        && a.brushes === b.brushes;
+        && a.brushes === b.brushes && a.quality === b.quality;
 }
 
 /** The stick's speed at impact for a note's velocity (0..1): from a ghost note's 0.4 m/s up to the

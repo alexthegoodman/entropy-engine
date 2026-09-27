@@ -221,6 +221,22 @@ describe("The DAW's brass (production addon callbacks)", () => {
         expect(state().tracks.find((t: any) => t.id === "trk-lead").brass.articulation).toBe("legato");
     });
 
+    it("builds the track's player ahead of its first note, and again when the instrument changes", async () => {
+        const { world, w, tool } = await openDaw();
+        world.advance(100);
+        const lead = () => w.modelPrepared.filter(p => p.kind === "brass" && p.id === "trk-lead");
+        expect(lead().length).toBeGreaterThan(0);
+        expect(lead().at(-1)!.cfg.instrumentId).toBe("trk-lead");
+        // Nothing else is rebuilt every frame: the engine is asked again about once a second.
+        const before = lead().length;
+        world.advance(300);
+        expect(lead().length).toBe(before);
+        tool("daw_brass", { trackId: "trk-lead", action: "instrument", instrument: "tuba" });
+        world.advance(50);
+        expect(lead().at(-1)!.cfg.instrument).toBe("tuba");
+        expect(w.brassNotes.length).toBe(0);
+    });
+
     it("the sequencer plays the track's notes on its player, and the export hands them over", async () => {
         const { world, w, tool } = await openDaw();
         tool("daw_set_notes", { trackId: "trk-lead", notes: [{ row: 0, step: 0, length: 2 }, { row: 2, step: 2, length: 2 }, { row: 4, step: 4, length: 2 }] });

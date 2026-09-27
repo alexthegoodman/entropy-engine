@@ -180,6 +180,10 @@ const audioAPI = {
     // freq, velocity, gain, bowForce, bowVelocity, bowPosition, vibratoRate, vibratoDepth, damping,
     // brightness, bodySize, bodyMix, attack, release, duration}. Returns {ok, error?}.
     playPhysModOnTrack: (trackId, config) => ops.op_audio_play_physmod_on_track({ ...config, trackId }),
+    // Builds the track's instrument ahead of its first note, off the UI thread (config as
+    // playPhysModOnTrack's): {ok, status: "ready" | "building"}. Notes sent while it builds wait for
+    // it. Cheap to call again.
+    preparePhysMod: (trackId, config) => ops.op_audio_physmod_prepare({ ...config, trackId }),
     // Starts a note that sounds until physModNoteOff(voice). Returns {ok, voice?, error?}.
     physModNoteOn: (trackId, config) => ops.op_audio_physmod_note_on({ ...config, trackId }),
     physModNoteOff: (voice) => ops.op_audio_physmod_note_off(voice),
@@ -191,6 +195,8 @@ const audioAPI = {
     // breathNoise, slideTime, brassiness}. Notes on one track are played by one player: a note that
     // starts before the last one ends slurs into it. Returns {ok, error?}.
     playBrassOnTrack: (trackId, config) => ops.op_audio_play_brass_on_track({ ...config, trackId }),
+    // Builds the track's brass player ahead of its first note (see preparePhysMod).
+    prepareBrass: (trackId, config) => ops.op_audio_brass_prepare({ ...config, trackId }),
     // Starts a brass note that sounds until brassNoteOff(voice). Returns {ok, voice?, error?}.
     brassNoteOn: (trackId, config) => ops.op_audio_brass_note_on({ ...config, trackId }),
     brassNoteOff: (voice) => ops.op_audio_brass_note_off(voice),
