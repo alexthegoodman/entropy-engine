@@ -43,6 +43,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Household | Bottle | `household.bottle` | 17 | 5 | 4 | 4 | 115 | Ready | 2 ms |
 | Household | Mug | `household.mug` | 11 | 3 | 2 | 2 | 95 | Ready | 2 ms |
 | Household | Table Lamp | `household.table_lamp` | 16 | 5 | 3 | 4 | 127 | Ready | 2 ms |
+| Household | Coffee Maker | `household.coffee_maker` | 24 | 6 | 4 | 8 | 146 | Ready | 4 ms |
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
@@ -63,6 +64,15 @@ Shade width, wall thickness and stem radius are constrained by the lamp's propor
 has a modeled inner wall, openings and three support arms. The bulb is decorative geometry;
 the lamp does not emit light into the scene. The live BDD feature captures the default,
 mushroom, locked variation and walnut designs. Contact sheets: `test-artifacts/mesha-lamp/`.
+
+**Coffee Maker:** an espresso machine with one or two brewing groups, removable portafilters,
+single/twin spouts, pressure dials, buttons, a steam wand, slatted drip tray and cup warming rail.
+The optional cups compose `household.mug`. Housing, side panels, fittings, handles and cups have
+separate finishes. Five presets: Sage barista, Cafe twin, Cream and walnut, Compact midnight,
+Copper atelier. Two brewing groups require at least 38 cm width; tray and panel dimensions follow
+body rounding, and cups fit below the spouts. This is an exterior model, with no brewing simulation
+or internal plumbing. Contact sheets: `test-artifacts/mesha-coffee/`. The live BDD feature covers
+presets, narrowing two groups to one, locked variation, persistence and GLB export.
 
 ## Writing a procedural object
 

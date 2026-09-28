@@ -198,6 +198,28 @@ describe("Mesha library", () => {
             }
         }
     });
+    it("coffee maker groups fit the body and cups clear the spouts across size extremes", () => {
+        const def = lookupObject("household.coffee_maker")!;
+        expect(searchLibrary("espresso")[0].id).toBe(def.id);
+        expect(resolveParams(def, { width: 0.22, groups: 2 }).groups).toBe(1);
+        expect(resolveParams(def, { width: 0.52, groups: 2 }).groups).toBe(2);
+        for (const width of [0.22, 0.38, 0.56]) for (const height of [0.28, 0.5]) {
+            const e = evaluateObject(def, { width, height, groups: 2, rounding: 1 }, lookupObject);
+            const cupParts = e.mesh.parts.filter(p => p.region === "cups");
+            const cb = bounds({ parts: cupParts })!;
+            expect(cb.max[1]).toBeLessThan(height * 0.43 - 0.02);
+            expect(cb.min[1]).toBeCloseTo(height * 0.1095, 6);
+            expect(cb.min[0]).toBeGreaterThan(-width * 0.43);
+            expect(cb.max[0]).toBeLessThan(width * 0.43);
+            const noCups = evaluateObject(def, { width, height, groups: 2, cups: false }, lookupObject);
+            expect(noCups.mesh.parts.some(p => p.region === "cups")).toBe(false);
+            expect(e.materials.cups.id).toBe("ceramic.white");
+        }
+        const hidden = resolveParams(def, { portafilters: false, gauges: false, steamWand: false });
+        for (const id of ["handleLength", "doubleSpout", "gaugeReading", "wandReach"]) {
+            expect(isParamVisible(def, def.params.find(p => p.id === id)!, hidden)).toBe(false);
+        }
+    });
 });
 
 describe("Mesha variation", () => {

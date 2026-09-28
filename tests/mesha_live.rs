@@ -67,10 +67,10 @@ fn mesha_live_feature() {
     assert_eq!(instances[1]["values"]["topShape"], "round", "the table took its preset");
     assert_eq!(state["lighting"], "warm");
 
-    // What the app persisted: that scene, plus the facade the last scenario added and edited.
+    // What the app persisted: that scene, plus the facade, lamps and coffee makers.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 7);
+    assert_eq!(saved.len(), 10);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -86,6 +86,29 @@ fn mesha_live_feature() {
     let lamp_glb = fs::read(reply("mesha_export", 1)["path"].as_str().unwrap()).unwrap();
     assert_eq!(&lamp_glb[..4], b"glTF");
     assert!(reply("mesha_export", 1)["triangles"].as_u64().unwrap() > reply("mesha_export", 0)["triangles"].as_u64().unwrap());
+
+    // The wide cafe machine has two groups; narrowing it clamps to one before variation.
+    let cafe = &reply("mesha_add", 7)["instance"];
+    assert_eq!(cafe["objectId"], "household.coffee_maker");
+    assert_eq!(cafe["values"]["groups"], 2);
+    let compact = &reply("mesha_set", 3)["instance"];
+    assert_eq!(compact["values"]["groups"], 1);
+    assert!(compact["triangles"].as_u64().unwrap() < cafe["triangles"].as_u64().unwrap());
+    let coffee = &reply("mesha_vary", 2)["instance"];
+    for key in ["width", "height", "depth", "rounding", "bodyFinish", "metalFinish", "handleFinish"] {
+        assert_eq!(coffee["values"][key], compact["values"][key], "locked coffee control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 2)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(coffee["violations"].as_array().unwrap().len(), 0);
+    assert_eq!(saved[8]["values"], coffee["values"]);
+    assert_eq!(saved[9]["values"]["metalFinish"], "metal.brass");
+    let coffee_export = reply("mesha_export", 2);
+    let coffee_glb = fs::read(coffee_export["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&coffee_glb[..4], b"glTF");
+    let coffee_json_len = u32::from_le_bytes(coffee_glb[12..16].try_into().unwrap()) as usize;
+    let coffee_gltf: serde_json::Value = serde_json::from_slice(&coffee_glb[20..20 + coffee_json_len]).unwrap();
+    assert_eq!(coffee_gltf["meshes"].as_array().unwrap().len() as u64, coffee_export["meshes"].as_u64().unwrap());
+    assert!(coffee_export["triangles"].as_u64().unwrap() > reply("mesha_export", 1)["triangles"].as_u64().unwrap());
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);

@@ -75,3 +75,27 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "12-lamp-walnut"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-lamps-export.glb"}
+
+  Scenario: Coffee maker presets and constrained customization
+    When I call the tool "mesha_add" with {"objectId": "household.coffee_maker", "preset": "Sage barista", "position": [12, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "13-coffee-sage"
+    When I call the tool "mesha_add" with {"objectId": "household.coffee_maker", "preset": "Cafe twin", "position": [14, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "14-coffee-cafe"
+    When I call the tool "mesha_set" with {"values": {"width": 0.22, "groups": 2, "bodyFinish": "paint.navy", "gauges": false, "cupRail": false, "buttons": 1}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "15-coffee-compact"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.8, "seed": 7}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "16-coffee-variation"
+    When I call the tool "mesha_add" with {"objectId": "household.coffee_maker", "preset": "Cream and walnut", "position": [16, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "17-coffee-cream"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-coffee-export.glb"}
