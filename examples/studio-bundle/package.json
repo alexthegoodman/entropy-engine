@@ -19,8 +19,12 @@
   "scripts": {
     "ensure-dist": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\"",
     "build": "npm run ensure-dist && deno bundle src/index.ts > dist/bundle.js",
+    "build:all": "node ../../scripts/build-all.mjs",
     "build-daw": "npm run ensure-dist && deno bundle src/apps/daw_synth_addon.ts > dist/daw.js",
     "build-fft-water": "npm run ensure-dist && deno bundle src/apps/fft_water_addon.ts > dist/fft_water.js",
+    "build-game2d": "npm run ensure-dist && deno bundle src/games/game2d/index.ts > dist/game2d.js",
+    "build-level-editor-2d": "npm run ensure-dist && deno bundle src/games/level_editor_2d/index.ts > dist/level_editor_2d.js",
+    "build-node-graph": "npm run ensure-dist && deno bundle src/apps/node_graph_addon.ts > dist/node_graph.js",
     "build-html-ui-demo": "npm run ensure-dist && deno bundle src/apps/html_ui_demo_addon.ts > dist/html_ui_demo.js",
     "build-fft-river": "npm run ensure-dist && deno bundle src/apps/fft_river_water_addon.ts > dist/fft_river.js",
     "build-light-hive": "npm run ensure-dist && deno bundle src/apps/light_hive_addon.ts > dist/light_hive.js",
