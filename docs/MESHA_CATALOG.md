@@ -46,6 +46,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Household | Coffee Maker | `household.coffee_maker` | 24 | 6 | 4 | 8 | 146 | Ready | 4 ms |
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
+| Architecture | Dome Building | `architecture.dome_building` | 24 | 5 | 7 | 5 | 174 | Ready | 11 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
 | Nature | Rock | `nature.rock` | 11 | 3 | 0 | 1 | 85 | Ready | 47 ms |
@@ -73,6 +74,16 @@ Copper atelier. Two brewing groups require at least 38 cm width; tray and panel 
 body rounding, and cups fit below the spouts. This is an exterior model, with no brewing simulation
 or internal plumbing. Contact sheets: `test-artifacts/mesha-coffee/`. The live BDD feature covers
 presets, narrowing two groups to one, locked variation, persistence and GLB export.
+
+**Dome Building:** a hollow ellipsoidal roof over a circular hall, with a real open entrance on
+the +Z side. Exterior columns never span the room. Controls cover radius, wall height and shell
+thickness, doorway size and surround, dome rise, an open oculus, smooth/faceted surfaces,
+spiraling ribs (smooth roofs), exterior columns, cornice and five material regions. Hide **Show
+roof** to inspect or furnish the empty interior; the floor slab is also optional. Five presets:
+Civic rotunda, Senate hall, Alien seed vault, Lunar habitat and Obsidian embassy. The entrance
+has no door leaf. Geometry tests trace clear paths through the entrance, check the interior and
+oculus, and verify the roof shell has no boundary edges. Live BDD captures exteriors, the widened
+entrance and a roof-hidden interior. Contact sheets: `test-artifacts/mesha-dome/`.
 
 ## Writing a procedural object
 

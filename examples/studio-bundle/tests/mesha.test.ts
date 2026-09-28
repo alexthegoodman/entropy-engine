@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluate, referencedNames } from "../src/apps/mesha/mesha_expr";
 import { CATALOG } from "../src/apps/mesha/mesha_catalog";
-import { type Mesh, type Vec2, bounds, triangleCount } from "../src/apps/mesha/mesha_mesh";
+import { type Mesh, type Vec2, type Vec3, bounds, triangleCount, sub3, cross3, dot3 } from "../src/apps/mesha/mesha_mesh";
 import { roundedBox, lathe, capsuleProfile, extrude, sweep, cylinder, triangulate } from "../src/apps/mesha/mesha_primitives";
 import { circle2, roundedRect2 } from "../src/apps/mesha/mesha_curves";
 import { type ObjectDef, evaluateObject, resolveParams, isParamVisible, validateDefinition, defaultValues } from "../src/apps/mesha/mesha_object";
@@ -28,6 +28,23 @@ const report = (mesh: Mesh) => {
     const def = bare(mesh);
     return checkGeometry(def, { mesh, params: {}, materials: {}, violations: [], stats: { triangles: triangleCount(mesh), vertices: 0, bounds: bounds(mesh), ms: 0 } });
 };
+
+// Nearest positive ray/triangle hit, used to test actual architectural openings.
+function rayHit(mesh: Mesh, origin: Vec3, direction: Vec3): number {
+    let nearest = Infinity;
+    for (const p of mesh.parts) for (let i = 0; i < p.indices.length; i += 3) {
+        const [a, b, c] = p.indices.slice(i, i + 3).map(k => p.positions.slice(k * 3, k * 3 + 3) as Vec3);
+        const e1 = sub3(b, a), e2 = sub3(c, a), h = cross3(direction, e2), det = dot3(e1, h);
+        if (Math.abs(det) < 1e-9) continue;
+        const s = sub3(origin, a), u = dot3(s, h) / det;
+        if (u < 0 || u > 1) continue;
+        const q = cross3(s, e1), v = dot3(direction, q) / det;
+        if (v < 0 || u + v > 1) continue;
+        const t = dot3(e2, q) / det;
+        if (t > 1e-7) nearest = Math.min(nearest, t);
+    }
+    return nearest;
+}
 
 describe("Mesha expressions", () => {
     const scope = (vars: Record<string, number | string | boolean>) => (n: string) => vars[n];
@@ -218,6 +235,54 @@ describe("Mesha library", () => {
         const hidden = resolveParams(def, { portafilters: false, gauges: false, steamWand: false });
         for (const id of ["handleLength", "doubleSpout", "gaugeReading", "wandReach"]) {
             expect(isParamVisible(def, def.params.find(p => p.id === id)!, hidden)).toBe(false);
+        }
+    });
+});
+
+describe("Mesha dome architecture", () => {
+    const def = lookupObject("architecture.dome_building")!;
+    it("has a traversable front entrance and an empty hall at presets and extremes", () => {
+        const cases = [ {}, ...(def.presets ?? []).map(p => p.values),
+            ...[3, 14].flatMap(radius => [2.6, 6].flatMap(drumHeight => [1.2, 100].map(doorWidth =>
+                ({ radius, drumHeight, doorWidth, wall: 100, doorHeight: 100, trimWidth: 100, columns: 24, columnRadius: 100 })))) ];
+        for (const values of cases) {
+            const e = evaluateObject(def, values, lookupObject), v = e.params;
+            const floor = v.floor ? 0.15 : 0;
+            for (const x of [-0.499, 0, 0.499]) for (const y of [0.2, 0.5, 0.9]) {
+                expect(rayHit(e.mesh, [x * Number(v.doorWidth), floor + y * Number(v.doorHeight), 0], [0, 0, 1]), JSON.stringify(values)).toBe(Infinity);
+            }
+            // Side walls enclose the hall; there are no objects or columns in the room.
+            expect(rayHit(e.mesh, [0, floor + 1, 0], [1, 0, 0])).toBeCloseTo(Number(v.radius) - Number(v.wall), 1);
+            const roofOnly = { parts: e.mesh.parts.filter(p => p.region === "shell") };
+            const roof = rayHit(roofOnly, [Number(v.radius) * 0.5, floor + 1, 0], [0, 1, 0]);
+            expect(roof).toBeGreaterThan(Number(v.drumHeight) - 1);
+            expect(roof).toBeLessThan(Number(v.drumHeight) + Number(v.rise));
+        }
+    });
+    it("opens the oculus and removes the entire roof for interior inspection", () => {
+        const closed = evaluateObject(def, { oculus: 0 }, lookupObject);
+        expect(rayHit(closed.mesh, [0.017, 1, 0.023], [0, 1, 0])).toBeLessThan(Infinity);
+        const open = evaluateObject(def, { oculus: 0.25 }, lookupObject);
+        expect(rayHit(open.mesh, [0.017, 1, 0.023], [0, 1, 0])).toBe(Infinity);
+        const cutaway = evaluateObject(def, { roofVisible: false }, lookupObject);
+        expect(cutaway.mesh.parts.some(p => p.region === "shell" || p.region === "ribs")).toBe(false);
+        expect(rayHit(cutaway.mesh, [2, 1, 0], [0, 1, 0])).toBe(Infinity);
+    });
+    it("the dome shell has no boundary edges, including the oculus rim", () => {
+        for (const oculus of [0, 0.25]) {
+            const e = evaluateObject(def, { oculus }, lookupObject);
+            const edges = new Map<string, number>();
+            for (const p of e.mesh.parts.filter(p => p.region === "shell")) {
+                const key = (i: number) => p.positions.slice(i * 3, i * 3 + 3).map(v => Math.round(v * 1e5)).join(",");
+                for (let i = 0; i < p.indices.length; i += 3) {
+                    const ids = p.indices.slice(i, i + 3).map(key);
+                    for (let j = 0; j < 3; j++) {
+                        const edge = [ids[j], ids[(j + 1) % 3]].sort().join("|");
+                        edges.set(edge, (edges.get(edge) ?? 0) + 1);
+                    }
+                }
+            }
+            expect([...edges.values()].every(n => n === 2)).toBe(true);
         }
     });
 });

@@ -99,3 +99,31 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "17-coffee-cream"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-coffee-export.glb"}
+
+  Scenario: A hollow dome has an entrance and an inspectable interior
+    When I call the tool "mesha_add" with {"objectId": "architecture.dome_building", "preset": "Civic rotunda", "position": [45, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 18, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "18-dome-civic"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 15, "pitch": 55}
+    And I advance 8 frames
+    Then I capture "19-dome-empty-interior"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": true, "doorWidth": 4, "doorHeight": 3.2}}
+    And I call the tool "mesha_view" with {"yaw": 0, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "20-dome-entrance"
+    When I call the tool "mesha_add" with {"objectId": "architecture.dome_building", "preset": "Alien seed vault", "position": [70, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 24}
+    And I advance 8 frames
+    Then I capture "21-dome-alien"
+    When I call the tool "mesha_lock" with {"keys": ["group:entry", "group:size", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 9}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 24}
+    And I advance 8 frames
+    Then I capture "22-dome-variation"
+    When I call the tool "mesha_add" with {"objectId": "architecture.dome_building", "preset": "Senate hall", "position": [100, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "23-dome-senate"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-dome-export.glb"}

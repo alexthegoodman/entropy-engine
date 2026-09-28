@@ -70,7 +70,7 @@ fn mesha_live_feature() {
     // What the app persisted: that scene, plus the facade, lamps and coffee makers.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 10);
+    assert_eq!(saved.len(), 13);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -109,6 +109,24 @@ fn mesha_live_feature() {
     let coffee_gltf: serde_json::Value = serde_json::from_slice(&coffee_glb[20..20 + coffee_json_len]).unwrap();
     assert_eq!(coffee_gltf["meshes"].as_array().unwrap().len() as u64, coffee_export["meshes"].as_u64().unwrap());
     assert!(coffee_export["triangles"].as_u64().unwrap() > reply("mesha_export", 1)["triangles"].as_u64().unwrap());
+
+    let civic = &reply("mesha_add", 9)["instance"];
+    let cutaway = &reply("mesha_set", 4)["instance"];
+    assert_eq!(cutaway["values"]["roofVisible"], false);
+    assert!(cutaway["triangles"].as_u64().unwrap() < civic["triangles"].as_u64().unwrap());
+    assert_eq!(saved[10]["values"]["roofVisible"], true);
+    assert_eq!(saved[10]["values"]["doorWidth"], 4);
+    let alien = &reply("mesha_add", 10)["instance"];
+    let dome_varied = &reply("mesha_vary", 3)["instance"];
+    for key in ["doorWidth", "doorHeight", "radius", "wall", "roofFinish", "wallFinish"] {
+        assert_eq!(dome_varied["values"][key], alien["values"][key], "locked dome control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 3)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(saved[11]["values"], dome_varied["values"]);
+    assert_eq!(saved[12]["values"]["oculus"], 0);
+    let dome_glb = fs::read(reply("mesha_export", 3)["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&dome_glb[..4], b"glTF");
+    assert!(reply("mesha_export", 3)["triangles"].as_u64().unwrap() > coffee_export["triangles"].as_u64().unwrap());
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
