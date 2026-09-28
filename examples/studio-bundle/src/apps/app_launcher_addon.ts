@@ -56,6 +56,7 @@ const CATALOG: CatalogEntry[] = [
     { name: "keyframe-tracks-demo", title: "Clip & Curve Editor", icon: "bezier-curve" },
     { name: "mcp-tools-demo", title: "MCP Tools", icon: "network" },
     { name: "media-player", title: "Media Player", icon: "monitor-play" },
+    { name: "mesha", title: "Mesha", icon: "shapes" },
     { name: "ml-graph-demo", title: "ML Graph Trainer", icon: "brain" },
     { name: "node-graph", title: "Nocode Calculator", icon: "graph" },
     { name: "stylus-drawing", title: "Stylus Drawing", icon: "pen-nib" },

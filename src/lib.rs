@@ -89,6 +89,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "light-hive",
     "mcp-tools-demo",
     "media-player",
+    "mesha",
     "ml-graph-demo",
     "node-graph",
     "sheet",

@@ -30,6 +30,7 @@ const bundles = [
   ["light-hive", "src/apps/light_hive_addon.ts", "light_hive.js"],
   ["mcp-tools-demo", "src/apps/mcp_tools_demo_addon.ts", "mcp_demo.js"],
   ["media-player", "src/apps/media_player_addon.ts", "media_player.js"],
+  ["mesha", "src/apps/mesha/mesha_addon.ts", "mesha.js"],
   ["ml-graph-demo", "src/apps/ml_graph_demo_addon.ts", "ml_graph_demo.js"],
   ["node-graph", "src/apps/node_graph_addon.ts", "node_graph.js"],
   ["sheet", "src/apps/sheet/sheet_addon.ts", "sheet.js"],

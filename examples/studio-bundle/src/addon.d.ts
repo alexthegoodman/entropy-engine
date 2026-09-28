@@ -3307,7 +3307,8 @@ export interface EntropyAPI {
      * PNG-encoded and embedded, no external file references) from already-world-space mesh
      * data supplied directly - doesn't touch the engine's own mesh registry, so it works for
      * meshes that were never `createMesh`'d as live scene entities too. Returns the chosen
-     * path, or `path: null`/`error` set if the dialog was cancelled or writing failed. */
+     * path, or `path: null`/`error` set if the dialog was cancelled or writing failed.
+     * `options.path` (ending in .glb) writes there directly with no dialog. */
     exportGlb: (meshes: Array<{
         name: string;
         positions: number[]; // flat x,y,z, world-space
@@ -3317,7 +3318,7 @@ export interface EntropyAPI {
         textureRgba: Uint8Array;
         textureWidth: number;
         textureHeight: number;
-    }>, suggestedName?: string) => { success: boolean; path: string | null; error: string | null };
+    }>, suggestedName?: string, options?: { path?: string }) => { success: boolean; path: string | null; error: string | null };
   };
   Landscape: {
     create: (config: LandscapeConfig) => string;

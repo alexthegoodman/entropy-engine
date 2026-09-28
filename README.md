@@ -30,7 +30,7 @@
 ## Building Entropy and all example addons
 
 From this directory, run `node scripts/build-all.mjs`. It builds the default Studio bundle first
-(which Cargo embeds), then runs `cargo build` alongside all 20 standalone example addon bundles.
+(which Cargo embeds), then runs `cargo build` alongside all 21 standalone example addon bundles.
 Extra arguments go to Cargo, for example `node scripts/build-all.mjs --release --locked`.
 Set `ENTROPY_BUNDLE_JOBS` to change the number of simultaneous Deno bundle processes (default 3).
 You can also run `npm run build:all -- --release` from `examples/studio-bundle`.

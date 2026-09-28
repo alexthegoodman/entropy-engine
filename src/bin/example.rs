@@ -102,6 +102,16 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/media_player.js")
                 .with_title("Entropy Media Player")
                 .with_window_size(1280.0, 760.0),
+            Some("mesha") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/mesha.js")
+                .with_hot_reload(true)
+                .with_title("Mesha")
+                .with_window_size(1600.0, 960.0)
+                // The panels are `glass: true` over the 3D viewport; this runs the pass they sample.
+                .with_glass_blur(true)
+                // Scenes and presets persist through the addon's own IO.store folder.
+                // ENTROPY_MESHA_BDD_DATA lets tests/mesha_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_MESHA_BDD_DATA").unwrap_or_else(|_| "../mesha-data".to_string())),
             Some("ml-graph-demo") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/ml_graph_demo.js")
                 .with_hot_reload(true)

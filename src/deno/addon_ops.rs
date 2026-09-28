@@ -3019,7 +3019,8 @@ pub struct ExportGlbResult {
     pub error: Option<String>,
 }
 
-// Opens a native Save As dialog and writes a self-contained .glb (textures embedded, no
+// Opens a native Save As dialog (or, when `path` is non-empty, writes straight to that .glb path
+// with no dialog - scripted exports and tests) and writes a self-contained .glb (textures embedded, no
 // external references) built from addon-supplied, already-world-space mesh data - see
 // src/art_assets/GLBExporter.rs for the actual glTF/GLB assembly. Mirrors
 // op_audio_render_pattern_wav's shape (save dialog -> build bytes -> write -> report path).
@@ -3039,15 +3040,28 @@ pub fn op_model_export_glb(
     #[serde] meshes: Vec<GlbMeshExportConfig>,
     #[buffer] textures: &[u8],
     #[string] suggested_name: String,
+    #[string] path: String,
 ) -> ExportGlbResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return ExportGlbResult { success: false, path: None, error: Some("Context not available".to_string()) };
     }
 
-    let file_path = rfd::FileDialog::new()
-        .add_filter("glTF Binary", &["glb"])
-        .set_file_name(&suggested_name)
-        .save_file();
+    let file_path = if path.is_empty() {
+        rfd::FileDialog::new()
+            .add_filter("glTF Binary", &["glb"])
+            .set_file_name(&suggested_name)
+            .save_file()
+    } else if !path.to_ascii_lowercase().ends_with(".glb") {
+        return ExportGlbResult { success: false, path: None, error: Some("Export path must end in .glb".to_string()) };
+    } else {
+        let explicit = std::path::PathBuf::from(path);
+        if let Some(parent) = explicit.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return ExportGlbResult { success: false, path: None, error: Some(format!("Couldn't create {}: {e}", parent.display())) };
+            }
+        }
+        Some(explicit)
+    };
 
     let Some(output_path) = file_path else {
         return ExportGlbResult { success: false, path: None, error: Some("Export cancelled".to_string()) };
