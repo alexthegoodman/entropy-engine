@@ -9,7 +9,7 @@
 
 import { identity4, type Vec3, type Bounds } from "./mesha_mesh";
 import { sphere } from "./mesha_primitives";
-import { type ObjectDef, type ParamDef, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, paramRange, materialChoices, ruleViolations } from "./mesha_object";
+import { type ObjectDef, type ParamDef, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, objectParamRange, materialChoices, ruleViolations } from "./mesha_object";
 import { MATERIAL_BY_ID } from "./mesha_materials";
 import { lookupObject, LIBRARY } from "./library";
 import { type Instance, type BakedInstance, EvaluationCache, bakeInstance, instanceMatrix, instanceRotation, searchLibrary, packVertices, materialTexture } from "./mesha_scene";
@@ -673,7 +673,7 @@ function paramControl(inst: Instance, def: ObjectDef, p: ParamDef): void {
                 W.button(id, { id: `${cid}-reroll`, text: Icons.get("dice-five"), tooltip: "New seed: same design, different details", onClick: () => setParam(inst, p.id, Math.floor(Math.random() * 99999)) });
                 break;
             default: {
-                const [lo, hi] = paramRange(p, name => inst.values[name]);
+                const [lo, hi] = objectParamRange(def, p, inst.values);
                 W.slider(id, {
                     id: cid, label, value: Number(v), min: lo, max: hi, unit: p.unit, decimals: p.decimals ?? (p.type === "int" ? 0 : hi - lo < 0.2 ? 3 : 2),
                     step: p.type === "int" ? 1 : p.step, defaultValue: Number(p.default), tooltip: p.description,

@@ -133,6 +133,11 @@ export function paramRange(p: ParamDef, scope: Scope): [number, number] {
     return lo <= hi ? [lo, hi] : [hi, lo];
 }
 
+/** UI bounds for current resolved values, including the object's derived dimensions. */
+export function objectParamRange(def: ObjectDef, p: ParamDef, values: ParamValues): [number, number] {
+    return paramRange(p, paramScope(def, values));
+}
+
 /**
  * Defaults, overridden by `values`, coerced to each parameter's type and clamped into its range.
  * Ranges that depend on other parameters are applied in declaration order, so a later parameter
