@@ -141,7 +141,7 @@ Feature: Mesha in the real window
     And I call the tool "mesha_view" with {"yaw": 200, "pitch": 50}
     And I advance 8 frames
     Then I capture "26-house-ground-floor"
-    When I call the tool "mesha_set" with {"values": {"roofVisible": true, "cutaway": 0, "storeys": 3, "depth": 10, "roofStyle": "hip"}}
+    When I call the tool "mesha_set" with {"values": {"roofVisible": true, "cutaway": 0, "storeys": 3, "width": 13, "depth": 10, "roofStyle": "hip"}}
     And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
     And I advance 8 frames
     Then I capture "27-house-three-storeys"

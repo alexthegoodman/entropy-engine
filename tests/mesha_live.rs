@@ -142,6 +142,7 @@ fn mesha_live_feature() {
     assert!(ground["triangles"].as_u64().unwrap() < roofless["triangles"].as_u64().unwrap() * 3 / 5);
     let taller = &reply("mesha_set", 8)["instance"];
     assert_eq!(taller["values"]["storeys"], 3);
+    assert_eq!(taller["violations"].as_array().unwrap().len(), 0, "{taller:#}");
     assert!(taller["triangles"].as_u64().unwrap() > colonial["triangles"].as_u64().unwrap());
     assert_eq!(saved[13]["values"]["roofStyle"], "hip");
     assert_eq!(saved[13]["values"]["cutaway"], 0);

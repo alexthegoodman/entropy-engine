@@ -111,7 +111,8 @@ hall doorway on every storey leads into a room; every tread is where the risers 
 2 m of headroom (stacked flights included) and a floor to step onto at the top; lifting the roof
 and cutting away storeys expose the floors below. Live BDD captures the colonial, its top storey
 and ground floor from above, a three-storey hip-roofed version, the farmhouse and a locked
-Variation of it.
+Variation of it. (The viewport's aerial haze and floor fade scale with the camera's focus
+distance, so a building framed from 40 m reads as crisply as a chair framed from 3 m.)
 
 **Door:** a hinged door in its frame, facing +Z, frame centred on a wall `depth` thick: raised
 panels (1 or 2 columns, up to 4 rows) with mouldings, half glazed with glazing bars, flush, or

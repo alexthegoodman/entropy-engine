@@ -278,9 +278,11 @@ function createBackdrop(): void {
     });
 }
 
+let studioFocus = 3;
+
 function applyStudio(): void {
     const l = STUDIO_PRESETS[studioIndex];
-    Entropy.Buffer.write(studioBuffer, packStudio(l));
+    Entropy.Buffer.write(studioBuffer, packStudio(l, studioFocus));
     Entropy.Lighting.updateSun({ horizonColor: l.skyHorizon, zenithColor: l.skyTop, sunDirection: l.keyDir, sunColor: l.keyColor, sunIntensity: 0.4 });
 }
 
@@ -952,4 +954,8 @@ addon.onUpdatePlus("Global", () => {
     if (groundDirty && !(pointerHeld && gizmoWasActive)) { rebuildGround(); groundDirty = false; }
     if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll); pendingFrameAll = false; }
     if (!pointerHeld) commitEdit();
+    // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).
+    const [camPos, camTarget] = Entropy.Camera.getTransform();
+    const focus = Math.hypot(camPos[0] - camTarget[0], camPos[1] - camTarget[1], camPos[2] - camTarget[2]);
+    if (Number.isFinite(focus) && Math.abs(focus - studioFocus) > studioFocus * 0.05) { studioFocus = focus; applyStudio(); }
 });
