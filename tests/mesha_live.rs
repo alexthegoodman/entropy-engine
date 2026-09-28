@@ -67,10 +67,10 @@ fn mesha_live_feature() {
     assert_eq!(instances[1]["values"]["topShape"], "round", "the table took its preset");
     assert_eq!(state["lighting"], "warm");
 
-    // What the app persisted: that scene, plus the facade, lamps and coffee makers.
+    // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses and a door.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 13);
+    assert_eq!(saved.len(), 16);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -127,6 +127,41 @@ fn mesha_live_feature() {
     let dome_glb = fs::read(reply("mesha_export", 3)["path"].as_str().unwrap()).unwrap();
     assert_eq!(&dome_glb[..4], b"glTF");
     assert!(reply("mesha_export", 3)["triangles"].as_u64().unwrap() > coffee_export["triangles"].as_u64().unwrap());
+
+    // The house: lifting the roof and cutting away the top storey each remove geometry; a third
+    // storey and a hip roof add it. Variation restyles the farmhouse outside but keeps its plan,
+    // stair and finishes.
+    let colonial = &reply("mesha_add", 12)["instance"];
+    assert_eq!(colonial["objectId"], "architecture.house");
+    assert_eq!(colonial["violations"].as_array().unwrap().len(), 0);
+    let roofless = &reply("mesha_set", 6)["instance"];
+    assert_eq!(roofless["values"]["roofVisible"], false);
+    assert!(roofless["triangles"].as_u64().unwrap() < colonial["triangles"].as_u64().unwrap());
+    let ground = &reply("mesha_set", 7)["instance"];
+    assert_eq!(ground["values"]["cutaway"], 1);
+    assert!(ground["triangles"].as_u64().unwrap() < roofless["triangles"].as_u64().unwrap() * 3 / 5);
+    let taller = &reply("mesha_set", 8)["instance"];
+    assert_eq!(taller["values"]["storeys"], 3);
+    assert_eq!(taller["violations"].as_array().unwrap().len(), 0, "{taller:#}");
+    assert!(taller["triangles"].as_u64().unwrap() > colonial["triangles"].as_u64().unwrap());
+    assert_eq!(saved[13]["values"]["roofStyle"], "hip");
+    assert_eq!(saved[13]["values"]["cutaway"], 0);
+    let farmhouse = &reply("mesha_add", 13)["instance"];
+    let farm_varied = &reply("mesha_vary", 4)["instance"];
+    for key in ["width", "depth", "storeys", "storeyHeight", "hallWidth", "stairWidth", "stairSide", "wallFinish", "roofFinish", "floorFinish"] {
+        assert_eq!(farm_varied["values"][key], farmhouse["values"][key], "locked house control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 4)["changed"].as_array().unwrap().len() >= 3);
+    assert_eq!(farm_varied["violations"].as_array().unwrap().len(), 0);
+    assert_eq!(saved[14]["values"], farm_varied["values"]);
+    let door = &reply("mesha_set", 9)["instance"];
+    assert_eq!(door["objectId"], "architecture.door");
+    assert_eq!(door["values"]["exterior"], true);
+    assert_eq!(saved[15]["values"]["openAngle"], 70);
+    let house_export = reply("mesha_export", 4);
+    let house_glb = fs::read(house_export["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&house_glb[..4], b"glTF");
+    assert!(house_export["triangles"].as_u64().unwrap() > reply("mesha_export", 3)["triangles"].as_u64().unwrap());
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);

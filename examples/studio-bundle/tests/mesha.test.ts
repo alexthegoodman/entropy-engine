@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { evaluate, referencedNames } from "../src/apps/mesha/mesha_expr";
 import { CATALOG } from "../src/apps/mesha/mesha_catalog";
 import { type Mesh, type Vec2, type Vec3, bounds, triangleCount, sub3, cross3, dot3 } from "../src/apps/mesha/mesha_mesh";
-import { roundedBox, lathe, capsuleProfile, extrude, sweep, cylinder, triangulate } from "../src/apps/mesha/mesha_primitives";
+import { roundedBox, lathe, capsuleProfile, extrude, sweep, cylinder, triangulate, loft } from "../src/apps/mesha/mesha_primitives";
 import { circle2, roundedRect2 } from "../src/apps/mesha/mesha_curves";
-import { type ObjectDef, evaluateObject, resolveParams, isParamVisible, validateDefinition, defaultValues } from "../src/apps/mesha/mesha_object";
+import { type ObjectDef, evaluateObject, evaluateExpression, resolveParams, isParamVisible, validateDefinition, defaultValues } from "../src/apps/mesha/mesha_object";
 import { LIBRARY, lookupObject, browsableObjects } from "../src/apps/mesha/library";
 import { vary } from "../src/apps/mesha/mesha_variation";
 import { checkGeometry, fuzz, acceptanceText } from "../src/apps/mesha/mesha_verify";
@@ -42,6 +42,33 @@ function rayHit(mesh: Mesh, origin: Vec3, direction: Vec3): number {
         if (v < 0 || u + v > 1) continue;
         const t = dot3(e2, q) / det;
         if (t > 1e-7) nearest = Math.min(nearest, t);
+    }
+    return nearest;
+}
+
+// The same ray cast over a flattened triangle list, for meshes of a few hundred thousand triangles.
+function flatten(mesh: Mesh): Float64Array {
+    const out: number[] = [];
+    for (const p of mesh.parts) for (const i of p.indices) out.push(p.positions[i * 3], p.positions[i * 3 + 1], p.positions[i * 3 + 2]);
+    return Float64Array.from(out);
+}
+function castRay(tris: Float64Array, o: Vec3, d: Vec3): number {
+    let nearest = Infinity;
+    for (let i = 0; i < tris.length; i += 9) {
+        const ax = tris[i], ay = tris[i + 1], az = tris[i + 2];
+        const e1x = tris[i + 3] - ax, e1y = tris[i + 4] - ay, e1z = tris[i + 5] - az;
+        const e2x = tris[i + 6] - ax, e2y = tris[i + 7] - ay, e2z = tris[i + 8] - az;
+        const hx = d[1] * e2z - d[2] * e2y, hy = d[2] * e2x - d[0] * e2z, hz = d[0] * e2y - d[1] * e2x;
+        const det = e1x * hx + e1y * hy + e1z * hz;
+        if (Math.abs(det) < 1e-12) continue;
+        const sx = o[0] - ax, sy = o[1] - ay, sz = o[2] - az;
+        const u = (sx * hx + sy * hy + sz * hz) / det;
+        if (u < 0 || u > 1) continue;
+        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+        const v = (d[0] * qx + d[1] * qy + d[2] * qz) / det;
+        if (v < 0 || u + v > 1) continue;
+        const t = (e2x * qx + e2y * qy + e2z * qz) / det;
+        if (t > 1e-7 && t < nearest) nearest = t;
     }
     return nearest;
 }
@@ -116,6 +143,19 @@ describe("Mesha geometry builders", () => {
         expect(volume(tube)).toBeCloseTo(Math.PI * 0.01 * 2, 2);
         expect(report(tube).inverted).toBe(0);
     });
+    it("lofts are closed, outward solids: a frustum's volume, a hip roof, mismatched outlines", () => {
+        const square = (h: number): Vec2[] => [[-h, -h], [h, -h], [h, h], [-h, h]];
+        expect(volume(loft(square(1), square(0.5), 1))).toBeCloseTo((4 + 1 + 2) / 3, 9);
+        // A hip roof: 4 x 2 footprint up to a ridge 2 m long (a prism and two end pyramids); the
+        // reversed outline makes the same solid.
+        const hip = loft([[-2, -1], [2, -1], [2, 1], [-2, 1]], [[-1, -0.001], [1, -0.001], [1, 0.001], [-1, 0.001]], 1);
+        expect(volume(hip)).toBeCloseTo(2 + 2 * (1 * 2 * 1) / 3, 2);
+        expect(volume(loft([[-2, 1], [2, 1], [2, -1], [-2, -1]], [[-1, 0.001], [1, 0.001], [1, -0.001], [-1, -0.001]], 1))).toBeCloseTo(volume(hip), 6);
+        const mixed = loft(circle2(1, 48), square(0.3), 2);
+        expect(volume(mixed)).toBeGreaterThan(0);
+        expect(report(hip).issues.filter(i => i.severity === "error")).toEqual([]);
+        expect(report(mixed).issues.filter(i => i.severity === "error")).toEqual([]);
+    });
     it("every catalog mesh component builds valid geometry at its defaults", () => {
         const needsInput = new Set(["mesh", "meshes", "curve2", "curve3", "curves2", "points3"]);
         for (const comp of CATALOG.values()) {
@@ -145,6 +185,26 @@ describe("Mesha library", () => {
     });
     it("has no definition problems", () => {
         for (const def of LIBRARY) expect({ id: def.id, problems: validateDefinition(def, lookupObject) }).toEqual({ id: def.id, problems: [] });
+    });
+    it("presets hold their values (nothing silently clamped) and satisfy their rules", () => {
+        for (const def of LIBRARY) for (const preset of def.presets ?? []) {
+            const resolved = resolveParams(def, preset.values);
+            const where = `${def.id} / ${preset.name}`;
+            for (const [k, v] of Object.entries(preset.values)) expect(resolved[k], `${where}: ${k}`).toBe(v);
+            expect(evaluateObject(def, preset.values, lookupObject).violations, where).toEqual([]);
+        }
+    });
+    it("reports a parameter or derived value hidden by a repeat's own index, count or t", () => {
+        const def: ObjectDef = {
+            id: "t.shadow", name: "t", category: "t", groups: [{ id: "g", label: "g" }], regions: { default: { label: "", material: "wood.oak" } },
+            params: [{ id: "count", label: "Count", type: "int", default: 3, min: 1, max: 9, group: "g" }],
+            derived: { t: "=0.3" },
+            nodes: [
+                { id: "fine", type: "mesh.box", repeat: "=count", size: [1, 1, 1], at: ["=index", 0, 0] },
+                { id: "hidden", type: "mesh.box", repeat: 2, size: ["=t", 1, 1] },
+            ],
+        };
+        expect(validateDefinition(def)).toEqual(['node hidden: "t" here is the repeat\'s own t, not the derived value']);
     });
     it("passes the parameter fuzzer: every object is ready", () => {
         for (const def of LIBRARY) {
@@ -283,6 +343,110 @@ describe("Mesha dome architecture", () => {
                 }
             }
             expect([...edges.values()].every(n => n === 2)).toBe(true);
+        }
+    });
+});
+
+describe("Mesha door", () => {
+    const def = lookupObject("architecture.door")!;
+    it("fills its opening when closed and swings clear of it when open", () => {
+        for (const style of ["panel", "glazed", "flush", "plank"]) {
+            const closed = flatten(evaluateObject(def, { style }, lookupObject).mesh);
+            expect(castRay(closed, [0.05, 1.0, 3], [0, 0, -1]), style).toBeLessThan(3);
+            const open = flatten(evaluateObject(def, { style, openAngle: 90 }, lookupObject).mesh);
+            for (const x of [-0.2, 0, 0.3]) for (const y of [0.3, 1.0, 1.8]) expect(castRay(open, [x, y, 3], [0, 0, -1]), `${style} ${x} ${y}`).toBe(Infinity);
+        }
+    });
+    it("exterior doors carry a threshold and an entry-finish leaf", () => {
+        const regions = (values: Record<string, unknown>) => new Set(evaluateObject(def, values as never, lookupObject).mesh.parts.map(p => p.region));
+        expect([...regions({ exterior: true })].sort()).toEqual(["casing", "entry", "hardware", "sill"]);
+        expect(regions({}).has("leaf")).toBe(true);
+        expect(regions({ fanlight: 0.4 }).has("glass")).toBe(true);
+    });
+});
+
+describe("Mesha house", () => {
+    const def = lookupObject("architecture.house")!;
+    const plan = (values: Record<string, unknown>) => {
+        const e = evaluateObject(def, values as never, lookupObject);
+        const n = (name: string) => Number(evaluateExpression(def, e.params, `=${name}`));
+        return { e, n, tris: flatten(e.mesh), storeys: Number(e.params.storeys) };
+    };
+    const layouts: Record<string, unknown>[] = [
+        {}, ...(def.presets ?? []).map(p => p.values),
+        { stairSide: "right" }, { hallOffset: 1 }, { hallOffset: -1, stairSide: "right", stairStyle: "open" },
+        { storeys: 3, depth: 10 }, { storeys: 1, roofStyle: "hip", porch: "veranda" }, { groundPlan: "open", interiorDoors: "glazed" },
+        { width: 100, depth: 100, storeyHeight: 100, hallWidth: 100 }, { width: 0, depth: 0, storeyHeight: 0, wall: 100, hallWidth: 0 },
+    ];
+    it("the front door opens onto a hall that runs clear to the back wall", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan({ ...values, frontDoorAngle: 90 });
+            const x = n("hallX") - n("sgn") * 0.12, y = n("pl") + 1.2;
+            expect(castRay(tris, [x, y, n("D2") + 6], [0, 0, -1]), JSON.stringify(values)).toBeGreaterThan(6 + n("depth") - n("wall") - 0.4);
+            // And the hall floor is there to walk on.
+            expect(castRay(tris, [x, y, n("zi1") - 0.4], [0, -1, 0])).toBeCloseTo(1.2 - 0.004, 2);
+        }
+    });
+    it("every hall doorway on every storey opens into a room", () => {
+        for (const values of layouts) {
+            const { n, tris, storeys } = plan(values);
+            // Walk down the corridor beside the stair (the hall's centre line can be over the treads).
+            const x0 = storeys > 1 ? n("hallX") - n("sgn") * Number(n("stairWidth")) / 2 : n("hallX");
+            for (let f = 0; f < storeys; f++) {
+                const y = n("pl") + f * n("H") + 1.0;
+                for (const [side, z] of [[-1, n("zdLF")], [-1, n("zdLB")], [1, n("zdRF")], [1, n("zdRB")]]) {
+                    const inner = side < 0 ? x0 - n("xi0") : n("xi1") - x0;
+                    const hit = castRay(tris, [x0, y, z], [side, 0, 0]);
+                    const where = `${JSON.stringify(values)} storey ${f} side ${side} z ${z.toFixed(2)}`;
+                    expect(hit, where).toBeGreaterThan(inner - 0.05);
+                    expect(hit, where).toBeLessThan(inner + n("wall") + 0.4);
+                }
+            }
+        }
+    });
+    it("stairs climb in even, walkable risers with headroom and land beside the stairwell", () => {
+        for (const values of layouts) {
+            const { e, n, tris, storeys } = plan(values);
+            if (storeys < 2) continue;
+            const rh = n("rh"), tread = Number(e.params.tread), steps = n("steps");
+            expect(rh).toBeLessThanOrEqual(Number(e.params.riser) + 1e-9);
+            expect(2 * rh + tread).toBeGreaterThan(0.55);
+            for (let f = 0; f < storeys - 1; f++) {
+                const yf = n("pl") + f * n("H");
+                for (let k = 0; k < steps; k++) {
+                    const top = yf + (k + 1) * rh, z = n("zS") - (k + 0.4) * tread, where = `${JSON.stringify(values)} flight ${f} step ${k}`;
+                    expect(castRay(tris, [n("sX"), top + 0.4, z], [0, -1, 0]), where).toBeCloseTo(0.4, 3);
+                    expect(castRay(tris, [n("sX"), top + 0.01, z], [0, 1, 0]), where).toBeGreaterThan(2.0);
+                }
+                // Stepping off the top: the next storey's floor, just past the stairwell.
+                expect(castRay(tris, [n("sX"), yf + n("H") + 0.5, n("zE") - 0.2], [0, -1, 0])).toBeCloseTo(0.5 - 0.004, 2);
+            }
+        }
+    });
+    it("lifting the roof or cutting away storeys opens the rooms to view", () => {
+        const full = plan({ storeys: 3, depth: 10 });
+        const roofless = plan({ storeys: 3, depth: 10, roofVisible: false });
+        const n = roofless.n;
+        // Only the porch roof, well below the eaves, stays.
+        expect(roofless.e.mesh.parts.some(p => ["chimney", "pots", "gutters"].includes(p.region))).toBe(false);
+        expect(Math.max(...roofless.e.mesh.parts.filter(p => p.region === "roof").flatMap(p => p.positions.filter((_, i) => i % 3 === 1)))).toBeLessThan(n("pl") + n("H") + 1.2);
+        const x = (n("xi0") + n("hallL") - n("pt")) / 2, z = n("zmF");
+        expect(castRay(full.tris, [x, 40, z], [0, -1, 0])).toBeLessThan(40 - n("yTop"));
+        expect(40 - castRay(roofless.tris, [x, 40, z], [0, -1, 0])).toBeCloseTo(n("pl") + 2 * n("H") + 0.004, 2);
+        const cut = plan({ storeys: 3, depth: 10, cutaway: 2 });
+        expect(40 - castRay(cut.tris, [x, 40, z], [0, -1, 0])).toBeCloseTo(n("pl") + 0.004, 2);
+        expect(cut.e.stats.bounds!.max[1]).toBeLessThan(n("pl") + n("H") + 1.2);
+        expect(cut.e.stats.triangles).toBeLessThan(roofless.e.stats.triangles / 2);
+    });
+    it("rooms are at least 2.4 m wide and windows stay clear of partitions and corners", () => {
+        for (const values of layouts) {
+            const { n } = plan(values);
+            expect(n("zwL"), JSON.stringify(values)).toBeGreaterThanOrEqual(2.4 - 1e-9);
+            expect(n("zwR"), JSON.stringify(values)).toBeGreaterThanOrEqual(2.4 - 1e-9);
+            // A row of k windows (and the shutters beyond its ends, which `margin` allows for) fits its room.
+            const row = (k: number) => k * n("ww") + (k - 1) * n("gap") + n("margin");
+            expect(row(n("kL"))).toBeLessThanOrEqual(n("zwL") + 1e-9);
+            expect(row(n("kR"))).toBeLessThanOrEqual(n("zwR") + 1e-9);
         }
     });
 });

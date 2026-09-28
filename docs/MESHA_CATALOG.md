@@ -47,6 +47,8 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Architecture | Dome Building | `architecture.dome_building` | 24 | 5 | 7 | 5 | 174 | Ready | 11 ms |
+| Architecture | House | `architecture.house` | 63 | 10 | 18 | 21 | 298 | Ready | 41 ms |
+| Architecture | Door | `architecture.door` | 23 | 5 | 4 | 6 | 139 | Ready | 3 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
 | Nature | Rock | `nature.rock` | 11 | 3 | 0 | 1 | 85 | Ready | 47 ms |
@@ -56,7 +58,8 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 
 Components are building blocks other objects compose (a table's legs are `component.leg`, the
 office chair's casters `component.caster`, a facade's windows `architecture.window`); they don't
-appear under Add Object.
+appear under Add Object. Ordinary objects compose too: a house's front and interior doors are
+`architecture.door`, its windows `architecture.window`.
 
 **Table Lamp:** tapered, drum and curved mushroom shades; vase, spindle and column bases;
 independent shade, base and fitting finishes; optional metal foot and rims. Five presets:
@@ -84,6 +87,40 @@ Civic rotunda, Senate hall, Alien seed vault, Lunar habitat and Obsidian embassy
 has no door leaf. Geometry tests trace clear paths through the entrance, check the interior and
 oculus, and verify the roof shell has no boundary edges. Live BDD captures exteriors, the widened
 entrance and a roof-hidden interior. Contact sheets: `test-artifacts/mesha-dome/`.
+
+**House:** a residential house you can walk through, one to three storeys. A centre hall runs
+front to back with a straight staircase along one of its walls (left or right; closed risers with
+strings and a sloped soffit, or open treads on stringers; newels, handrail and balusters, and a
+guard around each stairwell). Cross walls split each side into front and back rooms, stacked on
+every storey (the ground floor can be open plan); every room is at least 2.4 m wide and opens off
+the hall through a real doorway, with an optional panelled, half-glazed or flush door leaf swung
+into the room. Stair-side doorways sit in the foyer and past the stair's top, never beside it,
+and the cross walls stay clear of all of them. Exterior walls are brick (or render, paint, stone,
+wood) outside and plaster inside, with windows centred on each room (sash, casement or fixed,
+arched or square, shutters with louvres, stone lintels and keystones) and a hall window over the
+front door. The front door is `architecture.door` with a fanlight, hinged away from the stair.
+Stoop, pediment portico (a flat canopy on a flat-roofed house) or full-width veranda with turned
+columns or square posts, railings and steps sized to the floor height. Gable roofs (gable windows,
+barge boards, ridge), hip roofs (a `mesh.loft`) or flat roofs; gabled dormers (only as many as
+the slope has room for), chimneys with pots, gutters and downpipes, quoins or corner boards and a
+belt course at each floor. **Show roof** lifts the roof and top ceiling; **Hide top storeys** cuts
+the house down to look into the rooms and stairs below. No furniture or fittings. Six presets:
+Brick colonial, Craftsman bungalow, Modern flat roof, Georgian manor, White farmhouse and Stone
+cottage. Geometry tests walk it: the front door opens onto a hall clear to the back wall; every
+hall doorway on every storey leads into a room; every tread is where the risers say, with at least
+2 m of headroom (stacked flights included) and a floor to step onto at the top; lifting the roof
+and cutting away storeys expose the floors below. Live BDD captures the colonial, its top storey
+and ground floor from above, a three-storey hip-roofed version, the farmhouse and a locked
+Variation of it. (The viewport's aerial haze and floor fade scale with the camera's focus
+distance, so a building framed from 40 m reads as crisply as a chair framed from 3 m.)
+
+**Door:** a hinged door in its frame, facing +Z, frame centred on a wall `depth` thick: raised
+panels (1 or 2 columns, up to 4 rows) with mouldings, half glazed with glazing bars, flush, or
+ledged-and-braced planks; knob or lever, hinges, casing on both faces, an arched fanlight with
+sunburst bars. **Exterior** adds a threshold and kick plate and puts the leaf in the `entry`
+region instead of `leaf`, so a building can paint its front door apart from its interior doors.
+**Open** swings the leaf into -Z about its hinge. Five presets: Six-panel, Georgian fanlight,
+Half-glazed kitchen, Cottage plank and Modern flush.
 
 ## Writing a procedural object
 
@@ -143,6 +180,12 @@ Each node is one catalog component (`"type"`) plus its inputs, and these common 
 | `output: false` | An intermediate (a curve, a mesh another node deforms), not part of the result. |
 | `type: "object"`, `object`, `params` | Compose another library object with these parameter values. |
 
+Inside a repeated node, `index`, `count` and `t` are the copy's own, so they hide any parameter or
+derived value of the same name (a derived wall thickness called `t` becomes 0..1 there); the
+definition check reports it. Every node is evaluated once, so an expensive intermediate (a
+composed window, a dormer joined from several nodes) placed by a repeated `geo.transform` costs
+one build however many copies it makes.
+
 An input is a literal, an `"=expression"`, an `"@node"` reference, a list mixing them, or a choice
 between references: `{ "if": "=cond", "then": "@a", "else": "@b" }` or
 `{ "switch": "=expr", "cases": { "x": ..., "y": ... }, "default": ... }`. The object's result is
@@ -161,8 +204,10 @@ vec`, plus `rand(a, b?)` and `randRange(key, lo, hi)`, which are stable for the 
 Presets in `mesha_materials.ts`: woods (oak, walnut, ash, cherry, ebonized), paints, metals
 (chrome, brushed steel, black steel, brass, copper, aluminum, zinc), plastics, rubber, fabrics,
 leathers, glass (clear, green, amber, frosted), ceramics, stones (granite, sandstone, slate,
-marble), paper and cork. Each has a color, roughness, metalness and a surface pattern (wood grain,
-fabric sheen, brushed, speckle) the viewport draws.
+marble), masonry (red, buff and whitewashed brick, stucco, fieldstone), roofing (slate, asphalt
+shingle, clay tile, cedar shake, standing-seam metal), paper and cork. Each has a color,
+roughness, metalness and a surface pattern (wood grain, fabric sheen, brushed, speckle) the
+viewport draws.
 
 ## The authoring loop
 
@@ -190,7 +235,7 @@ The loop from MESHA_APP.md, with the tools that run it:
    on a headless box) runs `tests/features/mesha_live.feature` against the real app and keeps its
    screenshots in `test-artifacts/`.
 
-`npm run test:mesha` covers the expression language, every builder's orientation (signed volume),
+`npm run test:mesha` covers the expression language, presets holding their values and rules, every builder's orientation (signed volume),
 triangulation, the whole library through the fuzzer, Variation's locks and determinism, visibility,
 composition and region stability.
 
@@ -444,6 +489,14 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 | `bevelSegments` | int | 3 (1..12) | Rows per rim. |
 | `smoothAngle` | number | 35 (0..180) | Outline corners sharper than this stay crisp. |
 
+**`mesh.loft`** (Loft, outputs mesh): A closed, flat-shaded solid from a `bottom` outline (x, z) at y = 0 to a `top` outline at `height`, point to point (resampled when the counts differ): hip and gable roofs, hoppers, plinths, chimney caps.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `bottom` | curve2 | required | Closed outline at y = 0. |
+| `top` | curve2 | required | Closed outline at the top (a very thin one makes a ridge). |
+| `height` | number | 1 (0..) | Height. |
+
 **`mesh.sweep`** (Sweep (Curve to Mesh), outputs mesh): Sweeps a profile along a path - `radius` for a round tube, or any closed `profile`. `taper` scales the far end.
 
 | Input | Kind | Default | |
@@ -566,4 +619,3 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 |---|---|---|---|
 | `mesh` | mesh | required | Input. |
 | `name` | string | "default" | Region. |
-

@@ -28,7 +28,11 @@ export const STUDIO_PRESETS: StudioLighting[] = [
 /** Floats in the shared Studio uniform (7 vec4). */
 export const STUDIO_FLOATS = 28;
 
-export function packStudio(l: StudioLighting): Float32Array {
+/**
+ * `focus` is the camera's distance to what it orbits. The floor's horizon fade and the aerial
+ * perspective scale with it, so a house framed from 40 m stays as crisp as a chair framed from 3 m.
+ */
+export function packStudio(l: StudioLighting, focus = 3): Float32Array {
     const norm = (v: [number, number, number]) => { const n = Math.hypot(...v) || 1; return [v[0] / n, v[1] / n, v[2] / n]; };
     return new Float32Array([
         ...norm(l.keyDir), 0,
@@ -37,7 +41,7 @@ export function packStudio(l: StudioLighting): Float32Array {
         ...l.skyTop, 0,
         ...l.skyHorizon, 0,
         ...l.ground, 0,
-        l.exposure, 0, 0, 0,
+        l.exposure, Math.max(1, focus / 6), 0, 0,
     ]);
 }
 
@@ -58,7 +62,7 @@ struct Studio {
     sky_top: vec4<f32>,
     sky_horizon: vec4<f32>,
     ground: vec4<f32>,
-    params: vec4<f32>,         // x = exposure
+    params: vec4<f32>,         // x = exposure, y = distance scale (>= 1, grows with the framed focus distance)
 };
 @group(2) @binding(0) var<uniform> studio: Studio;
 
@@ -160,7 +164,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let fade = exp(-length(g) * 0.16);
         floor_col = floor_col * (1.0 - 0.05 * line_minor * fade - 0.1 * line_major * fade);
         // Fade to exactly the backdrop's horizon color well before the floor's edge.
-        let horizon = smoothstep(4.0, 34.0, dist);
+        let horizon = smoothstep(4.0 * studio.params.y, 34.0 * studio.params.y, dist);
         let col = mix(floor_col * (0.78 + 0.22 * in.color.r), studio.sky_horizon.rgb, horizon);
         return vec4<f32>(pow(aces(col * studio.params.x), vec3<f32>(1.0 / 2.2)), 1.0);
     }
@@ -234,7 +238,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     col = col + item.highlight.rgb * rim;
 
     // Aerial perspective toward the horizon color for very distant things.
-    col = mix(col, studio.sky_horizon.rgb, smoothstep(6.0, 40.0, dist) * 0.8);
+    col = mix(col, studio.sky_horizon.rgb, smoothstep(6.0 * studio.params.y, 40.0 * studio.params.y, dist) * 0.8);
     return vec4<f32>(pow(aces(col * studio.params.x), vec3<f32>(1.0 / 2.2)), 1.0);
 }
 `;

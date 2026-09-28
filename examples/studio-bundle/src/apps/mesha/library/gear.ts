@@ -49,7 +49,7 @@ const gear: ObjectDef = {
     ],
     regions: { gear: { label: "Gear", material: "=finish" } },
     presets: [
-        { name: "Clock wheel", values: { teeth: 60, module: 0.0008, thickness: 0.002, web: "spokes", openings: 4, rim: 0.1, hub: true, hubSize: 0.18, finish: "metal.brass", chamfer: 0.15 } },
+        { name: "Clock wheel", values: { teeth: 60, module: 0.001, thickness: 0.002, web: "spokes", openings: 4, rim: 0.1, hub: true, hubSize: 0.18, finish: "metal.brass", chamfer: 0.15 } },
         { name: "Industrial", values: { teeth: 24, module: 0.008, thickness: 0.04, web: "holes", openings: 6, rim: 0.2, hub: true, hubSize: 0.36, hubHeight: 1.4, finish: "metal.black" } },
         { name: "Printed pinion", values: { teeth: 12, module: 0.0025, thickness: 0.01, web: "solid", hub: true, hubSize: 0.5, hubHeight: 2.4, finish: "plastic.red" } },
     ],
