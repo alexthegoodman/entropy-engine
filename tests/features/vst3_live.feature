@@ -7,7 +7,11 @@ Feature: The DAW hosts real VST3 instruments in the running app
     And I advance 20 frames
     Then I capture "daw-scanned"
 
-    When I click "select_track_1"
+    When I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 4 frames
+    And I click "select_track_1"
+    And I advance 4 frames
+    And I send the widget event "TABBAR_SELECTED|daw_view|arrange"
     And I advance 4 frames
     And I click "vst3_use_vital"
     And I advance 30 frames
@@ -39,7 +43,11 @@ Feature: The DAW hosts real VST3 instruments in the running app
     And I click "vst3_close_editor"
     And I advance 30 frames
 
-    When I click "select_track_0"
+    When I send the widget event "TABBAR_SELECTED|daw_view|mixer"
+    And I advance 4 frames
+    And I click "select_track_0"
+    And I advance 4 frames
+    And I send the widget event "TABBAR_SELECTED|daw_view|arrange"
     And I advance 4 frames
     And I click "vst3_use_maschine_3"
     And I advance 30 frames

@@ -65,6 +65,7 @@ fn showcase_finales_render_with_headroom() {
             .iter()
             .map(|b| TrackBusRender {
                 gain: b.gain as f32,
+                eq: None,
                 silences: vec![],
                 effects: b
                     .effects

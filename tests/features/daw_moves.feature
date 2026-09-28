@@ -60,6 +60,7 @@ Feature: Quick knobs and moves for electronic music in the DAW
     When I select the track "Drums"
     And I turn the knob "char_humanize" to 1
     And I click "export_wav"
+    And I advance 50 milliseconds
     And I click "export_wav"
     Then the last two exports are identical
     And some of the export's drum hits are off the grid by less than an eighth of a step

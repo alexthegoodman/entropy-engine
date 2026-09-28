@@ -162,6 +162,7 @@ fn render_folds_less_back_between_the_harmonics() {
 }
 
 #[test]
+#[ignore = "wall-clock cost comparison; run alone with cargo test --release --lib draft_costs_well_under_live -- --ignored"]
 fn draft_costs_well_under_live() {
     let (instrument, low) = PLAYERS[0];
     let draft = best(instrument, low, Quality::Draft, 0.5).1;

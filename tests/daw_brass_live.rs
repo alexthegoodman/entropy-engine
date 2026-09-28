@@ -47,9 +47,14 @@ fn daw_brass_live_feature() {
     assert!((num(held, "peakHz") - 233.08).abs() < 35.0, "B-flat 3 sounded at {} Hz", num(held, "peakHz"));
     let released = analysis("after-release");
     assert!(peak_db(released) < peak_db(held) - 18.0, "the keyboard note did not release: {held:#} then {released:#}");
-    for name in ["latched-section", "latched-blazing", "playing-map"] {
+    for name in ["latched-section", "latched-blazing"] {
         assert!(peak_db(analysis(name)) > -45.0, "{name} is silent: {:#}", analysis(name));
     }
+    // The map deliberately drags breath down to 0.3, so its valid tone is quieter than the
+    // held-note floor. Check both audibility and pitch rather than treating -45 dBFS as silence.
+    let playing_map = analysis("playing-map");
+    assert!(peak_db(playing_map) > -55.0, "playing-map is silent: {playing_map:#}");
+    assert!((num(playing_map, "peakHz") - 233.08).abs() < 35.0, "playing-map lost its pitch: {playing_map:#}");
 
     let tools = result["tools"].as_array().expect("tool results");
     assert_eq!(tools.len(), 5, "{tools:#?}");

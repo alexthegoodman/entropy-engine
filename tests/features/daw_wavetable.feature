@@ -160,6 +160,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     Given the DAW is open
     When I click "export_wav"
     And I remember how many built-in notes the export has
+    And I advance 50 milliseconds
     And "Lead" is a wavetable track
     And I click "export_wav"
     Then the export has wavetable notes for "Lead" reading its own table
@@ -214,7 +215,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
   Scenario: The guitar's Voice list offers the wavetable
     Given the DAW is open
     And the Guitar Input window is open
-    Then the guitar Voice list is "sine, triangle, saw, square, wavetable"
+    Then the guitar Voice list is "wavetable, sine, triangle, saw, square"
 
   Scenario: The guitar plays the table the Wavetable window edits
     Given the DAW is open

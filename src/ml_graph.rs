@@ -489,6 +489,7 @@ mod tests {
 
     #[test]
     fn seeded_training_replays_the_same_loss_curve() {
+        let _rng_guard = crate::ML_TEST_RNG_LOCK.lock().unwrap();
         const GRAPH: &str = r#"{"nodes":[{"kind":"Input","id":"in","size":2},{"kind":"Dense","id":"hidden","units":8,"activation":"relu"},{"kind":"Dense","id":"out","units":2,"activation":"linear"},{"kind":"Loss","id":"loss"}],"links":[{"from":"in","to":"hidden"},{"from":"hidden","to":"out"},{"from":"out","to":"loss"}]}"#;
         let run = || {
             let mut trainer = MlTrainer::start_seeded(GRAPH, "xor", 30, 0.05, 123).unwrap();

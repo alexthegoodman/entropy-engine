@@ -63,6 +63,12 @@ pub mod yumon;
 pub mod ml_graph;
 pub mod ml_architecture;
 
+// Burn's seeded CPU backend uses shared RNG state. Tests that seed and train models must hold
+// this lock through completion so parallel unit tests cannot change one another's initialization.
+// This is a rare exception where a Mutex is allowed in this codebase
+#[cfg(test)]
+pub(crate) static ML_TEST_RNG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Every example `src/bin/example.rs` can dispatch, in the order its usage message lists them.
 /// This lives in the library rather than in that binary because `op_launch_example` validates
 /// against it: it is the whole fence between an addon naming an app to start and an addon naming

@@ -1428,6 +1428,7 @@ mod tests {
         serde_json::from_str(data).unwrap()
     }
     fn train(graph: &Graph, task: &str, epochs: usize) -> Vec<ArchitectureTrainingUpdate> {
+        let _rng_guard = crate::ML_TEST_RNG_LOCK.lock().unwrap();
         let mut trainer = ArchitectureTrainer::start(
             &serde_json::to_string(graph).unwrap(),
             task,
@@ -1514,7 +1515,7 @@ mod tests {
         image.config.insert("height".into(), serde_json::json!(4));
         image.config.insert("width".into(), serde_json::json!(4));
         let second = train(&graph, "mini_pic", 3);
-        assert!(second.last().unwrap().loss < second[0].loss);
+        assert!(second.last().unwrap().loss < second[0].loss, "4x4 loss did not decline: {second:?}");
     }
     #[test]
     fn invalid_wires_and_dimensions_fail_before_thread_spawn() {
@@ -1574,6 +1575,7 @@ mod tests {
     }
     #[test]
     fn pet_attention_does_not_see_future_tokens() {
+        let _rng_guard = crate::ML_TEST_RNG_LOCK.lock().unwrap();
         let graph = fixture(Task::Pet);
         let plan = compile(&graph).unwrap();
         let device = <MlBackend as Backend>::Device::default();
@@ -1611,6 +1613,7 @@ mod tests {
     }
     #[test]
     fn image_unet_responds_to_time_and_text_inputs() {
+        let _rng_guard = crate::ML_TEST_RNG_LOCK.lock().unwrap();
         let graph = fixture(Task::MiniPic);
         let plan = compile(&graph).unwrap();
         let device = <MlBackend as Backend>::Device::default();

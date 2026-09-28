@@ -36,6 +36,7 @@ fn film_scores_render_whole_with_headroom() {
             .iter()
             .map(|b| TrackBusRender {
                 gain: b.gain as f32,
+                eq: None,
                 // The saved hard cuts: the whole orchestra stops, reverb tails and all.
                 silences: b.silences.iter().map(|s| (s[0], s[1])).collect(),
                 effects: b

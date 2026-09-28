@@ -37,9 +37,9 @@ Feature: The running DAW opens a real audio input from its Guitar Input panel
     Then I see the label "Status: stopped"
     And I capture "guitar-04-stopped-again"
 
-    # The Voice list offers the wavetable (index 4). Starting with it sends the track's whole
+    # The Voice list offers the wavetable (index 0). Starting with it sends the track's whole
     # wavetable sound through the real op, which fails if the table or the track's bus is missing.
-    When I set "guitar_waveform" to "4"
+    When I set "guitar_waveform" to "0"
     And I advance 5 frames
     And I click "guitar_toggle"
     And I advance 10 frames
