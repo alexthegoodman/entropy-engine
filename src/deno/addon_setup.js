@@ -2474,7 +2474,7 @@ globalThis.Entropy = {
             state.lastY = my0;
 
             const onDown = (button, x, y) => {
-                globalThis.Entropy.println(`[Controls DEBUG] onDown button=${button} trigger=${isTriggerActive()} x=${x} y=${y}`);
+                // globalThis.Entropy.println(`[Controls DEBUG] onDown button=${button} trigger=${isTriggerActive()} x=${x} y=${y}`);
                 if (!isTriggerActive()) return;
                 if (format === "orbit" && button === state.options.panButton) {
                     state.panning = true;
@@ -2502,6 +2502,8 @@ globalThis.Entropy = {
             // concept established here, so wheel ticks are a no-op for it.
             const onWheel = (_deltaX, deltaY) => {
                 if (format !== "orbit" || deltaY === 0) return;
+                // GUI panels and popups own their wheel input, even at a scroll boundary.
+                if (globalThis.Entropy.Input.isPointerOverUI()) return;
                 state.distance = Math.max(0.5, state.distance - deltaY * state.options.zoomSpeed * state.distance * 0.1);
                 applyOrbit();
             };
@@ -2529,7 +2531,7 @@ globalThis.Entropy = {
                     s.lastY = my;
 
                     if (!s.dragging && !s.zooming && !s.panning) return;
-                    globalThis.Entropy.println(`[Controls DEBUG] tick dragging=${s.dragging} trigger=${s._isTriggerActive()} mx=${mx} my=${my} dxp=${dxp} dyp=${dyp}`);
+                    // globalThis.Entropy.println(`[Controls DEBUG] tick dragging=${s.dragging} trigger=${s._isTriggerActive()} mx=${mx} my=${my} dxp=${dxp} dyp=${dyp}`);
                     if (!s._isTriggerActive()) { s.dragging = false; s.zooming = false; s.panning = false; return; }
                     if (dxp === 0 && dyp === 0) return;
 

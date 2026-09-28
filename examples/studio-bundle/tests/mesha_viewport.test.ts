@@ -2,6 +2,7 @@ import { it, expect, vi } from "vitest";
 
 it("keeps meshes resident during move and rotation and restores the gesture with undo", async () => {
     let init: any, update: any, gizmo: any, serial = 0;
+    let renderToolbar: any, zoomKnob: any;
     const listeners: Record<string, any> = {}, tools: Record<string, any> = {}, saved = new Map();
     const api: any = {
         generateUUID: () => String(++serial), println: vi.fn(), setGameMode: vi.fn(),
@@ -14,7 +15,10 @@ it("keeps meshes resident during move and rotation and restores the gesture with
         Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
         Camera: { getTransform: () => [[2, 2, 2], [0, 0, 0]], setTransform: vi.fn() },
         Controls: { enable: vi.fn() }, Window: { getSize: () => [1500, 1000] },
-        UI: { Widget: {}, setTheme: vi.fn(), createWindow: () => "window", keyboardState: () => ({ typing: false }) }, Icons: {},
+        UI: { Widget: {
+            horizontal: (_: any, f: any) => f(), label: vi.fn(), spacer: vi.fn(), button: vi.fn(), segmented: vi.fn(),
+            knob: (_: any, config: any) => zoomKnob = config,
+        }, setTheme: vi.fn(), createWindow: (config: any) => { if (config.title === "Mesha") renderToolbar = config.onRender; return "window"; }, keyboardState: () => ({ typing: false }) }, Icons: { label: () => "", get: () => "" },
         Gizmo: { show: (c: any) => { gizmo = c; return "gizmo"; }, hide: vi.fn(), updatePosition: vi.fn(), updateRotation: vi.fn(), getState: () => ({ isActive: true }) },
     };
     vi.stubGlobal("Entropy", api);
@@ -44,6 +48,26 @@ it("keeps meshes resident during move and rotation and restores the gesture with
         expect(tools.mesha_state({}).instances[0].rotation).toEqual(q);
         listeners.onKeyDown("d", true, false); update();
         expect(tools.mesha_state({}).instances[1].rotation).toEqual(q);
+
+        // Adjusting sensitivity uses the current panned focus and never moves the camera.
+        const speed = api.Controls.enable.mock.lastCall[1].zoomSpeed;
+        api.Camera.getTransform = () => [[8, 4, 9], [6, 2, 7]];
+        api.Camera.setTransform.mockClear();
+        renderToolbar();
+        expect(zoomKnob).toMatchObject({ id: "mesha-zoom-strength", value: 1, min: 0.1, max: 3, defaultValue: 1 });
+        zoomKnob.onChange(2);
+        expect(api.Controls.enable.mock.lastCall[1]).toMatchObject({ target: [6, 2, 7], zoomSpeed: speed * 2 });
+        expect(api.Camera.setTransform).not.toHaveBeenCalled();
+        expect(JSON.parse(saved.get("session.json")).zoomStrength).toBe(2);
+        listeners.onKeyDown("f", false, false);
+        renderToolbar();
+        expect(zoomKnob.value).toBe(2);
+        // A fresh addon instance restores the preference from disk.
+        vi.resetModules();
+        await import("../src/apps/mesha/mesha_addon");
+        init();
+        renderToolbar();
+        expect(zoomKnob.value).toBe(2);
     } finally { vi.unstubAllGlobals(); }
 });
 
@@ -54,7 +78,7 @@ it("pans camera and target together, then orbits without snapping back", async (
     const end = source.indexOf("    Gizmo: {", start);
     const body = source.slice(start, end).replace(/\/\/[^\n]*$/g, "");
     const events: Record<string, any> = {};
-    let tick: any, mouse = [0, 0], pos = [0, 0, 5], target = [0, 0, 0];
+    let tick: any, mouse = [0, 0], pos = [0, 0, 5], target = [0, 0, 0], overUI = false;
     const ops = {
         op_camera_get_transform: () => [pos, target],
         op_camera_set_transform: (p: number[], t: number[]) => { pos = [...p]; target = [...t]; },
@@ -62,6 +86,7 @@ it("pans camera and target together, then orbits without snapping back", async (
         op_addon_on_update: (_: any, f: any) => tick = f,
     };
     const api: any = { println: vi.fn(), Input: Object.fromEntries(["onMouseDown", "onMouseUp", "onMouseWheel"].map(n => [n, (f: any) => { events[n] = f; return () => {}; }])) };
+    api.Input.isPointerOverUI = () => overUI;
     vi.stubGlobal("Entropy", api);
     try {
         api.Controls = new Function("ops", `return ({${body}}).Controls`)(ops);
@@ -73,8 +98,21 @@ it("pans camera and target together, then orbits without snapping back", async (
         events.onMouseDown(1, 25, 15); mouse = [40, 20]; tick(); events.onMouseUp(1);
         expect(target).toEqual(focus);
         expect(Math.hypot(...pos.map((v, i) => v - target[i]))).toBeCloseTo(5);
+        // GUI scrolling must leave both position and focus untouched, in either direction.
+        const beforeWheel = [...pos];
+        overUI = true;
+        for (const delta of [1, -1, 0.25, -0.25, 100]) events.onMouseWheel(0, delta);
+        expect(pos).toEqual(beforeWheel);
+        expect(target).toEqual(focus);
+        overUI = false;
         events.onMouseWheel(0, 1);
         expect(target).toEqual(focus);
         expect(Math.hypot(...pos.map((v, i) => v - target[i]))).toBeLessThan(5);
+        // Doubling sensitivity doubles the distance travelled for the same wheel delta.
+        const distanceAfter = Math.hypot(...pos.map((v, i) => v - target[i]));
+        pos = beforeWheel;
+        api.Controls.enable("orbit", { target: focus, zoomSpeed: 0.1 });
+        events.onMouseWheel(0, 1);
+        expect(5 - Math.hypot(...pos.map((v, i) => v - target[i]))).toBeCloseTo(2 * (5 - distanceAfter));
     } finally { vi.unstubAllGlobals(); }
 });

@@ -512,7 +512,9 @@ compose several into a scene and export ordinary GLB geometry. `npm run test:mes
 `cargo test --release --test mesha_live -- --nocapture` drives the real one.
 
 Mesha viewport: drag the gizmo arrows to move or its rings to rotate (no scale handles).
-Right-drag orbits, middle-drag pans, and the wheel zooms. Transform drags keep object meshes
+Right-drag orbits, middle-drag pans, and the wheel zooms. The toolbar's **Zoom strength** knob
+sets a saved 0.1x-3x sensitivity multiplier; scrolling over GUI panels does not zoom the scene.
+Transform drags keep object meshes
 resident on the GPU; contact shadows refresh when the drag ends.
 
 The DAW is one window with no page to scroll. A header holds the song (with Songs, History and Save

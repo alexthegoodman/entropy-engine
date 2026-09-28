@@ -55,6 +55,8 @@ let groundDirty = true;
 let pipelineId = "";
 let studioBuffer = "";
 let studioIndex = 0;
+let zoomStrength = 1;
+let baseZoomSpeed = 0.05;
 const GROUND_MESH_ID = Entropy.generateUUID();
 const BACKDROP_MESH_ID = Entropy.generateUUID();
 let groundItemBuffer = "";
@@ -133,7 +135,7 @@ function storeWrite(path: string, text: string): void {
 }
 
 function saveSession(): void {
-    storeWrite("session.json", JSON.stringify({ version: 1, scene, variationAmount, studio: STUDIO_PRESETS[studioIndex].id }));
+    storeWrite("session.json", JSON.stringify({ version: 1, scene, variationAmount, zoomStrength, studio: STUDIO_PRESETS[studioIndex].id }));
 }
 
 function loadSession(): boolean {
@@ -144,6 +146,7 @@ function loadSession(): boolean {
         const instances = (data.scene?.instances ?? []).filter((i: Instance) => lookupObject(i.objectId));
         scene = { instances, selectedId: data.scene?.selectedId ?? null, locks: data.scene?.locks ?? {} };
         if (typeof data.variationAmount === "number") variationAmount = data.variationAmount;
+        if (typeof data.zoomStrength === "number" && Number.isFinite(data.zoomStrength)) zoomStrength = Math.max(0.1, Math.min(3, data.zoomStrength));
         const s = STUDIO_PRESETS.findIndex(p => p.id === data.studio);
         if (s >= 0) studioIndex = s;
         for (const i of scene.instances) dirty.add(i.id);
@@ -306,6 +309,10 @@ function applyStudio(): void {
 
 let orbitTarget: Vec3 = [0, 0.45, 0];
 
+function enableOrbit(target: Vec3): void {
+    Entropy.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: baseZoomSpeed * zoomStrength, invertX: true });
+}
+
 function sceneBounds(onlySelected: boolean): Bounds | null {
     const ls = onlySelected && scene.selectedId ? [live.get(scene.selectedId)].filter(Boolean) as Live[] : [...live.values()];
     let b: Bounds | null = null;
@@ -332,7 +339,8 @@ function frame(onlySelected = true): void {
     const d = r * (onlySelected ? 2.9 : 2.3) * wide + 0.2;
     orbitTarget = c;
     Entropy.Camera.setTransform([c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d], c);
-    Entropy.Controls.enable("orbit", { target: c, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: Math.max(0.2, r), invertX: true });
+    baseZoomSpeed = Math.max(0.2, r);
+    enableOrbit(c);
 }
 
 // --- Picking & moving ----------------------------------------------------------------------------
@@ -597,6 +605,17 @@ function renderToolbar(): void {
         });
         W.spacer(id, 6);
         W.button(id, { id: "mesha-export", text: Icons.label("export", "Export GLB"), accent: ACCENT, tooltip: "Every object as ordinary meshes, one per material", onClick: () => exportScene() });
+        W.spacer(id, 12);
+        W.knob(id, {
+            id: "mesha-zoom-strength", label: "Zoom strength", value: zoomStrength, min: 0.1, max: 3,
+            defaultValue: 1, unit: "x", step: 0.1, decimals: 1,
+            onChange: v => {
+                zoomStrength = Math.max(0.1, Math.min(3, Number(v)));
+                // Use the camera's current target so adjusting after a pan preserves the view.
+                enableOrbit(Entropy.Camera.getTransform()[1]);
+                saveSession();
+            },
+        });
     });
 }
 
@@ -780,7 +799,7 @@ function setupUI(): void {
     });
     libraryWindow = Entropy.UI.createWindow({ title: "Library", width: 300, height: sh - 96, x: 16, y: 80, glass: true, onRender: renderLibrary });
     propsWindow = Entropy.UI.createWindow({ title: "Properties", width: 380, height: sh - 96, x: sw - 396, y: 80, glass: true, onRender: renderProperties });
-    toolbarWindow = Entropy.UI.createWindow({ title: "Mesha", width: 720, height: 52, x: Math.round((sw - 720) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
+    toolbarWindow = Entropy.UI.createWindow({ title: "Mesha", width: 820, height: 96, x: Math.round((sw - 820) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
 }
 
 // --- MCP tools -----------------------------------------------------------------------------------
@@ -958,7 +977,7 @@ addon.onInit(() => {
     const restored = loadSession();
     applyStudio();
     Entropy.Camera.setTransform([1.7, 1.25, 2.3], orbitTarget);
-    Entropy.Controls.enable("orbit", { target: orbitTarget, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, invertX: true });
+    enableOrbit(orbitTarget);
     setupUI();
     registerTools();
     if (restored) { statusMessage = "Welcome back."; pendingFrame = 3; pendingFrameAll = true; syncGizmo(); }
