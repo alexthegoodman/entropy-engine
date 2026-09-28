@@ -67,10 +67,11 @@ fn mesha_live_feature() {
     assert_eq!(instances[1]["values"]["topShape"], "round", "the table took its preset");
     assert_eq!(state["lighting"], "warm");
 
-    // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses and a door.
+    // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses, a
+    // door, and the foliage: trees, conifers, palms, ferns, shrubs, grasses, flowers, pots and a garden.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 16);
+    assert_eq!(saved.len(), 37);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -163,6 +164,44 @@ fn mesha_live_feature() {
     assert_eq!(&house_glb[..4], b"glTF");
     assert!(house_export["triangles"].as_u64().unwrap() > reply("mesha_export", 3)["triangles"].as_u64().unwrap());
 
+    // Foliage. Trees are full crowns of leaves; the winter maple drops them, and Variation reshapes
+    // the maple's branching while its size, finishes and canopy stay locked.
+    let oak = &reply("mesha_add", 15)["instance"];
+    assert_eq!(oak["objectId"], "nature.tree");
+    assert_eq!(oak["violations"].as_array().unwrap().len(), 0);
+    assert!(oak["triangles"].as_u64().unwrap() > 50_000, "an oak crown needs thousands of leaves: {oak:#}");
+    assert_eq!(reply("mesha_add", 16)["instance"]["values"]["droop"], 2.0);
+    let maple = &reply("mesha_add", 17)["instance"];
+    let winter = &reply("mesha_set", 10)["instance"];
+    assert_eq!(winter["values"]["canopy"], "bare");
+    assert!(winter["triangles"].as_u64().unwrap() * 4 < maple["triangles"].as_u64().unwrap(), "bare branches should shed the leaves");
+    let leafy = &reply("mesha_set", 11)["instance"];
+    let tree_varied = &reply("mesha_vary", 5)["instance"];
+    for key in ["height", "trunkRadius", "barkFinish", "leafFinish", "canopy"] {
+        assert_eq!(tree_varied["values"][key], leafy["values"][key], "locked tree control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 5)["changed"].as_array().unwrap().len() >= 3);
+    assert_eq!(tree_varied["violations"].as_array().unwrap().len(), 0);
+    assert_eq!(saved[18]["values"], tree_varied["values"]);
+    // Stylized tiers replace thousands of needle sprays with a few jagged cones.
+    let spruce = &reply("mesha_add", 18)["instance"];
+    let tiers = &reply("mesha_set", 12)["instance"];
+    assert_eq!(tiers["values"]["foliage"], "tiers");
+    assert!(tiers["triangles"].as_u64().unwrap() * 10 < spruce["triangles"].as_u64().unwrap());
+    for (n, id) in [(19, "nature.conifer"), (20, "nature.palm"), (21, "nature.fern"), (22, "nature.fern"), (23, "nature.shrub"), (24, "nature.shrub"), (25, "nature.grass"), (26, "nature.grass"), (27, "nature.flowers"), (28, "nature.flowers"), (29, "household.potted_plant")] {
+        let added = &reply("mesha_add", n)["instance"];
+        assert_eq!(added["objectId"], id);
+        assert_eq!(added["violations"].as_array().unwrap().len(), 0, "{added:#}");
+    }
+    assert_eq!(reply("mesha_set", 13)["instance"]["values"]["flowerFinish"], "flower.pink");
+    let succulent = &reply("mesha_set", 14)["instance"];
+    assert_eq!(succulent["values"]["plant"], "succulent");
+    assert_eq!(saved[30]["values"]["potShape"], "bowl");
+    let foliage_export = reply("mesha_export", 5);
+    let foliage_glb = fs::read(foliage_export["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&foliage_glb[..4], b"glTF");
+    assert!(foliage_export["triangles"].as_u64().unwrap() > house_export["triangles"].as_u64().unwrap());
+
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
     let glb = fs::read(export["path"].as_str().unwrap()).expect("GLB written");
@@ -194,5 +233,23 @@ fn mesha_live_feature() {
         }
     }
     assert!(changed * 50 > total, "the viewport barely changed after Variation ({changed}/{total} pixels)");
+
+    // The foliage shading reached the screen: a green oak crown, an orange back-lit maple.
+    let share = |name: &str, test: &dyn Fn([u8; 3]) -> bool| -> f64 {
+        let img = image::open(find(name)).unwrap().to_rgb8();
+        let (w, h) = img.dimensions();
+        let (mut hit, mut total) = (0u64, 0u64);
+        for y in (h / 8)..(h * 7 / 8) {
+            for x in (w / 4)..(w * 3 / 4) {
+                total += 1;
+                if test(img.get_pixel(x, y).0) { hit += 1; }
+            }
+        }
+        hit as f64 / total as f64
+    };
+    let green = share("31-tree-oak", &|p| p[1] as i32 > p[0] as i32 + 12 && p[1] as i32 > p[2] as i32 + 12);
+    assert!(green > 0.04, "the oak's crown is barely green on screen ({green:.3})");
+    let orange = share("33-tree-autumn-backlit", &|p| p[0] as i32 > p[1] as i32 + 30 && p[1] as i32 > p[2] as i32);
+    assert!(orange > 0.03, "the autumn maple is barely orange on screen ({orange:.3})");
     println!("Mesha live BDD: {}", root.display());
 }

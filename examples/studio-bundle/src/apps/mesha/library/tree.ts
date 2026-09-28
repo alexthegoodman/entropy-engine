@@ -1,0 +1,86 @@
+import type { ObjectDef } from "../mesha_object";
+
+/** A broadleaf tree: a branching skeleton of bark tubes with leaves (or leafy clusters) on every twig. */
+const tree: ObjectDef = {
+    id: "nature.tree", name: "Tree", category: "Nature",
+    tags: ["tree", "oak", "maple", "birch", "willow", "weeping willow", "cherry", "blossom", "deciduous", "broadleaf", "foliage", "plant", "nature", "landscape", "autumn"],
+    description: "A broadleaf tree: forking or single-leader trunk, limbs and twigs, and thousands of leaves with seasonal colors.",
+    featured: ["height", "crownShape", "droop", "canopy", "leafShape", "leafFinish", "barkFinish"],
+    groups: [
+        { id: "size", label: "Size" },
+        { id: "trunk", label: "Trunk" },
+        { id: "branches", label: "Branches" },
+        { id: "foliage", label: "Foliage" },
+        { id: "materials", label: "Materials" },
+    ],
+    params: [
+        { id: "height", label: "Height", type: "number", default: 8, min: 1.5, max: 24, unit: "m", group: "size" },
+        { id: "trunkRadius", label: "Trunk radius", type: "number", default: 0.24, min: "=height * 0.008", max: "=height * 0.06", unit: "m", decimals: 2, group: "size" },
+        { id: "crownBase", label: "Clear trunk", type: "number", default: 0.3, min: 0.08, max: 0.8, group: "trunk", description: "Share of the height below the lowest limb." },
+        { id: "leader", label: "Central leader", type: "number", default: 0.15, min: 0, max: 1, group: "trunk", description: "0 forks into limbs; 1 keeps one trunk to the top." },
+        { id: "lean", label: "Lean", type: "number", default: 3, min: 0, max: 35, unit: "°", group: "trunk" },
+        { id: "gnarl", label: "Gnarl", type: "number", default: 0.35, min: 0, max: 1.2, group: "trunk" },
+        { id: "flare", label: "Root flare", type: "number", default: 0.55, min: 0, max: 1.5, group: "trunk" },
+        { id: "barkRelief", label: "Bark relief", type: "number", default: 0.6, min: 0, max: 1.5, group: "trunk" },
+        { id: "levels", label: "Branching depth", type: "int", default: 4, min: 1, max: 4, group: "branches" },
+        { id: "limbs", label: "Limbs", type: "int", default: 6, min: 2, max: 12, group: "branches" },
+        { id: "twigs", label: "Twigs per branch", type: "int", default: 4, min: 2, max: 7, group: "branches" },
+        { id: "branchAngle", label: "Branch angle", type: "number", default: 48, min: 12, max: 85, unit: "°", group: "branches" },
+        { id: "reach", label: "Limb reach", type: "number", default: 0.62, min: 0.25, max: 1.2, group: "branches" },
+        { id: "subReach", label: "Twig reach", type: "number", default: 0.6, min: 0.3, max: 0.85, group: "branches" },
+        { id: "droop", label: "Weeping", type: "number", default: 0, min: -0.8, max: 2.5, group: "branches", description: "Positive arches branches down; negative sweeps them up." },
+        { id: "crownShape", label: "Crown shape", type: "enum", default: "round", options: ["round", "oval", "spreading", "conical", "columnar"], optionLabels: ["Round", "Oval", "Spreading", "Conical", "Columnar"], group: "branches" },
+        { id: "canopy", label: "Canopy", type: "enum", default: "leaves", options: ["leaves", "clusters", "bare"], optionLabels: ["Leaves", "Leafy clusters", "Bare (winter)"], group: "foliage" },
+        { id: "leafShape", label: "Leaf shape", type: "enum", default: "ovate", options: ["ovate", "lanceolate", "round", "heart", "lobed"], optionLabels: ["Ovate", "Narrow", "Round", "Heart", "Lobed (oak)"], group: "foliage", visibleIf: "=canopy == 'leaves'" },
+        { id: "leafSize", label: "Leaf size", type: "number", default: 0.26, min: 0.04, max: 0.5, unit: "m", group: "foliage", visibleIf: "=canopy == 'leaves'" },
+        { id: "leafWidth", label: "Leaf width", type: "number", default: 0.6, min: 0.2, max: 1.2, group: "foliage", visibleIf: "=canopy == 'leaves'" },
+        { id: "density", label: "Leaves per twig", type: "int", default: 18, min: 3, max: 36, group: "foliage", visibleIf: "=canopy == 'leaves'" },
+        { id: "leafDroop", label: "Leaf hang", type: "number", default: 0.25, min: 0, max: 1.5, group: "foliage", visibleIf: "=canopy == 'leaves'" },
+        { id: "clusterSize", label: "Cluster size", type: "number", default: 0.9, min: 0.25, max: 2.5, unit: "m", group: "foliage", visibleIf: "=canopy == 'clusters'" },
+        { id: "faceted", label: "Faceted clusters", type: "bool", default: false, group: "foliage", visibleIf: "=canopy == 'clusters'" },
+        { id: "variety", label: "Color variety", type: "number", default: 0.55, min: 0, max: 1, group: "foliage", visibleIf: "=canopy != 'bare'" },
+        { id: "barkFinish", label: "Bark", type: "material", default: "bark.oak", materials: ["bark"], group: "materials" },
+        { id: "leafFinish", label: "Leaves", type: "material", default: "leaf.green", materials: ["leaf"], group: "materials", visibleIf: "=canopy != 'bare'" },
+        { id: "seed", label: "Seed", type: "seed", default: 5, group: "materials", variation: 0 },
+    ],
+    derived: {
+        // Weeping crowns need longer twigs to hang; thin trunks carry fewer, lighter leaves.
+        twigLen: "=subReach + max(0, droop) * 0.08",
+        leafCount: "=canopy == 'bare' ? 0 : canopy == 'clusters' ? 1 : density",
+    },
+    rules: [
+        { check: "=!(leader > 0.7 && crownShape == 'spreading')", message: "A spreading crown needs a forking trunk (lower the central leader)." },
+        { check: "=clusterSize < height * 0.35 || canopy != 'clusters'", message: "Leafy clusters that large swallow the tree." },
+    ],
+    regions: {
+        bark: { label: "Bark", material: "=barkFinish" },
+        leaves: { label: "Leaves", material: "=leafFinish" },
+    },
+    presets: [
+        { name: "English oak", values: { height: 9, trunkRadius: 0.38, crownBase: 0.26, leader: 0.05, gnarl: 0.55, flare: 0.8, limbs: 7, twigs: 4, branchAngle: 55, reach: 0.78, crownShape: "spreading", leafShape: "lobed", leafSize: 0.34, density: 18, barkFinish: "bark.oak", leafFinish: "leaf.green", seed: 5 } },
+        { name: "Silver birch", values: { height: 11, trunkRadius: 0.16, crownBase: 0.3, leader: 0.75, lean: 5, gnarl: 0.25, flare: 0.2, limbs: 9, twigs: 4, branchAngle: 38, reach: 0.4, subReach: 0.58, droop: 0.7, crownShape: "oval", leafShape: "heart", leafSize: 0.17, leafWidth: 0.8, density: 20, leafDroop: 0.5, barkFinish: "bark.birch", leafFinish: "leaf.spring", seed: 12 } },
+        { name: "Weeping willow", values: { height: 9, trunkRadius: 0.34, crownBase: 0.24, leader: 0.1, gnarl: 0.45, flare: 0.6, levels: 3, limbs: 7, twigs: 5, branchAngle: 32, reach: 0.72, subReach: 0.8, droop: 2.0, crownShape: "round", leafShape: "lanceolate", leafSize: 0.22, leafWidth: 0.25, density: 26, leafDroop: 1.2, barkFinish: "bark.grey", leafFinish: "leaf.spring", variety: 0.4, seed: 8 } },
+        { name: "Autumn maple", values: { height: 8, trunkRadius: 0.24, crownBase: 0.28, leader: 0.3, limbs: 7, twigs: 4, branchAngle: 40, reach: 0.6, crownShape: "oval", leafShape: "lobed", leafSize: 0.26, leafWidth: 0.95, density: 18, leafFinish: "leaf.autumn", barkFinish: "bark.grey", variety: 0.85, seed: 21 } },
+        { name: "Cherry blossom", values: { height: 5, trunkRadius: 0.2, crownBase: 0.22, leader: 0, lean: 8, gnarl: 0.7, flare: 0.5, limbs: 6, twigs: 4, branchAngle: 60, reach: 0.9, subReach: 0.5, droop: 0.2, crownShape: "spreading", leafShape: "round", leafSize: 0.14, leafWidth: 0.9, density: 24, leafDroop: 0.1, barkFinish: "bark.dark", leafFinish: "leaf.blossom", variety: 0.6, seed: 3 } },
+        { name: "Storybook", values: { height: 6, trunkRadius: 0.22, crownBase: 0.35, leader: 0.2, gnarl: 0.4, levels: 2, limbs: 6, twigs: 5, branchAngle: 45, reach: 0.6, canopy: "clusters", clusterSize: 1.25, faceted: false, leafFinish: "leaf.green", variety: 0.7, seed: 14 } },
+        { name: "Winter oak", values: { height: 9, trunkRadius: 0.36, crownBase: 0.25, leader: 0.05, gnarl: 0.6, flare: 0.8, levels: 4, limbs: 7, twigs: 4, branchAngle: 55, reach: 0.78, crownShape: "spreading", canopy: "bare", barkFinish: "bark.dark", seed: 5 } },
+    ],
+    nodes: [
+        { id: "leaf", type: "mesh.leaf", output: false, shape: "=leafShape", length: "=leafSize", width: "=leafSize * leafWidth", fold: 22, curl: 28, segments: 3, lobes: 3, region: "leaves" },
+        { id: "blob", type: "mesh.icosphere", output: false, radius: "=clusterSize * 0.5", subdivisions: "=faceted ? 1 : 2" },
+        { id: "cluster", type: "deform.noise", output: false, mesh: "@blob", amount: "=clusterSize * 0.12", frequency: "=2.4 / clusterSize", octaves: 2, seed: "=seed", faceted: "=faceted", radial: true, region: "leaves" },
+        {
+            id: "tree", type: "plant.tree", barkRegion: "bark",
+            height: "=height", trunkRadius: "=trunkRadius", levels: "=canopy == 'clusters' ? min(levels, 2) : levels", branches: "=limbs", twigs: "=twigs",
+            crownBase: "=crownBase", leader: "=leader", angle: "=branchAngle", reach: "=reach", subReach: "=twigLen", crownShape: "=crownShape",
+            radiusRatio: "=leader > 0.5 ? 0.42 : 0.62", gnarl: "=gnarl", droop: "=droop", lean: "=lean", flare: "=flare", bark: "=barkRelief",
+            sides: 14, segments: "=droop > 1 ? 9 : 6", seed: "=seed",
+            leaf: { if: "=canopy == 'clusters'", then: "@cluster", else: "@leaf" },
+            leaves: "=leafCount", leafStart: 0.25, leafAngle: 60, leafDroop: "=leafDroop", leafAlign: "=canopy == 'clusters' ? 'random' : 'twig'",
+            leafScaleVariation: "=canopy == 'clusters' ? 0.35 : 0.25", tintVariation: "=variety", leafBudget: "=canopy == 'clusters' ? 40000 : 130000",
+        },
+    ],
+    limits: { maxSize: 60, minSize: 1, maxTriangles: 220000 },
+};
+
+export default tree;
