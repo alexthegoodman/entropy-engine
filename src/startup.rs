@@ -1771,40 +1771,41 @@ impl WindowState {
         // }
 
         #[cfg(target_os = "windows")]
-        let webview = {
-            let (tx, rx) = std::sync::mpsc::channel();
+        let webview = None;
+        // let webview = {
+        //     let (tx, rx) = std::sync::mpsc::channel();
             
-            let builder = wry::WebViewBuilder::new()
-                .with_visible(false)
-                .with_focused(false)
-                .with_custom_protocol("asset".into(), move |web_view_id, request| {
-                    let path = request.uri().path();
-                    let path = if path == "/" || path.is_empty() { "index.html" } else { &path[1..] };
-                    let content = std::fs::read(format!("public/wry-chat/dist/{}", path)).unwrap_or_else(|_| {
-                        "<html><body>Asset not found</body></html>".as_bytes().to_vec()
-                    });
+        //     let builder = wry::WebViewBuilder::new()
+        //         .with_visible(false)
+        //         .with_focused(false)
+        //         .with_custom_protocol("asset".into(), move |web_view_id, request| {
+        //             let path = request.uri().path();
+        //             let path = if path == "/" || path.is_empty() { "index.html" } else { &path[1..] };
+        //             let content = std::fs::read(format!("public/wry-chat/dist/{}", path)).unwrap_or_else(|_| {
+        //                 "<html><body>Asset not found</body></html>".as_bytes().to_vec()
+        //             });
                     
-                    wry::http::Response::builder()
-                        .header("content-type", "text/html")
-                        .body(content.into())
-                        .unwrap()
-                })
-                .with_url("asset://localhost/index.html")
-                .with_ipc_handler(move |msg| {
-                    let _ = tx.send(msg.body().to_string());
-                });
+        //             wry::http::Response::builder()
+        //                 .header("content-type", "text/html")
+        //                 .body(content.into())
+        //                 .unwrap()
+        //         })
+        //         .with_url("asset://localhost/index.html")
+        //         .with_ipc_handler(move |msg| {
+        //             let _ = tx.send(msg.body().to_string());
+        //         });
             
-            let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
-            editor.webview_ipc_rx = Some(rx);
+        //     let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
+        //     editor.webview_ipc_rx = Some(rx);
             
-            match builder.build_as_child(&window) {
-                Ok(wv) => Some(wv),
-                Err(e) => {
-                    error!("Failed to create webview: {}", e);
-                    None
-                }
-            }
-        };
+        //     match builder.build_as_child(&window) {
+        //         Ok(wv) => Some(wv),
+        //         Err(e) => {
+        //             error!("Failed to create webview: {}", e);
+        //             None
+        //         }
+        //     }
+        // };
 
         let mut state = Self {
             #[cfg(macos_platform)]
