@@ -109,7 +109,7 @@ export function searchLibrary(query: string, category?: string): ObjectDef[] {
 // --- Engine vertex packing -----------------------------------------------------------------------
 
 /** Pattern ids the viewport shader understands, carried in the normal's length (1 + id). */
-export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9 } as const;
+export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9, mass: 10 } as const;
 
 /**
  * The engine's `mesh` layout: position(3) normal(3) uv(2) color(4). Color is the material's sRGB

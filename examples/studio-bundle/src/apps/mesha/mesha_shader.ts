@@ -203,19 +203,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let s = vnoise(p * 70.0);
         let fleck = smoothstep(0.78, 0.9, s);
         base = mix(base * (0.9 + 0.18 * fbm(p * 7.0)), base * 0.45, fleck * 0.6);
-    } else if (pattern == 8) {
+    } else if (pattern == 8 || pattern == 10) {
         // Foliage: mottled tone, sun-yellowed patches, and a midrib with side veins drawn from the
         // leaf's own UVs (across 0..1 with the midrib at 0.5, along = distance from the base).
         let m = fbm(p * 5.0);
         base = base * (0.72 + 0.62 * m) * (0.93 + 0.14 * vnoise(p * 23.0));
         base = mix(base, base * vec3<f32>(1.3, 1.12, 0.55), smoothstep(0.55, 0.85, m) * 0.5);
+        let veins = select(0.0, 1.0, pattern == 8);
         let uu = in.uv.x - 0.5;
         let mid = 1.0 - smoothstep(0.0, 0.02 + fw.x * 1.5, abs(uu));
         let d = abs(fract(in.uv.y * 7.0 - abs(uu) * 3.2) - 0.5);
         let side = smoothstep(0.4, 0.5, d) * clamp(1.0 - abs(uu) * 1.9, 0.0, 1.0) * (1.0 - smoothstep(0.03, 0.09, fw.y * 7.0));
-        base = base * (1.0 + 0.2 * mid + 0.12 * side);
+        base = base * (1.0 + veins * (0.2 * mid + 0.12 * side));
+        if (pattern == 10) { base = base * (0.6 + 0.8 * vnoise(p * 11.0)); }
         rough = clamp(rough - 0.06 * mid, 0.03, 1.0);
-        sheen = 0.18;
+        sheen = select(0.0, 0.18, pattern == 8);
         spec_scale = 0.3;
     } else if (pattern == 9) {
         // Bark: deep vertical furrows and scaly plates.

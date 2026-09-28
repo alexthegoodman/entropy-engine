@@ -55,6 +55,7 @@ const conifer: ObjectDef = {
     regions: {
         bark: { label: "Trunk", material: "=barkFinish" },
         needles: { label: "Needles", material: "=needleFinish" },
+        leader: { label: "Leader", material: "=needleFinish", pattern: "mass" },
         cone: { label: "Cones", material: "=coneFinish" },
     },
     presets: [
@@ -68,7 +69,7 @@ const conifer: ObjectDef = {
     nodes: [
         { id: "trunkRaw", type: "mesh.cone", output: false, bottomRadius: "=trunkRadius", topRadius: "=trunkRadius * 0.12", height: "=height * 0.94", segments: 12 },
         { id: "trunk", type: "deform.noise", mesh: "@trunkRaw", amount: "=trunkRadius * 0.14", frequency: "=1.2 / max(0.3, trunkRadius * 3)", octaves: 3, seed: "=seed", region: "bark" },
-        { id: "leader", type: "mesh.cone", bottomRadius: "=trunkRadius * 0.5 + baseWidth * 0.03", topRadius: 0.005, height: "=leaderH", segments: 6, at: [0, "=height * 0.94 - leaderH * 0.35", 0], region: "needles" },
+        { id: "leader", type: "mesh.cone", bottomRadius: "=trunkRadius * 0.5 + baseWidth * 0.03", topRadius: 0.005, height: "=leaderH", segments: 6, at: [0, "=height * 0.94 - leaderH * 0.35", 0], region: "leader" },
         {
             id: "boughs", type: "mesh.frond", repeat: "=tiers * boughs",
             length: `=max(0.25, baseWidth * ${profile.replace(/\bv\b/g, "(floor(index / boughs) / (tiers - 1))")} * (1 + (rand(index, 1) - 0.5) * irregularity * 0.7))`,

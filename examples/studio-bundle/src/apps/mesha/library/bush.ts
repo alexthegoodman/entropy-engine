@@ -53,7 +53,7 @@ const bush: ObjectDef = {
     regions: {
         stem: { label: "Stems", material: "=stemFinish" },
         leaf: { label: "Leaves", material: "=leafFinish" },
-        body: { label: "Body", material: "=leafFinish", shade: 0.68 },
+        body: { label: "Body", material: "=leafFinish", shade: 0.7, pattern: "mass" },
         bloom: { label: "Flowers / berries", material: "=bloomFinish" },
     },
     presets: [

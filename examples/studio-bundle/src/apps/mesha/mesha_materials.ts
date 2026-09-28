@@ -2,7 +2,7 @@
 // binds each to one of these by id, usually through a "finish" parameter, so a user picks "Walnut"
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
-export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark";
+export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "mass" | "bark";
 
 export interface MaterialPreset {
     id: string;

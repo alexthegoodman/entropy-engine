@@ -6,7 +6,7 @@
 import { type Mesh, type Vec3, join, setRegion, transformMesh, compose4, emptyMesh, triangleCount, vertexCount, bounds, type Bounds } from "./mesha_mesh";
 import { CATALOG, COMMON_NODE_FIELDS, type ComponentInput } from "./mesha_catalog";
 import { evaluate, num, truthy, checkSyntax, referencedNames, type Scope, type Value } from "./mesha_expr";
-import { material, MATERIAL_BY_ID, materialFamily, type MaterialPreset } from "./mesha_materials";
+import { material, MATERIAL_BY_ID, materialFamily, type MaterialPreset, type Pattern } from "./mesha_materials";
 
 export type ParamType = "number" | "int" | "bool" | "enum" | "seed" | "material";
 export type ParamValue = number | boolean | string;
@@ -51,6 +51,8 @@ export interface RegionDef {
     material: string;
     /** Multiplies the bound material's color (0..1): the shaded inside of a canopy, the underside of a hedge. */
     shade?: number;
+    /** Overrides the material's surface pattern ("mass": foliage without leaf veins, for canopy bodies and leader spikes). */
+    pattern?: Pattern;
 }
 
 export interface NodeDef {
@@ -219,9 +221,10 @@ export function resolveMaterials(def: ObjectDef, values: ParamValues): Record<st
         let id = r.material;
         if (id.startsWith("=")) { try { id = String(evaluate(id, scope)); } catch { id = ""; } }
         const base = material(id);
-        out[region] = r.shade !== undefined && r.shade < 1
+        const shaded = r.shade !== undefined && r.shade < 1
             ? { ...base, color: base.color.map(c => c * Math.max(0, r.shade!)) as [number, number, number] }
             : base;
+        out[region] = r.pattern ? { ...shaded, pattern: r.pattern } : shaded;
     }
     return out;
 }
