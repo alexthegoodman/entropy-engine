@@ -79,8 +79,9 @@ it("pans camera and target together, then orbits without snapping back", async (
     const body = source.slice(start, end).replace(/\/\/[^\n]*$/g, "");
     const events: Record<string, any> = {};
     let tick: any, mouse = [0, 0], pos = [0, 0, 5], target = [0, 0, 0], overUI = false;
+    let cameraSnapshot: number[][] | undefined;
     const ops = {
-        op_camera_get_transform: () => [pos, target],
+        op_camera_get_transform: () => cameraSnapshot ?? [pos, target],
         op_camera_set_transform: (p: number[], t: number[]) => { pos = [...p]; target = [...t]; },
         op_input_get_state: () => ({ mousePosition: mouse }),
         op_addon_on_update: (_: any, f: any) => tick = f,
@@ -91,7 +92,20 @@ it("pans camera and target together, then orbits without snapping back", async (
     try {
         api.Controls = new Function("ops", `return ({${body}}).Controls`)(ops);
         api.Controls.enable("orbit", { trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.01 });
-        events.onMouseDown(2, 0, 0); mouse = [25, 15]; tick(); events.onMouseUp(2);
+        events.onMouseDown(2, 0, 0);
+        for (let n = 1; n <= 12; n++) {
+            // Native camera reads lag writes: the frame snapshot is captured before
+            // applying the preceding frame's queued camera transform.
+            const previous = [pos, target];
+            mouse = [25 * n, 15 * n]; tick();
+            cameraSnapshot = previous;
+            expect(target[0]).toBeCloseTo(-0.25 * n);
+            expect(target[1]).toBeCloseTo(0.15 * n);
+            expect(target[2]).toBeCloseTo(0);
+            pos.forEach((v, i) => expect(v - target[i]).toBeCloseTo([0, 0, 5][i]));
+        }
+        events.onMouseUp(2);
+        cameraSnapshot = undefined;
         const focus = [...target];
         expect(Math.hypot(...focus)).toBeGreaterThan(0.1);
         expect(pos.map((v, i) => v - target[i])).toEqual([0, 0, 5]);

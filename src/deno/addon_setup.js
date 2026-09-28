@@ -2392,6 +2392,7 @@ globalThis.Entropy = {
                 panning: false,
                 lastX: 0,
                 lastY: 0,
+                position: [pos[0], pos[1], pos[2]],
                 target: [target[0], target[1], target[2]],
                 options: {
                     trigger: options.trigger || "shift",
@@ -2436,11 +2437,15 @@ globalThis.Entropy = {
                     state.target[1] + dir[1] * state.distance,
                     state.target[2] + dir[2] * state.distance,
                 ];
+                state.position = newPos;
                 ops.op_camera_set_transform(newPos, state.target);
             };
 
             const applyPan = (dxp, dyp) => {
-                const [curPos] = ops.op_camera_get_transform();
+                // Native camera writes are queued, and reads can still reflect an older
+                // frame. Keep position and target from the same controller update or
+                // repeated pan steps inadvertently change the viewing direction.
+                const curPos = state.position;
                 const fwd = [
                     state.target[0] - curPos[0],
                     state.target[1] - curPos[1],
@@ -2466,6 +2471,7 @@ globalThis.Entropy = {
                 ];
                 state.target = [state.target[0] + offset[0], state.target[1] + offset[1], state.target[2] + offset[2]];
                 const newPos = [curPos[0] + offset[0], curPos[1] + offset[1], curPos[2] + offset[2]];
+                state.position = newPos;
                 ops.op_camera_set_transform(newPos, state.target);
             };
 
