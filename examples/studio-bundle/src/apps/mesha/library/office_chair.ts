@@ -1,0 +1,173 @@
+import type { ObjectDef } from "../mesha_object";
+
+/**
+ * An office chair facing +Z: cushioned seat on a gas lift and a five-star base with casters, or on
+ * four legs (composed from component.leg). Switching the base swaps the wheel controls for leg
+ * controls; turning armrests off hides their controls.
+ */
+const officeChair: ObjectDef = {
+    id: "furniture.office_chair",
+    name: "Office Chair",
+    category: "Furniture",
+    tags: ["office chair", "chair", "desk chair", "task chair", "swivel chair", "conference chair", "seat"],
+    description: "Task chair with star base and casters or four legs, curved back, arms and headrest.",
+    featured: ["seatHeight", "seatWidth", "seatDepth", "backHeight", "backCurvature", "armrests", "headrest", "spokes", "cushion", "frameThickness", "backStyle", "upholstery", "wear"],
+    groups: [
+        { id: "seat", label: "Seat" },
+        { id: "back", label: "Back" },
+        { id: "arms", label: "Arms" },
+        { id: "base", label: "Base" },
+        { id: "wheels", label: "Wheels" },
+        { id: "upholstery", label: "Upholstery" },
+        { id: "materials", label: "Materials" },
+        { id: "imperfections", label: "Imperfections" },
+    ],
+    params: [
+        { id: "seatHeight", label: "Height", type: "number", default: 0.47, min: 0.38, max: 0.6, unit: "m", group: "seat" },
+        { id: "seatWidth", label: "Width", type: "number", default: 0.5, min: 0.4, max: 0.64, unit: "m", group: "seat" },
+        { id: "seatDepth", label: "Seat depth", type: "number", default: 0.47, min: 0.38, max: 0.56, unit: "m", group: "seat" },
+        { id: "cushion", label: "Cushion thickness", type: "number", default: 0.07, min: 0.03, max: 0.12, unit: "m", group: "upholstery" },
+        { id: "softness", label: "Softness", type: "number", default: 0.65, min: 0.1, max: 1, group: "upholstery" },
+        { id: "backStyle", label: "Style", type: "enum", default: "cushion", options: ["cushion", "mesh"], optionLabels: ["Upholstered", "Mesh"], group: "back" },
+        { id: "backHeight", label: "Back height", type: "number", default: 0.52, min: 0.28, max: 0.8, unit: "m", group: "back" },
+        { id: "backWidth", label: "Back width", type: "number", default: 0.94, min: 0.75, max: 1.1, group: "back", description: "Relative to the seat width." },
+        { id: "backCurvature", label: "Back curvature", type: "number", default: 24, min: 0, max: 60, unit: "°", group: "back" },
+        { id: "backTilt", label: "Recline", type: "number", default: 10, min: 0, max: 24, unit: "°", group: "back" },
+        { id: "headrest", label: "Headrest", type: "bool", default: false, group: "back" },
+        { id: "armrests", label: "Armrests", type: "bool", default: true, group: "arms" },
+        { id: "armStyle", label: "Arm style", type: "enum", default: "loop", options: ["loop", "post"], optionLabels: ["Loop", "T-post"], group: "arms", visibleIf: "=armrests" },
+        { id: "armHeight", label: "Arm height", type: "number", default: 0.21, min: 0.14, max: 0.3, unit: "m", group: "arms", visibleIf: "=armrests" },
+        { id: "base", label: "Base", type: "enum", default: "star", options: ["star", "legs"], optionLabels: ["Star with casters", "Four legs"], group: "base" },
+        { id: "spokes", label: "Wheels", type: "int", default: 5, min: 4, max: 6, group: "wheels", visibleIf: "=base == 'star'" },
+        { id: "baseRadius", label: "Base radius", type: "number", default: 0.33, min: 0.26, max: 0.4, unit: "m", group: "wheels", visibleIf: "=base == 'star'" },
+        { id: "casterSize", label: "Caster size", type: "number", default: 0.055, min: 0.04, max: 0.08, unit: "m", group: "wheels", visibleIf: "=base == 'star'" },
+        { id: "legStyle", label: "Leg style", type: "enum", default: "tapered", options: ["tapered", "round", "square", "hairpin"], optionLabels: ["Tapered", "Round", "Square", "Hairpin"], group: "base", visibleIf: "=base == 'legs'" },
+        { id: "legThickness", label: "Leg thickness", type: "number", default: 0.035, min: 0.02, max: 0.06, unit: "m", group: "base", visibleIf: "=base == 'legs'" },
+        { id: "frameThickness", label: "Frame thickness", type: "number", default: 0.024, min: 0.014, max: 0.04, unit: "m", group: "base" },
+        { id: "upholstery", label: "Upholstery", type: "material", default: "fabric.charcoal", materials: ["fabric", "leather"], group: "materials" },
+        { id: "frameFinish", label: "Frame", type: "material", default: "plastic.black", materials: ["plastic", "metal"], group: "materials" },
+        { id: "baseFinish", label: "Base", type: "material", default: "metal.aluminum", materials: ["metal", "plastic", "wood"], group: "materials" },
+        { id: "wear", label: "Wear", type: "number", default: 0.15, min: 0, max: 1, group: "imperfections", description: "Lumps and sag in the cushions." },
+        { id: "seed", label: "Seed", type: "seed", default: 4, group: "imperfections", variation: 0 },
+    ],
+    derived: {
+        w: "=seatWidth",
+        d: "=seatDepth",
+        ct: "=cushion",
+        seatBottom: "=seatHeight - ct",
+        casterH: "=casterSize * 1.25",
+        hubTop: "=casterH + 0.075",
+        bw: "=seatWidth * backWidth",
+        bt: "=backStyle == 'mesh' ? 0.022 : clamp(ct * 0.8, 0.04, 0.08)",
+        backY: "=seatHeight + 0.05",
+        backZ: "=-d / 2 - 0.01",
+        tilt: "=rad(backTilt)",
+        armX: "=w / 2 + frameThickness * 0.9",
+        armTop: "=seatHeight + armHeight",
+        headY: "=backY + (backHeight + 0.05) * cos(tilt)",
+        headZ: "=backZ - bt / 2 - (backHeight + 0.05) * sin(tilt)",
+        softR: "=ct * 0.5 * softness",
+    },
+    rules: [
+        { check: "=base != 'star' || baseRadius >= seatHeight * 0.55", message: "The star base is too narrow for this seat height: the chair would tip." },
+        { check: "=seatHeight + backHeight + (headrest ? 0.2 : 0) < 1.45", message: "The back towers over the chair." },
+        { check: "=!armrests || armTop < seatHeight + backHeight * cos(tilt) + 0.08", message: "The armrests rise above the back." },
+        { check: "=seatDepth < seatWidth * 1.25", message: "A seat much deeper than it is wide looks like a bench." },
+        { check: "=!headrest || base == 'star'", message: "A headrest belongs on a swivel chair, not a four-legged one." },
+        { check: "=base == 'star' || backHeight < 0.6", message: "A back that tall needs the star base under it." },
+    ],
+    regions: {
+        upholstery: { label: "Upholstery", material: "=upholstery" },
+        mesh: { label: "Mesh", material: "fabric.charcoal" },
+        frame: { label: "Frame", material: "=frameFinish" },
+        base: { label: "Base", material: "=baseFinish" },
+        chrome: { label: "Gas lift", material: "metal.chrome" },
+        wheel: { label: "Wheels", material: "plastic.black" },
+        housing: { label: "Caster housings", material: "=frameFinish" },
+    },
+    presets: [
+        { name: "Executive", values: { backHeight: 0.66, headrest: true, cushion: 0.1, softness: 0.9, upholstery: "leather.black", baseFinish: "metal.chrome", backCurvature: 18, armStyle: "post" } },
+        { name: "Mesh task chair", values: { backStyle: "mesh", backHeight: 0.56, backCurvature: 30, cushion: 0.06, upholstery: "fabric.navy", frameFinish: "plastic.grey", baseFinish: "plastic.black", armStyle: "post" } },
+        { name: "Conference", values: { backHeight: 0.42, armStyle: "loop", upholstery: "leather.tan", frameFinish: "metal.chrome", base: "legs", legStyle: "round", baseFinish: "metal.chrome", backCurvature: 20, seatHeight: 0.46 } },
+        { name: "Scandinavian", values: { base: "legs", legStyle: "tapered", baseFinish: "wood.oak", armrests: false, upholstery: "fabric.oatmeal", frameFinish: "metal.black", backHeight: 0.38, backCurvature: 40, backTilt: 6, cushion: 0.05, legThickness: 0.038 } },
+    ],
+    nodes: [
+        // --- Seat ---
+        { id: "seatBlock", type: "mesh.box", output: false, size: ["=w", "=ct", "=d"], radius: "=softR", segments: 4 },
+        { id: "seat", type: "deform.noise", mesh: "@seatBlock", amount: "=wear * 0.004", frequency: 14, octaves: 2, seed: "=seed", at: [0, "=seatHeight - ct / 2", 0.01], region: "upholstery" },
+        { id: "shell", type: "mesh.box", size: ["=w * 0.95", 0.02, "=d * 0.93"], radius: 0.008, at: [0, "=seatBottom - 0.008", 0.01], region: "frame" },
+        { id: "mechanism", type: "mesh.box", when: "=base == 'star'", size: [0.17, 0.045, 0.22], radius: 0.012, at: [0, "=seatBottom - 0.04", 0], region: "frame" },
+        { id: "mount", type: "mesh.box", when: "=base == 'legs'", size: ["=w * 0.8", 0.03, "=d * 0.8"], radius: 0.006, at: [0, "=seatBottom - 0.032", 0.01], region: "base" },
+        // --- Back ---
+        { id: "backPad", type: "mesh.box", output: false, when: "=backStyle == 'cushion'", size: ["=bw", "=backHeight", "=bt"], radius: "=min(bt * 0.48, 0.03 + softR * 0.4)", segments: 4, divisions: [12, 1, 1], at: [0, "=backHeight / 2", 0], region: "upholstery" },
+        { id: "meshFramePath", type: "path.points", output: false, closed: true, fillet: 0.06, filletSegments: 8, step: 0.03, points: [["=-bw / 2", 0, 0], ["=bw / 2", 0, 0], ["=bw / 2", "=backHeight", 0], ["=-bw / 2", "=backHeight", 0]] },
+        { id: "meshFrame", type: "mesh.sweep", output: false, when: "=backStyle == 'mesh'", path: "@meshFramePath", closed: true, radius: "=frameThickness * 0.55", sides: 12, region: "frame" },
+        { id: "meshPanel", type: "mesh.box", output: false, when: "=backStyle == 'mesh'", size: ["=bw - frameThickness", "=backHeight - frameThickness", 0.004], radius: 0.002, segments: 1, divisions: [12, 1, 1], at: [0, "=backHeight / 2", 0], region: "mesh" },
+        { id: "backParts", type: "geo.join", output: false, meshes: ["@backPad", "@meshFrame", "@meshPanel"] },
+        { id: "backBent", type: "deform.bend", output: false, mesh: "@backParts", angle: "=backCurvature", width: "=bw" },
+        { id: "back", type: "deform.noise", mesh: "@backBent", amount: "=backStyle == 'cushion' ? wear * 0.003 : 0", frequency: 12, octaves: 2, seed: "=seed + 1", rotate: ["=-backTilt", 0, 0], at: [0, "=backY", "=backZ"] },
+        { id: "spinePath", type: "path.points", output: false, fillet: 0.07, filletSegments: 8, points: [[0, "=seatBottom - 0.03", "=-d * 0.05"], [0, "=seatBottom - 0.03", "=backZ - bt / 2 - 0.02"], [0, "=backY + backHeight * 0.3", "=backZ - bt / 2 - 0.02 - backHeight * 0.3 * tan(tilt)"]] },
+        { id: "spineProfile", type: "curve.rect", output: false, width: "=frameThickness * 2.6", height: "=frameThickness * 1.1", radius: "=frameThickness * 0.45", cornerSegments: 4 },
+        { id: "spine", type: "mesh.sweep", path: "@spinePath", profile: "@spineProfile", region: "frame" },
+        // --- Headrest ---
+        { id: "headPad", type: "mesh.box", output: false, when: "=headrest", size: ["=bw * 0.56", 0.14, "=bt * 0.9"], radius: "=min(bt * 0.4, 0.035)", segments: 4, divisions: [8, 1, 1] },
+        { id: "headBent", type: "deform.bend", output: false, mesh: "@headPad", angle: "=backCurvature * 0.8", width: "=bw * 0.56" },
+        { id: "head", type: "geo.transform", when: "=headrest", mesh: "@headBent", rotate: ["=-backTilt", 0, 0], at: [0, "=headY + 0.07", "=headZ + bt * 0.2"], region: "upholstery" },
+        { id: "headPost", type: "mesh.box", when: "=headrest", size: ["=frameThickness * 1.8", 0.1, "=frameThickness * 0.8"], radius: 0.004, rotate: ["=-backTilt", 0, 0], at: [0, "=headY - 0.02", "=headZ - 0.004"], region: "frame" },
+        // --- Arms (index 0 is the left side) ---
+        {
+            id: "armLoopPath", type: "path.points", output: false, fillet: 0.05, filletSegments: 8,
+            points: [[0, "=seatBottom - 0.015", "=-d * 0.28"], [0, "=armTop - 0.02", "=-d * 0.3"], [0, "=armTop - 0.02", "=d * 0.26"], [0, "=seatBottom - 0.015", "=d * 0.2"]],
+        },
+        { id: "armProfile", type: "curve.rect", output: false, width: "=frameThickness * 1.5", height: "=frameThickness", radius: "=frameThickness * 0.45", cornerSegments: 4 },
+        { id: "armLoop", type: "mesh.sweep", output: false, path: "@armLoopPath", profile: "@armProfile" },
+        { id: "armPost", type: "mesh.box", output: false, size: ["=frameThickness * 1.1", "=armTop - seatBottom", "=frameThickness * 2.2"], radius: "=frameThickness * 0.3", at: [0, "=(armTop + seatBottom) / 2 - 0.01", "=-d * 0.08"] },
+        { id: "arms", type: "geo.transform", when: "=armrests", repeat: 2, mesh: { if: "=armStyle == 'loop'", then: "@armLoop", else: "@armPost" }, at: ["=(index * 2 - 1) * armX", 0, 0], region: "frame" },
+        { id: "armPads", type: "mesh.box", when: "=armrests", repeat: 2, size: [0.065, 0.026, "=armStyle == 'loop' ? d * 0.46 : d * 0.52"], radius: 0.012, at: ["=(index * 2 - 1) * armX", "=armTop", "=armStyle == 'loop' ? -d * 0.02 : -d * 0.02"], region: "frame" },
+        // --- Star base ---
+        { id: "lift", type: "mesh.cylinder", when: "=base == 'star'", radius: 0.014, height: "=seatBottom - 0.06 - hubTop + 0.02", segments: 24, at: [0, "=hubTop - 0.02", 0], region: "chrome" },
+        { id: "sleeve", type: "mesh.cylinder", when: "=base == 'star'", radius: 0.026, height: "=min(0.16, (seatBottom - hubTop) * 0.55)", segments: 32, bevel: 0.004, at: [0, "=hubTop - 0.01", 0], region: "frame" },
+        { id: "hub", type: "mesh.cone", when: "=base == 'star'", bottomRadius: 0.05, topRadius: 0.038, height: 0.07, segments: 32, bevel: 0.008, at: [0, "=hubTop - 0.065", 0], region: "base" },
+        { id: "spokePath", type: "path.points", output: false, smooth: 6, points: [[0.03, "=hubTop - 0.03", 0], ["=baseRadius * 0.6", "=casterH + 0.035", 0], ["=baseRadius", "=casterH + 0.012", 0]] },
+        { id: "spokeProfile", type: "curve.rect", output: false, width: 0.05, height: 0.032, radius: 0.012, cornerSegments: 4 },
+        { id: "spoke", type: "mesh.sweep", output: false, path: "@spokePath", profile: "@spokeProfile", taper: 0.62 },
+        { id: "star", type: "instance.radial", when: "=base == 'star'", mesh: "@spoke", count: "=spokes", startAngle: 90, region: "base" },
+        {
+            id: "casters", type: "object", object: "component.caster", when: "=base == 'star'", repeat: "=spokes", rest: true,
+            params: { size: "=casterSize" },
+            at: ["=cos(rad(90 + index * 360 / count)) * (baseRadius - 0.004)", 0, "=-sin(rad(90 + index * 360 / count)) * (baseRadius - 0.004)"],
+            rotate: [0, "=90 + index * 360 / count + randRange(index, -35, 35)", 0],
+        },
+        // --- Four legs ---
+        {
+            id: "legs", type: "object", object: "component.leg", when: "=base == 'legs'", repeat: 4, region: "base", rest: true,
+            params: { height: "=seatBottom - 0.045", thickness: "=legThickness", style: "=legStyle", taper: 0.6 },
+            at: ["=(index % 2 * 2 - 1) * (w / 2 - 0.05)", 0, "=(floor(index / 2) * 2 - 1) * (d / 2 - 0.06)"],
+            rotate: ["=-(floor(index / 2) * 2 - 1) * 4", "=legStyle == 'hairpin' ? (index % 2 * 2 - 1) * (floor(index / 2) * 2 - 1) * 45 : 0", "=(index % 2 * 2 - 1) * 4"],
+        },
+    ],
+    limits: { maxSize: 1.6, minSize: 0.4, maxTriangles: 90000 },
+};
+
+/** A twin-wheel caster, floor at y = 0, rolling along +X; its stem points up. */
+export const caster: ObjectDef = {
+    id: "component.caster",
+    name: "Caster",
+    category: "Components",
+    component: true,
+    tags: ["caster", "wheel"],
+    groups: [{ id: "shape", label: "Shape" }],
+    params: [
+        { id: "size", label: "Wheel diameter", type: "number", default: 0.055, min: 0.02, max: 0.12, unit: "m", group: "shape" },
+        { id: "seed", label: "Seed", type: "seed", default: 1, max: 999999, group: "shape", variation: 0 },
+    ],
+    derived: { r: "=size / 2", wt: "=size * 0.26" },
+    regions: { wheel: { label: "Wheels", material: "plastic.black" }, housing: { label: "Housing", material: "plastic.black" } },
+    nodes: [
+        { id: "wheels", type: "mesh.cylinder", repeat: 2, radius: "=r", height: "=wt", segments: 32, bevel: "=wt * 0.35", rotate: [90, 0, 0], at: [0, "=r", "=(index * 2 - 1) * wt * 0.62 - wt / 2"], region: "wheel" },
+        { id: "hood", type: "mesh.box", size: ["=size * 0.9", "=r * 1.1", "=wt * 1.1"], radius: "=wt * 0.4", segments: 3, at: [0, "=r * 1.4", 0], region: "housing" },
+        { id: "stem", type: "mesh.cylinder", radius: "=size * 0.1", height: "=r * 1.1", segments: 16, at: [0, "=r * 1.8", 0], region: "housing" },
+    ],
+};
+
+export default officeChair;
