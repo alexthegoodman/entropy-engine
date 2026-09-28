@@ -161,3 +161,105 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "30-door-open"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-house-export.glb"}
+
+  Scenario: Broadleaf trees across the seasons, weeping, and varied with their finishes locked
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "English oak", "position": [220, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10, "lighting": "daylight"}
+    And I advance 10 frames
+    Then I capture "31-tree-oak"
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "Weeping willow", "position": [245, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 10 frames
+    Then I capture "32-tree-willow"
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "Autumn maple", "position": [270, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 210, "pitch": 8, "lighting": "warm"}
+    And I advance 10 frames
+    Then I capture "33-tree-autumn-backlit"
+    When I call the tool "mesha_set" with {"values": {"canopy": "bare"}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10, "lighting": "daylight"}
+    And I advance 10 frames
+    Then I capture "34-tree-winter"
+    When I call the tool "mesha_set" with {"values": {"canopy": "leaves"}}
+    And I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials", "canopy"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.8, "seed": 4}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 10 frames
+    Then I capture "35-tree-variation"
+
+  Scenario: Conifers, palms and ferns
+    When I call the tool "mesha_add" with {"objectId": "nature.conifer", "preset": "Norway spruce", "position": [300, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 8}
+    And I advance 10 frames
+    Then I capture "36-conifer-spruce"
+    When I call the tool "mesha_set" with {"values": {"foliage": "tiers"}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "37-conifer-tiers"
+    When I call the tool "mesha_add" with {"objectId": "nature.conifer", "preset": "Scots pine", "position": [320, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 8}
+    And I advance 10 frames
+    Then I capture "38-conifer-pine"
+    When I call the tool "mesha_add" with {"objectId": "nature.palm", "preset": "Coconut palm", "position": [340, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "39-palm-coconut"
+    When I call the tool "mesha_add" with {"objectId": "nature.fern", "preset": "Tree fern", "position": [360, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "40-fern-tree"
+    When I call the tool "mesha_add" with {"objectId": "nature.fern", "preset": "Boston fern", "position": [370, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 32}
+    And I advance 8 frames
+    Then I capture "41-fern-boston"
+
+  Scenario: Shrubs, grasses, flowers and a potted plant
+    When I call the tool "mesha_add" with {"objectId": "nature.shrub", "preset": "Clipped hedge", "position": [380, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
+    And I advance 8 frames
+    Then I capture "42-shrub-hedge"
+    When I call the tool "mesha_add" with {"objectId": "nature.shrub", "preset": "Hydrangea", "position": [386, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "43-shrub-hydrangea"
+    When I call the tool "mesha_set" with {"values": {"flowerFinish": "flower.pink"}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "44-shrub-hydrangea-pink"
+    When I call the tool "mesha_add" with {"objectId": "nature.grass", "preset": "Pampas grass", "position": [392, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "45-grass-pampas"
+    When I call the tool "mesha_add" with {"objectId": "nature.grass", "preset": "Lavender", "position": [396, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "46-grass-lavender"
+    When I call the tool "mesha_add" with {"objectId": "nature.flowers", "preset": "Red tulips", "position": [400, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
+    And I advance 8 frames
+    Then I capture "47-flowers-tulips"
+    When I call the tool "mesha_add" with {"objectId": "nature.flowers", "preset": "Sunflower", "position": [403, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 60, "pitch": 6}
+    And I advance 8 frames
+    Then I capture "48-flowers-sunflower"
+    When I call the tool "mesha_add" with {"objectId": "household.potted_plant", "preset": "Terracotta fern", "position": [406, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "49-potted-fern"
+    When I call the tool "mesha_set" with {"values": {"plant": "succulent", "potShape": "bowl", "potHeight": 0.1, "plantSize": 1.7, "foliage": "leaf.succulent", "saucer": false}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 30}
+    And I advance 8 frames
+    Then I capture "50-potted-succulent"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-foliage-export.glb"}
+
+  Scenario: A composed garden
+    When I call the tool "mesha_add" with {"objectId": "nature.shrub", "preset": "Clipped hedge", "position": [440, 0, -1.5]}
+    And I call the tool "mesha_add" with {"objectId": "nature.shrub", "preset": "Boxwood ball", "position": [437.4, 0, 2.6]}
+    And I call the tool "mesha_add" with {"objectId": "nature.flowers", "preset": "Pink cosmos", "position": [441.8, 0, 2.8]}
+    And I call the tool "mesha_add" with {"objectId": "nature.grass", "preset": "Lavender", "position": [439.6, 0, 3.4]}
+    And I call the tool "mesha_add" with {"objectId": "household.potted_plant", "preset": "Topiary urn", "position": [443.4, 0, 1.6]}
+    And I call the tool "mesha_add" with {"objectId": "nature.tree", "values": {"height": 6.5, "seed": 5}, "position": [440, 0, 0]}
+    And I call the tool "mesha_view" with {"all": false}
+    And I advance 4 frames
+    And I call the tool "mesha_view" with {"yaw": 12, "pitch": 9, "lighting": "daylight"}
+    And I advance 10 frames
+    Then I capture "51-garden"

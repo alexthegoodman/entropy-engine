@@ -12,6 +12,7 @@ import {
     circle2, ellipse2, polygon2, roundedRect2, superellipse2, star2, gear2, filletPolyline, smoothPath,
     bezier3, helix3, arc3, translate2, rotate2, scale2, resample, subdivideSegments,
 } from "./mesha_curves";
+import { leaf, tree, frond, blades, scatter, distributeOnSurface, stalk, shadeFoliage, LEAF_SHAPES, type LeafShape, type CrownShape } from "./mesha_plants";
 
 export type InputKind = "number" | "int" | "bool" | "vec2" | "vec3" | "enum" | "string" | "mesh" | "meshes" | "curve2" | "curves2" | "curve3" | "points3";
 export type OutputKind = "mesh" | "curve2" | "curves2" | "curve3";
@@ -28,7 +29,7 @@ export interface ComponentInput {
 
 export interface ComponentDef {
     type: string;
-    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Geometry";
+    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Plants" | "Geometry";
     label: string;
     description: string;
     inputs: ComponentInput[];
@@ -327,6 +328,106 @@ const LIST: ComponentDef[] = [
             const s: number[] = (i.scales as Vec3[])[k] ?? (i.scales as Vec3[])[0] ?? [1, 1, 1];
             return transformMesh(i.mesh, compose4(p, [r[0] * DEG, r[1] * DEG, r[2] * DEG], s as Vec3));
         })),
+    },
+    // --- Plants --------------------------------------------------------------------------------
+    {
+        type: "mesh.leaf", category: "Plants", label: "Leaf", output: "mesh",
+        description: "One double-sided leaf lying flat: it grows along +Z from the origin (after its stalk), its upper face looks up +Y, and `curl` bends the tip down. Also petals, grass blades and conifer sprays.",
+        inputs: [
+            { name: "shape", kind: "enum", default: "ovate", options: [...LEAF_SHAPES], description: "Outline: ovate, lanceolate, round, heart, lobed (oak), blade (grass), petal, spray (a flat conifer sprig)." },
+            n("length", 0.1, "Blade length.", 0.0005), n("width", 0.05, "Blade width.", 0.0001), n("fold", 15, "Degrees each half rises from the midrib.", 0, 80),
+            n("curl", 20, "Degrees the blade bends down toward its tip.", -180, 360), n("petiole", 0, "Stalk length.", 0),
+            int("segments", 5, "Rows along the blade.", 2, 32), int("lobes", 3, "Lobes (lobed) or teeth (spray).", 1, 24), n("tipTint", 0, "Tint gradient toward the tip (dry grass, lavender).", 0, 1),
+        ],
+        build: i => leaf({ shape: i.shape as LeafShape, length: i.length, width: i.width, fold: i.fold, curl: i.curl, petiole: i.petiole, segments: i.segments, lobes: i.lobes, tipTint: i.tipTint }),
+    },
+    {
+        type: "plant.tree", category: "Plants", label: "Tree", output: "mesh",
+        description: "A branching tree standing on the origin: a trunk (forking into limbs, or one leader to the top), limbs and twigs as tapering bark tubes in `barkRegion`, and `leaf` copies on every twig, shaded darker deep inside the crown.",
+        inputs: [
+            n("height", 6, "Overall height.", 0.05), n("trunkRadius", 0.18, "Trunk radius at the base.", 0.001),
+            int("levels", 3, "Branching depth below the trunk.", 0, 4), int("branches", 6, "Main limbs.", 1, 64), int("twigs", 4, "Branches on every limb, and on theirs.", 0, 24),
+            n("crownBase", 0.35, "Share of the height that is bare trunk.", 0, 0.95), n("leader", 0, "0 forks into limbs; 1 one leader to the top.", 0, 1),
+            n("angle", 45, "Degrees limbs leave their parent at.", 0, 150), n("reach", 0.6, "Limb length relative to the crown height.", 0.02, 3), n("subReach", 0.5, "Branch length relative to its parent.", 0.05, 1.5),
+            { name: "crownShape", kind: "enum", default: "round", options: ["round", "oval", "conical", "spreading", "columnar"], description: "How limb length changes up the trunk." },
+            n("radiusRatio", 0.55, "Child radius relative to its parent.", 0.05, 1), n("gnarl", 0.3, "Random bending.", 0, 2), n("droop", 0, "Positive arches branches down (weeping); negative sweeps them up.", -2, 4),
+            n("lean", 0, "Degrees the trunk leans.", 0, 60), n("flare", 0.4, "Root flare at the base.", 0, 2), int("sides", 12, "Trunk sides (thinner branches use fewer).", 3, 32), int("segments", 6, "Points along each branch.", 2, 24),
+            int("seed", 0, "Seed.", -1e9, 1e9),
+            { name: "leaf", kind: "mesh", default: null, description: "Leaf (or cluster) placed on every terminal branch; its +Z points out along the twig." },
+            int("leaves", 8, "Leaves per terminal branch.", 0, 200), n("leafStart", 0.3, "Where leaves begin along a twig.", 0, 1), n("leafAngle", 55, "Degrees between a leaf and its twig.", 0, 120),
+            n("leafDroop", 0.1, "0 leaves face the sky; 1 they hang.", -1, 2), { name: "leafAlign", kind: "enum", default: "twig", options: ["twig", "flat", "random"], description: "Spiralling around the twig facing up; in two flat ranks either side (fir sprays); or any orientation (clusters, puffs)." },
+            n("leafScaleVariation", 0.25, "Random size spread.", 0, 0.9), n("tintVariation", 0.5, "Random lean toward the leaf material's tint.", 0, 1), int("leafBudget", 120000, "Triangles all the leaves may use; the count per twig drops to fit.", 1, 1000000),
+            n("bark", 0.5, "Trunk surface roughness.", 0, 2),
+            { name: "bloom", kind: "mesh", default: null, description: "Flower or fruit placed at twig tips, its +Y facing out." }, int("blooms", 0, "Per twig tip.", 0, 12),
+            { name: "barkRegion", kind: "string", default: "default", description: "Region for the wood." },
+            { name: "leafRegion", kind: "string", default: "", description: "Region for the leaves (empty keeps the leaf's own)." },
+        ],
+        build: i => tree({ ...i, crownShape: i.crownShape as CrownShape, leafAlign: i.leafAlign as "twig" | "flat" | "random" } as Parameters<typeof tree>[0]),
+    },
+    {
+        type: "plant.frond", category: "Plants", label: "Frond", output: "mesh",
+        description: "A pinnate frond (fern, palm) growing along +Z from the origin and arching down: a tapering stem in `stemRegion` and leaflets on both sides in `leafRegion`. `unfurl` below 1 coils the tip into a fiddlehead.",
+        inputs: [
+            n("length", 0.8, "Frond length.", 0.001), n("arch", 60, "Degrees it arches over its length.", -90, 270), n("unfurl", 1, "1 open; lower coils the tip.", 0, 1),
+            int("leaflets", 18, "Leaflets on each side.", 0, 80), n("leafletLength", 0.22, "Longest leaflet relative to the frond.", 0.01, 1), n("leafletWidth", 0.25, "Leaflet width relative to its length.", 0.02, 2),
+            n("leafletAngle", 70, "Degrees from the stem toward the tip.", 5, 120), n("leafletDroop", 15, "Degrees the leaflets hang below the frond's plane.", -60, 80),
+            { name: "shape", kind: "enum", default: "lanceolate", options: [...LEAF_SHAPES], description: "Leaflet outline." },
+            n("stalk", 0.15, "Bare stem share at the base.", 0, 0.9), n("stemRadius", 0.006, "Stem radius at the base.", 0.0002), n("tintVariation", 0.3, "Random lean toward the tint.", 0, 1),
+            int("seed", 0, "Seed.", -1e9, 1e9),
+            { name: "stemRegion", kind: "string", default: "default", description: "Region for the stem." },
+            { name: "leafRegion", kind: "string", default: "default", description: "Region for the leaflets." },
+        ],
+        build: i => frond({ ...i, shape: i.shape as LeafShape } as Parameters<typeof frond>[0]),
+    },
+    {
+        type: "plant.blades", category: "Plants", label: "Grass Clump", output: "mesh",
+        description: "A clump of grass blades (or straps, spikes) rising from a small disc on the floor, leaning out and curling over, with an optional tint gradient toward the tips.",
+        inputs: [
+            int("count", 40, "Blades.", 1, 600), n("height", 0.3, "Blade height.", 0.001), n("heightVariation", 0.4, "Random height spread.", 0, 0.95), n("width", 0.008, "Blade width.", 0.0002),
+            n("radius", 0.04, "Radius of the clump's base.", 0), n("lean", 25, "Degrees the blades lean out.", 0, 85), n("curl", 50, "Degrees each blade bends over.", 0, 240),
+            n("tipTint", 0, "Gradient toward the tint color at the tips.", 0, 1), n("tintVariation", 0.3, "Random lean toward the tint.", 0, 1), int("segments", 4, "Rows along each blade.", 2, 16),
+            int("seed", 0, "Seed.", -1e9, 1e9), { name: "shape", kind: "enum", default: "blade", options: [...LEAF_SHAPES], description: "Blade outline." },
+        ],
+        build: i => blades({ ...i, shape: i.shape as LeafShape } as Parameters<typeof blades>[0]),
+    },
+    {
+        type: "plant.stalk", category: "Plants", label: "Stalk", output: "mesh",
+        description: "A tapering, closed round stalk along a path: palm and tree-fern trunks (with `rings`), flower stems, reeds.",
+        inputs: [
+            { name: "path", kind: "curve3", description: "Path from the base up." }, n("radius", 0.05, "Radius at the base.", 0.0001), n("tipRadius", 0.03, "Radius at the top.", 0.0001),
+            int("sides", 12, "Sides.", 3, 64), n("rings", 0, "Bands along the stalk.", 0, 400), n("ringDepth", 0.12, "How deep the bands pinch.", 0, 0.6), n("flare", 0, "Swelling at the base.", 0, 2),
+            n("bark", 0, "Surface roughness.", 0, 2), int("seed", 0, "Seed.", -1e9, 1e9),
+        ],
+        build: i => stalk(i.path, i as Parameters<typeof stalk>[1]),
+    },
+    {
+        type: "instance.scatter", category: "Instances", label: "Scatter on Ground", output: "mesh",
+        description: "`count` copies of `mesh` spread over a disc on the floor (an even, jittered spiral), each turned, tilted and sized at random: flower beds, meadows, pebbles.",
+        inputs: [
+            { name: "mesh", kind: "mesh", description: "Instance, standing on its origin." }, int("count", 12, "Copies.", 1, 2000), n("radius", 0.5, "Disc radius.", 0),
+            int("seed", 0, "Seed.", -1e9, 1e9), n("scaleMin", 0.8, "Smallest size.", 0), n("scaleMax", 1.2, "Largest size.", 0), n("tilt", 8, "Degrees of random tilt.", 0, 60),
+            n("falloff", 0, "0 even; 1 crowds the middle.", 0, 1), n("tintVariation", 0, "Random lean toward the foliage tint per copy.", 0, 1),
+        ],
+        build: i => scatter(i.mesh, i as Parameters<typeof scatter>[1]),
+    },
+    {
+        type: "instance.onSurface", category: "Instances", label: "Distribute on Surface", output: "mesh",
+        description: "`count` copies of `mesh` over the faces of `surface` (area-weighted), each copy's +Y along the surface normal and its +Z along the surface tipped up by `tilt`: leaves over a clipped hedge, blossoms on a shrub.",
+        inputs: [
+            { name: "surface", kind: "mesh", description: "Surface to cover." }, { name: "mesh", kind: "mesh", description: "Instance (a leaf lies flat on it)." },
+            int("count", 200, "Copies.", 0, 20000), int("seed", 0, "Seed.", -1e9, 1e9), n("scaleMin", 0.8, "Smallest size.", 0), n("scaleMax", 1.2, "Largest size.", 0),
+            n("tilt", 25, "Degrees each copy lifts off the surface.", -90, 90), n("tintVariation", 0.4, "Random lean toward the foliage tint.", 0, 1),
+            { name: "keepSurface", kind: "bool", default: false, description: "Also output the surface, shaded as deep foliage." },
+            { name: "surfaceRegion", kind: "string", default: "", description: "Region for the kept surface (empty keeps its own)." },
+            n("minNormalY", -1, "Only faces whose normal's y is at least this (0: upward-facing only).", -1, 1),
+        ],
+        build: i => distributeOnSurface(i.surface, i.mesh, i as Parameters<typeof distributeOnSurface>[2]),
+    },
+    {
+        type: "plant.shade", category: "Plants", label: "Foliage Shading", output: "mesh",
+        description: "Shades geometry that isn't leaves (stylized puffs, conifer tiers, a hedge's body) like foliage: how deep in the crown it sits, lower parts deeper by `gradient`, and a random tint lean per part.",
+        inputs: [{ name: "mesh", kind: "mesh", description: "Input." }, n("occlusion", 0, "How buried (0 outside, 1 deep inside).", 0, 1), n("gradient", 0.4, "Extra depth toward the bottom.", 0, 1), n("tintVariation", 0, "Random lean toward the tint per part.", 0, 1), int("seed", 0, "Seed.", -1e9, 1e9)],
+        build: i => shadeFoliage(i.mesh, i as Parameters<typeof shadeFoliage>[1]),
     },
     // --- Geometry ------------------------------------------------------------------------------
     {

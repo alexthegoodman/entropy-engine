@@ -2,7 +2,7 @@
 // binds each to one of these by id, usually through a "finish" parameter, so a user picks "Walnut"
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
-export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle";
+export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark" | "birch";
 
 export interface MaterialPreset {
     id: string;
@@ -14,6 +14,11 @@ export interface MaterialPreset {
     pattern: Pattern;
     /** Glass and similar: rendered as a tinted, glossy, slightly see-through-looking surface. */
     transmission?: number;
+    /**
+     * Foliage: a second color each leaf (or grass tip) leans toward by the fraction its uv.y
+     * carries (see mesha_plants.ts), so an autumn crown mixes orange and red.
+     */
+    tint?: [number, number, number];
 }
 
 const hex = (h: string): [number, number, number] => {
@@ -23,6 +28,10 @@ const hex = (h: string): [number, number, number] => {
 
 const m = (id: string, label: string, color: string, roughness: number, metallic: number, pattern: Pattern = "none", transmission?: number): MaterialPreset =>
     ({ id, label, color: hex(color), roughness, metallic, pattern, ...(transmission ? { transmission } : {}) });
+
+/** Foliage: leaves, needles, grass and petals, with a second color they vary toward. */
+const f = (id: string, label: string, color: string, tint: string, roughness = 0.55): MaterialPreset =>
+    ({ id, label, color: hex(color), roughness, metallic: 0, pattern: "foliage", tint: hex(tint) });
 
 export const MATERIALS: MaterialPreset[] = [
     m("wood.oak", "Oak", "#c49a6c", 0.55, 0, "wood"),
@@ -77,6 +86,49 @@ export const MATERIALS: MaterialPreset[] = [
     m("paper.label", "Paper label", "#efe6cf", 0.8, 0),
     m("paper.kraft", "Kraft label", "#b88f5f", 0.85, 0),
     m("cork", "Cork", "#b9895a", 0.9, 0, "speckle"),
+    m("ceramic.terracotta", "Terracotta", "#b5653f", 0.88, 0, "speckle"),
+    m("soil", "Potting soil", "#43342a", 0.95, 0, "speckle"),
+    m("bark.oak", "Oak bark", "#5e4b3b", 0.9, 0, "bark"),
+    m("bark.grey", "Grey bark", "#7d786e", 0.85, 0, "bark"),
+    m("bark.dark", "Dark bark", "#3b302a", 0.9, 0, "bark"),
+    m("bark.pine", "Pine bark", "#7b4b33", 0.9, 0, "bark"),
+    m("bark.birch", "Birch bark", "#e7e3d8", 0.7, 0, "birch"),
+    m("bark.palm", "Palm trunk", "#8c7b61", 0.9, 0, "bark"),
+    m("stem.green", "Green stem", "#5b7f34", 0.6, 0),
+    m("stem.brown", "Brown stem", "#6a5438", 0.75, 0),
+    f("leaf.green", "Summer green", "#4a7a2c", "#86a03a"),
+    f("leaf.spring", "Spring green", "#78aa38", "#b9cc4c"),
+    f("leaf.dark", "Evergreen", "#2c5226", "#4b6e2c", 0.45),
+    f("leaf.olive", "Silver olive", "#7a8a5c", "#a9ad84", 0.6),
+    f("leaf.tropical", "Tropical", "#2b6a33", "#5d9440", 0.4),
+    f("leaf.autumn", "Autumn orange", "#d27a28", "#b3301c"),
+    f("leaf.gold", "Autumn gold", "#dfb13a", "#c8742a"),
+    f("leaf.red", "Maple red", "#b0261d", "#e0662a"),
+    f("leaf.purple", "Copper beech", "#5a2934", "#8a4436"),
+    f("leaf.blossom", "Cherry blossom", "#f1bfcd", "#fbe7ee", 0.6),
+    f("leaf.spruce", "Spruce needles", "#2b4a2b", "#446336", 0.6),
+    f("leaf.blue", "Blue spruce", "#5e7f86", "#8ea8a8", 0.6),
+    f("leaf.fern", "Fern green", "#5a8c33", "#93b443"),
+    f("leaf.palm", "Palm green", "#5a8a38", "#b0a64a"),
+    f("leaf.succulent", "Succulent", "#8db3a2", "#d38c9c", 0.45),
+    f("grass.lawn", "Lawn grass", "#4a8a2c", "#a2b84c", 0.6),
+    f("grass.meadow", "Meadow grass", "#6d9a38", "#d4c27c", 0.65),
+    f("grass.dry", "Dry grass", "#b3a064", "#e4d6a2", 0.75),
+    f("grass.lavender", "Lavender", "#6f8a6b", "#7d5cc4", 0.7),
+    f("flower.white", "White petals", "#f4f1e8", "#f6e7a8", 0.5),
+    f("flower.cream", "Cream plumes", "#e8dcbc", "#f4ecd6", 0.8),
+    f("flower.yellow", "Yellow petals", "#f3c02a", "#ef8a1c", 0.5),
+    f("flower.orange", "Orange petals", "#ef7420", "#f2a832", 0.5),
+    f("flower.red", "Red petals", "#c61f2b", "#861020", 0.5),
+    f("flower.pink", "Pink petals", "#e777a4", "#f6bcd2", 0.5),
+    f("flower.purple", "Purple petals", "#7747a8", "#a67cd6", 0.5),
+    f("flower.blue", "Blue petals", "#4672c6", "#8fb0ea", 0.5),
+    m("fruit.green", "Green coconut", "#6f8a3a", 0.45, 0),
+    m("fruit.coconut", "Ripe coconut", "#6b4a2b", 0.8, 0, "speckle"),
+    m("fruit.red", "Red fruit", "#b3222a", 0.3, 0),
+    m("fruit.orange", "Orange fruit", "#e5821f", 0.35, 0, "speckle"),
+    m("flower.center", "Seed head", "#4a3219", 0.85, 0, "speckle"),
+    m("flower.pollen", "Pollen yellow", "#e6ac1f", 0.8, 0, "speckle"),
 ];
 
 export const MATERIAL_BY_ID: ReadonlyMap<string, MaterialPreset> = new Map(MATERIALS.map(p => [p.id, p]));

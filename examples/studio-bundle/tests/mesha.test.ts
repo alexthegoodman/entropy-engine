@@ -9,7 +9,9 @@ import { LIBRARY, lookupObject, browsableObjects } from "../src/apps/mesha/libra
 import { vary } from "../src/apps/mesha/mesha_variation";
 import { checkGeometry, fuzz, acceptanceText } from "../src/apps/mesha/mesha_verify";
 import { render, contactShadowMap } from "../src/apps/mesha/mesha_raster";
-import { buildScene, searchLibrary } from "../src/apps/mesha/mesha_scene";
+import { buildScene, searchLibrary, packVertices } from "../src/apps/mesha/mesha_scene";
+import { leaf, tree, foliageV, splitFoliageV, LEAF_SHAPES } from "../src/apps/mesha/mesha_plants";
+import { material } from "../src/apps/mesha/mesha_materials";
 
 // Signed volume by the divergence theorem: positive only if every face winds outward.
 function volume(mesh: Mesh): number {
@@ -212,7 +214,7 @@ describe("Mesha library", () => {
             if (!a.ready) throw new Error(`${acceptanceText(a)}\n${a.failures.map(f => `${f.label}: ${JSON.stringify(f.issues)}`).join("\n")}`);
             expect(a.configurations).toBeGreaterThan(20);
         }
-    }, 120_000);
+    }, 300_000);
     it("clamps dynamic ranges against clamped values, whatever the declaration order", () => {
         const table = lookupObject("furniture.table")!;
         const v = resolveParams(table, { topThickness: 1e9 });
@@ -497,5 +499,129 @@ describe("Mesha scene and rendering", () => {
         expect(img.data.slice(centre, centre + 3)).not.toEqual(img.data.slice(corner, corner + 3));
         const shadow = contactShadowMap(e.mesh, e.stats.bounds!, 32);
         expect(Math.max(...shadow.values)).toBeGreaterThan(0.2);
+    });
+});
+
+describe("Mesha foliage", () => {
+    const eval_ = (id: string, values: Record<string, number | string | boolean> = {}) => evaluateObject(lookupObject(id)!, values, lookupObject);
+    const regionY = (m: Mesh, region: string) => m.parts.filter(p => p.region === region).flatMap(p => p.positions.filter((_, i) => i % 3 === 1));
+
+    it("leaves are double-sided sheets: every face has a coincident twin facing the other way", () => {
+        for (const shape of LEAF_SHAPES) {
+            const m = leaf({ shape, length: 0.1, width: 0.05, fold: 20, curl: 40, segments: 4, lobes: 4 });
+            const p = m.parts[0];
+            const faces = new Map<string, number>();
+            for (let t = 0; t < p.indices.length; t += 3) {
+                const ids = [p.indices[t], p.indices[t + 1], p.indices[t + 2]];
+                const pts = ids.map(i => [p.positions[i * 3], p.positions[i * 3 + 1], p.positions[i * 3 + 2]] as Vec3);
+                const n = cross3(sub3(pts[1], pts[0]), sub3(pts[2], pts[0]));
+                const key = pts.map(q => q.map(x => x.toFixed(6)).join(",")).sort().join("|");
+                faces.set(key, (faces.get(key) ?? 0) + Math.sign(n[1] + n[2] * 1e-3 + n[0] * 1e-6));
+            }
+            expect([...faces.values()].every(v => v === 0), shape).toBe(true);
+            // (A curled leaf at the origin dips below the floor; placing it is its object's job.)
+            expect(report(m).issues.filter(i => i.severity !== "info" && i.code !== "floor"), shape).toEqual([]);
+        }
+    });
+    it("carries crown depth and tint in uv.y, and the viewport bakes the tint into each vertex", () => {
+        for (const [occ, tint] of [[0, 0], [0.4, 0.25], [1, 0.999]]) {
+            const back = splitFoliageV(foliageV(occ, tint));
+            expect(back.occlusion).toBeCloseTo(Math.round(occ * 15) / 15, 6);
+            expect(back.tint).toBeCloseTo(Math.min(tint, 0.999), 6);
+        }
+        const autumn = material("leaf.autumn");
+        const packed = packVertices({ region: "leaves", material: autumn, positions: [0, 0, 0, 1, 0, 0], normals: [0, 1, 0, 0, 1, 0], uvs: [0, foliageV(0.5, 0), 0, foliageV(0.5, 0.999)], indices: [] });
+        expect(packed.vertexData.slice(8, 11).map(x => +x.toFixed(3))).toEqual(autumn.color.map(x => +x.toFixed(3)));
+        expect(packed.vertexData.slice(20, 23).map(x => +x.toFixed(2))).toEqual(autumn.tint!.map(x => +x.toFixed(2)));
+    });
+    it("a tree stands on the floor, reaches its height, keeps its leaf budget and shades its inner leaves deeper", () => {
+        const e = eval_("nature.tree");
+        const b = e.stats.bounds!;
+        expect(b.min[1]).toBeGreaterThanOrEqual(-1e-3);
+        expect(b.max[1]).toBeGreaterThan(8 * 0.85);
+        const leaves = e.mesh.parts.filter(p => p.region === "leaves");
+        expect(leaves.reduce((t, p) => t + p.indices.length / 3, 0)).toBeLessThanOrEqual(130000);
+        // Leaves near the crown's centre are more occluded than leaves on its outside.
+        const pts: { r: number; occ: number }[] = [];
+        const lb = bounds({ parts: leaves })!;
+        const c = [0, 1, 2].map(k => (lb.min[k] + lb.max[k]) / 2), h = [0, 1, 2].map(k => (lb.max[k] - lb.min[k]) / 2);
+        for (const p of leaves) for (let v = 0; v < p.uvs.length / 2; v += 40) {
+            const r = Math.hypot(...[0, 1, 2].map(k => (p.positions[v * 3 + k] - c[k]) / h[k]));
+            pts.push({ r, occ: splitFoliageV(p.uvs[v * 2 + 1]).occlusion });
+        }
+        const inner = pts.filter(q => q.r < 0.4), outer = pts.filter(q => q.r > 0.85);
+        const mean = (a: { occ: number }[]) => a.reduce((s, q) => s + q.occ, 0) / a.length;
+        expect(inner.length && outer.length).toBeTruthy();
+        expect(mean(inner)).toBeGreaterThan(mean(outer) + 0.2);
+    });
+    it("weeping hangs the leaves: a willow's leaves sit lower in its crown than an upswept tree's", () => {
+        const meanLeafY = (droop: number) => {
+            const e = eval_("nature.tree", { droop, levels: 3 });
+            const ys = regionY(e.mesh, "leaves");
+            return ys.reduce((a, y) => a + y, 0) / ys.length / e.stats.bounds!.max[1];
+        };
+        expect(meanLeafY(2.2)).toBeLessThan(meanLeafY(-0.6) - 0.1);
+    });
+    it("the tree component keeps its triangle budget whatever the branching asks for", () => {
+        const m = tree({
+            height: 10, trunkRadius: 0.3, levels: 4, branches: 64, twigs: 24, crownBase: 0.2, leader: 0, angle: 45, reach: 0.7, subReach: 0.6,
+            crownShape: "round", radiusRatio: 0.6, gnarl: 0.3, droop: 0, lean: 0, flare: 0.3, sides: 8, segments: 4, seed: 1,
+            leaf: leaf({ length: 0.2, width: 0.1, segments: 3 }), leaves: 200, leafStart: 0.3, leafAngle: 50, leafDroop: 0.2, leafAlign: "twig",
+            leafScaleVariation: 0.2, tintVariation: 0.5, leafBudget: 50000, bark: 0.5, barkRegion: "bark", leafRegion: "leaves", blooms: 0,
+        });
+        const count = (r: string) => m.parts.filter(p => p.region === r).reduce((t, p) => t + p.indices.length / 3, 0);
+        expect(count("leaves")).toBeLessThan(80000);
+        expect(count("bark")).toBeLessThan(120000);
+    });
+    it("a conifer is a single spire: its top is the leader, narrower than its base", () => {
+        const e = eval_("nature.conifer");
+        const b = e.stats.bounds!;
+        const widthAt = (y0: number, y1: number) => {
+            let lo = Infinity, hi = -Infinity;
+            for (const p of e.mesh.parts) for (let v = 0; v < p.positions.length; v += 3) {
+                if (p.positions[v + 1] < y0 || p.positions[v + 1] > y1) continue;
+                lo = Math.min(lo, p.positions[v]); hi = Math.max(hi, p.positions[v]);
+            }
+            return hi - lo;
+        };
+        const H = b.max[1];
+        expect(widthAt(H * 0.8, H)).toBeLessThan(widthAt(H * 0.1, H * 0.3) * 0.6);
+    });
+    it("a palm's fronds crown the top of its trunk", () => {
+        const e = eval_("nature.palm");
+        const trunkTop = Math.max(...regionY(e.mesh, "trunk"));
+        const frondLow = Math.min(...regionY(e.mesh, "leaves"));
+        expect(trunkTop).toBeGreaterThan(6.5);
+        expect(frondLow).toBeGreaterThan(trunkTop - 2.6);
+    });
+    it("a clipped hedge is covered: its body is kept and leaves reach every side", () => {
+        const e = eval_("nature.shrub", { style: "hedge", width: 2, height: 1, depth: 0.8 });
+        const leaves = e.mesh.parts.filter(p => p.region === "leaves");
+        const b = bounds({ parts: leaves })!;
+        expect(b.max[0] - b.min[0]).toBeGreaterThan(1.95);
+        expect(b.max[2] - b.min[2]).toBeGreaterThan(0.75);
+        expect(b.max[1]).toBeGreaterThan(0.95);
+        // Straight down through the middle, the first thing hit is foliage near the top.
+        expect(rayHit({ parts: leaves }, [0.1, 3, 0.05], [0, -1, 0])).toBeLessThan(2.1);
+    });
+    it("a potted plant grows out of the soil, and the soil sits inside the pot", () => {
+        for (const plant of ["fern", "palm", "succulent", "snake", "topiary", "tulips"]) {
+            const e = eval_("household.potted_plant", { plant });
+            const v = e.params;
+            const soilTop = Math.max(...regionY(e.mesh, "soil"));
+            const potTop = Math.max(...regionY(e.mesh, "pot"));
+            expect(soilTop, plant).toBeLessThan(potTop);
+            const plantRegions = e.mesh.parts.filter(p => !["pot", "soil"].includes(p.region));
+            const lowest = Math.min(...plantRegions.flatMap(p => p.positions.filter((_, i) => i % 3 === 1)));
+            expect(lowest, plant).toBeGreaterThan(soilTop - Number(v.potHeight) * 0.1);
+            expect(Math.max(...plantRegions.flatMap(p => p.positions.filter((_, i) => i % 3 === 1))), plant).toBeGreaterThan(potTop + 0.02);
+        }
+    });
+    it("every foliage object renders its presets without broken rules", () => {
+        for (const id of ["nature.tree", "nature.conifer", "nature.palm", "nature.fern", "nature.shrub", "nature.grass", "nature.flowers", "household.potted_plant"]) {
+            const def = lookupObject(id)!;
+            expect(def.presets!.length, id).toBeGreaterThanOrEqual(5);
+            expect(searchLibrary(def.name.toLowerCase())[0].id, id).toBe(id);
+        }
     });
 });

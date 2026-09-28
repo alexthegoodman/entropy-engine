@@ -3886,8 +3886,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 for (id, config) in &sorted_windows {
                     if !config.visible { continue; }
                     if let Some(widgets) = context.ui_widgets.get(id) {
-                        context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| {
-                            if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }
+                        context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| match widget {
+                            UiWidget::Label { text, .. } => Some(text.clone()),
+                            // A knob draws its own caption, so it counts as a visible label too.
+                            UiWidget::Knob { label, .. } if !label.is_empty() => Some(label.clone()),
+                            _ => None,
                         }));
                     }
                 }

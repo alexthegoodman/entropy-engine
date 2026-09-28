@@ -44,6 +44,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Household | Mug | `household.mug` | 11 | 3 | 2 | 2 | 95 | Ready | 2 ms |
 | Household | Table Lamp | `household.table_lamp` | 16 | 5 | 3 | 4 | 127 | Ready | 2 ms |
 | Household | Coffee Maker | `household.coffee_maker` | 24 | 6 | 4 | 8 | 146 | Ready | 4 ms |
+| Household | Potted Plant | `household.potted_plant` | 12 | 3 | 3 | 12 | 124 | Ready | 11 ms |
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Architecture | Dome Building | `architecture.dome_building` | 24 | 5 | 7 | 5 | 174 | Ready | 11 ms |
@@ -52,6 +53,13 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
 | Nature | Rock | `nature.rock` | 11 | 3 | 0 | 1 | 85 | Ready | 47 ms |
+| Nature | Tree | `nature.tree` | 28 | 5 | 3 | 2 | 143 | Ready | 33 ms |
+| Nature | Conifer | `nature.conifer` | 21 | 4 | 2 | 2 | 115 | Ready | 24 ms |
+| Nature | Palm | `nature.palm` | 22 | 5 | 3 | 5 | 126 | Ready | 10 ms |
+| Nature | Fern | `nature.fern` | 18 | 4 | 2 | 3 | 118 | Ready | 8 ms |
+| Nature | Shrub | `nature.shrub` | 20 | 5 | 2 | 4 | 138 | Ready | 34 ms |
+| Nature | Grass | `nature.grass` | 19 | 4 | 1 | 2 | 131 | Ready | 14 ms |
+| Nature | Flowers | `nature.flowers` | 22 | 4 | 2 | 4 | 134 | Ready | 5 ms |
 | Components | Leg | `component.leg` | 6 | 1 | 0 | 1 | 73 | Ready | 0 ms |
 | Components | Rock piece | `component.rockPiece` | 8 | 1 | 0 | 1 | 76 | Ready | 14 ms |
 | Components | Caster | `component.caster` | 2 | 1 | 0 | 2 | 51 | Ready | 1 ms |
@@ -121,6 +129,87 @@ sunburst bars. **Exterior** adds a threshold and kick plate and puts the leaf in
 region instead of `leaf`, so a building can paint its front door apart from its interior doors.
 **Open** swings the leaf into -Z about its hinge. Five presets: Six-panel, Georgian fanlight,
 Half-glazed kitchen, Cottage plank and Modern flush.
+
+## Foliage
+
+Eight plant objects share one set of `Plants` components (below) and a foliage look the viewport
+draws for every `leaf.*`, `grass.*` and `flower.*` material:
+
+- **Leaves are thin, double-sided sheets** (`mesh.leaf`): ovate, narrow, round, heart, lobed (oak),
+  strap, petal and a sawtooth conifer spray, with a V-fold along the midrib and a curl toward the tip.
+  They're real geometry, so they survive GLB export (the viewport culls back faces, so each leaf
+  carries both).
+- **Per-leaf color and crown shading ride in the UVs.** uv.x runs from a leaf's base (a touch darker)
+  to its tip. uv.y's whole part (0..15) is how deep the leaf sits in its crown, and its fraction is
+  how far the leaf's color leans toward the material's second color, `tint`. That's how an autumn
+  crown mixes orange and red, and how grass tips dry to straw and lavender spikes turn purple. The
+  viewport bakes the tint into each vertex color (`packVertices`) and darkens deep leaves. It also
+  lets light through: a leaf lit from behind glows warm. Bark gets furrows running along each branch
+  (`bark.*`), and birch its dark lenticels. The CPU contact-sheet renderer draws the same things.
+- **Budgets, not surprises.** `plant.tree` thins its deepest twigs above about 2,400 branches and
+  spreads a triangle budget over its twigs (the tree object allows 130,000 leaf triangles). Grass caps
+  blades and plumes across a patch, and shrubs cap mophead clusters, so every configuration the
+  fuzzer tries stays interactive.
+- **Everything stands on the floor.** Whatever a plant sweeps below it (a leaning trunk's base ring,
+  a spruce's lowest sprays, fronds arching to the ground) is squashed flat onto the ground rather
+  than poking through.
+
+**Tree:** a broadleaf tree. The trunk either forks into limbs at the crown base or keeps a central
+leader, and it has root flare, lean, gnarl and bark relief. Controls cover branching depth (1 to 4),
+limbs, twigs per branch, branch angle, limb and twig reach, and a Weeping control (twigs hang in
+curtains; negative values sweep branches up). Crowns can be round, oval, spreading, conical or
+columnar. The canopy is leaves, leafy clusters (stylized puffs) or bare winter branches, with leaf
+shape, size, width, count and hang, and a color-variety control. Presets: English oak, Silver birch,
+Weeping willow, Autumn maple, Cherry blossom, Storybook and Winter oak.
+
+**Conifer:** one leader with whorled limbs. Crowns are conical, columnar or rounded (a pine on a
+tall bare trunk). Foliage is flat needle sprays in two ranks along each branchlet (fir, spruce),
+bottlebrush needle tufts (pine) or stylized stacked tiers. Presets: Norway spruce, Blue spruce, Scots
+pine, Italian cypress, Stylized pine and Golden fir.
+
+**Palm:** a ringed, tapering trunk curving along a Bézier, with a swollen boot. The crown is a
+spiral of arching pinnate fronds: young ones rise from the top, older ones fan out wider. It can
+carry dead fronds hanging below and coconuts. Presets: Coconut palm, Date palm, Royal palm,
+Windswept and Pygmy date.
+
+**Fern:** a rosette of arching pinnate fronds with coiled fiddleheads in the middle (`plant.frond`'s
+`unfurl`). Fronds can be undivided straps instead (bird's nest), and an optional ringed trunk makes a
+tree fern. Presets: Boston fern, Maidenhair, Bird's nest, Tree fern and Bracken.
+
+**Shrub:** a natural multi-stemmed bush (a short trunk forking at once into arching stems), or a
+clipped ball, hedge or cone. A clipped shape is a lumpy body wearing an area-weighted coat of leaves
+(`instance.onSurface`), with the body kept and shaded as deep foliage so no gaps show. Balls and cones
+can stand on a bare stem. Flowers can be five-petal blossoms or mopheads, which are domes of
+four-petal florets (a hydrangea). There are also berries. They sit at the twig tips of a natural
+bush or over a clipped body's upper faces. Presets: Garden shrub, Boxwood ball, Clipped hedge,
+Hydrangea, Topiary cone, Holly standard and Azalea in bloom.
+
+**Grass:** a clump (`plant.blades`) or a patch of clumps. Blades lean out and curl over, and their
+tips can shade toward the tint. Optional stalks carry feathery plumes (pampas), flower spikes
+(lavender) or seed ears (wheat, reeds). Presets: Meadow tuft, Lawn patch, Pampas grass, Dry savanna,
+Lavender and Reeds.
+
+**Flowers:** one flower or a bed of them, scattered on a jittered spiral with size and per-flower
+tint variety. Each bloom has 1 to 3 rings of petals, rising from flat (daisy) to a closed cup
+(tulip) and curling at the tips, around a seed head. Stems bend and blooms nod, with narrow, strap,
+ovate or lobed leaves. Presets: Daisies, Red tulips, Poppies, Sunflower, Pink cosmos and Snowdrops.
+
+**Potted Plant:** a hollow turned pot (classic rim, cylinder, bowl or urn) with soil and an optional
+saucer. The plant composes the Nature library (a fern, a parlour palm, a topiary ball, tulips) or
+grows here: a succulent rosette spiralling by the golden angle and blushing at its tips, or a snake
+plant's upright swords. Presets: Terracotta fern, Parlour palm, Succulent bowl, Snake plant, Topiary
+urn and Tulip pot.
+
+These plants are geometry only. They don't sway in wind, and they have no alpha-cut leaf cards or
+LODs. The GLB carries one flat color per material, so per-leaf tint and crown shading are
+viewport-only. Geometry tests check that leaves are double-sided, that the UV encoding round-trips
+into vertex colors, and that a tree stands on the floor within its leaf budget with inner leaves
+shaded deeper. They also check that weeping lowers the leaves, that a conifer tapers to a spire,
+that palm fronds crown the trunk, that a clipped hedge is covered, and that a potted plant rises
+from soil inside its pot. Live BDD captures an oak, a willow, a back-lit autumn maple, the same maple
+bare and then varied with its size and finishes locked, a spruce and its stylized tiers, a pine, a
+coconut palm, tree and Boston ferns, a hedge, a hydrangea recoloured pink, pampas, lavender, tulips,
+a sunflower, potted fern and succulent, and a composed garden.
 
 ## Writing a procedural object
 
@@ -203,11 +292,16 @@ vec`, plus `rand(a, b?)` and `randRange(key, lo, hi)`, which are stable for the 
 
 Presets in `mesha_materials.ts`: woods (oak, walnut, ash, cherry, ebonized), paints, metals
 (chrome, brushed steel, black steel, brass, copper, aluminum, zinc), plastics, rubber, fabrics,
-leathers, glass (clear, green, amber, frosted), ceramics, stones (granite, sandstone, slate,
-marble), masonry (red, buff and whitewashed brick, stucco, fieldstone), roofing (slate, asphalt
-shingle, clay tile, cedar shake, standing-seam metal), paper and cork. Each has a color,
-roughness, metalness and a surface pattern (wood grain, fabric sheen, brushed, speckle) the
-viewport draws.
+leathers, glass (clear, green, amber, frosted), ceramics (with terracotta), stones (granite,
+sandstone, slate, marble), masonry (red, buff and whitewashed brick, stucco, fieldstone), roofing
+(slate, asphalt shingle, clay tile, cedar shake, standing-seam metal), paper, cork, potting soil;
+barks (oak, grey, dark, pine, birch, palm), stems, fruit; and foliage: leaves (summer and spring
+green, evergreen, silver olive, tropical, autumn orange and gold, maple red, copper beech, cherry
+blossom, spruce and blue spruce needles, fern, palm, succulent), grasses (lawn, meadow, dry,
+lavender) and petals (white, cream, yellow, orange, red, pink, purple, blue) with seed heads and
+pollen. Each has a color, roughness, metalness and a surface pattern (wood grain, fabric sheen,
+brushed, speckle, bark furrows, birch, foliage) the viewport draws; foliage also has a second
+`tint` color each leaf varies toward.
 
 ## The authoring loop
 
@@ -590,6 +684,151 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 | `points` | points3 | required | Positions. |
 | `rotations` | points3 | [] | Per-point [x, y, z] degrees. |
 | `scales` | points3 | [] | Per-point [x, y, z] scale. |
+
+**`instance.scatter`** (Scatter on Ground, outputs mesh): `count` copies of `mesh` spread over a disc on the floor (an even, jittered spiral), each turned, tilted and sized at random: flower beds, meadows, pebbles.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `mesh` | mesh | required | Instance, standing on its origin. |
+| `count` | int | 12 (1..2000) | Copies. |
+| `radius` | number | 0.5 (0..) | Disc radius. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+| `scaleMin` | number | 0.8 (0..) | Smallest size. |
+| `scaleMax` | number | 1.2 (0..) | Largest size. |
+| `tilt` | number | 8 (0..60) | Degrees of random tilt. |
+| `falloff` | number | 0 (0..1) | 0 even; 1 crowds the middle. |
+| `tintVariation` | number | 0 (0..1) | Random lean toward the foliage tint per copy. |
+
+**`instance.onSurface`** (Distribute on Surface, outputs mesh): `count` copies of `mesh` over the faces of `surface` (area-weighted), each copy's +Y along the surface normal and its +Z along the surface tipped up by `tilt`: leaves over a clipped hedge, blossoms on a shrub.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `surface` | mesh | required | Surface to cover. |
+| `mesh` | mesh | required | Instance (a leaf lies flat on it). |
+| `count` | int | 200 (0..20000) | Copies. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+| `scaleMin` | number | 0.8 (0..) | Smallest size. |
+| `scaleMax` | number | 1.2 (0..) | Largest size. |
+| `tilt` | number | 25 (-90..90) | Degrees each copy lifts off the surface. |
+| `tintVariation` | number | 0.4 (0..1) | Random lean toward the foliage tint. |
+| `keepSurface` | bool | false | Also output the surface, shaded as deep foliage. |
+| `surfaceRegion` | string | "" | Region for the kept surface (empty keeps its own). |
+| `minNormalY` | number | -1 (-1..1) | Only faces whose normal's y is at least this (0: upward-facing only). |
+
+### Plants
+
+**`mesh.leaf`** (Leaf, outputs mesh): One double-sided leaf lying flat: it grows along +Z from the origin (after its stalk), its upper face looks up +Y, and `curl` bends the tip down. Also petals, grass blades and conifer sprays.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `shape` | enum: ovate, lanceolate, round, heart, lobed, blade, petal, spray | "ovate" | Outline: ovate, lanceolate, round, heart, lobed (oak), blade (grass), petal, spray (a flat conifer sprig). |
+| `length` | number | 0.1 (0.0005..) | Blade length. |
+| `width` | number | 0.05 (0.0001..) | Blade width. |
+| `fold` | number | 15 (0..80) | Degrees each half rises from the midrib. |
+| `curl` | number | 20 (-180..360) | Degrees the blade bends down toward its tip. |
+| `petiole` | number | 0 (0..) | Stalk length. |
+| `segments` | int | 5 (2..32) | Rows along the blade. |
+| `lobes` | int | 3 (1..24) | Lobes (lobed) or teeth (spray). |
+| `tipTint` | number | 0 (0..1) | Tint gradient toward the tip (dry grass, lavender). |
+
+**`plant.tree`** (Tree, outputs mesh): A branching tree standing on the origin: a trunk (forking into limbs, or one leader to the top), limbs and twigs as tapering bark tubes in `barkRegion`, and `leaf` copies on every twig, shaded darker deep inside the crown.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `height` | number | 6 (0.05..) | Overall height. |
+| `trunkRadius` | number | 0.18 (0.001..) | Trunk radius at the base. |
+| `levels` | int | 3 (0..4) | Branching depth below the trunk. |
+| `branches` | int | 6 (1..64) | Main limbs. |
+| `twigs` | int | 4 (0..24) | Branches on every limb, and on theirs. |
+| `crownBase` | number | 0.35 (0..0.95) | Share of the height that is bare trunk. |
+| `leader` | number | 0 (0..1) | 0 forks into limbs; 1 one leader to the top. |
+| `angle` | number | 45 (0..150) | Degrees limbs leave their parent at. |
+| `reach` | number | 0.6 (0.02..3) | Limb length relative to the crown height. |
+| `subReach` | number | 0.5 (0.05..1.5) | Branch length relative to its parent. |
+| `crownShape` | enum: round, oval, conical, spreading, columnar | "round" | How limb length changes up the trunk. |
+| `radiusRatio` | number | 0.55 (0.05..1) | Child radius relative to its parent. |
+| `gnarl` | number | 0.3 (0..2) | Random bending. |
+| `droop` | number | 0 (-2..4) | Positive arches branches down (weeping); negative sweeps them up. |
+| `lean` | number | 0 (0..60) | Degrees the trunk leans. |
+| `flare` | number | 0.4 (0..2) | Root flare at the base. |
+| `sides` | int | 12 (3..32) | Trunk sides (thinner branches use fewer). |
+| `segments` | int | 6 (2..24) | Points along each branch. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+| `leaf` | mesh | null | Leaf (or cluster) placed on every terminal branch; its +Z points out along the twig. |
+| `leaves` | int | 8 (0..200) | Leaves per terminal branch. |
+| `leafStart` | number | 0.3 (0..1) | Where leaves begin along a twig. |
+| `leafAngle` | number | 55 (0..120) | Degrees between a leaf and its twig. |
+| `leafDroop` | number | 0.1 (-1..2) | 0 leaves face the sky; 1 they hang. |
+| `leafAlign` | enum: twig, flat, random | "twig" | Spiralling around the twig facing up; in two flat ranks either side (fir sprays); or any orientation (clusters, puffs). |
+| `leafScaleVariation` | number | 0.25 (0..0.9) | Random size spread. |
+| `tintVariation` | number | 0.5 (0..1) | Random lean toward the leaf material's tint. |
+| `leafBudget` | int | 120000 (1..1000000) | Triangles all the leaves may use; the count per twig drops to fit. |
+| `bark` | number | 0.5 (0..2) | Trunk surface roughness. |
+| `bloom` | mesh | null | Flower or fruit placed at twig tips, its +Y facing out. |
+| `blooms` | int | 0 (0..12) | Per twig tip. |
+| `barkRegion` | string | "default" | Region for the wood. |
+| `leafRegion` | string | "" | Region for the leaves (empty keeps the leaf's own). |
+
+**`plant.frond`** (Frond, outputs mesh): A pinnate frond (fern, palm) growing along +Z from the origin and arching down: a tapering stem in `stemRegion` and leaflets on both sides in `leafRegion`. `unfurl` below 1 coils the tip into a fiddlehead.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `length` | number | 0.8 (0.001..) | Frond length. |
+| `arch` | number | 60 (-90..270) | Degrees it arches over its length. |
+| `unfurl` | number | 1 (0..1) | 1 open; lower coils the tip. |
+| `leaflets` | int | 18 (0..80) | Leaflets on each side. |
+| `leafletLength` | number | 0.22 (0.01..1) | Longest leaflet relative to the frond. |
+| `leafletWidth` | number | 0.25 (0.02..2) | Leaflet width relative to its length. |
+| `leafletAngle` | number | 70 (5..120) | Degrees from the stem toward the tip. |
+| `leafletDroop` | number | 15 (-60..80) | Degrees the leaflets hang below the frond's plane. |
+| `shape` | enum: ovate, lanceolate, round, heart, lobed, blade, petal, spray | "lanceolate" | Leaflet outline. |
+| `stalk` | number | 0.15 (0..0.9) | Bare stem share at the base. |
+| `stemRadius` | number | 0.006 (0.0002..) | Stem radius at the base. |
+| `tintVariation` | number | 0.3 (0..1) | Random lean toward the tint. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+| `stemRegion` | string | "default" | Region for the stem. |
+| `leafRegion` | string | "default" | Region for the leaflets. |
+
+**`plant.blades`** (Grass Clump, outputs mesh): A clump of grass blades (or straps, spikes) rising from a small disc on the floor, leaning out and curling over, with an optional tint gradient toward the tips.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `count` | int | 40 (1..600) | Blades. |
+| `height` | number | 0.3 (0.001..) | Blade height. |
+| `heightVariation` | number | 0.4 (0..0.95) | Random height spread. |
+| `width` | number | 0.008 (0.0002..) | Blade width. |
+| `radius` | number | 0.04 (0..) | Radius of the clump's base. |
+| `lean` | number | 25 (0..85) | Degrees the blades lean out. |
+| `curl` | number | 50 (0..240) | Degrees each blade bends over. |
+| `tipTint` | number | 0 (0..1) | Gradient toward the tint color at the tips. |
+| `tintVariation` | number | 0.3 (0..1) | Random lean toward the tint. |
+| `segments` | int | 4 (2..16) | Rows along each blade. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+| `shape` | enum: ovate, lanceolate, round, heart, lobed, blade, petal, spray | "blade" | Blade outline. |
+
+**`plant.stalk`** (Stalk, outputs mesh): A tapering, closed round stalk along a path: palm and tree-fern trunks (with `rings`), flower stems, reeds.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `path` | curve3 | required | Path from the base up. |
+| `radius` | number | 0.05 (0.0001..) | Radius at the base. |
+| `tipRadius` | number | 0.03 (0.0001..) | Radius at the top. |
+| `sides` | int | 12 (3..64) | Sides. |
+| `rings` | number | 0 (0..400) | Bands along the stalk. |
+| `ringDepth` | number | 0.12 (0..0.6) | How deep the bands pinch. |
+| `flare` | number | 0 (0..2) | Swelling at the base. |
+| `bark` | number | 0 (0..2) | Surface roughness. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+
+**`plant.shade`** (Foliage Shading, outputs mesh): Shades geometry that isn't leaves (stylized puffs, conifer tiers, a hedge's body) like foliage: how deep in the crown it sits, lower parts deeper by `gradient`, and a random tint lean per part.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `mesh` | mesh | required | Input. |
+| `occlusion` | number | 0 (0..1) | How buried (0 outside, 1 deep inside). |
+| `gradient` | number | 0.4 (0..1) | Extra depth toward the bottom. |
+| `tintVariation` | number | 0 (0..1) | Random lean toward the tint per part. |
+| `seed` | int | 0 (-1000000000..1000000000) | Seed. |
 
 ### Geometry
 

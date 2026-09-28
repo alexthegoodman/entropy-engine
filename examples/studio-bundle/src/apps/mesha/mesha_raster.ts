@@ -5,6 +5,7 @@
 
 import { type Mesh, type Vec3, bounds, mergeByRegion, normalize3, sub3, cross3, dot3, add3, scale3 } from "./mesha_mesh";
 import { type MaterialPreset, FALLBACK_MATERIAL } from "./mesha_materials";
+import { noise3 } from "./mesha_noise";
 
 export interface RasterOptions {
     width?: number;
@@ -71,7 +72,36 @@ export function shade(mat: MaterialPreset, n: Vec3, view: Vec3, occlusion = 1): 
     return out;
 }
 
-interface Tri { p: Vec3[]; n: Vec3[]; mat: MaterialPreset }
+interface Tri { p: Vec3[]; n: Vec3[]; uv: [number, number][]; mat: MaterialPreset }
+
+/**
+ * The viewport's surface patterns that matter at contact-sheet size: foliage (per-leaf tint, crown
+ * shading, light through back-lit leaves), bark furrows and birch lenticels. Returns the material to
+ * shade with, a light multiplier and whether light passes through.
+ */
+function patterned(mat: MaterialPreset, uv: [number, number]): { mat: MaterialPreset; dim: number; leaf: boolean } {
+    if (mat.pattern === "foliage") {
+        const whole = Math.floor(uv[1] + 1e-6), k = Math.min(1, Math.max(0, uv[1] - whole));
+        const occ = Math.min(15, Math.max(0, whole)) / 15;
+        const t = mat.tint ?? mat.color;
+        const base = 0.78 + 0.22 * Math.min(1, Math.max(0, uv[0] / 0.7));
+        const color: [number, number, number] = [0, 1, 2].map(i => (mat.color[i] + (t[i] - mat.color[i]) * k) * base) as [number, number, number];
+        return { mat: { ...mat, color }, dim: 1 - 0.62 * occ, leaf: true };
+    }
+    if (mat.pattern === "bark") {
+        const f = noise3(uv[0] * 9 + noise3(uv[0] * 4, uv[1] * 0.8, 0.3) * 1.6, uv[1] * 1.2, 1.7) * 0.5 + 0.5;
+        const ridge = 1 - Math.abs(f * 2 - 1);
+        const k = 0.5 + 0.65 * Math.min(1, Math.max(0, (ridge - 0.35) / 0.55));
+        return { mat: { ...mat, color: [mat.color[0] * k, mat.color[1] * k, mat.color[2] * k] }, dim: 1, leaf: false };
+    }
+    if (mat.pattern === "birch") {
+        const dash = noise3(uv[0] * 7, uv[1] * 34, 3.1) > 0.35 ? 0.9 : 0;
+        const patch = noise3(uv[0] * 3, uv[1] * 2.2, 8.3) > 0.4 ? 0.85 : 0;
+        const k = Math.max(dash, patch);
+        return { mat: { ...mat, color: mat.color.map(c => c * (1 - k) + 0.2 * k) as [number, number, number] }, dim: 1, leaf: false };
+    }
+    return { mat, dim: 1, leaf: false };
+}
 
 export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, options: RasterOptions = {}): Image {
     const ss = options.ss ?? 2;
@@ -130,6 +160,7 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
             tris.push({
                 p: ids.map(i => [part.positions[i * 3], part.positions[i * 3 + 1], part.positions[i * 3 + 2]] as Vec3),
                 n: ids.map(i => [part.normals[i * 3], part.normals[i * 3 + 1], part.normals[i * 3 + 2]] as Vec3),
+                uv: ids.map(i => [part.uvs[i * 2] ?? 0, part.uvs[i * 2 + 1] ?? 0] as [number, number]),
                 mat,
             });
         }
@@ -164,7 +195,23 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                 // Smoothstep, not a clamped ramp: a ramp's end leaves a visible brightness line.
                 const lift = clamp01((wp[1] - floorY) / (radius * 0.5));
                 const occ = 0.55 + 0.45 * lift * lift * (3 - 2 * lift);
-                const col = shade(t.mat, n, view, occ);
+                let col: Vec3;
+                if (t.mat.pattern === "foliage" || t.mat.pattern === "bark" || t.mat.pattern === "birch") {
+                    // Interpolate the foliage tint fraction, not uv.y itself: the whole part is a separate value.
+                    const fr = (u: number) => u - Math.floor(u + 1e-6), wh = (u: number) => Math.floor(u + 1e-6);
+                    const uvx = t.uv[0][0] * a + t.uv[1][0] * bb + t.uv[2][0] * c;
+                    const uvy = t.mat.pattern === "foliage"
+                        ? Math.round(wh(t.uv[0][1]) * a + wh(t.uv[1][1]) * bb + wh(t.uv[2][1]) * c) + Math.min(0.999, fr(t.uv[0][1]) * a + fr(t.uv[1][1]) * bb + fr(t.uv[2][1]) * c)
+                        : t.uv[0][1] * a + t.uv[1][1] * bb + t.uv[2][1] * c;
+                    const pm = patterned(t.mat, [uvx, uvy]);
+                    col = scale3(shade(pm.mat, n, view, occ * pm.dim), pm.leaf ? 0.4 + 0.6 * pm.dim : 1);
+                    if (pm.leaf) {
+                        // Light through a back-lit leaf.
+                        const through = Math.max(0, -dot3(n, KEY_LIGHT)) ** 1.5 * pm.dim * 0.5;
+                        const lin = pm.mat.color.map(srgbToLinear);
+                        col = [col[0] + lin[0] * through, col[1] + lin[1] * through * 1.12, col[2] + lin[2] * through * 0.62];
+                    }
+                } else col = shade(t.mat, n, view, occ);
                 const o = idx * 3;
                 color[o] = col[0]; color[o + 1] = col[1]; color[o + 2] = col[2];
             }

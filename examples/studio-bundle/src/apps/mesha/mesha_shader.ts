@@ -178,6 +178,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var rough = clamp((a - metal * 0.5) / 0.49, 0.03, 1.0);
     var sheen = 0.0;
     var spec_scale = 1.0;
+    var foliage = 0.0;       // leaves: soft wrap lighting and light through them from behind
+    var crown_occ = 0.0;     // how deep in its crown a leaf sits (uv.y's whole part / 15)
 
     if (pattern == 1) {
         // Wood: long streaky grain, along X on flat faces and along Y on standing ones.
@@ -202,6 +204,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let s = vnoise(p * 70.0);
         let fleck = smoothstep(0.78, 0.9, s);
         base = mix(base * (0.9 + 0.18 * fbm(p * 7.0)), base * 0.45, fleck * 0.6);
+    } else if (pattern == 8) {
+        // Foliage: the vertex color already leans toward the tint per leaf; bases sit a little
+        // deeper, and leaves buried in the crown are shaded by the leaves around them.
+        crown_occ = clamp(floor(in.uv.y + 0.00001), 0.0, 15.0) / 15.0;
+        let along = clamp(in.uv.x, 0.0, 1.0);
+        base = base * (0.78 + 0.22 * smoothstep(0.0, 0.7, along)) * (0.9 + 0.18 * vnoise(p * 31.0));
+        foliage = 1.0;
+        spec_scale = 0.15;
+    } else if (pattern == 9) {
+        // Bark: furrows running along the branch (uv.x is meters around it, uv.y meters along).
+        let q = vec3<f32>(in.uv.x * 9.0, in.uv.y * 1.3, 0.37);
+        let warp = fbm(q * vec3<f32>(0.5, 0.6, 1.0)) * 1.6;
+        let f = fbm(vec3<f32>(q.x + warp, q.y * 0.9, 1.7));
+        let ridge = 1.0 - abs(f * 2.0 - 1.0);
+        base = base * (0.48 + 0.72 * smoothstep(0.35, 0.9, ridge)) * (0.9 + 0.2 * vnoise(p * 40.0));
+        rough = clamp(rough + 0.1, 0.03, 1.0);
+    } else if (pattern == 10) {
+        // Birch: chalky white with dark horizontal lenticels and patches.
+        let dash = smoothstep(0.68, 0.8, vnoise(vec3<f32>(in.uv.x * 7.0, in.uv.y * 34.0, 3.1)));
+        let blotch = smoothstep(0.66, 0.82, fbm(vec3<f32>(in.uv.x * 3.0, in.uv.y * 2.2, 8.3)));
+        base = mix(base * (0.92 + 0.1 * vnoise(p * 25.0)), vec3<f32>(0.035, 0.03, 0.028), max(dash * 0.9, blotch * 0.85));
     }
 
     let key = normalize(studio.key_dir.xyz);
@@ -213,8 +236,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // A little floor occlusion so feet and undersides settle into the ground.
     // Smoothstep, not a clamped ramp: a ramp's end leaves a visible brightness line.
     let occ = 0.6 + 0.4 * smoothstep(0.0, 0.45, p.y);
-    let key_light = studio.key_color.rgb * studio.key_color.w * ndl;
-    let diffuse_light = key_light * 0.5 + studio.key_color.rgb * studio.fill_dir.w * ndf * 0.5 + hemi * 0.55 * occ;
+    // Leaves wrap light around a little (they are thin and scatter it).
+    let wrap = mix(ndl, max((dot(n, key) + 0.35) / 1.35, 0.0), foliage);
+    let crown = 1.0 - 0.62 * crown_occ;
+    let key_light = studio.key_color.rgb * studio.key_color.w * wrap * mix(1.0, crown * crown, foliage);
+    let diffuse_light = key_light * 0.5 + studio.key_color.rgb * studio.fill_dir.w * ndf * 0.5 + hemi * 0.55 * occ * mix(1.0, crown, foliage);
 
     let h = normalize(key + v);
     let shininess = 2.0 / (rough * rough * rough + 0.001);
@@ -225,9 +251,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let f0 = mix(vec3<f32>(0.04), base, metal);
     let reflectance = mix(vec3<f32>(fresnel * (1.0 - rough) * (1.0 - rough) * 0.8), f0 + (1.0 - f0) * fresnel * (1.0 - rough), metal);
     var col = base * (1.0 - metal) * diffuse_light
-        + env * reflectance * occ * (0.35 + 0.65 * (1.0 - rough))
+        + env * reflectance * occ * mix(1.0, crown * 0.3, foliage) * (0.35 + 0.65 * (1.0 - rough))
         + studio.key_color.rgb * spec * mix(vec3<f32>(0.05 + 0.3 * fresnel), f0, metal) * spec_scale;
     col = col + base * sheen * pow(1.0 - nv, 3.0) * (hemi + key_light * 0.3);
+    // Light through a leaf lit from behind: a warm, saturated glow.
+    let through = pow(max(dot(-n, key), 0.0), 1.5) * (0.35 + 0.65 * pow(max(dot(-v, key), 0.0), 2.0));
+    col = col + foliage * base * vec3<f32>(1.0, 1.12, 0.62) * studio.key_color.rgb * studio.key_color.w * through * 0.5 * crown;
 
     if (pattern == 5) {
         // Glass: tinted body, strong fresnel reflections, a bright caustic-ish glint through it.
