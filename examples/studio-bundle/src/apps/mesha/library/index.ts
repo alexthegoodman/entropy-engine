@@ -10,9 +10,10 @@ import bolt from "./bolt";
 import rock, { rockPiece } from "./rock";
 import officeChair, { caster } from "./office_chair";
 import mug from "./mug";
+import tableLamp from "./table_lamp";
 import { windowDef, facadeDef } from "./architecture";
 
-export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, windowDef, facadeDef, gear, bolt, rock, leg, rockPiece, caster];
+export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, windowDef, facadeDef, gear, bolt, rock, leg, rockPiece, caster];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

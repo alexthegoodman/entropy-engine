@@ -55,3 +55,23 @@ Feature: Mesha in the real window
     And I call the tool "mesha_view" with {"yaw": 20, "pitch": 12}
     And I advance 8 frames
     Then I capture "08-facade-six-windows"
+
+  Scenario: A sculptural lamp can be customized and varied with its finishes locked
+    When I call the tool "mesha_add" with {"objectId": "household.table_lamp", "preset": "Stoneware linen", "position": [5, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "09-lamp-stoneware"
+    When I call the tool "mesha_set" with {"values": {"height": 0.34, "shadeRadius": 0.16, "shadeShape": "dome", "shadeShare": 0.32, "baseShape": "column", "baseWidth": 0.4, "baseShare": 0.9, "shadeFinish": "paint.sage", "baseFinish": "paint.sage", "rim": false}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "10-lamp-mushroom"
+    When I call the tool "mesha_lock" with {"keys": ["height", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.8, "seed": 12}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "11-lamp-variation"
+    When I call the tool "mesha_add" with {"objectId": "household.table_lamp", "preset": "Walnut reading", "position": [7, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 28}
+    And I advance 8 frames
+    Then I capture "12-lamp-walnut"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-lamps-export.glb"}

@@ -176,6 +176,28 @@ describe("Mesha library", () => {
         expect(searchLibrary("wine")[0].id).toBe("household.bottle");
         expect(searchLibrary("cog")[0].id).toBe("mechanical.gear");
     });
+    it("the lamp has an open shade with an inner wall at every style and size", () => {
+        const lamp = lookupObject("household.table_lamp")!;
+        expect(searchLibrary("bedside")[0].id).toBe(lamp.id);
+        for (const shadeShape of ["tapered", "drum", "dome"]) {
+            for (const height of [0.25, 0.85]) {
+                const e = evaluateObject(lamp, { shadeShape, height, wall: 1, baseShare: 1 }, lookupObject);
+                expect(e.stats.bounds!.min[1]).toBeCloseTo(0, 6);
+                expect(e.stats.bounds!.max[1]).toBeCloseTo(height, 6);
+                const shade = e.mesh.parts.filter(p => p.region === "shade");
+                let inward = 0, outward = 0;
+                for (const part of shade) for (let i = 0; i < part.positions.length; i += 3) {
+                    const [x, , z] = part.positions.slice(i, i + 3);
+                    expect(Math.hypot(x, z)).toBeGreaterThan(Number(e.params.shadeRadius) * 0.1);
+                    const dot = x * part.normals[i] + z * part.normals[i + 2];
+                    if (dot < -0.001) inward++;
+                    if (dot > 0.001) outward++;
+                }
+                expect(inward).toBeGreaterThan(100);
+                expect(outward).toBeGreaterThan(100);
+            }
+        }
+    });
 });
 
 describe("Mesha variation", () => {

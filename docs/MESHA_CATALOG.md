@@ -42,6 +42,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Furniture | Table | `furniture.table` | 18 | 5 | 6 | 2 | 128 | Ready | 3 ms |
 | Household | Bottle | `household.bottle` | 17 | 5 | 4 | 4 | 115 | Ready | 2 ms |
 | Household | Mug | `household.mug` | 11 | 3 | 2 | 2 | 95 | Ready | 2 ms |
+| Household | Table Lamp | `household.table_lamp` | 16 | 5 | 3 | 4 | 127 | Ready | 2 ms |
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
@@ -54,6 +55,14 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 Components are building blocks other objects compose (a table's legs are `component.leg`, the
 office chair's casters `component.caster`, a facade's windows `architecture.window`); they don't
 appear under Add Object.
+
+**Table Lamp:** tapered, drum and curved mushroom shades; vase, spindle and column bases;
+independent shade, base and fitting finishes; optional metal foot and rims. Five presets:
+Stoneware linen, Sage mushroom, Walnut reading, Terracotta atelier and Midnight brass.
+Shade width, wall thickness and stem radius are constrained by the lamp's proportions. The shade
+has a modeled inner wall, openings and three support arms. The bulb is decorative geometry;
+the lamp does not emit light into the scene. The live BDD feature captures the default,
+mushroom, locked variation and walnut designs. Contact sheets: `test-artifacts/mesha-lamp/`.
 
 ## Writing a procedural object
 

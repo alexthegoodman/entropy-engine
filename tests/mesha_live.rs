@@ -70,9 +70,22 @@ fn mesha_live_feature() {
     // What the app persisted: that scene, plus the facade the last scenario added and edited.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 5);
+    assert_eq!(saved.len(), 7);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
+    let lamp = &reply("mesha_vary", 1)["instance"];
+    assert_eq!(lamp["values"]["height"], 0.34);
+    assert_eq!(lamp["values"]["shadeFinish"], "paint.sage");
+    assert_eq!(lamp["values"]["baseFinish"], "paint.sage");
+    assert!(reply("mesha_vary", 1)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(lamp["violations"].as_array().unwrap().len(), 0);
+    assert_eq!(saved[5]["values"], lamp["values"]);
+    assert_eq!(saved[6]["objectId"], "household.table_lamp");
+    assert_eq!(saved[6]["values"]["baseShape"], "spindle");
+    assert_eq!(saved[6]["values"]["baseFinish"], "wood.walnut");
+    let lamp_glb = fs::read(reply("mesha_export", 1)["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&lamp_glb[..4], b"glTF");
+    assert!(reply("mesha_export", 1)["triangles"].as_u64().unwrap() > reply("mesha_export", 0)["triangles"].as_u64().unwrap());
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
