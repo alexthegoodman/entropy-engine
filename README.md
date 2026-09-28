@@ -483,6 +483,10 @@ cargo run --bin example --release -- doc-editor-demo
 // hand-drawn 3D worlds you can walk through (Canvas Surfaces, see the MCP section)
 npm run build-canvas-surfaces
 cargo run --bin example --release -- canvas-surface-demo
+
+// procedural objects you shape, vary and export as GLB (Mesha)
+npm run build-mesha
+cargo run --bin example --release -- mesha
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,
@@ -498,6 +502,14 @@ subtitle path. The controls cover seek, volume, speed, repeat, captions and full
 `cargo test --release --test video_export_live -- --nocapture` exports the `video-export-demo` clip
 and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
 by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
+
+**Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
+library of procedural objects: an office chair, table, bottle, mug, window, facade, gear, bolt and
+rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
+meaningful controls, press **Variation** for another sensible design (lock what you want kept),
+compose several into a scene and export ordinary GLB geometry. `npm run test:mesha` and
+`npm run mesha:verify` (the parameter fuzzer and contact sheets) run without a window;
+`cargo test --release --test mesha_live -- --nocapture` drives the real one.
 
 The DAW is one window with no page to scroll. A header holds the song (with Songs, History and Save
 version), the transport (Play, Song or Pattern loop, the position, BPM) and the window toggles and

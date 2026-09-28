@@ -45,3 +45,13 @@ Feature: Mesha in the real window
     And I call the tool "mesha_undo" with {"redo": true}
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-live-export.glb"}
     And I call the tool "mesha_state"
+
+  Scenario: Window count 4 to 6 on a composed facade
+    When I call the tool "mesha_add" with {"objectId": "architecture.facade", "values": {"windowCount": 4}, "position": [0, 0, -4]}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "07-facade-four-windows"
+    When I call the tool "mesha_set" with {"values": {"windowCount": 6}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "08-facade-six-windows"

@@ -16,6 +16,8 @@ const FUNCTIONS: Record<string, (args: Value[], scope: Scope) => Value> = {
     max: a => Math.max(...a.map(num)),
     clamp: ([x, lo, hi]) => Math.max(num(lo), Math.min(num(hi), num(x))),
     lerp: ([a, b, t]) => num(a) + (num(b) - num(a)) * num(t),
+    /** Quadratic Bezier from a to c with control b, at t in 0..1: smooth profiles through a bulge. */
+    bez: ([a, b, c, t]) => { const u = num(t), v = 1 - u; return v * v * num(a) + 2 * v * u * num(b) + u * u * num(c); },
     mix: ([a, b, t]) => num(a) + (num(b) - num(a)) * num(t),
     smoothstep: ([e0, e1, x]) => { const t = Math.max(0, Math.min(1, (num(x) - num(e0)) / (num(e1) - num(e0) || 1))); return t * t * (3 - 2 * t); },
     abs: ([x]) => Math.abs(num(x)),

@@ -150,6 +150,33 @@ const LIST: ComponentDef[] = [
         },
     },
     {
+        type: "curve.arch", category: "Curve Primitives", label: "Arch", output: "curve2",
+        description: "An opening outline: a width x height rectangle whose top is a round arch `rise` high (0 is square-topped), bottom centred on the origin. Windows, doors, niches.",
+        inputs: [n("width", 1, "Width.", 0), n("height", 2, "Total height.", 0), n("rise", 0.5, "Arch height (half the width is a semicircle).", 0), int("segments", 24, "Points along the arch.", 2, 256)],
+        build: i => {
+            const hw = i.width / 2, rise = Math.max(0, Math.min(i.rise, i.height - 1e-4));
+            const spring = i.height - rise;
+            const pts: Vec2[] = [[-hw, 0], [hw, 0], [hw, spring]];
+            if (rise > 1e-5) {
+                // A circular segment through both springing points and the crown.
+                const R = (hw * hw + rise * rise) / (2 * rise), cy = spring + rise - R;
+                const a0 = Math.atan2(spring - cy, hw), a1 = Math.PI - a0;
+                for (let k = 1; k < i.segments; k++) { const a = a0 + ((a1 - a0) * k) / i.segments; pts.push([Math.cos(a) * R, cy + Math.sin(a) * R]); }
+            }
+            pts.push([-hw, spring]);
+            return pts;
+        },
+    },
+    {
+        type: "curves.linear", category: "Curve Primitives", label: "Linear Curve Copies", output: "curves2",
+        description: "`count` copies of a 2D curve, each `offset` further - a row of window openings for Extrude's holes.",
+        inputs: [{ name: "curve", kind: "curve2", description: "Input." }, int("count", 3, "Copies.", 1, 512), { name: "offset", kind: "vec2", default: [1, 0], description: "Step between copies." }, { name: "centered", kind: "bool", default: true, description: "Centre the row on the original." }],
+        build: i => {
+            const shift = i.centered ? (i.count - 1) / 2 : 0;
+            return Array.from({ length: i.count }, (_, k) => translate2(i.curve, (k - shift) * i.offset[0], (k - shift) * i.offset[1])) as unknown as Vec2[];
+        },
+    },
+    {
         type: "curves.radial", category: "Curve Primitives", label: "Radial Curve Copies", output: "curves2",
         description: "`count` copies of a 2D curve rotated evenly about the origin - a list of curves for Extrude's holes (spokes, vents, bolt circles).",
         inputs: [{ name: "curve", kind: "curve2", description: "Input." }, int("count", 6, "Copies.", 1, 512), n("startAngle", 0, "Degrees.")],

@@ -112,6 +112,9 @@ export function scale2(poly: Vec2[], sx: number, sy = sx): Vec2[] {
     return poly.map(([x, y]) => [x * sx, y * sy] as Vec2);
 }
 
+/** Turns (radians) below which filletPolyline leaves a corner alone. */
+const GENTLE_TURN = (12 * Math.PI) / 180;
+
 /**
  * Replaces each corner of a polyline with a circular arc of up to `radius` (shortened where the
  * neighbouring edges are too short), so a profile with hard corners turns into one that catches
@@ -135,7 +138,9 @@ export function filletPolyline<T extends Vec2 | Vec3>(points: T[], radius: numbe
         const ua = a.map(v => v / la), ub = b.map(v => v / lb);
         const cos = Math.max(-1, Math.min(1, ua.reduce((s, v, k) => s + v * ub[k], 0)));
         const angle = Math.acos(cos);
-        if (angle > Math.PI - 1e-3 || angle < 1e-3) { out.push(p.slice() as T); continue; }
+        // Gentle corners stay as they are: a fillet's exact arc normals would leave the straight
+        // runs between arcs flat-shaded (a faceted look), where averaged normals shade smoothly.
+        if (angle > Math.PI - GENTLE_TURN || angle < 1e-3) { out.push(p.slice() as T); continue; }
         // Distance from the corner to the tangent points, capped at half of each neighbouring edge.
         let t = radius / Math.tan(angle / 2);
         t = Math.min(t, la * 0.5, lb * 0.5);

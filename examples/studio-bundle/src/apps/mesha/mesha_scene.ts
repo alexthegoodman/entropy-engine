@@ -71,11 +71,15 @@ export function buildScene(instances: Instance[], lookup: ObjectLookup, cache = 
 
 // --- Library search ------------------------------------------------------------------------------
 
+/** How Add Object orders categories; any other category follows, alphabetically. */
+export const CATEGORY_ORDER = ["Furniture", "Household", "Architecture", "Mechanical", "Nature"];
+
 /** Browsable objects ranked for `query` (all of them, by category, for an empty query). */
 export function searchLibrary(query: string, category?: string): ObjectDef[] {
     const all = browsableObjects().filter(d => !category || d.category === category);
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return all.slice().sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    const rank = (c: string) => { const i = CATEGORY_ORDER.indexOf(c); return i < 0 ? CATEGORY_ORDER.length : i; };
+    if (!words.length) return all.slice().sort((a, b) => rank(a.category) - rank(b.category) || a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     const phrase = query.toLowerCase().trim();
     const scored = all.map(d => {
         const name = d.name.toLowerCase(), tags = (d.tags ?? []).map(t => t.toLowerCase()), text = `${d.category} ${d.description ?? ""}`.toLowerCase();

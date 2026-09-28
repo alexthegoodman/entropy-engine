@@ -161,7 +161,9 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                 const view = normalize3(sub3(eye, wp));
                 if (dot3(n, view) < 0) n = scale3(n, -1); // backfaces of open shells shade like fronts
                 // Cheap occlusion toward the floor, so feet and undersides settle.
-                const occ = 0.55 + 0.45 * clamp01((wp[1] - floorY) / (radius * 0.35));
+                // Smoothstep, not a clamped ramp: a ramp's end leaves a visible brightness line.
+                const lift = clamp01((wp[1] - floorY) / (radius * 0.5));
+                const occ = 0.55 + 0.45 * lift * lift * (3 - 2 * lift);
                 const col = shade(t.mat, n, view, occ);
                 const o = idx * 3;
                 color[o] = col[0]; color[o + 1] = col[1]; color[o + 2] = col[2];

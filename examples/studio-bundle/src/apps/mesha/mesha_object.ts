@@ -75,7 +75,7 @@ export interface ObjectDef {
     presets?: PresetDef[];
     nodes: NodeDef[];
     /** Sanity bounds for automatic checks: largest plausible dimension (m) and triangle budget. */
-    limits?: { maxSize?: number; minSize?: number; maxTriangles?: number };
+    limits?: { maxSize?: number; minSize?: number; maxTriangles?: number; floor?: boolean };
     /** A reusable building block (a leg, a caster) other objects compose; not listed in Add Object. */
     component?: boolean;
 }
@@ -270,14 +270,14 @@ function coerce(input: ComponentInput, v: unknown, where: string): unknown {
             if (!Array.isArray(v) || v.length < size) throw new MeshaError(`${where}.${input.name} needs ${size} numbers`);
             return v.slice(0, size).map(finite);
         }
-        case "curve2": case "points3": {
+        case "curve2": case "points3": case "curve3": {
             if (v === null && input.default === null) return null;
             if (!Array.isArray(v)) throw new MeshaError(`${where}.${input.name} needs a list of points`);
-            return v.map(p => (Array.isArray(p) ? p.map(finite) : finite(p)));
-        }
-        case "curve3": {
-            if (!Array.isArray(v)) throw new MeshaError(`${where}.${input.name} needs a path`);
-            return v.map(p => (Array.isArray(p) ? p.map(finite) : finite(p)));
+            const size = input.kind === "curve2" ? 2 : 3;
+            return v.map((p, i) => {
+                if (!Array.isArray(p) || p.length < size) throw new MeshaError(`${where}.${input.name}[${i}] is not a point of ${size} numbers`);
+                return p.slice(0, size).map(finite);
+            });
         }
         case "curves2": {
             // A curve (list of points), a list of curves, or a list mixing both (["@bore", "@cutouts"]).
@@ -416,10 +416,16 @@ export function validateDefinition(def: ObjectDef, lookup: ObjectLookup = () => 
         for (const name of referencedNames(src)) if (!known(name)) problems.push(`${where}: unknown name "${name}"`);
     };
     const walk = (raw: unknown, where: string) => {
+        if (raw === null && where.includes("[")) problems.push(`${where}: empty entry`);
         if (typeof raw === "string") {
             if (raw.startsWith("=")) checkExpr(raw, where);
             else if (raw.startsWith("@") && !nodeIds.has(raw.slice(1))) problems.push(`${where}: no node "${raw.slice(1)}"`);
-        } else if (Array.isArray(raw)) raw.forEach((r, i) => walk(r, `${where}[${i}]`));
+        } else if (Array.isArray(raw)) {
+            for (let i = 0; i < raw.length; i++) {
+                if (raw[i] === undefined) problems.push(`${where}[${i}]: empty entry (a missing comma?)`);
+                else walk(raw[i], `${where}[${i}]`);
+            }
+        }
         else if (raw && typeof raw === "object") {
             const o = raw as Record<string, unknown>;
             if ("if" in o) { walk(o.if, `${where}.if`); walk(o.then, `${where}.then`); walk(o.else, `${where}.else`); }

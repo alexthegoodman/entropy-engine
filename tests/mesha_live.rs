@@ -67,9 +67,12 @@ fn mesha_live_feature() {
     assert_eq!(instances[1]["values"]["topShape"], "round", "the table took its preset");
     assert_eq!(state["lighting"], "warm");
 
-    // What the app persisted: the same scene.
+    // What the app persisted: that scene, plus the facade the last scenario added and edited.
     let session = read(&data.join("Mesha").join("session.json"));
-    assert_eq!(session["scene"]["instances"].as_array().unwrap().len(), 4);
+    let saved = session["scene"]["instances"].as_array().unwrap();
+    assert_eq!(saved.len(), 5);
+    assert_eq!(saved[4]["objectId"], "architecture.facade");
+    assert_eq!(saved[4]["values"]["windowCount"], 6);
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
@@ -79,6 +82,13 @@ fn mesha_live_feature() {
     let gltf: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
     assert_eq!(gltf["meshes"].as_array().unwrap().len() as u64, export["meshes"].as_u64().unwrap());
     assert!(export["triangles"].as_u64().unwrap() > 20_000);
+
+    // Window count 4 -> 6: the facade's composed windows follow its parameter.
+    let four = &reply("mesha_add", 3)["instance"];
+    let six = &reply("mesha_set", 1)["instance"];
+    assert_eq!(four["objectId"], "architecture.facade");
+    assert_eq!(six["values"]["windowCount"], 6);
+    assert!(six["triangles"].as_u64().unwrap() > four["triangles"].as_u64().unwrap() * 5 / 4, "two more windows should add geometry");
 
     // Screenshots: Variation visibly changed the chair in the viewport (between the side panels).
     let artifacts: Vec<String> = result["artifacts"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();

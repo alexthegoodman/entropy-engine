@@ -360,6 +360,18 @@ function edgeNormals(loop: Vec2[]): Vec2[] {
     });
 }
 
+/** True if offsetting `loop` by `d` flips the direction of any of its edges. */
+function insetReverses(loop: Vec2[], d: number): boolean {
+    const off = offsetLoop(loop, d);
+    for (let i = 0; i < loop.length; i++) {
+        const j = (i + 1) % loop.length;
+        const ex = loop[j][0] - loop[i][0], ey = loop[j][1] - loop[i][1];
+        const fx = off[j][0] - off[i][0], fy = off[j][1] - off[i][1];
+        if (ex * fx + ey * fy <= 0) return true;
+    }
+    return false;
+}
+
 /** Each vertex offset by `d` along its miter, capped so sharp spikes don't shoot off. */
 function offsetLoop(loop: Vec2[], d: number): Vec2[] {
     if (Math.abs(d) < 1e-9) return loop.map(p => [p[0], p[1]] as Vec2);
@@ -405,7 +417,10 @@ export function extrude(outline: Vec2[], height: number, options: ExtrudeOptions
     const outer = ensureCCW(outline.map(flip));
     const holes = (options.holes ?? []).map(h => dedupePoints(h, true)).filter(h => h.length >= 3 && Math.abs(signedArea(h)) > 1e-12).map(h => ensureCW(h.map(flip)));
     const h = Math.max(height, 1e-5);
-    const b = Math.max(0, Math.min(options.bevel ?? 0, h / 2 - 1e-5));
+    let b = Math.max(0, Math.min(options.bevel ?? 0, h / 2 - 1e-5));
+    // A rounded corner can't take a bevel deeper than its own radius: insetting past it turns the
+    // corner's edges around (inverted faces). Shrink the bevel until no inset edge reverses.
+    for (let k = 0; k < 16 && b > 1e-6 && [outer, ...holes].some(l => insetReverses(l, -b)); k++) b *= 0.7;
     const bs = Math.max(1, Math.round(options.bevelSegments ?? 3));
     // Wall profile as (offset, y): negative offset is inward.
     const profile: Vec2[] = [];

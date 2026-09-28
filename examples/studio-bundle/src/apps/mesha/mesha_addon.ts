@@ -11,7 +11,7 @@ import { type Vec3, type Bounds } from "./mesha_mesh";
 import { sphere } from "./mesha_primitives";
 import { type ObjectDef, type ParamDef, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, paramRange, materialChoices, ruleViolations } from "./mesha_object";
 import { MATERIAL_BY_ID } from "./mesha_materials";
-import { lookupObject, browsableObjects, LIBRARY } from "./library";
+import { lookupObject, LIBRARY } from "./library";
 import { type Instance, type BakedInstance, EvaluationCache, bakeInstance, searchLibrary, packVertices, materialTexture } from "./mesha_scene";
 import { vary, isLocked } from "./mesha_variation";
 import { fuzz, acceptanceText } from "./mesha_verify";
@@ -33,7 +33,7 @@ const ACCENT: [number, number, number, number] = [0.96, 0.66, 0.38, 1];
 const DIM: [number, number, number, number] = [0.66, 0.68, 0.72, 1];
 const WARN: [number, number, number, number] = [0.98, 0.72, 0.42, 1];
 const CATEGORY_ICONS: Record<string, IconName> = { Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Electronics: "lightning" };
-const OBJECT_ICONS: Record<string, IconName> = { "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains" };
+const OBJECT_ICONS: Record<string, IconName> = { "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house" };
 
 // --- Scene state ---------------------------------------------------------------------------------
 
@@ -309,7 +309,9 @@ function frame(onlySelected = true): void {
     const len = Math.hypot(...dir) || 1;
     dir = [dir[0] / len, dir[1] / len, dir[2] / len];
     if (dir[1] < 0.15) dir = [dir[0], 0.35, dir[2]];
-    const d = r * (onlySelected ? 2.9 : 2.3) + 0.2;
+    // Wide things (a facade) need more room: the side panels cover part of the view.
+    const wide = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]) > 2 * (b.max[1] - b.min[1]) ? 1.25 : 1;
+    const d = r * (onlySelected ? 2.9 : 2.3) * wide + 0.2;
     orbitTarget = c;
     Entropy.Camera.setTransform([c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d], c);
     Entropy.Controls.enable("orbit", { target: c, trigger: "always", button: 1, zoomSpeed: Math.max(0.2, r), invertX: true });
@@ -573,7 +575,7 @@ function renderLibrary(): void {
     const id = libraryWindow;
     W.label(id, { text: "Add object", bold: true, fontSize: 15 });
     W.textInput(id, { id: "mesha-search", label: Icons.get("magnifying-glass"), value: libraryQuery, onChange: v => { libraryQuery = v; } });
-    const categories = ["All", ...new Set(browsableObjects().map(d => d.category))];
+    const categories = ["All", ...new Set(searchLibrary("").map(d => d.category))];
     W.segmented(id, { id: "mesha-category", options: categories.map(c => (c === "All" ? "All" : Icons.get(CATEGORY_ICONS[c] ?? "cube"))), selectedIndex: Math.max(0, categories.indexOf(libraryCategory)), compact: true, onChange: v => { libraryCategory = categories[Number(v)]; } });
     W.label(id, { text: libraryCategory === "All" ? "Every category" : libraryCategory, color: DIM });
     const results = searchLibrary(libraryQuery, libraryCategory === "All" ? undefined : libraryCategory);
@@ -757,8 +759,11 @@ function setupUI(): void {
 type Args = Record<string, any>;
 
 function instanceSummary(i: Instance) {
-    const e = live.get(i.id)?.baked.evaluation;
-    return { id: i.id, name: i.name, objectId: i.objectId, values: i.values, position: i.position, rotationY: i.rotationY, scale: i.scale, locks: scene.locks[i.id] ?? [], triangles: e?.stats.triangles ?? null, violations: ruleViolations(defOf(i), i.values) };
+    // The evaluation for the current values (cached, so the next frame's rebuild reuses it), not
+    // the last-rendered mesh, which a change made this frame hasn't rebuilt yet.
+    let triangles: number | null = null;
+    try { triangles = cache.get(i.objectId, i.values).stats.triangles; } catch { /* reported by rebuild */ }
+    return { id: i.id, name: i.name, objectId: i.objectId, values: i.values, position: i.position, rotationY: i.rotationY, scale: i.scale, locks: scene.locks[i.id] ?? [], triangles, violations: ruleViolations(defOf(i), i.values) };
 }
 
 function target(args: Args): Instance {

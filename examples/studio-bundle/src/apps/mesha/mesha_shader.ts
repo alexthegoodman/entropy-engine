@@ -205,7 +205,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let nv = max(dot(n, v), 0.0);
     let hemi = mix(studio.ground.rgb, studio.sky_top.rgb * 1.4 + studio.sky_horizon.rgb * 0.4, n.y * 0.5 + 0.5);
     // A little floor occlusion so feet and undersides settle into the ground.
-    let occ = 0.6 + 0.4 * clamp(p.y * 3.0, 0.0, 1.0);
+    // Smoothstep, not a clamped ramp: a ramp's end leaves a visible brightness line.
+    let occ = 0.6 + 0.4 * smoothstep(0.0, 0.45, p.y);
     let key_light = studio.key_color.rgb * studio.key_color.w * ndl;
     let diffuse_light = key_light * 0.5 + studio.key_color.rgb * studio.fill_dir.w * ndf * 0.5 + hemi * 0.55 * occ;
 
