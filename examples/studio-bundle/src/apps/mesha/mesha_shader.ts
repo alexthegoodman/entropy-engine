@@ -45,8 +45,8 @@ export function packStudio(l: StudioLighting, focus = 3): Float32Array {
     ]);
 }
 
-/** Per-object uniform: rgb accent and how strongly to glow it (selection), 1 vec4. */
-export const ITEM_FLOATS = 4;
+/** Per-object uniform: rgb accent and how strongly to glow it (selection), followed by the object matrix. */
+export const ITEM_FLOATS = 20;
 
 export const MESHA_SHADER = /* wgsl */ `
 struct Camera {
@@ -68,6 +68,7 @@ struct Studio {
 
 struct Item {
     highlight: vec4<f32>,      // rgb accent, w = strength
+    model: mat4x4<f32>,
 };
 @group(2) @binding(1) var<uniform> item: Item;
 
@@ -89,10 +90,11 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    // Positions are baked to world space by the addon, so there is no model matrix.
-    out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
-    out.world_pos = in.position;
-    out.normal = in.normal;      // its length carries the surface pattern id
+    // Uniform scale only; preserve the normal length carrying the pattern id.
+    let world = item.model * vec4<f32>(in.position, 1.0);
+    out.clip_position = camera.view_proj * world;
+    out.world_pos = world.xyz;
+    out.normal = normalize((item.model * vec4<f32>(in.normal, 0.0)).xyz) * length(in.normal);      // its length carries the surface pattern id
     out.uv = in.tex_coords;
     out.color = in.color;
     return out;

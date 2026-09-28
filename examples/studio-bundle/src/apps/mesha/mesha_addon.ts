@@ -7,12 +7,12 @@
 // toolbar at the top. Objects stay procedural: an instance is an object id plus parameter values,
 // and geometry is re-evaluated (cached) whenever they change.
 
-import { type Vec3, type Bounds } from "./mesha_mesh";
+import { identity4, type Vec3, type Bounds } from "./mesha_mesh";
 import { sphere } from "./mesha_primitives";
 import { type ObjectDef, type ParamDef, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, paramRange, materialChoices, ruleViolations } from "./mesha_object";
 import { MATERIAL_BY_ID } from "./mesha_materials";
 import { lookupObject, LIBRARY } from "./library";
-import { type Instance, type BakedInstance, EvaluationCache, bakeInstance, searchLibrary, packVertices, materialTexture } from "./mesha_scene";
+import { type Instance, type BakedInstance, EvaluationCache, bakeInstance, instanceMatrix, instanceRotation, searchLibrary, packVertices, materialTexture } from "./mesha_scene";
 import { vary, isLocked } from "./mesha_variation";
 import { fuzz, acceptanceText } from "./mesha_verify";
 import { contactShadowMap } from "./mesha_raster";
@@ -47,9 +47,10 @@ interface SceneState {
 let scene: SceneState = { instances: [], selectedId: null, locks: {} };
 const cache = new EvaluationCache(lookupObject);
 
-interface Live { baked: BakedInstance; meshIds: string[]; itemBuffer: string; bounds: Bounds | null }
+interface Live { baked: BakedInstance; meshIds: string[]; itemBuffer: string; bounds: Bounds | null; geometryKey: string }
 const live = new Map<string, Live>();
 const dirty = new Set<string>();
+const transformed = new Set<string>();
 let groundDirty = true;
 let pipelineId = "";
 let studioBuffer = "";
@@ -181,13 +182,15 @@ function rebuildInstance(inst: Instance): void {
         statusMessage = `${defOf(inst).name}: ${(e as Error).message}`;
         return;
     }
-    const baked = bakeInstance(inst, evaluation);
     const previous = live.get(inst.id);
+    const geometryKey = JSON.stringify([inst.objectId, inst.values]);
+    if (previous?.geometryKey === geometryKey) { updateTransform(inst); return; }
+    const local = bakeInstance({ ...inst, position: [0, 0, 0], rotationY: 0, rotation: undefined, scale: 1 }, evaluation);
     if (previous) for (const m of previous.meshIds) Entropy.Model.clearMesh(m);
     const itemBuffer = previous?.itemBuffer ?? Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
-    Entropy.Buffer.write(itemBuffer, new Float32Array(itemHighlight(inst.id)));
+    Entropy.Buffer.write(itemBuffer, new Float32Array([...itemHighlight(inst.id), ...instanceMatrix(inst)]));
     const meshIds: string[] = [];
-    for (const rm of baked.meshes) {
+    for (const rm of local.meshes) {
         const { vertexData, indexData } = packVertices(rm);
         const id = Entropy.generateUUID();
         Entropy.Model.createMesh({
@@ -199,14 +202,27 @@ function rebuildInstance(inst: Instance): void {
         });
         meshIds.push(id);
     }
-    const all = baked.meshes.flatMap(m => m.positions);
-    let bounds: Bounds | null = null;
-    if (all.length) {
-        const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
-        for (let k = 0; k < all.length; k += 3) for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a], all[k + a]); max[a] = Math.max(max[a], all[k + a]); }
-        bounds = { min, max };
-    }
-    live.set(inst.id, { baked, meshIds, itemBuffer, bounds });
+    live.set(inst.id, { baked: local, meshIds, itemBuffer, bounds: null, geometryKey });
+    refreshWorld(inst);
+}
+
+/** Upload only 80 bytes during a transform; defer CPU triangles and shadows until release. */
+function updateTransform(inst: Instance): void {
+    const l = live.get(inst.id);
+    if (!l) { dirty.add(inst.id); return; }
+    Entropy.Buffer.write(l.itemBuffer, new Float32Array([...itemHighlight(inst.id), ...instanceMatrix(inst)]));
+    transformed.add(inst.id);
+    groundDirty = true;
+}
+
+function refreshWorld(inst: Instance): void {
+    const l = live.get(inst.id);
+    if (!l) return;
+    l.baked = bakeInstance(inst, l.baked.evaluation);
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const m of l.baked.meshes) for (let k = 0; k < m.positions.length; k += 3)
+        for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a], m.positions[k + a]); max[a] = Math.max(max[a], m.positions[k + a]); }
+    l.bounds = Number.isFinite(min[0]) ? { min, max } : null;
 }
 
 function refreshHighlights(): void {
@@ -316,7 +332,7 @@ function frame(onlySelected = true): void {
     const d = r * (onlySelected ? 2.9 : 2.3) * wide + 0.2;
     orbitTarget = c;
     Entropy.Camera.setTransform([c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d], c);
-    Entropy.Controls.enable("orbit", { target: c, trigger: "always", button: 1, zoomSpeed: Math.max(0.2, r), invertX: true });
+    Entropy.Controls.enable("orbit", { target: c, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: Math.max(0.2, r), invertX: true });
 }
 
 // --- Picking & moving ----------------------------------------------------------------------------
@@ -368,10 +384,11 @@ function syncGizmo(): void {
         if (gizmoId) { Entropy.Gizmo.hide(gizmoId); gizmoId = null; }
         return;
     }
-    if (gizmoId) { Entropy.Gizmo.updatePosition(gizmoId, inst.position); return; }
+    if (gizmoId) { Entropy.Gizmo.updatePosition(gizmoId, inst.position); Entropy.Gizmo.updateRotation(gizmoId, instanceRotation(inst)); return; }
     gizmoId = Entropy.Gizmo.show({
         position: inst.position,
-        mode: "translate",
+        mode: "translate_rotate",
+        rotation: instanceRotation(inst),
         space: "world",
         onTransform: delta => {
             const i = selected();
@@ -379,8 +396,18 @@ function syncGizmo(): void {
             beginEdit("Move");
             // Objects stand on the floor: drags slide them across it.
             i.position = [i.position[0] + delta[0], Math.max(0, i.position[1] + delta[1]), i.position[2] + delta[2]];
-            dirty.add(i.id);
-            groundDirty = true;
+            gizmoWasActive = true;
+            updateTransform(i);
+            syncGizmo();
+        },
+        onRotate: rotation => {
+            const i = selected();
+            if (!i) return;
+            beginEdit("Rotate");
+            i.rotation = rotation;
+            gizmoWasActive = true;
+            updateTransform(i);
+            syncGizmo();
         },
         onComplete: () => commitEdit(),
     });
@@ -486,7 +513,7 @@ function duplicateSelected(): void {
     if (!inst) return;
     const def = defOf(inst);
     const copy = addObject(inst.objectId, { ...inst.values }, freeSpot(def, inst.values));
-    copy.rotationY = inst.rotationY; copy.scale = inst.scale;
+    copy.rotation = inst.rotation ? [...inst.rotation] : undefined; copy.rotationY = inst.rotationY; copy.scale = inst.scale;
     scene.locks[copy.id] = [...(scene.locks[inst.id] ?? [])];
     dirty.add(copy.id);
 }
@@ -665,7 +692,7 @@ function renderProperties(): void {
         W.label(id, { text: "Select an object in the viewport or the scene list to shape it.", color: DIM, wrap: true });
         W.spacer(id, 8);
         W.label(id, { text: "Tips", bold: true });
-        for (const tip of ["Right-drag orbits, scroll zooms.", "V varies the selection, F frames it.", "Lock a control to keep it while you vary the rest."]) W.label(id, { text: `· ${tip}`, color: DIM, wrap: true });
+        for (const tip of ["Right-drag orbits, middle-drag pans, scroll zooms.", "V varies the selection, F frames it.", "Lock a control to keep it while you vary the rest."]) W.label(id, { text: `· ${tip}`, color: DIM, wrap: true });
         return;
     }
     const def = defOf(inst);
@@ -723,7 +750,7 @@ function renderProperties(): void {
         W.slider(id, { id: "mesha-pos-x", label: "X", value: inst.position[0], min: -8, max: 8, unit: "m", decimals: 2, onChange: v => set(i => { i.position = [Number(v), i.position[1], i.position[2]]; }) });
         W.slider(id, { id: "mesha-pos-z", label: "Z", value: inst.position[2], min: -8, max: 8, unit: "m", decimals: 2, onChange: v => set(i => { i.position = [i.position[0], i.position[1], Number(v)]; }) });
         W.slider(id, { id: "mesha-pos-y", label: "Lift", value: inst.position[1], min: 0, max: 3, unit: "m", decimals: 3, onChange: v => set(i => { i.position = [i.position[0], Number(v), i.position[2]]; }) });
-        W.slider(id, { id: "mesha-rot", label: "Turn", value: inst.rotationY, min: -180, max: 180, unit: "°", decimals: 0, onChange: v => set(i => { i.rotationY = Number(v); }) });
+        W.slider(id, { id: "mesha-rot", label: "Turn", value: inst.rotationY, min: -180, max: 180, unit: "°", decimals: 0, onChange: v => set(i => { i.rotationY = Number(v); i.rotation = undefined; }) });
         W.slider(id, { id: "mesha-scale", label: "Scale", value: inst.scale, min: 0.1, max: 4, decimals: 2, onChange: v => set(i => { i.scale = Number(v); }) });
     }, "mesha-group-placement", false);
 
@@ -765,7 +792,7 @@ function instanceSummary(i: Instance) {
     // the last-rendered mesh, which a change made this frame hasn't rebuilt yet.
     let triangles: number | null = null;
     try { triangles = cache.get(i.objectId, i.values).stats.triangles; } catch { /* reported by rebuild */ }
-    return { id: i.id, name: i.name, objectId: i.objectId, values: i.values, position: i.position, rotationY: i.rotationY, scale: i.scale, locks: scene.locks[i.id] ?? [], triangles, violations: ruleViolations(defOf(i), i.values) };
+    return { id: i.id, name: i.name, objectId: i.objectId, values: i.values, position: i.position, rotationY: i.rotationY, rotation: i.rotation, scale: i.scale, locks: scene.locks[i.id] ?? [], triangles, violations: ruleViolations(defOf(i), i.values) };
 }
 
 function target(args: Args): Instance {
@@ -840,7 +867,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
             const inst = target(a);
             beginEdit("Move");
             if (Array.isArray(a.position)) inst.position = [Number(a.position[0]), Math.max(0, Number(a.position[1])), Number(a.position[2])];
-            if (typeof a.rotationY === "number") inst.rotationY = a.rotationY;
+            if (typeof a.rotationY === "number") { inst.rotationY = a.rotationY; inst.rotation = undefined; }
             if (typeof a.scale === "number") inst.scale = Math.max(0.01, a.scale);
             dirty.add(inst.id); groundDirty = true; commitEdit(); syncGizmo();
             return { instance: instanceSummary(inst) };
@@ -920,18 +947,18 @@ addon.onInit(() => {
         fragmentShader: MESHA_SHADER,
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" },
-            { binding: 1, visibility: ["Fragment"], resourceType: "Uniform" },
+            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
         ] }],
     });
     studioBuffer = Entropy.Buffer.create({ size: STUDIO_FLOATS * 4, usage: "Uniform" });
     groundItemBuffer = Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
-    Entropy.Buffer.write(groundItemBuffer, new Float32Array([0, 0, 0, 0]));
+    Entropy.Buffer.write(groundItemBuffer, new Float32Array([0, 0, 0, 0, ...identity4()]));
     createBackdrop();
     Entropy.setGameMode(false); // the gizmo renders only outside game mode
     const restored = loadSession();
     applyStudio();
     Entropy.Camera.setTransform([1.7, 1.25, 2.3], orbitTarget);
-    Entropy.Controls.enable("orbit", { target: orbitTarget, trigger: "always", button: 1, invertX: true });
+    Entropy.Controls.enable("orbit", { target: orbitTarget, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, invertX: true });
     setupUI();
     registerTools();
     if (restored) { statusMessage = "Welcome back."; pendingFrame = 3; pendingFrameAll = true; syncGizmo(); }
@@ -951,7 +978,14 @@ addon.onUpdatePlus("Global", () => {
         if (inst) rebuildInstance(inst);
     }
     if (dirty.size) { dirty.clear(); syncGizmo(); }
-    if (groundDirty && !(pointerHeld && gizmoWasActive)) { rebuildGround(); groundDirty = false; }
+    if (!pointerHeld && transformed.size) {
+        for (const id of transformed) {
+            const inst = scene.instances.find(i => i.id === id);
+            if (inst) refreshWorld(inst);
+        }
+        transformed.clear();
+    }
+    if (groundDirty && !(pointerHeld && (gizmoWasActive || transformed.size))) { rebuildGround(); groundDirty = false; }
     if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll); pendingFrameAll = false; }
     if (!pointerHeld) commitEdit();
     // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).

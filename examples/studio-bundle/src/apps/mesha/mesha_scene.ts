@@ -3,6 +3,7 @@
 // instances into world-space meshes per material for the viewport and for GLB export, and packs
 // them into the engine's vertex layout.
 
+import { mat4 } from "gl-matrix";
 import { type Mesh, type Vec3, compose4, transformMesh, mergeByRegion } from "./mesha_mesh";
 import { type ObjectLookup, type ParamValues, type Evaluation, evaluateObject } from "./mesha_object";
 import { type MaterialPreset, FALLBACK_MATERIAL } from "./mesha_materials";
@@ -16,6 +17,8 @@ export interface Instance {
     position: Vec3;
     /** Degrees about +Y. */
     rotationY: number;
+    /** Full gizmo orientation; absent in older, yaw-only scenes. */
+    rotation?: [number, number, number, number];
     scale: number;
     name?: string;
 }
@@ -52,7 +55,13 @@ export class EvaluationCache {
     }
 }
 
+export function instanceRotation(i: Instance): [number, number, number, number] {
+    const half = i.rotationY * Math.PI / 360;
+    return i.rotation ?? [0, Math.sin(half), 0, Math.cos(half)];
+}
+
 export function instanceMatrix(i: Instance) {
+    if (i.rotation) return Array.from(mat4.fromRotationTranslationScale(mat4.create(), i.rotation, i.position, [i.scale, i.scale, i.scale]));
     return compose4(i.position, [0, (i.rotationY * Math.PI) / 180, 0], [i.scale, i.scale, i.scale]);
 }
 

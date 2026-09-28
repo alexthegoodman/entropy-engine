@@ -2938,6 +2938,8 @@ export interface ControlsOptions {
   button?: number;
   /** "orbit" only: second button that dollies distance on vertical drag. Default 2. */
   zoomButton?: number;
+  /** Orbit only: optional drag button for camera-plane panning (0 left/1 right/2 middle). */
+  panButton?: number;
   rotateSpeed?: number;
   panSpeed?: number;
   zoomSpeed?: number;

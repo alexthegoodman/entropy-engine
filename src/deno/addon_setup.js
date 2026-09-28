@@ -2365,6 +2365,7 @@ globalThis.Entropy = {
         //     middle, default 0).
         //   zoomButton: for "orbit", a second button (default 2) that dollies
         //     the camera in/out on vertical drag instead of rotating.
+        //   panButton: optional orbit drag button for camera-plane panning (default disabled).
         //   rotateSpeed / panSpeed / zoomSpeed: sensitivity multipliers.
         //   minPitch / maxPitch: radians, clamps orbit pitch (default
         //     +-~85 degrees to avoid flipping over the pole).
@@ -2388,6 +2389,7 @@ globalThis.Entropy = {
                 format,
                 dragging: false,
                 zooming: false,
+                panning: false,
                 lastX: 0,
                 lastY: 0,
                 target: [target[0], target[1], target[2]],
@@ -2395,6 +2397,7 @@ globalThis.Entropy = {
                     trigger: options.trigger || "shift",
                     button: options.button ?? 0,
                     zoomButton: options.zoomButton ?? 2,
+                    panButton: options.panButton ?? -1,
                     rotateSpeed: options.rotateSpeed ?? 0.005,
                     panSpeed: options.panSpeed ?? 0.05,
                     zoomSpeed: options.zoomSpeed ?? 0.05,
@@ -2446,7 +2449,7 @@ globalThis.Entropy = {
                 const fwdLen = Math.max(0.0001, Math.sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]));
                 const fn = [fwd[0] / fwdLen, fwd[1] / fwdLen, fwd[2] / fwdLen];
                 // world up is (0,1,0); right = forward x worldUp, up = right x forward
-                const right = [fn[2], 0, -fn[0]];
+                const right = [-fn[2], 0, fn[0]];
                 const rightLen = Math.max(0.0001, Math.sqrt(right[0] * right[0] + right[2] * right[2]));
                 const rn = [right[0] / rightLen, 0, right[2] / rightLen];
                 const up = [
@@ -2473,7 +2476,11 @@ globalThis.Entropy = {
             const onDown = (button, x, y) => {
                 globalThis.Entropy.println(`[Controls DEBUG] onDown button=${button} trigger=${isTriggerActive()} x=${x} y=${y}`);
                 if (!isTriggerActive()) return;
-                if (button === state.options.button) {
+                if (format === "orbit" && button === state.options.panButton) {
+                    state.panning = true;
+                    state.lastX = x;
+                    state.lastY = y;
+                } else if (button === state.options.button) {
                     state.dragging = true;
                     state.lastX = x;
                     state.lastY = y;
@@ -2484,6 +2491,7 @@ globalThis.Entropy = {
                 }
             };
             const onUp = (button) => {
+                if (button === state.options.panButton) state.panning = false;
                 if (button === state.options.button) state.dragging = false;
                 if (button === state.options.zoomButton) state.zooming = false;
             };
@@ -2520,14 +2528,16 @@ globalThis.Entropy = {
                     s.lastX = mx;
                     s.lastY = my;
 
-                    if (!s.dragging && !s.zooming) return;
+                    if (!s.dragging && !s.zooming && !s.panning) return;
                     globalThis.Entropy.println(`[Controls DEBUG] tick dragging=${s.dragging} trigger=${s._isTriggerActive()} mx=${mx} my=${my} dxp=${dxp} dyp=${dyp}`);
-                    if (!s._isTriggerActive()) { s.dragging = false; s.zooming = false; return; }
+                    if (!s._isTriggerActive()) { s.dragging = false; s.zooming = false; s.panning = false; return; }
                     if (dxp === 0 && dyp === 0) return;
 
                     const yDir = s.options.invertY ? -1 : 1;
                     const xDir = s.options.invertX ? -1 : 1;
-                    if (s.zooming) {
+                    if (s.panning) {
+                        s._applyPan(dxp, dyp);
+                    } else if (s.zooming) {
                         s.distance = Math.max(0.5, s.distance - dyp * yDir * s.options.zoomSpeed * s.distance * 0.1);
                         s._applyOrbit();
                     } else if (s.format === "orbit") {

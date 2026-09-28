@@ -236,3 +236,11 @@ Export options can control triangulation, mesh density, LOD, material baking, te
 From 30,000 feet, I'd want Mesha to feel like this:
 
 **Discover → Configure → Vary → Compose → Refine → Export**
+
+### Current viewport controls
+
+The selected object has translation arrows and rotation rings, without scale handles. Right-drag
+orbits, middle-drag pans, the wheel zooms, and F frames the selection. Full rotation persists through
+save/load, duplication, undo/redo and GLB export. The Placement Turn control sets an upright yaw.
+Object geometry stays resident during transforms; picking geometry and contact shadows refresh
+at the end of a drag. Procedural parameter changes still rebuild the affected object.
