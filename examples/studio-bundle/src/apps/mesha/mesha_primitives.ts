@@ -7,7 +7,7 @@ import {
     type Mesh, type Part, type Vec2, type Vec3,
     newPart, partMesh, vertex, tri, quad, normalize3, cross3, sub3, add3, scale3, dot3, length3, join, transformMesh, compose4, mapPositions,
 } from "./mesha_mesh";
-import { ensureCCW, ensureCW, signedArea, dedupePoints } from "./mesha_curves";
+import { ensureCCW, ensureCW, signedArea, dedupePoints, resample } from "./mesha_curves";
 import { fbm3 } from "./mesha_noise";
 
 const TAU = Math.PI * 2;
@@ -511,6 +511,67 @@ function normalize2(v: Vec2): Vec2 {
 
 function emptyOf(_region: string): Mesh {
     return { parts: [] };
+}
+
+// --- Loft ----------------------------------------------------------------------------------------
+
+/** A closed loop resampled to `count` points evenly by arc length. */
+function resampleLoop(loop: Vec2[], count: number): Vec2[] {
+    const closed = resample([...loop, loop[0]], count + 1);
+    return closed.slice(0, count);
+}
+
+/**
+ * A closed solid between two outlines in the XZ plane: `bottom` at y = 0 and `top` at `height`,
+ * point i joined to point i. Outlines of different lengths are resampled by arc length. Faces are
+ * flat-shaded, so a rectangle lofted to a thin rectangle is a crisp hip or gable roof, and to a
+ * smaller rectangle a hopper, plinth or chimney cap.
+ */
+export function loft(bottom: Vec2[], top: Vec2[], height: number): Mesh {
+    bottom = dedupePoints(bottom, true);
+    top = dedupePoints(top, true);
+    if (bottom.length < 3 || top.length < 3 || Math.abs(signedArea(bottom)) < 1e-10) return { parts: [] };
+    if (bottom.length !== top.length) {
+        const count = Math.max(bottom.length, top.length);
+        bottom = resampleLoop(bottom, count);
+        top = resampleLoop(top, count);
+    }
+    // Counter-clockwise seen from above is counter-clockwise in (x, -z); reverse both loops together
+    // so point i still matches point i.
+    const flip = (p: Vec2): Vec2 => [p[0], -p[1]];
+    let lo = bottom.map(flip), hi = top.map(flip);
+    if (signedArea(lo) < 0) { lo = lo.reverse(); hi = hi.reverse(); }
+    const h = Math.max(height, 1e-5);
+    const part = newPart();
+    const face = (a: Vec3, b: Vec3, c: Vec3) => {
+        const n = cross3(sub3(b, a), sub3(c, a));
+        if (length3(n) < 1e-12) return;
+        const nn = normalize3(n);
+        const base = part.positions.length / 3;
+        vertex(part, a, nn); vertex(part, b, nn); vertex(part, c, nn);
+        tri(part, base, base + 1, base + 2);
+    };
+    const P = (p: Vec2, y: number): Vec3 => [p[0], y, -p[1]];
+    const count = lo.length;
+    for (let i = 0; i < count; i++) {
+        const j = (i + 1) % count;
+        const a = P(lo[i], 0), b = P(lo[j], 0), c = P(hi[j], h), d = P(hi[i], h);
+        face(a, b, c);
+        face(a, c, d);
+    }
+    // Caps: the bottom faces down, the top up (if the top outline has any area).
+    const bottomTris = triangulate(lo);
+    const nb = part.positions.length / 3;
+    for (const p of lo) vertex(part, P(p, 0), [0, -1, 0]);
+    for (let t = 0; t < bottomTris.length; t += 3) tri(part, nb + bottomTris[t], nb + bottomTris[t + 2], nb + bottomTris[t + 1]);
+    if (Math.abs(signedArea(hi)) > 1e-10) {
+        const topLoop = signedArea(hi) > 0 ? hi : hi.slice().reverse();
+        const topTris = triangulate(topLoop);
+        const nt = part.positions.length / 3;
+        for (const p of topLoop) vertex(part, P(p, h), [0, 1, 0]);
+        for (let t = 0; t < topTris.length; t += 3) tri(part, nt + topTris[t], nt + topTris[t + 1], nt + topTris[t + 2]);
+    }
+    return partMesh(part);
 }
 
 // --- Sweep ---------------------------------------------------------------------------------------

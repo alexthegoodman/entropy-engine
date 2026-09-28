@@ -184,6 +184,11 @@ function clampPass(def: ObjectDef, out: ParamValues, staticOnly = false): void {
     }
 }
 
+/** An "=expression" of `def`'s parameters and derived values at `values` (clamped first): what a node would see. */
+export function evaluateExpression(def: ObjectDef, values: ParamValues, expression: string): Value {
+    return evaluate(expression, paramScope(def, resolveParams(def, values)));
+}
+
 export function isParamVisible(def: ObjectDef, p: ParamDef, values: ParamValues): boolean {
     if (!p.visibleIf) return true;
     try { return truthy(evaluate(p.visibleIf, paramScope(def, values))); } catch { return true; }
@@ -434,6 +439,21 @@ export function validateDefinition(def: ObjectDef, lookup: ObjectLookup = () => 
         }
     };
     if (paramIds.size !== def.params.length) problems.push("duplicate parameter ids");
+    // Inside a repeated node index, count and t are the copy's own: a parameter or derived value of
+    // that name is silently hidden there (only `when` and `repeat` itself see the object's).
+    const shadowed = ["index", "count", "t"].filter(name => paramIds.has(name) || derivedIds.has(name));
+    const namesIn = (raw: unknown): string[] => {
+        if (typeof raw === "string") { if (!raw.startsWith("=")) return []; try { return referencedNames(raw); } catch { return []; } }
+        if (Array.isArray(raw)) return raw.flatMap(namesIn);
+        if (raw && typeof raw === "object") return Object.values(raw as object).flatMap(namesIn);
+        return [];
+    };
+    def.nodes.forEach((n, i) => {
+        if (n.repeat === undefined || !shadowed.length) return;
+        const used = new Set(Object.entries(n).filter(([k]) => k !== "repeat" && k !== "when").flatMap(([, v]) => namesIn(v)));
+        for (const name of shadowed) if (used.has(name)) problems.push(`node ${nodeId(n, i)}: "${name}" here is the repeat's own ${name}, not the ${paramIds.has(name) ? "parameter" : "derived value"}`);
+    });
+    if (nodeIds.size !== def.nodes.length) problems.push("duplicate node ids");
     for (const p of def.params) {
         if (!groupIds.has(p.group)) problems.push(`param ${p.id}: unknown group "${p.group}"`);
         for (const k of ["min", "max", "visibleIf"] as const) { const v = p[k]; if (typeof v === "string") checkExpr(v, `param ${p.id}.${k}`); }

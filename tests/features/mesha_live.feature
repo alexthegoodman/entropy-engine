@@ -127,3 +127,36 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "23-dome-senate"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-dome-export.glb"}
+
+  Scenario: A house with rooms and staircases you can look into
+    When I call the tool "mesha_add" with {"objectId": "architecture.house", "preset": "Brick colonial", "position": [135, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "24-house-colonial"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 60}
+    And I advance 8 frames
+    Then I capture "25-house-top-storey"
+    When I call the tool "mesha_set" with {"values": {"cutaway": 1}}
+    And I call the tool "mesha_view" with {"yaw": 200, "pitch": 50}
+    And I advance 8 frames
+    Then I capture "26-house-ground-floor"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": true, "cutaway": 0, "storeys": 3, "depth": 10, "roofStyle": "hip"}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
+    And I advance 8 frames
+    Then I capture "27-house-three-storeys"
+    When I call the tool "mesha_add" with {"objectId": "architecture.house", "preset": "White farmhouse", "position": [160, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
+    And I advance 8 frames
+    Then I capture "28-house-farmhouse"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:plan", "group:stairs", "group:materials", "group:interiorMaterials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 11}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 16}
+    And I advance 8 frames
+    Then I capture "29-house-variation"
+    When I call the tool "mesha_add" with {"objectId": "architecture.door", "preset": "Georgian fanlight", "position": [180, 0, 0]}
+    And I call the tool "mesha_set" with {"values": {"openAngle": 70}}
+    And I call the tool "mesha_view" with {"yaw": 35, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "30-door-open"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-house-export.glb"}

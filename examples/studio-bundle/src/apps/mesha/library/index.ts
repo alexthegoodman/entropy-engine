@@ -14,8 +14,10 @@ import tableLamp from "./table_lamp";
 import coffeeMaker from "./coffee_maker";
 import domeBuilding from "./dome_building";
 import { windowDef, facadeDef } from "./architecture";
+import doorDef from "./door";
+import houseDef from "./house";
 
-export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, coffeeMaker, domeBuilding, windowDef, facadeDef, gear, bolt, rock, leg, rockPiece, caster];
+export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, coffeeMaker, domeBuilding, houseDef, windowDef, doorDef, facadeDef, gear, bolt, rock, leg, rockPiece, caster];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

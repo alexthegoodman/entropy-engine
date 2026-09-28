@@ -6,7 +6,7 @@
 import { type Mesh, type Vec2, type Vec3, join, setRegion, transformMesh, compose4, recomputeNormals, autoSmoothNormals, mapPositions } from "./mesha_mesh";
 import {
     roundedBox, lathe, cylinder, capsuleProfile, sphere, icosphere, torus, extrude, sweep,
-    bendY, taperY, twistY, displaceNoise, radialArray, linearArray, mirror,
+    bendY, taperY, twistY, displaceNoise, radialArray, linearArray, mirror, loft,
 } from "./mesha_primitives";
 import {
     circle2, ellipse2, polygon2, roundedRect2, superellipse2, star2, gear2, filletPolyline, smoothPath,
@@ -237,6 +237,12 @@ const LIST: ComponentDef[] = [
         description: "Extrudes a 2D outline (x, z) up from y = 0, with holes and a rounded bevel on both rims: table tops, gears, panels, frames.",
         inputs: [{ name: "outline", kind: "curve2", description: "Closed outline." }, { name: "holes", kind: "curves2", default: [], description: "Closed hole outlines." }, n("height", 0.1, "Thickness.", 0), n("bevel", 0, "Rim rounding.", 0), int("bevelSegments", 3, "Rows per rim.", 1, 12), n("smoothAngle", 35, "Outline corners sharper than this stay crisp.", 0, 180)],
         build: i => extrude(i.outline, i.height, { holes: i.holes, bevel: i.bevel, bevelSegments: i.bevelSegments, smoothAngle: i.smoothAngle }),
+    },
+    {
+        type: "mesh.loft", category: "Curve to Mesh", label: "Loft", output: "mesh",
+        description: "A closed, flat-shaded solid from a `bottom` outline (x, z) at y = 0 to a `top` outline at `height`, point to point (resampled when the counts differ): hip and gable roofs, hoppers, plinths, chimney caps.",
+        inputs: [{ name: "bottom", kind: "curve2", description: "Closed outline at y = 0." }, { name: "top", kind: "curve2", description: "Closed outline at the top (a very thin one makes a ridge)." }, n("height", 1, "Height.", 0)],
+        build: i => loft(i.bottom, i.top, i.height),
     },
     {
         type: "mesh.sweep", category: "Curve to Mesh", label: "Sweep (Curve to Mesh)", output: "mesh",
