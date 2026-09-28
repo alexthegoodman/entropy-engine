@@ -49,6 +49,8 @@ export interface RegionDef {
     label: string;
     /** A material preset id, or an "=expression" (usually a material parameter). */
     material: string;
+    /** Multiplies the bound material's color (0..1): the shaded inside of a canopy, the underside of a hedge. */
+    shade?: number;
 }
 
 export interface NodeDef {
@@ -74,8 +76,8 @@ export interface ObjectDef {
     regions: Record<string, RegionDef>;
     presets?: PresetDef[];
     nodes: NodeDef[];
-    /** Sanity bounds for automatic checks: largest plausible dimension (m) and triangle budget. */
-    limits?: { maxSize?: number; minSize?: number; maxTriangles?: number; floor?: boolean };
+    /** Sanity bounds for automatic checks: largest plausible dimension (m) and triangle budget. `floorTolerance` is how far below the floor (as a share of the object's size) drooping foliage may hang before it is reported. */
+    limits?: { maxSize?: number; minSize?: number; maxTriangles?: number; floor?: boolean; floorTolerance?: number };
     /** A reusable building block (a leg, a caster) other objects compose; not listed in Add Object. */
     component?: boolean;
 }
@@ -216,7 +218,10 @@ export function resolveMaterials(def: ObjectDef, values: ParamValues): Record<st
     for (const [region, r] of Object.entries(def.regions)) {
         let id = r.material;
         if (id.startsWith("=")) { try { id = String(evaluate(id, scope)); } catch { id = ""; } }
-        out[region] = material(id);
+        const base = material(id);
+        out[region] = r.shade !== undefined && r.shade < 1
+            ? { ...base, color: base.color.map(c => c * Math.max(0, r.shade!)) as [number, number, number] }
+            : base;
     }
     return out;
 }

@@ -8,6 +8,13 @@ import bottle from "./bottle";
 import gear from "./gear";
 import bolt from "./bolt";
 import rock, { rockPiece } from "./rock";
+import tree from "./tree";
+import conifer from "./conifer";
+import palm from "./palm";
+import fern from "./fern";
+import flower from "./flower";
+import grass from "./grass";
+import bush from "./bush";
 import officeChair, { caster } from "./office_chair";
 import mug from "./mug";
 import tableLamp from "./table_lamp";
@@ -17,7 +24,7 @@ import { windowDef, facadeDef } from "./architecture";
 import doorDef from "./door";
 import houseDef from "./house";
 
-export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, coffeeMaker, domeBuilding, houseDef, windowDef, doorDef, facadeDef, gear, bolt, rock, leg, rockPiece, caster];
+export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, coffeeMaker, domeBuilding, houseDef, windowDef, doorDef, facadeDef, gear, bolt, rock, tree, conifer, palm, fern, flower, grass, bush, leg, rockPiece, caster];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

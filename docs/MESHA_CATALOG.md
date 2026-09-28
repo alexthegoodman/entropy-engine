@@ -52,6 +52,13 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
 | Nature | Rock | `nature.rock` | 11 | 3 | 0 | 1 | 85 | Ready | 47 ms |
+| Nature | Tree | `nature.tree` | 36 | 6 | 6 | 5 | 189 | Ready | 10 ms |
+| Nature | Conifer | `nature.conifer` | 22 | 5 | 4 | 3 | 135 | Ready | 14 ms |
+| Nature | Palm Tree | `nature.palm` | 24 | 6 | 3 | 3 | 134 | Ready | 4 ms |
+| Nature | Fern | `nature.fern` | 19 | 4 | 1 | 2 | 129 | Ready | 3 ms |
+| Nature | Flower | `nature.flower` | 29 | 4 | 4 | 4 | 146 | Ready | 1 ms |
+| Nature | Grass | `nature.grass` | 17 | 4 | 3 | 6 | 133 | Ready | 3 ms |
+| Nature | Bush | `nature.bush` | 24 | 4 | 3 | 4 | 153 | Ready | 4 ms |
 | Components | Leg | `component.leg` | 6 | 1 | 0 | 1 | 73 | Ready | 0 ms |
 | Components | Rock piece | `component.rockPiece` | 8 | 1 | 0 | 1 | 76 | Ready | 14 ms |
 | Components | Caster | `component.caster` | 2 | 1 | 0 | 2 | 51 | Ready | 1 ms |
@@ -122,6 +129,52 @@ region instead of `leaf`, so a building can paint its front door apart from its 
 **Open** swings the leaf into -Z about its hinge. Five presets: Six-panel, Georgian fanlight,
 Half-glazed kitchen, Cottage plank and Modern flush.
 
+**Foliage** is a family of seven plants (rock's siblings under Nature), each with many controls, all built
+from the new Foliage components (`mesh.leaf`, `mesh.frond`, `instance.scatter`, `instance.rosette`,
+`mesh.branches`, `points.branchTips`) and drawn with the viewport's `foliage` and `bark` surface
+patterns: mottled tone with sun-yellowed patches, a midrib and side veins from each leaf's own UVs,
+and light glowing through the blade when it is backlit. Leaves, fronds, petals and blades are open
+sheets (the shader lights both faces, GLB export marks materials double-sided). Every plant lists its
+leaf/petal/bark colours as material presets (`leaf.*`, `petal.*`, `bark.*`, `fruit.*`, `stem.*`), and
+Variation moves shape, size, density, colour and season together while a lock keeps what you want.
+
+**Tree:** a leaning, flared, gently snaking trunk; a spiral of arching branches and twigs grown to a
+crown outline (round, spreading, columnar, conical or vase, with weeping droop); and clumps of leaves
+on every tip over a soft "canopy body" mass so the crown reads as full. Leaves come in six outlines
+(ovate, elliptic, narrow willow, round aspen, serrated birch, palmate maple), lie flat on the crown or
+point outward, and take size, curl, fold, droop, scatter and size variety. A second-colour share turns
+part of the foliage autumn gold or copper, and **Blossom** or **Fruit** dots the clumps (cherry
+petals, apples, olives). Eight presets: Summer oak, Silver birch, Autumn maple, Weeping willow, Cherry
+blossom, Lombardy poplar, Apple tree, Old olive. Crown width and trunk radius are constrained by the
+height, clump size by the crown, and the leaf and blossom counts by a triangle budget.
+
+**Conifer:** a tapering trunk hung with tiers of needled boughs (each a pinnate frond arching from the
+trunk), a leader spike and optional hanging cones. Spruce, fir, pine and cypress crown outlines, tier
+and bough counts, bough angle and droop, needle density, length, width, sweep, lift and fold. Six
+presets: Norway spruce, Balsam fir, Scots pine, Blue spruce, Italian cypress, Forest fir sapling.
+
+**Palm Tree:** a ringed trunk (a stack of short bevelled cones following its lean and curve), and a
+crown of arching pinnate fronds or fan leaves on long stalks, from a drooping skirt to a shuttlecock,
+with coconuts or dates. Five presets: Coconut palm, Date palm, Fan palm, Beach palm, Young sago.
+
+**Fern:** a rosette of arching pinnate fronds from flat to upright vase, with leaflet count, length,
+width, sweep, fold and droop, bare stalk and unfurling fiddleheads. Six presets: Woodland fern, Bracken,
+Sword fern, Boston fern, Lady fern, Tree fern crown.
+
+**Flower:** a curving stem with leaves and a ground rosette, and a head of layered petals
+(`instance.rosette`) around an optional seed disc: petal count, layers, openness, cup, curl, ruffle,
+roundness and width. Six presets: Daisy, Tulip, Poppy, Sunflower, Garden rose, Cosmos.
+
+**Grass:** curved blades springing from a disc: count, height and variety, width, bend, outward lean,
+tip sharpness, clumping, a share of dry blades and optional composed wildflowers (`nature.flower`).
+Six presets: Lawn tuft, Tall meadow, Clipped lawn, Dry savanna, Marsh reeds, Wildflower patch.
+
+**Bush:** a natural shrub (stems and twigs ending in leaf clumps), a clipped globe or a hedge block,
+with flowers or berries. Seven presets: Garden shrub, Boxwood globe, Privet hedge, Hydrangea, Rose bush,
+Blueberry bush, Autumn burning bush. The live BDD feature captures oaks, an autumn maple, a cherry
+blossom, a willow, spruce, fir, pine, palms, ferns, flowers, grass, hydrangea and hedges, and
+asserts the trees really render green and autumn red. Contact sheets: `test-artifacts/mesha-foliage/`.
+
 ## Writing a procedural object
 
 An object is plain JSON (the library files are TypeScript only for type checking; every one
@@ -150,6 +203,7 @@ and are listed in `library/index.ts`.
   "presets": [{ "name": "Farmhouse dining", "values": { "legStyle": "turned" } }],
   "nodes": [ ... ],
   "limits": { "maxSize": 3.4, "maxTriangles": 60000 }      // sanity bounds the fuzzer enforces
+  // plants that droop below y = 0 add "floorTolerance": 0.03 (a share of the object's size) before the fuzzer warns
 }
 ```
 
@@ -164,6 +218,7 @@ shows a broken rule's message; the fuzzer reports them as warnings.
 **Regions** are how materials survive editing: every node puts its geometry in a named region
 (`"region": "legs"`), and each region is bound to a material. Resizing or restyling never breaks
 the binding because it isn't tied to face indices.
+A region may also set `"shade": 0.6` to darken its bound material (the shaded body behind a tree's leaves, a hedge's inner mass).
 
 ### Nodes
 
@@ -205,7 +260,7 @@ Presets in `mesha_materials.ts`: woods (oak, walnut, ash, cherry, ebonized), pai
 (chrome, brushed steel, black steel, brass, copper, aluminum, zinc), plastics, rubber, fabrics,
 leathers, glass (clear, green, amber, frosted), ceramics, stones (granite, sandstone, slate,
 marble), masonry (red, buff and whitewashed brick, stucco, fieldstone), roofing (slate, asphalt
-shingle, clay tile, cedar shake, standing-seam metal), paper and cork. Each has a color,
+shingle, clay tile, cedar shake, standing-seam metal), paper and cork, and plants: leaves (fresh, spring, deep, forest, pine, blue spruce, olive, sage, silver, copper beech, autumn gold, orange, red, crimson, dry straw), petals, flower centers, fruit, bark (oak, dark, pine, redwood, grey, palm, birch, cherry) and stems. Each has a color,
 roughness, metalness and a surface pattern (wood grain, fabric sheen, brushed, speckle) the
 viewport draws.
 
@@ -506,6 +561,7 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 | `radius` | number | 0.02 (0..) | Tube radius. |
 | `sides` | int | 16 (3..128) | Tube sides. |
 | `taper` | number | 1 (0..) | Scale at the end of the path. |
+| `flare` | number | 0 (0..4) | Extra girth at the start that fades out over the first quarter of the path (a trunk's root flare). |
 | `twist` | number | 0 | Degrees per unit length. |
 | `closed` | bool | false | Loop the path. |
 | `caps` | bool | true | Close the ends. |
@@ -591,6 +647,125 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 | `rotations` | points3 | [] | Per-point [x, y, z] degrees. |
 | `scales` | points3 | [] | Per-point [x, y, z] scale. |
 
+### Foliage
+
+**`mesh.leaf`** (Leaf, outputs mesh): One leaf or petal lying in the XY plane: base at the origin, tip along +Y, front face toward +Z. `curl` bends it toward -Z and `fold` lifts both edges toward +Z. `widest`/`fullness` give ovate, lanceolate, round or blade-like outlines; `teeth` saws the edge; `lobes` of 3 or more makes a palmate leaf (maple, fan palm).
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `length` | number | 1 (0.001..) | Blade length. |
+| `width` | number | 0.5 (0.001..) | Blade width. |
+| `widest` | number | 0.4 (0.05..0.95) | Where along the blade it is widest (0..1). |
+| `fullness` | number | 1 (0.15..4) | Below 1 the ends are rounder, above 1 pointier. |
+| `stalk` | number | 0 (0..) | Bare petiole before the blade. |
+| `fold` | number | 15 (-65..65) | Degrees the halves fold up along the midrib. |
+| `curl` | number | 20 (-180..180) | Degrees the blade bends tip-down (toward -Z). |
+| `wave` | number | 0 (0..1) | Edge ruffle as a share of the half width. |
+| `waveCount` | number | 3 (0.5..12) | Ruffles along the blade. |
+| `teeth` | int | 0 (0..24) | Saw teeth (0 is a smooth edge). |
+| `toothDepth` | number | 0.15 (0..0.6) | How deep the teeth cut. |
+| `lobes` | int | 0 (0..24) | 0 is a simple leaf; 3+ makes a palmate leaf with that many lobes. |
+| `lobeDepth` | number | 0.5 (0..0.85) | How far the notches between lobes cut in. |
+| `spread` | number | 200 (60..340) | Degrees a palmate leaf fans across. |
+| `rows` | int | 5 (2..32) | Rows along the blade. |
+| `half` | int | 1 (1..4) | Columns on each half of the blade. |
+
+**`mesh.frond`** (Frond, outputs mesh): A pinnate frond (fern, palm, fir bough): a rachis arching along +Y with pairs of leaflets, base at the origin, front face toward +Z, `curl` arching it toward -Z.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `length` | number | 1 (0.001..) | Rachis length. |
+| `pairs` | int | 12 (1..60) | Leaflet pairs. |
+| `leafletLength` | number | 0.3 (0.005..2) | Longest leaflet as a share of the length. |
+| `leafletWidth` | number | 0.2 (0.02..0.9) | Leaflet width as a share of its length. |
+| `angle` | number | 65 (15..90) | Degrees between leaflets and the rachis (90 is square). |
+| `lift` | number | 15 (-60..60) | Degrees the leaflets tilt up out of the frond's plane (negative droops them). |
+| `droop` | number | 20 (-90..120) | Degrees each leaflet curls down along its length. |
+| `curl` | number | 40 (-90..200) | Degrees the frond arches tip-down. |
+| `peak` | number | 0.35 (0.1..0.9) | Where the leaflets are longest (0..1). |
+| `gap` | number | 0.1 (0..0.7) | Share of the frond that is bare stalk at the base. |
+| `rachis` | number | 0.006 (0.0001..) | Rachis radius. |
+| `fold` | number | 20 (-60..80) | Degrees each leaflet folds along its midrib. |
+
+**`instance.scatter`** (Scatter on Volume, outputs mesh): `count` copies of `mesh` (base at the origin, pointing along +Y) spread evenly over a volume around each center, pointing outward, up or every which way, with random tilt, droop, roll and scale.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `mesh` | mesh | required | Instance. |
+| `centers` | points3 | [[0,0,0]] | Volume centers (a list, e.g. `@tips`). |
+| `count` | int | 24 (0..2000) | Copies per center. |
+| `volume` | enum: sphere, dome, cone, disc, column, box | "sphere" | Shape filled (`box` covers the top and four sides of a box of half extents `size`). |
+| `size` | vec3 | [0.5,0.5,0.5] | Radii (a cone's base and height, a disc's radius). |
+| `hollow` | number | 0.5 (0..1) | 0 fills the volume, 1 only its surface. |
+| `orient` | enum: outward, up, random, surface | "outward" | Which way each copy's +Y points; `surface` lies each flat on the volume's skin, facing out, pointing downhill. |
+| `spread` | number | 20 (0..180) | Degrees of random wobble (`surface`: how far each may spin from pointing downhill, up to 180). |
+| `droop` | number | 0 (0..1.5) | Pulls every direction toward -Y. |
+| `scaleMin` | number | 0.8 (0.0001..) | Smallest scale. |
+| `scaleMax` | number | 1.2 (0.0001..) | Largest scale. |
+| `roll` | number | 180 (0..180) | Degrees of random roll about each copy's own axis. |
+| `minY` | number | -1000000000 | Copies whose base would lie below this height are left out (keeps foliage off the ground). |
+| `seed` | int | 1 (-1000000000..1000000000) | Placement seed. |
+
+**`instance.rosette`** (Rosette, outputs mesh): `count` copies of `mesh` (base at the origin, +Y along it, front toward +Z) around +Y, each leaning `open` degrees out from vertical with its front facing in and up, in `layers` that open, shrink and rise: flower petals, agave and succulent whorls, tulip and lily cups.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `mesh` | mesh | required | Petal or leaf. |
+| `count` | int | 8 (1..200) | Copies per layer. |
+| `layers` | int | 1 (1..8) | Layers, each offset by half a step. |
+| `open` | number | 60 (0..175) | Degrees from vertical (0 upright, 90 flat). |
+| `openStep` | number | 0 (-90..90) | Added to `open` on each further layer. |
+| `scaleStep` | number | 0.85 (0.1..3) | Each layer's scale relative to the last. |
+| `lift` | number | 0 | Height gained per layer. |
+| `jitter` | number | 0.2 (0..1) | Random tilt, roll and size (0..1). |
+| `seed` | int | 1 (-1000000000..1000000000) | Seed. |
+
+**`mesh.branches`** (Branching Crown, outputs mesh): Branches and twigs grown out of a trunk to fill a crown outline (round, spreading, columnar, conical or vase): each rises from the trunk, arches and bends out to the outline at its own height, spiraling around by the golden angle.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `trunk` | curve3 | required | Trunk path, base to top (rising in Y). |
+| `count` | int | 8 (0..40) | Primary branches. |
+| `crownBase` | number | 2 | Height where the crown starts. |
+| `crownHeight` | number | 4 | Height of the crown. |
+| `crownRadius` | number | 2 | Widest reach of the crown. |
+| `envelope` | enum: round, spreading, columnar, conical, vase | "round" | The crown's outline. |
+| `angle` | number | 40 (5..80) | Degrees a branch rises from the trunk. |
+| `droop` | number | 0 (0..1.5) | How far tips sag, as a share of the reach. |
+| `arch` | number | 0.15 (0..1) | How much each branch bows upward before bending out. |
+| `radius` | number | 0.05 (0.0005..) | Branch radius where it leaves the trunk. |
+| `taper` | number | 0.3 (0.1..1) | Scale at the branch tip. |
+| `twigs` | int | 2 (0..6) | Twigs per branch. |
+| `twigLength` | number | 0.45 (0.05..1) | Twig length as a share of its branch's reach. |
+| `twigSpread` | number | 45 (0..90) | Degrees a twig splays from its branch. |
+| `jitter` | number | 0.35 (0..1) | Randomness of placement. |
+| `minTipY` | number | 0 | No branch or twig ends lower than this. |
+| `seed` | int | 1 (-1000000000..1000000000) | Branch seed. |
+| `sides` | int | 6 (3..12) | Tube sides. |
+
+**`points.branchTips`** (Branch Tips, outputs points3): Where `mesh.branches` with the same inputs ends: every branch and twig tip plus the trunk's top. Feed it to `instance.scatter` `centers` to put leaf clumps on the tips.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `trunk` | curve3 | required | Trunk path, base to top (rising in Y). |
+| `count` | int | 8 (0..40) | Primary branches. |
+| `crownBase` | number | 2 | Height where the crown starts. |
+| `crownHeight` | number | 4 | Height of the crown. |
+| `crownRadius` | number | 2 | Widest reach of the crown. |
+| `envelope` | enum: round, spreading, columnar, conical, vase | "round" | The crown's outline. |
+| `angle` | number | 40 (5..80) | Degrees a branch rises from the trunk. |
+| `droop` | number | 0 (0..1.5) | How far tips sag, as a share of the reach. |
+| `arch` | number | 0.15 (0..1) | How much each branch bows upward before bending out. |
+| `radius` | number | 0.05 (0.0005..) | Branch radius where it leaves the trunk. |
+| `taper` | number | 0.3 (0.1..1) | Scale at the branch tip. |
+| `twigs` | int | 2 (0..6) | Twigs per branch. |
+| `twigLength` | number | 0.45 (0.05..1) | Twig length as a share of its branch's reach. |
+| `twigSpread` | number | 45 (0..90) | Degrees a twig splays from its branch. |
+| `jitter` | number | 0.35 (0..1) | Randomness of placement. |
+| `minTipY` | number | 0 | No branch or twig ends lower than this. |
+| `seed` | int | 1 (-1000000000..1000000000) | Branch seed. |
+| `sides` | int | 6 (3..12) | Tube sides. |
+
 ### Geometry
 
 **`geo.join`** (Join, outputs mesh): Combines meshes, keeping each part's region.
@@ -619,3 +794,4 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 |---|---|---|---|
 | `mesh` | mesh | required | Input. |
 | `name` | string | "default" | Region. |
+

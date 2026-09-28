@@ -19,7 +19,7 @@ fn mesha_live_feature() {
     let started = std::time::Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
-        if started.elapsed() > std::time::Duration::from_secs(180) {
+        if started.elapsed() > std::time::Duration::from_secs(420) {
             let _ = child.kill(); let _ = child.wait();
             panic!("Mesha live BDD timed out");
         }
@@ -67,10 +67,10 @@ fn mesha_live_feature() {
     assert_eq!(instances[1]["values"]["topShape"], "round", "the table took its preset");
     assert_eq!(state["lighting"], "warm");
 
-    // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses and a door.
+    // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses, a door and the plants.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 16);
+    assert_eq!(saved.len(), 29);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -163,6 +163,81 @@ fn mesha_live_feature() {
     assert_eq!(&house_glb[..4], b"glTF");
     assert!(house_export["triangles"].as_u64().unwrap() > reply("mesha_export", 3)["triangles"].as_u64().unwrap());
 
+    // Trees: the oak takes new leaf, second-colour and canopy settings; a locked Variation keeps the
+    // willow's size and finishes; the export is double-sided so open leaf sheets survive a viewer's back-face culling.
+    let oak = &reply("mesha_add", 15)["instance"];
+    assert_eq!(oak["objectId"], "nature.tree");
+    assert_eq!(oak["violations"].as_array().unwrap().len(), 0, "{oak:#}");
+    assert!(oak["triangles"].as_u64().unwrap() > 10_000, "a leafy crown is thousands of triangles");
+    let autumn = &reply("mesha_set", 10)["instance"];
+    assert_eq!(autumn["values"]["leafShape"], "maple");
+    assert_eq!(autumn["values"]["secondShare"], 0.5);
+    assert_ne!(autumn["triangles"], oak["triangles"]);
+    let open = &reply("mesha_set", 11)["instance"];
+    assert_eq!(open["values"]["canopyMass"], 0.1);
+    assert_eq!(saved[16]["values"]["crownShape"], "vase");
+    assert_eq!(saved[16]["values"]["secondShare"], 0);
+    assert_eq!(saved[17]["values"]["extra"], "blossom");
+    let willow = &reply("mesha_add", 17)["instance"];
+    let willow_varied = &reply("mesha_vary", 5)["instance"];
+    for key in ["height", "crownWidth", "leafFinish", "barkFinish", "secondFinish", "extraFinish"] {
+        assert_eq!(willow_varied["values"][key], willow["values"][key], "locked tree control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 5)["changed"].as_array().unwrap().len() >= 3);
+    assert_eq!(willow_varied["violations"].as_array().unwrap().len(), 0, "{willow_varied:#}");
+    assert_eq!(saved[18]["values"], willow_varied["values"]);
+    let tree_export = reply("mesha_export", 5);
+    let tree_glb = fs::read(tree_export["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&tree_glb[..4], b"glTF");
+    let tree_json_len = u32::from_le_bytes(tree_glb[12..16].try_into().unwrap()) as usize;
+    let tree_gltf: serde_json::Value = serde_json::from_slice(&tree_glb[20..20 + tree_json_len]).unwrap();
+    assert!(tree_gltf["materials"].as_array().unwrap().iter().all(|m| m["doubleSided"] == true), "leaf sheets must export double-sided");
+    assert!(tree_export["triangles"].as_u64().unwrap() > house_export["triangles"].as_u64().unwrap());
+
+    // Evergreens and palms.
+    let spruce = &reply("mesha_add", 18)["instance"];
+    assert_eq!(spruce["objectId"], "nature.conifer");
+    assert_eq!(spruce["violations"].as_array().unwrap().len(), 0, "{spruce:#}");
+    let fir = &reply("mesha_set", 12)["instance"];
+    assert_eq!(fir["values"]["shape"], "fir");
+    assert_eq!(fir["values"]["cones"], 14);
+    assert_ne!(fir["triangles"], spruce["triangles"]);
+    assert_eq!(saved[19]["values"]["needleFinish"], "leaf.blue");
+    assert_eq!(saved[20]["values"]["shape"], "pine");
+    let coconut = &reply("mesha_add", 20)["instance"];
+    assert_eq!(coconut["values"]["fruitKind"], "coconuts");
+    let fan = &reply("mesha_set", 13)["instance"];
+    assert_eq!(fan["values"]["frondStyle"], "fan");
+    assert_ne!(fan["triangles"], coconut["triangles"]);
+    assert_eq!(saved[21]["values"]["fruitKind"], "none");
+    let conifer_export = reply("mesha_export", 6);
+    assert_eq!(&fs::read(conifer_export["path"].as_str().unwrap()).unwrap()[..4], b"glTF");
+    assert!(conifer_export["triangles"].as_u64().unwrap() > tree_export["triangles"].as_u64().unwrap());
+
+    // Undergrowth: ferns, flowers, grass and shrubs, and a locked Variation of the hedge.
+    let fern = &reply("mesha_add", 21)["instance"];
+    assert_eq!(fern["violations"].as_array().unwrap().len(), 0);
+    assert_eq!(reply("mesha_set", 14)["instance"]["values"]["upright"], 0.9);
+    assert_eq!(saved[22]["values"]["fronds"], 20);
+    assert_eq!(reply("mesha_add", 22)["instance"]["objectId"], "nature.flower");
+    assert_eq!(saved[24]["values"]["height"], 0.22);
+    assert_eq!(saved[24]["values"]["layers"], 4);
+    assert_eq!(reply("mesha_set", 16)["instance"]["values"]["height"], 0.24);
+    assert_eq!(saved[26]["objectId"], "nature.grass");
+    assert_eq!(saved[26]["values"]["flowers"], 5);
+    assert_eq!(saved[27]["values"]["blooms"], "flowers");
+    let hedge = &reply("mesha_add", 27)["instance"];
+    let hedge_varied = &reply("mesha_vary", 6)["instance"];
+    for key in ["form", "width", "height", "depth", "leafFinish"] {
+        assert_eq!(hedge_varied["values"][key], hedge["values"][key], "locked hedge control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 6)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(hedge_varied["violations"].as_array().unwrap().len(), 0, "{hedge_varied:#}");
+    assert_eq!(saved[28]["values"], hedge_varied["values"]);
+    let plants_export = reply("mesha_export", 7);
+    assert_eq!(&fs::read(plants_export["path"].as_str().unwrap()).unwrap()[..4], b"glTF");
+    assert!(plants_export["triangles"].as_u64().unwrap() > conifer_export["triangles"].as_u64().unwrap());
+
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
     let glb = fs::read(export["path"].as_str().unwrap()).expect("GLB written");
@@ -194,5 +269,26 @@ fn mesha_live_feature() {
         }
     }
     assert!(changed * 50 > total, "the viewport barely changed after Variation ({changed}/{total} pixels)");
+    // The plants really are drawn with the foliage shader: leaves show up as green in the oak, and as
+    // red and orange after it turns to autumn maple; the spruce is a dark green cone.
+    let share = |name: &str, hit: &dyn Fn([u8; 3]) -> bool| -> f64 {
+        let img = image::open(find(name)).unwrap().to_rgb8();
+        let (w, h) = img.dimensions();
+        let (mut n, mut total) = (0u64, 0u64);
+        for y in (h / 8)..(h * 7 / 8) {
+            for x in (w / 4)..(w * 3 / 4) {
+                total += 1;
+                if hit(img.get_pixel(x, y).0) { n += 1; }
+            }
+        }
+        n as f64 / total as f64
+    };
+    let green = |p: [u8; 3]| p[1] as i32 > p[0] as i32 + 12 && p[1] as i32 > p[2] as i32 + 12;
+    let autumn_red = |p: [u8; 3]| p[0] as i32 > p[1] as i32 + 40 && p[0] as i32 > p[2] as i32 + 40;
+    assert!(share("31-tree-oak", &green) > 0.02, "the oak's leaves are not green in the viewport");
+    assert!(share("32-tree-autumn-maple", &autumn_red) > 0.01, "the autumn maple has no red or orange leaves");
+    assert!(share("32-tree-autumn-maple", &autumn_red) > share("31-tree-oak", &autumn_red) * 3.0);
+    assert!(share("37-conifer-spruce", &green) > 0.005, "the spruce is not green in the viewport");
+    assert!(share("42-fern", &green) > 0.02, "the fern is not green in the viewport");
     println!("Mesha live BDD: {}", root.display());
 }

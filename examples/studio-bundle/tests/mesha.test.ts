@@ -9,7 +9,9 @@ import { LIBRARY, lookupObject, browsableObjects } from "../src/apps/mesha/libra
 import { vary } from "../src/apps/mesha/mesha_variation";
 import { checkGeometry, fuzz, acceptanceText } from "../src/apps/mesha/mesha_verify";
 import { render, contactShadowMap } from "../src/apps/mesha/mesha_raster";
-import { buildScene, searchLibrary } from "../src/apps/mesha/mesha_scene";
+import { buildScene, searchLibrary, PATTERN_IDS } from "../src/apps/mesha/mesha_scene";
+import { leaf, frond, scatter, growBranches, rosette } from "../src/apps/mesha/mesha_foliage";
+import { MATERIALS, material } from "../src/apps/mesha/mesha_materials";
 
 // Signed volume by the divergence theorem: positive only if every face winds outward.
 function volume(mesh: Mesh): number {
@@ -212,7 +214,7 @@ describe("Mesha library", () => {
             if (!a.ready) throw new Error(`${acceptanceText(a)}\n${a.failures.map(f => `${f.label}: ${JSON.stringify(f.issues)}`).join("\n")}`);
             expect(a.configurations).toBeGreaterThan(20);
         }
-    }, 120_000);
+    }, 240_000);
     it("clamps dynamic ranges against clamped values, whatever the declaration order", () => {
         const table = lookupObject("furniture.table")!;
         const v = resolveParams(table, { topThickness: 1e9 });
@@ -448,6 +450,191 @@ describe("Mesha house", () => {
             expect(row(n("kL"))).toBeLessThanOrEqual(n("zwL") + 1e-9);
             expect(row(n("kR"))).toBeLessThanOrEqual(n("zwR") + 1e-9);
         }
+    });
+});
+
+describe("Mesha foliage", () => {
+    const faces = (mesh: Mesh) => mesh.parts.flatMap(p => Array.from({ length: p.indices.length / 3 }, (_, t) => {
+        const [a, b, c] = [p.indices[t * 3], p.indices[t * 3 + 1], p.indices[t * 3 + 2]].map(i => [p.positions[i * 3], p.positions[i * 3 + 1], p.positions[i * 3 + 2]] as Vec3);
+        const n = cross3(sub3(b, a), sub3(c, a));
+        const l = Math.hypot(...n) || 1;
+        return { a, b, c, n: [n[0] / l, n[1] / l, n[2] / l] as Vec3 };
+    }));
+    const centroid = (mesh: Mesh, region: string): Vec3 => {
+        const sum: Vec3 = [0, 0, 0]; let n = 0;
+        for (const p of mesh.parts.filter(p => p.region === region)) for (let v = 0; v < p.positions.length; v += 3) { sum[0] += p.positions[v]; sum[1] += p.positions[v + 1]; sum[2] += p.positions[v + 2]; n++; }
+        return [sum[0] / n, sum[1] / n, sum[2] / n];
+    };
+    const regionTriangles = (mesh: Mesh, region: string) => triangleCount({ parts: mesh.parts.filter(p => p.region === region) });
+
+    it("leaves lie in the XY plane, base at the origin, tip along +Y, front toward +Z, at every outline", () => {
+        for (const opts of [{}, { widest: 0.2, fullness: 2 }, { widest: 0.7, fullness: 0.4 }, { teeth: 9, toothDepth: 0.4 }, { wave: 0.5, stalk: 0.3 }, { lobes: 5, lobeDepth: 0.7 }, { lobes: 14, lobeDepth: 0.8, stalk: 0.5, spread: 260 }]) {
+            const mesh = leaf({ length: 1, width: 0.6, curl: 0, fold: 20, ...opts });
+            const b = bounds(mesh)!;
+            // A palmate leaf's outer lobes may flare a little behind its base.
+            expect(b.min[1], JSON.stringify(opts)).toBeGreaterThan("lobes" in opts ? -0.3 : -1e-6);
+            expect(b.max[1]).toBeGreaterThan(0.95);
+            expect(report(mesh).issues.filter(i => i.severity === "error"), JSON.stringify(opts)).toEqual([]);
+            for (const f of faces(mesh)) expect(f.n[2], `${JSON.stringify(opts)} winds toward the back`).toBeGreaterThan(0);
+        }
+    });
+    it("curl bends the tip toward -Z and fold lifts the edges toward +Z", () => {
+        const curled = bounds(leaf({ length: 1, width: 0.4, curl: 90, fold: 0 }))!;
+        expect(curled.min[2]).toBeLessThan(-0.3);
+        const folded = bounds(leaf({ length: 1, width: 0.4, curl: 0, fold: 40 }))!;
+        expect(folded.max[2]).toBeGreaterThan(0.05);
+        expect(folded.min[2]).toBeGreaterThan(-1e-6);
+    });
+    it("fronds have a leaflet pair per step, a terminal leaflet and a rachis", () => {
+        const opts = { length: 2, pairs: 10, leafletLength: 0.3, leafletWidth: 0.2, angle: 60, lift: 10, droop: 10, curl: 0, peak: 0.4, gap: 0.1, rachis: 0.01, fold: 20 };
+        const a = frond(opts), b = frond({ ...opts, pairs: 20 });
+        const unit = triangleCount(leaf({ length: 1, width: 0.2, rows: 2, half: 1 }));
+        expect(triangleCount(b) - triangleCount(a)).toBe(20 * unit);
+        const box = bounds(a)!;
+        expect(box.max[1]).toBeGreaterThan(1.9);
+        expect(box.max[0] - box.min[0]).toBeGreaterThan(0.3);
+        expect(report(b).issues.filter(i => i.severity === "error")).toEqual([]);
+    });
+    it("scatter is deterministic, honors minY, and surface leaves face outward", () => {
+        const flat = leaf({ length: 0.2, width: 0.12, curl: 0, fold: 0 });
+        const base = { mesh: flat, centers: [[0, 2, 0], [3, 2, 0]] as Vec3[], count: 40, volume: "sphere" as const, size: [1, 1, 1] as Vec3, hollow: 1, orient: "surface" as const, spread: 0, droop: 0, scaleMin: 1, scaleMax: 1, roll: 0, minY: -1e9, seed: 4 };
+        const a = scatter(base), b = scatter(base);
+        expect(triangleCount(a)).toBe(80 * triangleCount(flat));
+        expect(a.parts.map(p => p.positions)).toEqual(b.parts.map(p => p.positions));
+        expect(a.parts.map(p => p.positions)).not.toEqual(scatter({ ...base, seed: 5 }).parts.map(p => p.positions));
+        for (const part of a.parts) {
+            // The leaf's base is its first vertex row; its front normal must point away from the center.
+            const c: Vec3 = part.positions[0] < 1.5 ? [0, 2, 0] : [3, 2, 0];
+            const base0: Vec3 = [part.positions[0], part.positions[1], part.positions[2]];
+            const out = sub3(base0, c), l = Math.hypot(...out);
+            const normal: Vec3 = [part.normals[0], part.normals[1], part.normals[2]];
+            expect(dot3(normal, [out[0] / l, out[1] / l, out[2] / l])).toBeGreaterThan(0.6);
+        }
+        expect(triangleCount(scatter({ ...base, minY: 2 }))).toBeLessThan(triangleCount(a) * 0.65);
+        for (const p of scatter({ ...base, orient: "up", spread: 0, minY: 2 }).parts) expect(Math.min(...p.positions.filter((_, i) => i % 3 === 1))).toBeGreaterThan(1.99);
+    });
+    it("rosettes lean their copies out by `open` degrees, layer on layer", () => {
+        const petal = leaf({ length: 1, width: 0.3, curl: 0, fold: 0 });
+        const upright = bounds(rosette({ mesh: petal, count: 6, layers: 1, open: 0, openStep: 0, scaleStep: 1, lift: 0, jitter: 0, seed: 1 }))!;
+        expect(upright.max[1]).toBeGreaterThan(0.99);
+        expect(upright.max[0]).toBeLessThan(0.2);
+        const flat = bounds(rosette({ mesh: petal, count: 6, layers: 1, open: 90, openStep: 0, scaleStep: 1, lift: 0, jitter: 0, seed: 1 }))!;
+        expect(flat.max[1]).toBeLessThan(0.05);
+        expect(flat.max[0]).toBeGreaterThan(0.9);
+        const layered = rosette({ mesh: petal, count: 6, layers: 3, open: 30, openStep: 10, scaleStep: 0.8, lift: 0.05, jitter: 0, seed: 1 });
+        expect(triangleCount(layered)).toBe(18 * triangleCount(petal));
+    });
+    it("branch crowns end at the crown outline: tips per branch, none below minTipY, none far outside the radius", () => {
+        const trunk: Vec3[] = [[0, 0, 0], [0, 2, 0], [0, 4, 0], [0, 6, 0]];
+        const o = { trunk, count: 9, crownBase: 2, crownHeight: 4, crownRadius: 2, envelope: "round" as const, angle: 40, droop: 0, arch: 0.1, radius: 0.05, taper: 0.3, twigs: 2, twigLength: 0.45, twigSpread: 45, jitter: 0.3, minTipY: 1.5, seed: 3, sides: 6 };
+        const g = growBranches(o);
+        expect(g.tips).toHaveLength(1 + 9 * 3);
+        for (const t of g.tips) { expect(t[1]).toBeGreaterThanOrEqual(1.5 - 1e-9); expect(Math.hypot(t[0], t[2])).toBeLessThan(2 * 1.7); }
+        expect(report(g.mesh).issues.filter(i => i.severity === "error")).toEqual([]);
+        for (const envelope of ["spreading", "columnar", "conical", "vase"] as const) {
+            const e = growBranches({ ...o, envelope });
+            expect(e.tips).toHaveLength(28);
+            expect(report(e.mesh).issues.filter(i => i.severity === "error")).toEqual([]);
+        }
+    });
+    it("plant materials use the foliage and bark patterns, which the viewport draws by id", () => {
+        expect(PATTERN_IDS.foliage).toBe(8);
+        expect(PATTERN_IDS.bark).toBe(9);
+        expect(Object.values(PATTERN_IDS)).not.toContain(6); // the floor
+        expect(Object.values(PATTERN_IDS)).not.toContain(7); // the backdrop
+        expect(MATERIALS.filter(m => m.id.startsWith("leaf.") || m.id.startsWith("petal.")).every(m => m.pattern === "foliage")).toBe(true);
+        expect(material("bark.oak").pattern).toBe("bark");
+        expect(MATERIALS.filter(m => m.id.startsWith("leaf.")).length).toBeGreaterThanOrEqual(10);
+    });
+    it("the tree grows to its height, its leaf, second-colour, canopy and blossom controls change what is built", () => {
+        const def = lookupObject("nature.tree")!;
+        const ev = (values: Record<string, unknown> = {}) => evaluateObject(def, values as never, lookupObject);
+        const base = ev();
+        const box = base.stats.bounds!;
+        expect(box.min[1]).toBeGreaterThan(-0.05 * box.max[1]);
+        expect(box.max[1]).toBeGreaterThan(0.9 * Number(base.params.height));
+        expect(box.max[1]).toBeLessThan(1.5 * Number(base.params.height));
+        expect(base.mesh.parts.some(p => p.region === "leaf2")).toBe(false);
+        expect(regionTriangles(ev({ leavesPerClump: 60 }).mesh, "leaf")).toBeGreaterThan(regionTriangles(base.mesh, "leaf"));
+        const autumn = ev({ secondShare: 0.5 });
+        expect(regionTriangles(autumn.mesh, "leaf2")).toBeGreaterThan(0);
+        expect(regionTriangles(autumn.mesh, "leaf")).toBeLessThan(regionTriangles(base.mesh, "leaf"));
+        expect(base.mesh.parts.some(p => p.region === "canopy")).toBe(true);
+        expect(ev({ canopyMass: 0 }).mesh.parts.some(p => p.region === "canopy")).toBe(false);
+        expect(base.mesh.parts.some(p => p.region === "extra")).toBe(false);
+        expect(regionTriangles(ev({ extra: "blossom" }).mesh, "extra")).toBeGreaterThan(0);
+        expect(regionTriangles(ev({ extra: "fruit" }).mesh, "extra")).toBeGreaterThan(0);
+        expect(ev({ leafShape: "maple" }).stats.triangles).not.toBe(base.stats.triangles);
+        expect(ev({ crownWidth: 1e9 }).params.crownWidth).toBeCloseTo(Number(base.params.height) * 1.5, 6);
+        for (const crownShape of ["round", "spreading", "columnar", "conical", "vase"]) expect(report(ev({ crownShape }).mesh).issues.filter(i => i.severity === "error" && i.code !== "material")).toEqual([]);
+    });
+    it("conifer tiers hang boughs out to the crown radius and the count follows the tiers", () => {
+        const def = lookupObject("nature.conifer")!;
+        const a = evaluateObject(def, { height: 12, baseWidth: 3, tiers: 8, boughs: 6 }, lookupObject);
+        const b = evaluateObject(def, { height: 12, baseWidth: 3, tiers: 16, boughs: 6 }, lookupObject);
+        expect(regionTriangles(b.mesh, "needles")).toBeGreaterThan(regionTriangles(a.mesh, "needles") * 1.6);
+        const box = a.stats.bounds!;
+        expect(box.max[0] - box.min[0]).toBeGreaterThan(3);
+        expect(box.max[0] - box.min[0]).toBeLessThan(2 * 3 * 1.5);
+        expect(box.max[1]).toBeCloseTo(12 * 0.94 + 12 * 0.07 + 0.3 - (12 * 0.07 + 0.3) * 0.35, 0);
+        expect(evaluateObject(def, { cones: 0 }, lookupObject).mesh.parts.some(p => p.region === "cone")).toBe(false);
+        expect(regionTriangles(evaluateObject(def, { cones: 12 }, lookupObject).mesh, "cone")).toBeGreaterThan(0);
+    });
+    it("palms lean and curve with the trunk, crowning the trunk's top; fruit and fan leaves are optional", () => {
+        const def = lookupObject("nature.palm")!;
+        const straight = evaluateObject(def, { lean: 0, bend: 0 }, lookupObject);
+        const leaning = evaluateObject(def, { lean: 20, bend: 1 }, lookupObject);
+        const top = (e: ReturnType<typeof evaluateObject>) => centroid({ parts: e.mesh.parts.filter(p => p.region === "trunk") }, "trunk");
+        expect(Math.abs(top(straight)[0])).toBeLessThan(0.05);
+        expect(top(leaning)[0]).toBeGreaterThan(0.5);
+        expect(leaning.stats.bounds!.max[1]).toBeGreaterThan(0.85 * Number(leaning.params.height));
+        expect(straight.mesh.parts.some(p => p.region === "fruit")).toBe(false);
+        expect(regionTriangles(evaluateObject(def, { fruitKind: "coconuts" }, lookupObject).mesh, "fruit")).toBeGreaterThan(0);
+        const fan = evaluateObject(def, { frondStyle: "fan" }, lookupObject);
+        expect(regionTriangles(fan.mesh, "fronds")).toBeGreaterThan(0);
+        expect(fan.stats.triangles).not.toBe(straight.stats.triangles);
+        expect(isParamVisible(def, def.params.find(p => p.id === "pairs")!, resolveParams(def, { frondStyle: "fan" }))).toBe(false);
+    });
+    it("ferns, grass and bushes build the forms they name", () => {
+        const fern = lookupObject("nature.fern")!;
+        const f8 = evaluateObject(fern, { fronds: 8, fiddleheads: 0 }, lookupObject), f16 = evaluateObject(fern, { fronds: 16, fiddleheads: 0 }, lookupObject);
+        expect(f16.stats.triangles).toBeGreaterThan(f8.stats.triangles * 1.7);
+        expect(f8.mesh.parts.some(p => p.region === "young")).toBe(false);
+        expect(regionTriangles(evaluateObject(fern, { fiddleheads: 4 }, lookupObject).mesh, "young")).toBeGreaterThan(0);
+        const grass = lookupObject("nature.grass")!;
+        const tuft = evaluateObject(grass, { radius: 0.3, height: 0.3, bladeCount: 100, dryShare: 0, flowers: 0 }, lookupObject);
+        const width = tuft.stats.bounds!.max[0] - tuft.stats.bounds!.min[0];
+        expect(width).toBeLessThan(2 * (0.3 + 0.3) + 0.05);
+        expect(tuft.stats.bounds!.max[1]).toBeGreaterThan(0.15);
+        expect(tuft.mesh.parts.some(p => p.region === "dry")).toBe(false);
+        const dry = evaluateObject(grass, { dryShare: 1 }, lookupObject);
+        expect(dry.mesh.parts.some(p => p.region === "blades")).toBe(false);
+        expect(regionTriangles(evaluateObject(grass, { flowers: 5 }, lookupObject).mesh, "petals")).toBeGreaterThan(0);
+        const bush = lookupObject("nature.bush")!;
+        const hedge = evaluateObject(bush, { form: "hedge", width: 3, height: 1.2, depth: 0.7 }, lookupObject);
+        const hb = hedge.stats.bounds!;
+        expect(hb.max[0] - hb.min[0]).toBeGreaterThan(2.9);
+        expect(hb.max[1]).toBeGreaterThan(1.15);
+        expect(regionTriangles(hedge.mesh, "leaf")).toBeGreaterThan(0);
+        expect(hedge.mesh.parts.some(p => p.region === "stem")).toBe(false);
+        expect(evaluateObject(bush, { form: "natural" }, lookupObject).mesh.parts.some(p => p.region === "stem")).toBe(true);
+        expect(regionTriangles(evaluateObject(bush, { blooms: "berries" }, lookupObject).mesh, "bloom")).toBeGreaterThan(0);
+    });
+    it("a flower's head sits on top of its stem, and its petals, layers and seed disc follow the controls", () => {
+        const def = lookupObject("nature.flower")!;
+        const e = evaluateObject(def, { height: 0.6, bend: 0.2, headSize: 0.12, centerSize: 0.3 }, lookupObject);
+        const c = centroid(e.mesh, "center");
+        expect(c[1]).toBeGreaterThan(0.6 - 0.01);
+        expect(c[1]).toBeLessThan(0.6 + 0.05);
+        expect(c[0]).toBeGreaterThan(0.6 * 0.2 - 0.03);
+        expect(c[0]).toBeLessThan(0.6 * 0.2 + 0.03);
+        const petals = (v: Record<string, unknown>) => regionTriangles(evaluateObject(def, v as never, lookupObject).mesh, "petals");
+        expect(petals({ petals: 24 })).toBeGreaterThan(petals({ petals: 8 }) * 2);
+        expect(petals({ layers: 3 })).toBe(petals({ layers: 1 }) * 3);
+        expect(evaluateObject(def, { centerSize: 0 }, lookupObject).mesh.parts.some(p => p.region === "center")).toBe(false);
+        // A tulip is closed, a daisy open: the closed head is narrower.
+        const width = (openness: number) => { const m = evaluateObject(def, { openness, height: 0.3, bend: 0, nod: 0 }, lookupObject).mesh; const b = bounds({ parts: m.parts.filter(p => p.region === "petals") })!; return b.max[0] - b.min[0]; };
+        expect(width(90)).toBeGreaterThan(width(10) * 2);
     });
 });
 

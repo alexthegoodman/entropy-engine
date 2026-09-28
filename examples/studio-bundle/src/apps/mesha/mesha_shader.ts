@@ -144,6 +144,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let v = normalize(camera.view_pos.xyz - in.world_pos);
     let p = in.world_pos;
     let dist = length(camera.view_pos.xyz - p);
+    let fw = fwidth(in.uv); // derivatives stay out of the pattern branches below
 
     // --- The backdrop: a seamless studio sweep, darker overhead, meeting the floor's far color ---
     if (pattern == 7) {
@@ -202,6 +203,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let s = vnoise(p * 70.0);
         let fleck = smoothstep(0.78, 0.9, s);
         base = mix(base * (0.9 + 0.18 * fbm(p * 7.0)), base * 0.45, fleck * 0.6);
+    } else if (pattern == 8) {
+        // Foliage: mottled tone, sun-yellowed patches, and a midrib with side veins drawn from the
+        // leaf's own UVs (across 0..1 with the midrib at 0.5, along = distance from the base).
+        let m = fbm(p * 5.0);
+        base = base * (0.72 + 0.62 * m) * (0.93 + 0.14 * vnoise(p * 23.0));
+        base = mix(base, base * vec3<f32>(1.3, 1.12, 0.55), smoothstep(0.55, 0.85, m) * 0.5);
+        let uu = in.uv.x - 0.5;
+        let mid = 1.0 - smoothstep(0.0, 0.02 + fw.x * 1.5, abs(uu));
+        let d = abs(fract(in.uv.y * 7.0 - abs(uu) * 3.2) - 0.5);
+        let side = smoothstep(0.4, 0.5, d) * clamp(1.0 - abs(uu) * 1.9, 0.0, 1.0) * (1.0 - smoothstep(0.03, 0.09, fw.y * 7.0));
+        base = base * (1.0 + 0.2 * mid + 0.12 * side);
+        rough = clamp(rough - 0.06 * mid, 0.03, 1.0);
+        sheen = 0.18;
+        spec_scale = 0.3;
+    } else if (pattern == 9) {
+        // Bark: deep vertical furrows and scaly plates.
+        let ridge = 1.0 - abs(fbm(vec3<f32>(p.x * 22.0, p.y * 2.2, p.z * 22.0)) * 2.0 - 1.0);
+        let scale = vnoise(vec3<f32>(p.x * 9.0, p.y * 6.0, p.z * 9.0));
+        base = base * (0.55 + 0.6 * ridge) * (0.88 + 0.22 * scale);
+        rough = clamp(rough + 0.15 * (1.0 - ridge), 0.03, 1.0);
+        spec_scale = 0.4;
     }
 
     let key = normalize(studio.key_dir.xyz);
@@ -228,6 +250,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         + env * reflectance * occ * (0.35 + 0.65 * (1.0 - rough))
         + studio.key_color.rgb * spec * mix(vec3<f32>(0.05 + 0.3 * fresnel), f0, metal) * spec_scale;
     col = col + base * sheen * pow(1.0 - nv, 3.0) * (hemi + key_light * 0.3);
+    if (pattern == 8) {
+        // Thin leaves glow when the light is behind them.
+        let through = max(-dot(n, key), 0.0);
+        col = col + base * studio.key_color.rgb * studio.key_color.w * through * 0.6;
+    }
 
     if (pattern == 5) {
         // Glass: tinted body, strong fresnel reflections, a bright caustic-ish glint through it.

@@ -2,7 +2,7 @@
 // binds each to one of these by id, usually through a "finish" parameter, so a user picks "Walnut"
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
-export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle";
+export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark";
 
 export interface MaterialPreset {
     id: string;
@@ -77,6 +77,52 @@ export const MATERIALS: MaterialPreset[] = [
     m("paper.label", "Paper label", "#efe6cf", 0.8, 0),
     m("paper.kraft", "Kraft label", "#b88f5f", 0.85, 0),
     m("cork", "Cork", "#b9895a", 0.9, 0, "speckle"),
+    // Plants. Leaves and petals use the foliage pattern (veins, mottling, light through the blade);
+    // bark and cones use the furrowed bark pattern.
+    m("leaf.fresh", "Fresh green", "#5c9a3c", 0.55, 0, "foliage"),
+    m("leaf.spring", "Spring lime", "#86b446", 0.55, 0, "foliage"),
+    m("leaf.deep", "Deep green", "#2f6a3a", 0.55, 0, "foliage"),
+    m("leaf.forest", "Forest green", "#2a5230", 0.6, 0, "foliage"),
+    m("leaf.pine", "Pine needles", "#2b5b3a", 0.7, 0, "foliage"),
+    m("leaf.blue", "Blue spruce", "#4f7f86", 0.65, 0, "foliage"),
+    m("leaf.olive", "Olive", "#7d8b45", 0.55, 0, "foliage"),
+    m("leaf.sage", "Sage", "#8aa06f", 0.6, 0, "foliage"),
+    m("leaf.silver", "Silver-green", "#93a891", 0.5, 0, "foliage"),
+    m("leaf.copper", "Copper beech", "#6b3540", 0.5, 0, "foliage"),
+    m("leaf.gold", "Autumn gold", "#dfa93a", 0.55, 0, "foliage"),
+    m("leaf.orange", "Autumn orange", "#d2691e", 0.55, 0, "foliage"),
+    m("leaf.red", "Autumn red", "#b03a22", 0.55, 0, "foliage"),
+    m("leaf.crimson", "Crimson", "#8e2231", 0.5, 0, "foliage"),
+    m("leaf.dry", "Dry straw", "#b09a55", 0.7, 0, "foliage"),
+    m("petal.white", "White petals", "#f4f0e6", 0.5, 0, "foliage"),
+    m("petal.cream", "Cream petals", "#f1e2b5", 0.5, 0, "foliage"),
+    m("petal.yellow", "Yellow petals", "#f0c419", 0.5, 0, "foliage"),
+    m("petal.orange", "Orange petals", "#ee8a1f", 0.5, 0, "foliage"),
+    m("petal.red", "Red petals", "#c4262e", 0.45, 0, "foliage"),
+    m("petal.pink", "Pink petals", "#f0a6c0", 0.5, 0, "foliage"),
+    m("petal.blush", "Blush blossom", "#f7cfd8", 0.5, 0, "foliage"),
+    m("petal.magenta", "Magenta petals", "#c8378a", 0.45, 0, "foliage"),
+    m("petal.purple", "Purple petals", "#7a4ea8", 0.45, 0, "foliage"),
+    m("petal.lavender", "Lavender petals", "#a794d6", 0.5, 0, "foliage"),
+    m("petal.blue", "Blue petals", "#5578c8", 0.45, 0, "foliage"),
+    m("flower.center", "Dark seed disc", "#4a2c14", 0.8, 0, "speckle"),
+    m("flower.gold", "Golden center", "#e0a814", 0.6, 0, "speckle"),
+    m("fruit.red", "Red fruit", "#c8352b", 0.28, 0),
+    m("fruit.orange", "Orange fruit", "#e98a1f", 0.3, 0),
+    m("fruit.yellow", "Yellow fruit", "#e6c23a", 0.3, 0),
+    m("fruit.plum", "Plum", "#3b2a52", 0.3, 0),
+    m("fruit.coconut", "Coconut", "#5c8a3a", 0.45, 0),
+    m("bark.oak", "Oak bark", "#5b4736", 0.85, 0, "bark"),
+    m("bark.dark", "Dark bark", "#3a2e27", 0.85, 0, "bark"),
+    m("bark.pine", "Pine bark", "#7c4d33", 0.85, 0, "bark"),
+    m("bark.red", "Redwood bark", "#8a3f2c", 0.85, 0, "bark"),
+    m("bark.grey", "Grey bark", "#857d72", 0.8, 0, "bark"),
+    m("bark.palm", "Palm trunk", "#8f7a5c", 0.85, 0, "bark"),
+    m("bark.birch", "Birch bark", "#dbd7cd", 0.55, 0, "speckle"),
+    m("bark.cherry", "Cherry bark", "#6a3b2e", 0.4, 0, "speckle"),
+    m("stem.green", "Green stem", "#5f8f3a", 0.5, 0),
+    m("stem.pale", "Pale stem", "#9bb26a", 0.5, 0),
+    m("stem.woody", "Woody stem", "#7a6a4a", 0.75, 0, "speckle"),
 ];
 
 export const MATERIAL_BY_ID: ReadonlyMap<string, MaterialPreset> = new Map(MATERIALS.map(p => [p.id, p]));

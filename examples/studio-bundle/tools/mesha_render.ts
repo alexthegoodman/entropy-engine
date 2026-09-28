@@ -9,7 +9,7 @@ import { encodePng } from "./mesha_png.ts";
 const [id, out = `/tmp/${id}.png`, list, yaw, pitch] = Deno.args;
 const def = lookupObject(id);
 if (!def) throw new Error(`no object ${id}`);
-const configs: { caption: string; values: ParamValues }[] = list ? JSON.parse(list) : [{ caption: "default", values: {} }, ...(def.presets ?? []).map(p => ({ caption: p.name, values: p.values }))];
+const configs: { caption: string; values: ParamValues }[] = list && list !== "-" ? JSON.parse(list) : [{ caption: "default", values: {} }, ...(def.presets ?? []).map(p => ({ caption: p.name, values: p.values }))];
 const tiles = configs.map(c => {
     const e = evaluateObject(def, c.values, lookupObject);
     console.log(`${c.caption}: ${e.stats.triangles} tris ${e.stats.ms.toFixed(1)} ms ${e.violations.join("; ")}`);

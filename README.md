@@ -504,8 +504,8 @@ and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` cover
 by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
-library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), gear, bolt and
-rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
+library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), gear, bolt,
+rocks and plants (trees, conifers, palms, ferns, flowers, grass and bushes), each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
 meaningful controls, press **Variation** for another sensible design (lock what you want kept),
 compose several into a scene and export ordinary GLB geometry. `npm run test:mesha` and
 `npm run mesha:verify` (the parameter fuzzer and contact sheets) run without a window;

@@ -137,6 +137,8 @@ pub fn build_glb(meshes: &[GlbMeshExport]) -> Result<Vec<u8>, String> {
         materials.push(json!({
             "name": format!("{}_material", m.name),
             "pbrMetallicRoughness": { "baseColorTexture": { "index": texture_index } },
+            // Open sheets (leaves, petals, blades) have no inside: without this a viewer culls their backs.
+            "doubleSided": true,
             // The addon's own CanvasSurface pipeline is unlit (samples the painted texture
             // directly, no lighting math) - KHR_materials_unlit is the faithful export of that,
             // not a fallback for missing PBR data.

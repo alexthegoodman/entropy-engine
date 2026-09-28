@@ -161,3 +161,96 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "30-door-open"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-house-export.glb"}
+
+  Scenario: Trees with leaf, canopy and colour controls
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "Summer oak", "position": [215, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "31-tree-oak"
+    When I call the tool "mesha_set" with {"values": {"leafShape": "maple", "leafFinish": "leaf.gold", "secondShare": 0.5, "secondFinish": "leaf.red", "leavesPerClump": 16, "barkFinish": "bark.dark"}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "32-tree-autumn-maple"
+    When I call the tool "mesha_set" with {"values": {"leafShape": "ovate", "secondShare": 0, "leafFinish": "leaf.spring", "canopyMass": 0.1, "leavesPerClump": 30, "crownShape": "vase", "branchCount": 12}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "33-tree-open-crown"
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "Cherry blossom", "position": [245, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "34-tree-cherry-blossom"
+    When I call the tool "mesha_add" with {"objectId": "nature.tree", "preset": "Weeping willow", "position": [275, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "35-tree-weeping-willow"
+    When I call the tool "mesha_lock" with {"keys": ["group:materials", "height", "crownWidth"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.6, "seed": 4}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 10}
+    And I advance 8 frames
+    Then I capture "36-tree-variation"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-tree-export.glb"}
+
+  Scenario: Evergreens and palms
+    When I call the tool "mesha_add" with {"objectId": "nature.conifer", "preset": "Norway spruce", "position": [305, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 8, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "37-conifer-spruce"
+    When I call the tool "mesha_set" with {"values": {"needleFinish": "leaf.blue", "shape": "fir", "cones": 14, "boughDroop": 30, "tiers": 15}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "38-conifer-blue-fir"
+    When I call the tool "mesha_add" with {"objectId": "nature.conifer", "preset": "Scots pine", "position": [330, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "39-conifer-pine"
+    When I call the tool "mesha_add" with {"objectId": "nature.palm", "preset": "Coconut palm", "position": [355, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "40-palm-coconut"
+    When I call the tool "mesha_set" with {"values": {"frondStyle": "fan", "frondLength": 3, "fruitKind": "none", "leafFinish": "leaf.olive", "height": 11}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 8}
+    And I advance 8 frames
+    Then I capture "41-palm-fan"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-conifer-export.glb"}
+
+  Scenario: Ferns, flowers, grass and shrubs
+    When I call the tool "mesha_add" with {"objectId": "nature.fern", "preset": "Woodland fern", "position": [385, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 35, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "42-fern"
+    When I call the tool "mesha_set" with {"values": {"upright": 0.9, "frondLength": 1.3, "arch": 50, "fronds": 20, "leafFinish": "leaf.deep"}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "43-fern-vase"
+    When I call the tool "mesha_add" with {"objectId": "nature.flower", "preset": "Sunflower", "position": [400, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "44-flower-sunflower"
+    When I call the tool "mesha_add" with {"objectId": "nature.flower", "preset": "Garden rose", "position": [410, 0, 0]}
+    And I call the tool "mesha_set" with {"values": {"height": 0.22, "leaves": 2}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 25}
+    And I advance 8 frames
+    Then I capture "45-flower-rose"
+    When I call the tool "mesha_add" with {"objectId": "nature.flower", "preset": "Tulip", "position": [418, 0, 0]}
+    And I call the tool "mesha_set" with {"values": {"height": 0.24}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 20}
+    And I advance 8 frames
+    Then I capture "46-flower-tulip"
+    When I call the tool "mesha_add" with {"objectId": "nature.grass", "preset": "Tall meadow", "position": [430, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 22}
+    And I advance 8 frames
+    Then I capture "47-grass-meadow"
+    When I call the tool "mesha_add" with {"objectId": "nature.bush", "preset": "Hydrangea", "position": [445, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "48-bush-hydrangea"
+    When I call the tool "mesha_add" with {"objectId": "nature.bush", "preset": "Privet hedge", "position": [460, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "49-hedge"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 12}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "50-hedge-variation"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-plants-export.glb"}

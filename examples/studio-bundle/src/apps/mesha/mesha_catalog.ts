@@ -8,13 +8,14 @@ import {
     roundedBox, lathe, cylinder, capsuleProfile, sphere, icosphere, torus, extrude, sweep,
     bendY, taperY, twistY, displaceNoise, radialArray, linearArray, mirror, loft,
 } from "./mesha_primitives";
+import { leaf, frond, scatter, rosette, growBranches, type Envelope } from "./mesha_foliage";
 import {
     circle2, ellipse2, polygon2, roundedRect2, superellipse2, star2, gear2, filletPolyline, smoothPath,
     bezier3, helix3, arc3, translate2, rotate2, scale2, resample, subdivideSegments,
 } from "./mesha_curves";
 
 export type InputKind = "number" | "int" | "bool" | "vec2" | "vec3" | "enum" | "string" | "mesh" | "meshes" | "curve2" | "curves2" | "curve3" | "points3";
-export type OutputKind = "mesh" | "curve2" | "curves2" | "curve3";
+export type OutputKind = "mesh" | "curve2" | "curves2" | "curve3" | "points3";
 
 export interface ComponentInput {
     name: string;
@@ -28,7 +29,7 @@ export interface ComponentInput {
 
 export interface ComponentDef {
     type: string;
-    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Geometry";
+    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Foliage" | "Geometry";
     label: string;
     description: string;
     inputs: ComponentInput[];
@@ -247,11 +248,14 @@ const LIST: ComponentDef[] = [
     {
         type: "mesh.sweep", category: "Curve to Mesh", label: "Sweep (Curve to Mesh)", output: "mesh",
         description: "Sweeps a profile along a path - `radius` for a round tube, or any closed `profile`. `taper` scales the far end.",
-        inputs: [{ name: "path", kind: "curve3", description: "Path." }, { name: "profile", kind: "curve2", default: null, description: "Closed profile (overrides radius)." }, n("radius", 0.02, "Tube radius.", 0), int("sides", 16, "Tube sides.", 3, 128), n("taper", 1, "Scale at the end of the path.", 0), n("twist", 0, "Degrees per unit length."), { name: "closed", kind: "bool", default: false, description: "Loop the path." }, { name: "caps", kind: "bool", default: true, description: "Close the ends." }],
+        inputs: [{ name: "path", kind: "curve3", description: "Path." }, { name: "profile", kind: "curve2", default: null, description: "Closed profile (overrides radius)." }, n("radius", 0.02, "Tube radius.", 0), int("sides", 16, "Tube sides.", 3, 128), n("taper", 1, "Scale at the end of the path.", 0), n("flare", 0, "Extra girth at the start that fades out over the first quarter of the path (a trunk's root flare).", 0, 4), n("twist", 0, "Degrees per unit length."), { name: "closed", kind: "bool", default: false, description: "Loop the path." }, { name: "caps", kind: "bool", default: true, description: "Close the ends." }],
         build: i => {
             const profile: Vec2[] = i.profile && i.profile.length >= 3 ? i.profile : circle2(i.radius, i.sides);
             const count = (i.path as Vec3[]).length;
-            const scales = i.taper !== 1 ? Array.from({ length: count }, (_, k) => 1 + (i.taper - 1) * (k / Math.max(1, count - 1))) : undefined;
+            const scales = i.taper !== 1 || i.flare > 0 ? Array.from({ length: count }, (_, k) => {
+                const f = k / Math.max(1, count - 1);
+                return (1 + (i.taper - 1) * f) * (1 + i.flare * Math.pow(Math.max(0, 1 - f * 4), 2));
+            }) : undefined;
             return sweep(i.path, profile, { scales, twist: i.twist * DEG, closed: i.closed, caps: i.caps });
         },
     },
@@ -327,6 +331,43 @@ const LIST: ComponentDef[] = [
             const s: number[] = (i.scales as Vec3[])[k] ?? (i.scales as Vec3[])[0] ?? [1, 1, 1];
             return transformMesh(i.mesh, compose4(p, [r[0] * DEG, r[1] * DEG, r[2] * DEG], s as Vec3));
         })),
+    },
+    // --- Foliage -------------------------------------------------------------------------------
+    {
+        type: "mesh.leaf", category: "Foliage", label: "Leaf", output: "mesh",
+        description: "One leaf or petal lying in the XY plane: base at the origin, tip along +Y, front face toward +Z. `curl` bends it toward -Z and `fold` lifts both edges toward +Z. `widest`/`fullness` give ovate, lanceolate, round or blade-like outlines; `teeth` saws the edge; `lobes` of 3 or more makes a palmate leaf (maple, fan palm).",
+        inputs: [n("length", 1, "Blade length.", 0.001), n("width", 0.5, "Blade width.", 0.001), n("widest", 0.4, "Where along the blade it is widest (0..1).", 0.05, 0.95), n("fullness", 1, "Below 1 the ends are rounder, above 1 pointier.", 0.15, 4), n("stalk", 0, "Bare petiole before the blade.", 0), n("fold", 15, "Degrees the halves fold up along the midrib.", -65, 65), n("curl", 20, "Degrees the blade bends tip-down (toward -Z).", -180, 180), n("wave", 0, "Edge ruffle as a share of the half width.", 0, 1), n("waveCount", 3, "Ruffles along the blade.", 0.5, 12), int("teeth", 0, "Saw teeth (0 is a smooth edge).", 0, 24), n("toothDepth", 0.15, "How deep the teeth cut.", 0, 0.6), int("lobes", 0, "0 is a simple leaf; 3+ makes a palmate leaf with that many lobes.", 0, 24), n("lobeDepth", 0.5, "How far the notches between lobes cut in.", 0, 0.85), n("spread", 200, "Degrees a palmate leaf fans across.", 60, 340), int("rows", 5, "Rows along the blade.", 2, 32), int("half", 1, "Columns on each half of the blade.", 1, 4)],
+        build: i => leaf(i),
+    },
+    {
+        type: "mesh.frond", category: "Foliage", label: "Frond", output: "mesh",
+        description: "A pinnate frond (fern, palm, fir bough): a rachis arching along +Y with pairs of leaflets, base at the origin, front face toward +Z, `curl` arching it toward -Z.",
+        inputs: [n("length", 1, "Rachis length.", 0.001), int("pairs", 12, "Leaflet pairs.", 1, 60), n("leafletLength", 0.3, "Longest leaflet as a share of the length.", 0.005, 2), n("leafletWidth", 0.2, "Leaflet width as a share of its length.", 0.02, 0.9), n("angle", 65, "Degrees between leaflets and the rachis (90 is square).", 15, 90), n("lift", 15, "Degrees the leaflets tilt up out of the frond's plane (negative droops them).", -60, 60), n("droop", 20, "Degrees each leaflet curls down along its length.", -90, 120), n("curl", 40, "Degrees the frond arches tip-down.", -90, 200), n("peak", 0.35, "Where the leaflets are longest (0..1).", 0.1, 0.9), n("gap", 0.1, "Share of the frond that is bare stalk at the base.", 0, 0.7), n("rachis", 0.006, "Rachis radius.", 0.0001), n("fold", 20, "Degrees each leaflet folds along its midrib.", -60, 80)],
+        build: i => frond(i as any),
+    },
+    {
+        type: "instance.scatter", category: "Foliage", label: "Scatter on Volume", output: "mesh",
+        description: "`count` copies of `mesh` (base at the origin, pointing along +Y) spread evenly over a volume around each center, pointing outward, up or every which way, with random tilt, droop, roll and scale.",
+        inputs: [{ name: "mesh", kind: "mesh", description: "Instance." }, { name: "centers", kind: "points3", default: [[0, 0, 0]], description: "Volume centers (a list, e.g. `@tips`)." }, int("count", 24, "Copies per center.", 0, 2000), { name: "volume", kind: "enum", default: "sphere", options: ["sphere", "dome", "cone", "disc", "column", "box"], description: "Shape filled (`box` covers the top and four sides of a box of half extents `size`)." }, { name: "size", kind: "vec3", default: [0.5, 0.5, 0.5], description: "Radii (a cone's base and height, a disc's radius)." }, n("hollow", 0.5, "0 fills the volume, 1 only its surface.", 0, 1), { name: "orient", kind: "enum", default: "outward", options: ["outward", "up", "random", "surface"], description: "Which way each copy's +Y points; `surface` lies each flat on the volume's skin, facing out, pointing downhill." }, n("spread", 20, "Degrees of random wobble (`surface`: how far each may spin from pointing downhill, up to 180).", 0, 180), n("droop", 0, "Pulls every direction toward -Y.", 0, 1.5), n("scaleMin", 0.8, "Smallest scale.", 0.0001), n("scaleMax", 1.2, "Largest scale.", 0.0001), n("roll", 180, "Degrees of random roll about each copy's own axis.", 0, 180), n("minY", -1e9, "Copies whose base would lie below this height are left out (keeps foliage off the ground)."), int("seed", 1, "Placement seed.", -1e9, 1e9)],
+        build: i => scatter({ mesh: i.mesh, centers: i.centers, count: i.count, volume: i.volume, size: i.size, hollow: i.hollow, orient: i.orient, spread: i.spread, droop: i.droop, scaleMin: i.scaleMin, scaleMax: i.scaleMax, roll: i.roll, minY: i.minY, seed: i.seed }),
+    },
+    {
+        type: "instance.rosette", category: "Foliage", label: "Rosette", output: "mesh",
+        description: "`count` copies of `mesh` (base at the origin, +Y along it, front toward +Z) around +Y, each leaning `open` degrees out from vertical with its front facing in and up, in `layers` that open, shrink and rise: flower petals, agave and succulent whorls, tulip and lily cups.",
+        inputs: [{ name: "mesh", kind: "mesh", description: "Petal or leaf." }, int("count", 8, "Copies per layer.", 1, 200), int("layers", 1, "Layers, each offset by half a step.", 1, 8), n("open", 60, "Degrees from vertical (0 upright, 90 flat).", 0, 175), n("openStep", 0, "Added to `open` on each further layer.", -90, 90), n("scaleStep", 0.85, "Each layer's scale relative to the last.", 0.1, 3), n("lift", 0, "Height gained per layer."), n("jitter", 0.2, "Random tilt, roll and size (0..1).", 0, 1), int("seed", 1, "Seed.", -1e9, 1e9)],
+        build: i => rosette({ mesh: i.mesh, count: i.count, layers: i.layers, open: i.open, openStep: i.openStep, scaleStep: i.scaleStep, lift: i.lift, jitter: i.jitter, seed: i.seed }),
+    },
+    {
+        type: "mesh.branches", category: "Foliage", label: "Branching Crown", output: "mesh",
+        description: "Branches and twigs grown out of a trunk to fill a crown outline (round, spreading, columnar, conical or vase): each rises from the trunk, arches and bends out to the outline at its own height, spiraling around by the golden angle.",
+        inputs: [{ name: "trunk", kind: "curve3", description: "Trunk path, base to top (rising in Y)." }, int("count", 8, "Primary branches.", 0, 40), n("crownBase", 2, "Height where the crown starts."), n("crownHeight", 4, "Height of the crown."), n("crownRadius", 2, "Widest reach of the crown."), { name: "envelope", kind: "enum", default: "round", options: ["round", "spreading", "columnar", "conical", "vase"], description: "The crown's outline." }, n("angle", 40, "Degrees a branch rises from the trunk.", 5, 80), n("droop", 0, "How far tips sag, as a share of the reach.", 0, 1.5), n("arch", 0.15, "How much each branch bows upward before bending out.", 0, 1), n("radius", 0.05, "Branch radius where it leaves the trunk.", 0.0005), n("taper", 0.3, "Scale at the branch tip.", 0.1, 1), int("twigs", 2, "Twigs per branch.", 0, 6), n("twigLength", 0.45, "Twig length as a share of its branch's reach.", 0.05, 1), n("twigSpread", 45, "Degrees a twig splays from its branch.", 0, 90), n("jitter", 0.35, "Randomness of placement.", 0, 1), n("minTipY", 0, "No branch or twig ends lower than this."), int("seed", 1, "Branch seed.", -1e9, 1e9), int("sides", 6, "Tube sides.", 3, 12)],
+        build: i => growBranches({ ...(i as any), envelope: i.envelope as Envelope }).mesh,
+    },
+    {
+        type: "points.branchTips", category: "Foliage", label: "Branch Tips", output: "points3",
+        description: "Where `mesh.branches` with the same inputs ends: every branch and twig tip plus the trunk's top. Feed it to `instance.scatter` `centers` to put leaf clumps on the tips.",
+        inputs: [{ name: "trunk", kind: "curve3", description: "Trunk path, base to top (rising in Y)." }, int("count", 8, "Primary branches.", 0, 40), n("crownBase", 2, "Height where the crown starts."), n("crownHeight", 4, "Height of the crown."), n("crownRadius", 2, "Widest reach of the crown."), { name: "envelope", kind: "enum", default: "round", options: ["round", "spreading", "columnar", "conical", "vase"], description: "The crown's outline." }, n("angle", 40, "Degrees a branch rises from the trunk.", 5, 80), n("droop", 0, "How far tips sag, as a share of the reach.", 0, 1.5), n("arch", 0.15, "How much each branch bows upward before bending out.", 0, 1), n("radius", 0.05, "Branch radius where it leaves the trunk.", 0.0005), n("taper", 0.3, "Scale at the branch tip.", 0.1, 1), int("twigs", 2, "Twigs per branch.", 0, 6), n("twigLength", 0.45, "Twig length as a share of its branch's reach.", 0.05, 1), n("twigSpread", 45, "Degrees a twig splays from its branch.", 0, 90), n("jitter", 0.35, "Randomness of placement.", 0, 1), n("minTipY", 0, "No branch or twig ends lower than this."), int("seed", 1, "Branch seed.", -1e9, 1e9), int("sides", 6, "Tube sides.", 3, 12)],
+        build: i => growBranches({ ...(i as any), envelope: i.envelope as Envelope }).tips,
     },
     // --- Geometry ------------------------------------------------------------------------------
     {

@@ -60,7 +60,8 @@ export function checkGeometry(def: ObjectDef, e: Evaluation, options: { topology
         const size = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
         if (limits.maxSize !== undefined && size > limits.maxSize) issues.push({ code: "bounds", severity: "error", message: `Extreme size ${size.toFixed(3)} m (limit ${limits.maxSize} m)` });
         if (limits.minSize !== undefined && size < limits.minSize) issues.push({ code: "bounds", severity: "error", message: `Too small: ${size.toFixed(4)} m (limit ${limits.minSize} m)` });
-        if (limits.floor !== false && b.min[1] < -1e-3 * Math.max(1, size)) issues.push({ code: "floor", severity: "warning", message: `Dips ${(-b.min[1]).toFixed(4)} m below the floor` });
+        const dip = limits.floorTolerance !== undefined ? limits.floorTolerance * size : 1e-3 * Math.max(1, size);
+        if (limits.floor !== false && b.min[1] < -dip) issues.push({ code: "floor", severity: "warning", message: `Dips ${(-b.min[1]).toFixed(4)} m below the floor` });
     }
     if (limits.maxTriangles !== undefined && triangles > limits.maxTriangles) issues.push({ code: "budget", severity: "warning", message: `${triangles} triangles (budget ${limits.maxTriangles})` });
     if (e.stats.ms > 250) issues.push({ code: "slow", severity: "warning", message: `Evaluation took ${e.stats.ms.toFixed(0)} ms` });
