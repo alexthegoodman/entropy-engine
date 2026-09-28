@@ -2257,7 +2257,7 @@ globalThis.Entropy = {
         // ~2.3MB canvas passed that way looked like a hang - no crash, no dialog, no error -
         // for several seconds+ with nothing to show for it, going through serde_v8's generic
         // one-element-at-a-time Vec<T> path instead of a real buffer view).
-        exportGlb: (meshes, suggestedName) => {
+        exportGlb: (meshes, suggestedName, options) => {
             let totalLen = 0;
             for (const m of meshes) totalLen += m.textureRgba.length;
             const textures = new Uint8Array(totalLen);
@@ -2277,7 +2277,8 @@ globalThis.Entropy = {
                     textureHeight: m.textureHeight
                 })),
                 textures,
-                suggestedName || "export.glb"
+                suggestedName || "export.glb",
+                (options && options.path) || ""
             );
         }
     },

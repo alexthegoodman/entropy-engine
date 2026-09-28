@@ -1,0 +1,77 @@
+import type { ObjectDef } from "../mesha_object";
+
+/** A threaded bolt, tip on the floor and head up, with an optional washer and nut. */
+const bolt: ObjectDef = {
+    id: "mechanical.bolt",
+    name: "Bolt",
+    category: "Mechanical",
+    tags: ["bolt", "screw", "fastener", "hex bolt", "cap screw", "carriage bolt", "nut", "hardware"],
+    description: "Hex, socket-cap or carriage bolt with thread, washer and nut.",
+    featured: ["diameter", "length", "head", "threadLength", "nut", "finish"],
+    groups: [
+        { id: "size", label: "Size" },
+        { id: "head", label: "Head" },
+        { id: "thread", label: "Thread" },
+        { id: "extras", label: "Washer & Nut" },
+        { id: "materials", label: "Materials" },
+    ],
+    params: [
+        { id: "diameter", label: "Diameter", type: "number", default: 0.01, min: 0.002, max: 0.05, unit: "m", decimals: 4, group: "size" },
+        { id: "length", label: "Length", type: "number", default: 0.05, min: "=diameter * 1.5", max: "=diameter * 16", unit: "m", group: "size" },
+        { id: "head", label: "Head", type: "enum", default: "hex", options: ["hex", "socket", "carriage"], optionLabels: ["Hex", "Socket cap", "Carriage"], group: "head" },
+        { id: "headHeight", label: "Head height", type: "number", default: 0.65, min: 0.35, max: 1.1, group: "head", description: "Multiple of the diameter." },
+        { id: "threadLength", label: "Thread length", type: "number", default: 0.6, min: 0.1, max: 1, group: "thread", description: "Share of the shank that is threaded." },
+        { id: "pitch", label: "Pitch", type: "number", default: 0.15, min: 0.08, max: 0.25, group: "thread", description: "Multiple of the diameter." },
+        { id: "washer", label: "Washer", type: "bool", default: false, group: "extras" },
+        { id: "nut", label: "Nut", type: "bool", default: false, group: "extras" },
+        { id: "nutPosition", label: "Nut position", type: "number", default: 0.3, min: 0.12, max: 0.9, group: "extras", visibleIf: "=nut" },
+        { id: "finish", label: "Finish", type: "material", default: "metal.zinc", materials: ["metal"], group: "materials" },
+        { id: "seed", label: "Seed", type: "seed", default: 5, group: "materials", variation: 0 },
+    ],
+    derived: {
+        r: "=diameter / 2",
+        headH: "=diameter * headHeight",
+        hexR: "=diameter * 0.87",
+        threadStart: "=length * (1 - threadLength)",
+        p: "=diameter * pitch",
+        tip: "=diameter * 0.08",
+        washerH: "=washer ? diameter * 0.18 : 0",
+        nutH: "=diameter * 0.8",
+        // Everything is built from the tip (y = 0) up; the head sits on top of the shank.
+        shankTop: "=length",
+    },
+    rules: [{ check: "=length > headH", message: "The bolt is shorter than its head." }],
+    regions: { bolt: { label: "Bolt", material: "=finish" }, nut: { label: "Nut & washer", material: "=finish" } },
+    presets: [
+        { name: "M10 hex", values: { diameter: 0.01, length: 0.05, head: "hex", threadLength: 0.6 } },
+        { name: "M6 socket cap", values: { diameter: 0.006, length: 0.03, head: "socket", headHeight: 1, threadLength: 1, finish: "metal.black" } },
+        { name: "Carriage bolt", values: { diameter: 0.012, length: 0.1, head: "carriage", threadLength: 0.4, nut: true, washer: true, nutPosition: 0.25 } },
+    ],
+    nodes: [
+        { id: "shankProfile", type: "curve.points", output: false, points: [["=r * 0.78", 0], ["=r * 0.92", "=tip"], ["=r * 0.92", "=length + 0.0001"]] },
+        { id: "shank", type: "mesh.lathe", profile: "@shankProfile", cap: true, segments: 32, region: "bolt" },
+        { id: "plain", type: "mesh.cylinder", when: "=threadStart > 0.0005", radius: "=r", height: "=threadStart", segments: 32, at: [0, "=length - threadStart", 0], region: "bolt" },
+        // Thread: a round wire wound up the threaded length. From a normal viewing distance it reads as a cut thread.
+        { id: "threadPath", type: "path.helix", output: false, radius: "=r * 0.93", pitch: "=p", turns: "=max(0.5, (length - threadStart - tip * 1.5) / p)", segmentsPerTurn: 20 },
+        { id: "thread", type: "mesh.sweep", path: "@threadPath", radius: "=p * 0.32", sides: 8, at: [0, "=tip * 1.2", 0], region: "bolt" },
+        { id: "hexOutline", type: "curve.polygon", output: false, radius: "=hexR", sides: 6, rotation: 30 },
+        { id: "hexHead", type: "mesh.extrude", when: "=head == 'hex'", outline: "@hexOutline", height: "=headH", bevel: "=headH * 0.12", bevelSegments: 2, smoothAngle: 20, at: [0, "=length", 0], region: "bolt" },
+        { id: "hexCrown", type: "mesh.cone", when: "=head == 'hex'", bottomRadius: "=hexR * 0.9", topRadius: "=hexR * 0.72", height: "=headH * 0.08", segments: 40, at: [0, "=length + headH * 0.96", 0], region: "bolt" },
+        { id: "socketOuter", type: "curve.circle", output: false, radius: "=diameter * 0.75", segments: 48 },
+        { id: "socketHex", type: "curve.polygon", output: false, radius: "=diameter * 0.3", sides: 6 },
+        { id: "socketBase", type: "mesh.cylinder", when: "=head == 'socket'", radius: "=diameter * 0.75", height: "=headH * 0.45", segments: 48, bevel: "=headH * 0.06", at: [0, "=length", 0], region: "bolt" },
+        { id: "socketTop", type: "mesh.extrude", when: "=head == 'socket'", outline: "@socketOuter", holes: ["@socketHex"], height: "=headH * 0.58", bevel: "=headH * 0.08", bevelSegments: 3, at: [0, "=length + headH * 0.42", 0], region: "bolt" },
+        { id: "domeProfile", type: "curve.points", output: false, smooth: 8, points: [["=diameter * 1.1", 0], ["=diameter * 1.02", "=headH * 0.3"], ["=diameter * 0.7", "=headH * 0.62"], [0, "=headH * 0.7"]] },
+        { id: "dome", type: "mesh.lathe", when: "=head == 'carriage'", profile: "@domeProfile", cap: true, segments: 48, at: [0, "=length + r * 0.9", 0], region: "bolt" },
+        { id: "neck", type: "mesh.box", when: "=head == 'carriage'", size: ["=diameter", "=r * 0.95", "=diameter"], radius: "=r * 0.05", at: [0, "=length + r * 0.45", 0], region: "bolt" },
+        { id: "washerOutline", type: "curve.circle", output: false, radius: "=diameter * 1.05", segments: 48 },
+        { id: "washerHole", type: "curve.circle", output: false, radius: "=r * 1.08", segments: 32 },
+        { id: "washer", type: "mesh.extrude", when: "=washer", outline: "@washerOutline", holes: ["@washerHole"], height: "=washerH", bevel: "=washerH * 0.3", bevelSegments: 2, at: [0, "=length * nutPosition + (nut ? nutH : 0)", 0], region: "nut" },
+        { id: "nutOutline", type: "curve.polygon", output: false, radius: "=hexR", sides: 6, rotation: 30 },
+        { id: "nutHole", type: "curve.circle", output: false, radius: "=r * 1.02", segments: 32 },
+        { id: "nut", type: "mesh.extrude", when: "=nut", outline: "@nutOutline", holes: ["@nutHole"], height: "=nutH", bevel: "=nutH * 0.12", bevelSegments: 2, smoothAngle: 20, at: [0, "=length * nutPosition", 0], region: "nut" },
+    ],
+    limits: { maxSize: 1, minSize: 0.004, maxTriangles: 60000 },
+};
+
+export default bolt;
