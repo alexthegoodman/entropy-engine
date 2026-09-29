@@ -122,6 +122,9 @@ struct BrowserBddDriver {
     ml: bool,
     /// Mesha's run (`ENTROPY_MESHA_BDD_RESULT`): drives the addon mostly through its MCP tools.
     mesha: bool,
+    /// QuadPlanet's run (`ENTROPY_QUADPLANET_BDD_RESULT`): keys and MCP tools, and a longer time
+    /// budget since it renders whole planets (a software renderer on a headless box is slow).
+    quadplanet: bool,
     wait_until: Option<Instant>,
     editor_captures: Vec<serde_json::Value>,
     /// What the audio engine's own analysis taps reported when a `I record the analysis` step ran,
@@ -181,6 +184,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_ML_BDD_RESULT",
     "ENTROPY_MEDIA_BDD_RESULT",
     "ENTROPY_MESHA_BDD_RESULT",
+    "ENTROPY_QUADPLANET_BDD_RESULT",
 ];
 
 /// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
@@ -199,6 +203,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real media player is running in test mode"
         || text == "the real video export demo is running in test mode"
         || text == "the real Mesha app is running in test mode"
+        || text == "the real QuadPlanet app is running in test mode"
     {
         return None;
     }
@@ -298,6 +303,7 @@ impl BrowserBddDriver {
         let ml = !daw && !canvas && !launcher && !sheet && std::env::var_os("ENTROPY_ML_BDD_RESULT").is_some();
         let media = !daw && !canvas && !launcher && !sheet && !ml && std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some();
         let mesha = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some();
+        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
@@ -312,12 +318,16 @@ impl BrowserBddDriver {
             "ENTROPY_MEDIA_BDD_RESULT"
         } else if mesha {
             "ENTROPY_MESHA_BDD_RESULT"
+        } else if quadplanet {
+            "ENTROPY_QUADPLANET_BDD_RESULT"
         } else {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
         .map(PathBuf::from)?;
         let source = if mesha {
             include_str!("../tests/features/mesha_live.feature")
+        } else if quadplanet {
+            include_str!("../tests/features/quadplanet_live.feature")
         } else if launcher {
             include_str!("../tests/features/app_launcher_live.feature")
         } else if sheet {
@@ -364,6 +374,7 @@ impl BrowserBddDriver {
             sheet,
             ml,
             mesha,
+            quadplanet,
             wait_until: None,
             editor_captures: Vec::new(),
             analyses: serde_json::Map::new(),
@@ -403,11 +414,11 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas || self.daw || self.launcher || self.sheet || self.ml || self.mesha || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
+        if self.canvas || self.daw || self.launcher || self.sheet || self.ml || self.mesha || self.quadplanet || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
         // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
-        if self.canvas || self.daw || self.mesha {
+        if self.canvas || self.daw || self.mesha || self.quadplanet {
             result["tools"] = serde_json::json!(self.tool_results);
         }
         if self.daw {
@@ -427,7 +438,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher || self.mesha { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.daw || self.quadplanet { 240 } else if self.canvas || self.launcher || self.mesha { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

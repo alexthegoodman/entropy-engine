@@ -1332,6 +1332,13 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
                     }
 
+                    // Made once per frame, not once per mesh: an addon streaming hundreds of
+                    // meshes (QuadPlanet's terrain chunks) would otherwise create three textures
+                    // and a sampler per mesh every frame. See the bind group below for why these
+                    // placeholder resources are needed at all.
+                    let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) =
+                        fallback_material_resources(device, queue);
+
                     for mesh in &non_pbr_meshes {
                         let mut pipeline_set = false;
 
@@ -1373,8 +1380,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         // a free function here rather than called as a method because this loop
                         // sits inside an outer `&mut renderer_state.addon_grasses` borrow that a
                         // `&self` method call on `renderer_state` as a whole would conflict with.
-                        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) =
-                            fallback_material_resources(device, queue);
                         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             layout: &renderer_state.model_bind_group_layout,
                             entries: &[

@@ -123,6 +123,13 @@ async fn main() {
                 .with_hot_reload(true)
                 .with_title("Nocode Calculator")
                 .with_window_size(1100.0, 700.0),
+            Some("quadplanet") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/quadplanet.js")
+                .with_hot_reload(true)
+                .with_title("QuadPlanet")
+                .with_window_size(1600.0, 900.0)
+                // The HUD is a `glass: true` card over the 3D view; this runs the pass it samples.
+                .with_glass_blur(true),
             Some("sheet") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/sheet.js")
                 .with_hot_reload(true)

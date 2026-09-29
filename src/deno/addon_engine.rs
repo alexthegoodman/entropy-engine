@@ -778,6 +778,7 @@ impl AddonEngine {
             selected_entity_id: None,
             pending_camera_position: None,
             pending_camera_target: None,
+            pending_camera_up: None,
             pending_camera_ortho: None,
             pending_bone_transforms: Vec::new(),
             pending_entity_rotations: Vec::new(),
@@ -1234,6 +1235,12 @@ impl AddonEngine {
             // Apply pending camera changes
             if let Some(pos) = context.pending_camera_position.take() {
                 camera.position = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+            }
+            if let Some(up) = context.pending_camera_up.take() {
+                let up = nalgebra::Vector3::new(up[0], up[1], up[2]);
+                if up.norm() > 1e-6 {
+                    camera.up = up.normalize();
+                }
             }
             if let Some(target) = context.pending_camera_target.take() {
                 camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();

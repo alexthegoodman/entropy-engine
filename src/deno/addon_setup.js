@@ -2313,8 +2313,8 @@ globalThis.Entropy = {
         getTransform: () => {
             return ops.op_camera_get_transform();
         },
-        setTransform: (position, target) => {
-            ops.op_camera_set_transform(position || null, target || null);
+        setTransform: (position, target, up) => {
+            ops.op_camera_set_transform(position || null, target || null, up || null);
         },
         setOrthographic: (enabled, viewHeight) => {
             ops.op_camera_set_orthographic(enabled, viewHeight === undefined ? null : viewHeight);
@@ -2438,7 +2438,7 @@ globalThis.Entropy = {
                     state.target[2] + dir[2] * state.distance,
                 ];
                 state.position = newPos;
-                ops.op_camera_set_transform(newPos, state.target);
+                ops.op_camera_set_transform(newPos, state.target, null);
             };
 
             const applyPan = (dxp, dyp) => {
@@ -2472,7 +2472,7 @@ globalThis.Entropy = {
                 state.target = [state.target[0] + offset[0], state.target[1] + offset[1], state.target[2] + offset[2]];
                 const newPos = [curPos[0] + offset[0], curPos[1] + offset[1], curPos[2] + offset[2]];
                 state.position = newPos;
-                ops.op_camera_set_transform(newPos, state.target);
+                ops.op_camera_set_transform(newPos, state.target, null);
             };
 
             const [mx0, my0] = ops.op_input_get_state().mousePosition;

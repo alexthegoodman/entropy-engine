@@ -92,6 +92,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "mesha",
     "ml-graph-demo",
     "node-graph",
+    "quadplanet",
     "sheet",
     "stylus-drawing",
     "theme-gallery",

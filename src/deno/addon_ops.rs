@@ -1459,6 +1459,9 @@ pub struct AddonContext {
     pub selected_entity_id: Option<String>,
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
+    /// The camera's up vector, when an addon passed one to `Camera.setTransform` (a planet walker
+    /// whose "up" points away from the planet's center). Unset keeps the current up (world +Y).
+    pub pending_camera_up: Option<[f32; 3]>,
     pub pending_camera_ortho: Option<(bool, Option<f32>)>,
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
     pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
@@ -5748,10 +5751,13 @@ pub fn op_println(
 }
 
 #[op2]
-pub fn op_camera_set_transform(state: &mut OpState, #[serde] position: Option<[f32; 3]>, #[serde] target: Option<[f32; 3]>) {
+pub fn op_camera_set_transform(state: &mut OpState, #[serde] position: Option<[f32; 3]>, #[serde] target: Option<[f32; 3]>, #[serde] up: Option<[f32; 3]>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_camera_position = position;
         ctx.pending_camera_target = target;
+        if up.is_some() {
+            ctx.pending_camera_up = up;
+        }
     }
 }
 
