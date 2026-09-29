@@ -75,6 +75,7 @@ fn film_scores_render_whole_with_headroom() {
             &[],
             &pm.iter().map(|e| e.to_event()).collect::<Vec<_>>(),
             &brass.iter().map(|e| e.to_event()).collect::<Vec<_>>(),
+            &[],
             &matter.iter().map(|e| e.to_event().unwrap()).collect::<Vec<_>>(),
             &water.iter().map(|e| e.to_event().unwrap()).collect::<Vec<_>>(),
             &[],

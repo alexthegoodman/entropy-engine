@@ -9,5 +9,6 @@ pub mod html_layout;
 pub mod net;
 pub mod guitar_ops;
 pub mod physmod_ops;
+pub mod piano_ops;
 pub mod vst3_ops;
 pub mod wavetable_ops;

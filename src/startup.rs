@@ -349,6 +349,7 @@ impl BrowserBddDriver {
                 Ok("rack") => include_str!("../tests/features/daw_rack_live.feature"),
                 Ok("guitar") => include_str!("../tests/features/daw_guitar_live.feature"),
                 Ok("wavetable") => include_str!("../tests/features/daw_wavetable_live.feature"),
+                Ok("piano") => include_str!("../tests/features/daw_piano_live.feature"),
                 Ok("physmod") => include_str!("../tests/features/daw_physmod_live.feature"),
                 Ok("brass") => include_str!("../tests/features/daw_brass_live.feature"),
                 Ok("matter") => include_str!("../tests/features/daw_matter_live.feature"),

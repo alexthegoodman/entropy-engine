@@ -35,6 +35,7 @@ pub mod widgets_brass;
 pub mod widgets_matter;
 pub mod widgets_water;
 pub mod widgets_physmod;
+pub mod widgets_piano;
 pub mod widgets_keyframe_timeline;
 pub mod widgets_node_graph;
 pub mod widgets_pads;
@@ -87,6 +88,7 @@ pub use widgets_matter::{Camera as MatterCamera, MatterView, MatterViewEvent, Ma
 pub use widgets_water::{WaterView, WaterViewEvent, WaterViewOptions, WaterViewResponse};
 pub use widgets_reverb_eq::{Camera as ReverbEqCamera, ReverbEqEvent, ReverbEqOptions, ReverbEqResponse, ReverbEqView, ReverbSettings, SpaceView};
 pub use widgets_physmod::{Camera as PhysModCamera, PhysModEvent, PhysModOptions, PhysModResponse, PhysModView};
+pub use widgets_piano::{PianoCamera, PianoEvent, PianoOptions, PianoResponse, PianoView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

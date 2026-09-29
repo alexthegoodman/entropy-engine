@@ -9,6 +9,7 @@ vst3-host = { path = "vendor/vst3-host" }
 [[bin]]
 name = "game"
 path = "src/bin/game.rs"
+test = false
 
 [[test]]
 name = "browser_bdd"
@@ -88,6 +89,10 @@ harness = false
 
 [[test]]
 name = "physmod_synth_bdd"
+harness = false
+
+[[test]]
+name = "piano_synth_bdd"
 harness = false
 
 [[test]]

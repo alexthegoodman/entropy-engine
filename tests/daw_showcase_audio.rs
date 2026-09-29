@@ -137,6 +137,7 @@ fn showcase_finales_render_with_headroom() {
             &wt.iter().map(|e| e.to_event()).collect::<Vec<_>>(),
             &pm.iter().map(|e| e.to_event()).collect::<Vec<_>>(),
             &brass.iter().map(|e| e.to_event()).collect::<Vec<_>>(),
+            &[],
             &matter
                 .iter()
                 .map(|e| e.to_event().unwrap())

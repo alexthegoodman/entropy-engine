@@ -34,7 +34,7 @@ export interface TemplateInfo {
 export interface TemplateProject {
     bpm: number;
     songBars: number;
-    tracks: { name: string; kind: string; voice?: { waveform?: string }; instrument?: unknown; physmod?: { instrument?: string }; brass?: { instrument?: string }; water?: { play?: string } }[];
+    tracks: { name: string; kind: string; voice?: { waveform?: string }; instrument?: unknown; physmod?: { instrument?: string }; brass?: { instrument?: string }; piano?: { preset?: string }; water?: { play?: string } }[];
 }
 
 /** What a track is played by, in a few words. */
@@ -44,6 +44,7 @@ export function voiceFamily(t: TemplateProject["tracks"][number]): string {
     switch (t.voice?.waveform) {
         case "physmod": return `bowed ${t.physmod?.instrument ?? "string"}`;
         case "brass": return t.brass?.instrument ?? "brass";
+        case "piano": return `${t.piano?.preset ?? "grand"} piano`;
         case "matter": return "Matter kit";
         case "water": return t.water?.play === "weather" ? "Water weather" : `Water ${t.water?.play === "drip" ? "drips" : t.water?.play === "fill" ? "fills" : "glass harp"}`;
         case "wavetable": return "wavetable";
@@ -51,7 +52,7 @@ export function voiceFamily(t: TemplateProject["tracks"][number]): string {
     }
 }
 
-const MODELED = new Set(["physmod", "brass", "matter", "water"]);
+const MODELED = new Set(["physmod", "brass", "piano", "matter", "water"]);
 /** Whether every track is a physically modeled instrument. */
 export function allModeled(p: TemplateProject): boolean {
     return p.tracks.length > 0 && p.tracks.every(t => t.kind === "synth" && !t.instrument && MODELED.has(t.voice?.waveform ?? ""));

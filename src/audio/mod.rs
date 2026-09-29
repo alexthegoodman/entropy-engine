@@ -4,6 +4,7 @@ pub mod matter;
 pub mod character;
 pub mod eq;
 pub mod physmod;
+pub mod piano;
 pub mod quality;
 pub mod samples;
 pub mod vst3;
@@ -453,6 +454,14 @@ pub struct BrassEvent {
     pub params: BrassParams,
 }
 
+/// One scheduled note of a physically-modelled grand piano track in an offline render.
+#[derive(Clone, Debug)]
+pub struct PianoEvent {
+    pub start_time: f64,
+    pub instrument: String,
+    pub params: piano::PianoParams,
+}
+
 /// One hit of a physically-modeled drum-kit track in an offline render. Hits with the same `kit`
 /// are played on one kit (the first hit's `spec` and `mix` build it), so the pieces ring on and hear
 /// each other as they do live.
@@ -493,7 +502,16 @@ pub fn render_events_full_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], &[], &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], &[], &[], &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+}
+
+/// Renders grand piano notes offline to a WAV file.
+pub fn render_events_piano_to_wav(
+    piano_events: &[PianoEvent],
+    sample_rate: u32,
+    output_path: &Path,
+) -> Result<(f64, Vec<String>), String> {
+    render_mix_to_wav(&[], &[], &[], &[], &[], piano_events, &[], &[], &[], &MixRouting::default(), sample_rate, output_path)
 }
 
 /// Which track bus each event of an offline render plays through (see `render_mix_to_wav`). Each
@@ -508,6 +526,7 @@ pub struct MixRouting<'a> {
     pub wavetable: &'a [Option<usize>],
     pub physmod: &'a [Option<usize>],
     pub brass: &'a [Option<usize>],
+    pub piano: &'a [Option<usize>],
     pub matter: &'a [Option<usize>],
     pub water: &'a [Option<usize>],
     pub vst3: &'a [Option<usize>],
@@ -530,6 +549,7 @@ pub fn render_mix_to_wav(
     wavetable_events: &[WavetableEvent],
     physmod_events: &[PhysModEvent],
     brass_events: &[BrassEvent],
+    piano_events: &[PianoEvent],
     matter_events: &[MatterEvent],
     water_events: &[WaterEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
@@ -537,7 +557,7 @@ pub fn render_mix_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav_with_progress(events, sample_events, wavetable_events, physmod_events, brass_events, matter_events, water_events, vst3_tracks, routing, sample_rate, output_path, |_| Ok(()))
+    render_mix_to_wav_with_progress(events, sample_events, wavetable_events, physmod_events, brass_events, piano_events, matter_events, water_events, vst3_tracks, routing, sample_rate, output_path, |_| Ok(()))
 }
 
 /// Offline bounce with coarse instrument progress and incremental WAV-writing progress.
@@ -548,6 +568,7 @@ pub fn render_mix_to_wav_with_progress(
     wavetable_events: &[WavetableEvent],
     physmod_events: &[PhysModEvent],
     brass_events: &[BrassEvent],
+    piano_events: &[PianoEvent],
     matter_events: &[MatterEvent],
     water_events: &[WaterEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
@@ -612,8 +633,19 @@ pub fn render_mix_to_wav_with_progress(
             None => by_player.push((hit.instrument.as_str(), routing.bus(routing.brass, i), vec![note])),
         }
     }
+    // Piano notes likewise, one piano per instrument, so sympathetic resonance survives the bounce.
+    let mut by_piano: Vec<(&str, Option<usize>, Vec<piano::PerformedPianoNote>)> = Vec::new();
+    for (i, hit) in piano_events.iter().enumerate() {
+        let mut params=hit.params; params.quality=quality::Quality::Render;
+        let note = piano::PerformedPianoNote { start: hit.start_time.max(0.0), params };
+        match by_piano.iter_mut().find(|(id, _, _)| *id == hit.instrument.as_str()) {
+            Some((_, _, notes)) => notes.push(note),
+            None => by_piano.push((hit.instrument.as_str(), routing.bus(routing.piano, i), vec![note])),
+        }
+    }
     let brass_bufs = by_player.iter().map(|(_, bus, notes)| (*bus, brass::render_performance(notes, 3.0)));
     let physmod_bufs = by_instrument.iter().map(|(_, bus, notes)| (*bus, physmod::render_performance(notes, 6.0)));
+    let piano_bufs = by_piano.iter().map(|(_, bus, notes)| (*bus, piano::render_performance(notes, 5.0)));
     // Drum kits likewise, one kit per track, so the pieces ring on and hear each other.
     let mut by_kit: Vec<(&str, Option<usize>, matter::KitSpec, [f32; matter::kit::PIECES], Vec<(f64, matter::KitHit)>)> = Vec::new();
     for (i, hit) in matter_events.iter().enumerate() {
@@ -635,9 +667,9 @@ pub fn render_mix_to_wav_with_progress(
         }
     }
     let water_bufs = by_water.iter().map(|(_, bus, spec, mix, notes)| (*bus, matter::water_voice::render_water_performance(*spec, *mix, notes, 20.0)));
-    let instrument_count = by_instrument.len() + by_player.len() + by_kit.len() + by_water.len();
+    let instrument_count = by_instrument.len() + by_player.len() + by_piano.len() + by_kit.len() + by_water.len();
     progress(0.2)?;
-    for (i, (bus, buf)) in physmod_bufs.chain(brass_bufs).chain(matter_bufs).chain(water_bufs).enumerate() {
+    for (i, (bus, buf)) in physmod_bufs.chain(brass_bufs).chain(piano_bufs).chain(matter_bufs).chain(water_bufs).enumerate() {
         progress(0.2 + 0.2 * (i + 1) as f32 / std::cmp::Ord::max(instrument_count, 1) as f32)?;
         let mut buf = buf;
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
@@ -1141,6 +1173,9 @@ pub struct AudioEngine {
     matter_kits: Mutex<HashMap<String, MatterKit>>,
     /// One live water instrument per (track, water id), or the one being built (see `water_prepare`).
     water_tracks: Mutex<HashMap<String, WaterTrackState>>,
+    /// One live grand piano instrument per (track, instrument id).
+    piano_instruments: Mutex<HashMap<String, Arc<piano::PianoHandle>>>,
+    next_piano_voice: AtomicU64,
 }
 
 /// A track's water instrument: the one playing, and one being built to replace it (a different
@@ -1249,6 +1284,8 @@ impl AudioEngine {
             brass_players: Mutex::new(HashMap::new()),
             matter_kits: Mutex::new(HashMap::new()),
             water_tracks: Mutex::new(HashMap::new()),
+            piano_instruments: Mutex::new(HashMap::new()),
+            next_piano_voice: AtomicU64::new(1),
         }
     }
 
@@ -1354,6 +1391,7 @@ impl AudioEngine {
             }
             keep
         });
+        self.piano_instruments.lock().unwrap().retain(|k, _| !k.starts_with(&prefix));
     }
 
     /// Triggers one note on an already-created track bus (see `ensure_track_bus`) - the note
@@ -1594,6 +1632,70 @@ impl AudioEngine {
     pub fn brass_set_control(&self, voice_id: u64, which: &str, value: f32) {
         if let Some(h) = self.brass_gates.lock().unwrap().get(&voice_id) {
             h.live.set(which, value);
+        }
+    }
+
+    /// The live grand piano for `instrument` on `track_id`, started on the track's bus if it is not running.
+    pub fn piano_instrument(&self, track_id: &str, instrument: &str, params: &piano::PianoParams) -> Result<Arc<piano::PianoHandle>, String> {
+        let key = format!("{track_id}\u{1}{instrument}");
+        let mut map = self.piano_instruments.lock().unwrap();
+        if let Some(h) = map.get(&key) {
+            if h.same_model(params) { return Ok(h.clone()); }
+            h.stop();
+        }
+        let mixer = self.track_buses.lock().unwrap().get(track_id).map(|b| b.note_mixer.clone()).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        let shared = piano::shared_for(instrument);
+        let (voice, handle) = piano::PianoInstrumentVoice::new(shared, params);
+        let handle = Arc::new(handle);
+        mixer.add(voice);
+        map.insert(key, handle.clone());
+        Ok(handle)
+    }
+
+    /// Prepares the grand piano instrument ahead of its first note.
+    pub fn piano_prepare(&self, track_id: &str, instrument: &str, params: piano::PianoParams) -> Result<MatterStatus, String> {
+        let _ = self.piano_instrument(track_id, instrument, &params)?;
+        Ok(MatterStatus::Ready)
+    }
+
+    /// Plays one timed piano note on a track's bus.
+    pub fn play_piano_on_track(&self, track_id: &str, instrument: &str, params: piano::PianoParams) -> Result<(), String> {
+        let h = self.piano_instrument(track_id, instrument, &params)?;
+        let id = self.next_piano_voice.fetch_add(1, Ordering::Relaxed);
+        h.set_pedal(params.sustain_pedal,params.una_corda);
+        h.timed_note(id, params.freq, params.velocity, params.duration);
+        Ok(())
+    }
+
+    /// Starts a piano note that sounds until `piano_note_off`.
+    pub fn piano_note_on(&self, track_id: &str, instrument: &str, params: piano::PianoParams) -> Result<u64, String> {
+        let h = self.piano_instrument(track_id, instrument, &params)?;
+        let id = self.next_piano_voice.fetch_add(1, Ordering::Relaxed);
+        h.set_pedal(params.sustain_pedal,params.una_corda);
+        h.note_on(id, params.freq, params.velocity);
+        Ok(id)
+    }
+
+    /// Releases a piano note on a track's bus (damper drops).
+    pub fn piano_note_off(&self, track_id: &str, instrument: &str, freq: f32) {
+        let key = format!("{track_id}\u{1}{instrument}");
+        if let Some(h) = self.piano_instruments.lock().unwrap().get(&key) {
+            h.note_off(0, freq);
+        }
+    }
+
+    pub fn piano_all_notes_off(&self, track_id: &str) {
+        let prefix=format!("{track_id}\u{1}");
+        for (key,h) in self.piano_instruments.lock().unwrap().iter() {
+            if key.starts_with(&prefix) {h.all_notes_off();}
+        }
+    }
+
+    /// Sets sustain and una corda pedals for a piano track.
+    pub fn piano_set_pedal(&self, track_id: &str, instrument: &str, sustain: f32, una_corda: f32) {
+        let key = format!("{track_id}\u{1}{instrument}");
+        if let Some(h) = self.piano_instruments.lock().unwrap().get(&key) {
+            h.set_pedal(sustain, una_corda);
         }
     }
 
@@ -1976,7 +2078,7 @@ mod character_path_tests {
         let events = [note(220.0), note(5_512.5)];
         let buses = [TrackBusRender { gain: 1.0, eq: None, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
         let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
-        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
         let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();
         // Level over a 20 ms window at `t`, split by a crude filter: slow part = 220 Hz track.
         let window = |t: f32| {
@@ -2004,9 +2106,9 @@ mod export_progress_tests {
         let tracked = dir.join("tracked.wav");
         let events = [NoteEvent { start_time: 0.0, voice: "sine".into(), params: NoteParams { duration: 0.05, ..Default::default() } }];
         let routing = MixRouting::default();
-        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &original).unwrap();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &original).unwrap();
         let mut updates = Vec::new();
-        render_mix_to_wav_with_progress(&events, &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &tracked, |p| {
+        render_mix_to_wav_with_progress(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &tracked, |p| {
             updates.push(p);
             Ok(())
         }).unwrap();
@@ -2021,7 +2123,7 @@ mod export_progress_tests {
     #[test]
     fn cancellation_before_writing_does_not_create_an_output() {
         let path = std::env::temp_dir().join(format!("entropy-wav-cancel-{}.wav", uuid::Uuid::new_v4()));
-        let result = render_mix_to_wav_with_progress(&[], &[], &[], &[], &[], &[], &[], &[], &MixRouting::default(), 44_100, &path, |p| {
+        let result = render_mix_to_wav_with_progress(&[], &[], &[], &[], &[], &[], &[], &[], &[], &MixRouting::default(), 44_100, &path, |p| {
             if p >= 0.6 { Err("cancelled".into()) } else { Ok(()) }
         });
         assert_eq!(result.unwrap_err(), "cancelled");

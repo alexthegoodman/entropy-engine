@@ -348,7 +348,7 @@ export interface ScopedAPI {
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
     pollWavExport: () => { progress: number; done: boolean; result: RenderPatternWavResult | null } | null;
     cancelWavExport: () => void;
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions, pianoEvents?: PianoNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -2324,6 +2324,82 @@ export interface BrassNoteAnalysis extends BrassOk {
   attackSeconds?: number | null;
 }
 
+export interface PianoNoteConfig {
+  instrument?: string;
+  freq?: number;
+  velocity?: number;
+  gain?: number;
+  duration?: number;
+  sustainPedal?: number;
+  unaCorda?: number;
+  preset?: "ConcertGrand" | "StudioGrand" | "BrightGrand" | "WarmGrand" | string;
+  soundboardResonance?: number;
+  sympatheticCoupling?: number;
+  hammerHardness?: number;
+  inharmonicityScale?: number;
+  quality?: "draft" | "live" | "render";
+  startTime?: number;
+}
+
+export interface PianoKeyInfo {
+  key: number;
+  down: boolean;
+  damperDown: boolean;
+  energy: number;
+  hammerPos: number;
+}
+
+export interface PianoInfo {
+  ok: boolean;
+  id?: string;
+  error?: string;
+  activeVoices?: number;
+  sustainPedal?: number;
+  unaCorda?: number;
+  soundboardEnergy?: number;
+  bridgeVelocity?: number;
+  latestContactTimeMs?: number;
+  latestPeakForceN?: number;
+  keys?: PianoKeyInfo[];
+}
+
+export interface PianoNoteAnalysis {
+  ok: boolean;
+  error?: string;
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  pitchHz?: number;
+  centsOff?: number;
+  centroidHz?: number;
+  harmonicsDb?: number[];
+  attackSeconds?: number;
+  contactTimeMs?: number;
+  peakForceN?: number;
+  promptDecayDbPerSec?: number;
+  aftersoundDecayDbPerSec?: number;
+  twoStageRatio?: number;
+  inharmonicityB?: number;
+}
+
+export interface PianoAPI {
+  info: (id: string) => PianoInfo;
+  remove: (id: string) => boolean;
+  analyzeNote: (config: PianoNoteConfig, seconds?: number) => PianoNoteAnalysis;
+}
+
+export interface PianoViewConfig {
+  id?: string;
+  instrument?: string;
+  width?: number;
+  height?: number;
+  physicsView?: boolean;
+  onKeyDown?: (key: number, freq: number, velocity: number) => void;
+  onKeyUp?: (key: number, freq: number) => void;
+  onSustain?: (sustain: number) => void;
+  onPhysicsView?: (on: boolean) => void;
+}
+
 export interface MatterOk { ok: boolean; error?: string }
 
 export type MatterPiece = "kick" | "snare" | "rack-tom" | "floor-tom" | "crash" | "ride" | "splash";
@@ -3101,6 +3177,9 @@ export interface EntropyAPI {
       physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
       brass: (windowId: string, config: BrassViewConfig) => void;
+      /** A physically modeled grand piano instrument with 88-key action, cast iron plate, and physics view. */
+      piano: (windowId: string, config?: PianoViewConfig) => void;
+      pianoGrand: (windowId: string, config?: PianoViewConfig) => void;
       /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
       matter: (windowId: string, config: MatterViewConfig) => void;
       /** A physically modeled water instrument, drawn from its own bubbles, glasses, vessels and
@@ -3415,7 +3494,7 @@ export interface EntropyAPI {
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
     pollWavExport: () => { progress: number; done: boolean; result: RenderPatternWavResult | null } | null;
     cancelWavExport: () => void;
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[], matterEvents?: MatterHitConfig[], waterEvents?: WaterNoteConfig[], options?: RenderWavOptions, pianoEvents?: PianoNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -3449,6 +3528,15 @@ export interface EntropyAPI {
     brassNoteOff: (voice: number) => void;
     /** Moves a held brass note: breath (0..1), lip tension (-1..1), vibrato depth or bend (cents). */
     brassSetControl: (voice: number, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) => void;
+    /** Plays one timed grand piano note on a track's bus (see `Piano`). */
+    playPianoOnTrack: (trackId: string, config: PianoNoteConfig) => { ok: boolean; error?: string };
+    preparePiano: (trackId: string, config: PianoNoteConfig) => { ok: boolean; status?: string; error?: string };
+    /** Starts a grand piano note that sounds until `pianoNoteOff(trackId, instrument, freq)`. */
+    pianoNoteOn: (trackId: string, config: PianoNoteConfig) => { ok: boolean; voice?: number; error?: string };
+    pianoNoteOff: (trackId: string, instrument: string, freq: number) => void;
+    /** Sets grand piano sustain and una corda pedals. */
+    pianoAllNotesOff: (trackId: string) => void;
+    pianoSetPedal: (trackId: string, instrument: string, sustain: number, unaCorda: number) => void;
     /** Builds (off the audio thread) or checks the track's drum kit (see `Matter`). Hits sent while a
      *  kit is first being built are dropped, so prepare it ahead of playing. Cheap every frame. */
     prepareMatter: (trackId: string, config: MatterHitConfig) => MatterOk & { status?: MatterStatus };
@@ -3493,6 +3581,7 @@ export interface EntropyAPI {
   Wavetable: WavetableAPI;
   PhysMod: PhysModAPI;
   Brass: BrassAPI;
+  Piano: PianoAPI;
   Matter: MatterAPI;
   Icons: IconsAPI;
   System: SystemAPI;

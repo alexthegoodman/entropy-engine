@@ -129,6 +129,18 @@ import {
     noteConfig as brassNoteConfig,
     repairBrass,
 } from "./daw_brass";
+import type { PianoSettings } from "./daw_piano";
+import {
+    PIANO_WAVEFORM,
+    PIANO_PRESETS,
+    pianoPresetById,
+    defaultPiano,
+    describeSettings as describePiano,
+    heldSeconds as pianoHeldSeconds,
+    noteConfig as pianoNoteConfig,
+    repairPiano,
+    applyPreset as applyPianoPreset,
+} from "./daw_piano";
 import { EXPORT_QUALITY, MODEL_QUALITIES, type ModelQuality } from "./daw_quality";
 import type { MatterHit, MatterKit, MatterPiece, MatterSettings } from "./daw_matter";
 import {
@@ -347,6 +359,8 @@ interface Track {
     physmod?: PhysModSettings;
     // Synth tracks whose waveform is "brass": the brass player's settings (no persistent data).
     brass?: BrassSettings;
+    // Synth tracks whose waveform is "piano": the grand piano settings (no persistent data).
+    piano?: PianoSettings;
     // Synth tracks whose waveform is "matter": the drum kit's tunings, mix and how it is played.
     // Its rows are the kit's rows (daw_matter.ts), not a scale.
     matter?: MatterSettings;
@@ -986,6 +1000,93 @@ function setBrassMute(track: Track, id: string) {
     rebuildBrass(track);
 }
 
+// --- Grand piano tracks (see daw_piano.ts and src/audio/piano/) ------------------------------
+//
+// A synth track whose waveform is "piano" is a physically modelled grand piano: felt hammer contact
+// mechanics, an 88-key string harp with Railsback inharmonicity and coupled unisons, spruce
+// soundboard modal radiation with bridge velocity feedback, and sympathetic sustain / una corda pedals.
+
+const pianoHeld: Record<string, Record<number, number>> = {};
+const pianoLatch: Record<string, number> = {};
+let pianoStatus = "";
+
+function isPianoTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === PIANO_WAVEFORM;
+}
+
+function trackPiano(track: Track): PianoSettings {
+    if (!track.piano) track.piano = defaultPiano();
+    return track.piano;
+}
+
+function pianoNote(track: Track, freq: number, velocity: number, stepSeconds: number) {
+    const p = trackPiano(track);
+    addon.Audio.playPianoOnTrack(track.id, pianoNoteConfig(track.id, p, { freq, velocity, duration: pianoHeldSeconds(p, stepSeconds) }));
+}
+
+function startHeldPianoNote(track: Track, midi: number, velocity: number): number | null {
+    const r = addon.Audio.pianoNoteOn(track.id, pianoNoteConfig(track.id, trackPiano(track), { freq: midiToFreq(midi), velocity }));
+    return r.ok && r.voice !== undefined ? r.voice : null;
+}
+
+function heldPianoVoices(track: Track): number[] {
+    const held = Object.values(pianoHeld[track.id] ?? {});
+    if (pianoLatch[track.id] !== undefined) held.push(pianoLatch[track.id]);
+    return held;
+}
+
+function releasePianoVoices(track: Track) {
+    addon.Audio.pianoAllNotesOff(track.id);
+    for (const midi of Object.keys(pianoHeld[track.id] ?? {}).map(Number)) {
+        addon.Audio.pianoNoteOff(track.id, track.id, midiToFreq(midi));
+    }
+    pianoHeld[track.id] = {};
+    if (pianoLatch[track.id] !== undefined) {
+        addon.Audio.pianoNoteOff(track.id, track.id, midiToFreq(trackPiano(track).auditionNote));
+        delete pianoLatch[track.id];
+    }
+}
+
+function pressPianoKey(track: Track, midi: number, velocity: number) {
+    const v = startHeldPianoNote(track, midi, velocity);
+    if (v !== null) (pianoHeld[track.id] ??= {})[midi] = v;
+}
+
+function releasePianoKey(track: Track, midi: number) {
+    addon.Audio.pianoNoteOff(track.id, track.id, midiToFreq(midi));
+    delete (pianoHeld[track.id] ?? {})[midi];
+}
+
+function togglePianoLatch(track: Track) {
+    const held = pianoLatch[track.id];
+    if (held !== undefined) {
+        addon.Audio.pianoNoteOff(track.id, track.id, midiToFreq(trackPiano(track).auditionNote));
+        delete pianoLatch[track.id];
+        return;
+    }
+    const v = startHeldPianoNote(track, trackPiano(track).auditionNote, 0.8);
+    if (v !== null) pianoLatch[track.id] = v;
+}
+
+function setPianoPedal(track: Track, sustain: number, unaCorda?: number) {
+    const p = trackPiano(track);
+    p.sustainPedal = Math.min(1, Math.max(0, sustain));
+    if (unaCorda !== undefined) p.unaCorda = Math.min(1, Math.max(0, unaCorda));
+    addon.Audio.pianoSetPedal(track.id, track.id, p.sustainPedal, p.unaCorda);
+    scheduleSave();
+}
+
+function loadPianoPreset(track: Track, id: string) {
+    const p = trackPiano(track);
+    if (!applyPianoPreset(p, id)) { pianoStatus = `Unknown preset "${id}".`; return; }
+    pianoStatus = "";
+    if (pianoLatch[track.id] !== undefined) {
+        togglePianoLatch(track);
+        togglePianoLatch(track);
+    }
+    persist();
+}
+
 // --- Drum-kit tracks (see daw_matter.ts and src/audio/matter/) ------------------------------
 //
 // A synth track whose waveform is "matter" is a physically modeled drum kit. Its rows are the kit's
@@ -1313,6 +1414,7 @@ function syncTrackBus(track: Track) {
     if (isWavetableTrack(track)) trackWavetable(track);
     if (isPhysModTrack(track)) trackPhysMod(track);
     if (isBrassTrack(track)) trackBrass(track);
+    if (isPianoTrack(track)) trackPiano(track);
     if (isMatterTrack(track)) trackMatter(track);
     if (isWaterTrack(track)) trackWater(track);
     ensureTrackEffects(track);
@@ -1356,6 +1458,10 @@ function prepareModelledInstrument(track: Track, now: number) {
         const config = brassNoteConfig(track.id, trackBrass(track), { freq: 233.08, velocity: 0.8, duration: 0.5 });
         key = "brass" + JSON.stringify(config);
         prepare = () => addon.Audio.prepareBrass(track.id, config);
+    } else if (isPianoTrack(track)) {
+        const config = pianoNoteConfig(track.id, trackPiano(track), { freq: 440, velocity: 0.8, duration: 0.5 });
+        key = "piano" + JSON.stringify(config);
+        prepare = () => addon.Audio.preparePiano(track.id, config);
     } else {
         delete modelKey[track.id];
         return;
@@ -1383,6 +1489,8 @@ function removeTrackBus(track: Track) {
     addon.PhysMod.remove(track.id);
     releaseBrassVoices(track);
     addon.Brass.remove(track.id);
+    releasePianoVoices(track);
+    addon.Piano.remove(track.id);
     addon.Audio.removeMatter(track.id);
     addon.Matter.remove(track.id);
     delete mtKit[track.id];
@@ -1908,6 +2016,7 @@ function instrumentWindows(): { id: string; label: string; open: boolean; toggle
         { id: "wavetable", label: "Wavetable", open: wavetableVisible, toggle: () => setWavetableVisible(!wavetableVisible) },
         { id: "physmod", label: "Bowed String", open: physModVisible, toggle: () => setPhysModVisible(!physModVisible) },
         { id: "brass", label: "Brass", open: brassVisible, toggle: () => setBrassVisible(!brassVisible) },
+        { id: "piano", label: "Grand Piano", open: pianoVisible, toggle: () => setPianoVisible(!pianoVisible) },
         { id: "matter", label: "Kit", open: matterVisible, toggle: () => setMatterVisible(!matterVisible) },
         { id: "water", label: "Water", open: waterVisible, toggle: () => setWaterVisible(!waterVisible) },
         { id: "guitar", label: guitarStatus.running ? "Guitar Input (on)" : "Guitar Input", open: guitarVisible, toggle: () => setGuitarVisible(!guitarVisible) },
@@ -3065,6 +3174,124 @@ function renderBrassWindow(win: string) {
     });
 }
 
+// --- The Grand Piano window -----------------------------------------------------------------
+//
+// The active synth track's physically modelled grand piano, drawn live by entropy_gui::PianoView
+// (see widgets_piano.rs) showing the 88-key keyboard, felt hammers, spruce soundboard, and
+// Railsback string inharmonicity. Clicking or dragging the keys strikes them; the pedals lift
+// dampers and engage sympathetic resonance.
+
+let pianoWindowId: string | null = null;
+let pianoVisible = false;
+let pianoWindowHeight = 760;
+let pianoWindowWidth = 1080;
+const PIANO_SIDE_COLUMN = 320;
+
+function setPianoVisible(visible: boolean) {
+    pianoVisible = visible;
+    if (pianoWindowId) Entropy.UI.setWindowVisible(pianoWindowId, visible);
+}
+
+function renderPianoWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        W.label(win, { text: "The grand piano editor works on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isPianoTrack(track)) {
+        W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        W.button(win, {
+            text: "Make it piano", id: "piano_make",
+            onClick: () => { track.voice.waveform = PIANO_WAVEFORM; persist(); }
+        });
+        return;
+    }
+    const p = trackPiano(track);
+    const latched = pianoLatch[track.id] !== undefined;
+    const knob = (row: string, label: string, key: keyof PianoSettings, min: number, max: number) =>
+        W.knob(row, {
+            label, value: p[key] as number, min, max,
+            onChange: (v: string) => { (p as any)[key] = parseFloat(v); scheduleSave(); },
+        });
+
+    W.horizontal(win, (columns: string) => {
+    W.vertical(columns, (left: string) => {
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: `${track.name} -`, bold: true });
+        W.dropdown(row, {
+            id: "piano_preset", label: "Voicing",
+            options: PIANO_PRESETS.map(pr => pr.label),
+            selectedIndex: PIANO_PRESETS.findIndex(pr => pr.id === p.preset),
+            onChange: (v: string) => loadPianoPreset(track, PIANO_PRESETS[Number(v)]?.id ?? "ConcertGrand"),
+        });
+        W.button(row, {
+            text: latched ? withIcon("stop", "Release note") : withIcon("play", "Hold a note"),
+            id: "piano_latch",
+            onClick: () => { togglePianoLatch(track); }
+        });
+        W.button(row, {
+            text: radio(p.physicsView) + "Physics View",
+            id: "piano_physics",
+            onClick: () => { p.physicsView = !p.physicsView; scheduleSave(); }
+        });
+    });
+
+    W.piano(left, {
+        id: "piano_" + track.id,
+        instrument: track.id,
+        physicsView: p.physicsView,
+        width: Math.max(380, pianoWindowWidth - PIANO_SIDE_COLUMN - 56),
+        height: Math.max(380, pianoWindowHeight - 170),
+        onKeyDown: (key: number, _freq: number, velocity: number) => {
+            pressPianoKey(track, key + 21, velocity);
+        },
+        onKeyUp: (key: number, _freq: number) => {
+            releasePianoKey(track, key + 21);
+        },
+        onSustain: (sustain: number) => {
+            setPianoPedal(track, sustain);
+        },
+        onPhysicsView: (on: boolean) => {
+            p.physicsView = on;
+            scheduleSave();
+        },
+    });
+    if (pianoStatus) W.label(left, { text: pianoStatus });
+    });
+    W.vertical(columns, (right: string) => {
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Soundboard & Strings", bold: true });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Soundboard", "soundboardResonance", 0, 2);
+                knob(row, "Sympathy", "sympatheticCoupling", 0, 2);
+            });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Hammer", "hammerHardness", 0.5, 2);
+                knob(row, "Inharmonicity", "inharmonicityScale", 0, 3);
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Pedals", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.knob(row, {
+                    label: "Sustain", value: p.sustainPedal, min: 0, max: 1,
+                    onChange: (v: string) => { setPianoPedal(track, parseFloat(v)); }
+                });
+                W.knob(row, {
+                    label: "Una Corda", value: p.unaCorda, min: 0, max: 1,
+                    onChange: (v: string) => { setPianoPedal(track, p.sustainPedal, parseFloat(v)); }
+                });
+            });
+            W.label(g, { text: "Sustain lets released keys ring.", wrap: true });
+            W.label(g, {text: "Una corda softens the felt strike.", wrap: true});
+            W.dropdown(g, {label:"Quality", options:["Draft", "Live"], selectedIndex:p.quality==="draft"?0:1,
+                onChange:(v:string)=>{p.quality=v==="0"?"draft":"live";syncTrackBus(track);scheduleSave();}});
+        });
+    });
+    });
+}
+
 // --- The Kit window -------------------------------------------------------------------------
 //
 // The active synth track's drum kit, drawn live by entropy_gui::MatterView (see
@@ -3462,6 +3689,10 @@ function playTrigger(t: Track, note: NoteCell, velocity: number) {
         brassNote(t, freq, velocity, note.length * sd);
         return;
     }
+    if (isPianoTrack(t)) {
+        pianoNote(t, freq, velocity, note.length * sd);
+        return;
+    }
     addon.Audio.playNoteOnTrack(t.id, builtInNoteConfig(t, freq, velocity, duration, tone));
 }
 
@@ -3519,6 +3750,7 @@ function play() {
 function stop() {
     if (transport.playing) transport.cursorStep = currentStepFloat() % transportLength();
     transport.playing = false;
+    for (const track of project.tracks) if (isPianoTrack(track)) { addon.Audio.pianoAllNotesOff(track.id); pianoHeld[track.id]={}; delete pianoLatch[track.id]; }
     pendingNotes = [];
     updateCuts(null);
 }
@@ -3590,7 +3822,7 @@ function buildPatternEvents(): any[] {
         // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
         // track is rendered by buildWavetableEvents from the table as it is now, and a physmod track
         // by buildPhysModEvents.
-        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track) || isMatterTrack(track) || isWaterTrack(track)) continue;
+        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track) || isBrassTrack(track) || isPianoTrack(track) || isMatterTrack(track) || isWaterTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -3741,6 +3973,29 @@ function buildWaterEvents(): any[] {
     return events;
 }
 
+// The grand piano tracks' notes for the same render: one piano per track, with soundboard resonance and pedals.
+function buildPianoEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isPianoTrack(track)) continue;
+        const p = trackPiano(track);
+        const { freq } = noteVoiceAndFreq(track, placed.note.row);
+        const { startTime, velocity } = placedTiming(placed);
+        events.push({
+            ...pianoNoteConfig(track.id, p, {
+                freq,
+                velocity,
+                duration: pianoHeldSeconds(p, placed.lengthSteps * sd),
+                startTime,
+            }),
+            quality: EXPORT_QUALITY,
+        });
+    }
+    return events;
+}
+
 // The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
 // each track is rendered through its own fresh, temporary plugin instance - separate from whatever
 // the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
@@ -3840,7 +4095,8 @@ function renderSongWav(options?: { tempFile?: boolean; background?: boolean }) {
     const matterEvents = buildMatterEvents();
     const waterEvents = buildWaterEvents();
     const vst3Events = buildVst3Events();
-    return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, options);
+    const pianoEvents = buildPianoEvents();
+    return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, options, pianoEvents);
 }
 
 // --- Arrangement editing -----------------------------------------------------
@@ -4456,6 +4712,7 @@ function repairProject(saved: any): DAWProject {
     for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
     for (const t of saved.tracks) if (t.brass || t.voice?.waveform === BRASS_WAVEFORM) t.brass = repairBrass(t.brass);
+    for (const t of saved.tracks) if (t.piano || t.voice?.waveform === PIANO_WAVEFORM) t.piano = repairPiano(t.piano);
     for (const t of saved.tracks) if (t.matter || t.voice?.waveform === MATTER_WAVEFORM) t.matter = repairMatter(t.matter);
     for (const t of saved.tracks) if (t.water || t.voice?.waveform === WATER_WAVEFORM) t.water = repairWater(t.water);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
@@ -5167,7 +5424,7 @@ function renderHistoryWindow(win: string) {
 }
 let versionRename: { id: string; draft: string } | null = null;
 
-const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise", WT_WAVEFORM];
+const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise", WT_WAVEFORM, PIANO_WAVEFORM];
 const SCALE_NAMES = Object.keys(SCALES);
 const SNAP_MODES: SnapMode[] = ["bar", "beat", "step"];
 const SNAP_LABELS = ["Bar", "Beat", "Step"];
@@ -5930,6 +6187,11 @@ addon.onInit(async () => {
                     onChange: (v: string) => { track.rows = Math.max(1, Math.round(parseFloat(v)) || track.rows); persist(); }
                 });
             }
+            if (isPianoTrack(track)) {
+                W.label(tid, {text: "Felt hammers, resonating strings and a shared soundboard.", wrap:true});
+                W.button(tid, {text: "Open Grand Piano", id:"piano_editor", onClick:()=>setPianoVisible(true)});
+                return;
+            }
             W.slider(tid, {
                 label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
                 value: track.voice.cutoff, min: 100, max: 20000,
@@ -6372,6 +6634,20 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(brassWindowId, brassVisible);
 
+    // The grand piano, hidden until asked for.
+    pianoWindowHeight = Math.max(520, Math.min(820, screenH - 72));
+    pianoWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
+    pianoWindowId = Entropy.UI.createWindow({
+        title: "Grand Piano",
+        width: pianoWindowWidth,
+        height: pianoWindowHeight,
+        x: 16,
+        y: 56,
+        onRender: () => renderPianoWindow(pianoWindowId!),
+        onClose: () => { pianoVisible = false; }
+    });
+    Entropy.UI.setWindowVisible(pianoWindowId, pianoVisible);
+
     // The drum kit, hidden until asked for.
     matterWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     matterWindowWidth = Math.max(700, Math.min(1120, screenW - 32));
@@ -6561,6 +6837,7 @@ addon.onInit(async () => {
                 wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
                 physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
                 brass: isBrassTrack(t) ? describeBrass(trackBrass(t)) : undefined,
+                piano: isPianoTrack(t) ? describePiano(trackPiano(t)) : undefined,
                 matter: isMatterTrack(t) ? describeMatter(trackMatter(t)) : undefined,
                 water: isWaterTrack(t) ? describeWater(trackWater(t)) : undefined,
                 rootNote: t.kind === "synth" && !isMatterTrack(t) ? t.rootNote : undefined,
@@ -6633,7 +6910,7 @@ addon.onInit(async () => {
                 name: { type: "string" },
                 kind: { type: "string", enum: ["synth", "drum"] },
                 channel: { type: "number", description: "0-based arrangement lane. Defaults to the lowest free one." },
-                waveform: { type: "string", enum: WAVEFORMS, description: "Synth tracks only." },
+                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, PIANO_WAVEFORM, MATTER_WAVEFORM, WATER_WAVEFORM], description: "Synth tracks only." },
                 scale: { type: "string", enum: SCALE_NAMES, description: "Synth tracks only. Defaults to pentatonic_minor." },
                 rootNote: { type: "number", description: "MIDI note number for row 0 (e.g. 60 = C4, 36 = C2 for bass). Synth tracks only." },
                 octaves: { type: "number", description: "How many octaves of the scale to expose as rows. Synth tracks only, default 2." },
@@ -6682,7 +6959,7 @@ addon.onInit(async () => {
                 muted: { type: "boolean" },
                 solo: { type: "boolean" },
                 gain: { type: "number" },
-                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, MATTER_WAVEFORM, WATER_WAVEFORM, "kick", "snare", "hihat", "clap", "tom"], description: "\"physmod\" makes a bowed string, \"brass\" a brass instrument, \"matter\" a physically modeled drum kit (its rows become the kit's pieces), \"water\" physically modeled water (a glass harp, drips, filling bottles, or weather - see daw_water)." },
+                waveform: { type: "string", enum: [...WAVEFORMS, PHYSMOD_WAVEFORM, BRASS_WAVEFORM, PIANO_WAVEFORM, MATTER_WAVEFORM, WATER_WAVEFORM, "kick", "snare", "hihat", "clap", "tom"], description: "\"physmod\" makes a bowed string, \"brass\" a brass instrument, \"piano\" a physically modeled grand piano, \"matter\" a physically modeled drum kit (its rows become the kit's pieces), \"water\" physically modeled water (a glass harp, drips, filling bottles, or weather - see daw_water)." },
                 cutoff: { type: "number" },
                 resonance: { type: "number" },
                 attack: { type: "number" },
@@ -6707,7 +6984,10 @@ addon.onInit(async () => {
         if (typeof args.muted === "boolean") track.muted = args.muted;
         if (typeof args.solo === "boolean") track.solo = args.solo;
         if (typeof args.gain === "number") track.gain = Math.max(0, Math.min(1, args.gain));
-        if (typeof args.waveform === "string") track.voice.waveform = args.waveform;
+        if (typeof args.waveform === "string") {
+            track.voice.waveform = args.waveform;
+            if (args.waveform === PIANO_WAVEFORM) trackPiano(track);
+        }
         if (typeof args.cutoff === "number") track.voice.cutoff = args.cutoff;
         if (typeof args.resonance === "number") track.voice.resonance = args.resonance;
         if (typeof args.attack === "number") track.voice.attack = args.attack;
@@ -7150,6 +7430,88 @@ addon.onInit(async () => {
                     ...(b.instrument === "trombone" ? { slidePosition: r(a.position, 2) } : { valves: a.valves ?? [], fSide: a.fSide ?? false }),
                     mouthPressurePa: r(a.mouthPressurePa, 0),
                     waveSteepness: a.waveSteepness, attackSeconds: r(a.attackSeconds, 3),
+                });
+            }
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
+    });
+
+    addon.registerTool({
+        name: "daw_piano",
+        description: "Play and shape a physically modeled grand piano instrument: a track whose waveform is \"piano\" (daw_set_track_params with waveform \"piano\" makes one). Features nonlinear felt hammer contact mechanics, 88-key string harp with Railsback inharmonicity and coupled unisons, spruce soundboard modal radiation with bridge velocity feedback, and sympathetic sustain / una corda pedal acoustics. Actions: \"info\" (current settings), \"preset\" (ConcertGrand, StudioGrand, BrightGrand, WarmGrand), \"params\" (soundboardResonance 0-2, sympatheticCoupling 0-2, hammerHardness 0.5-2, inharmonicityScale 0-3, sustainPedal 0-1, unaCorda 0-1, quality draft|live), \"pedal\" (sustain 0-1, unaCorda 0-1), and \"hear\" (plays one note offline and reports acoustic descriptors).",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "preset", "params", "pedal", "hear"] },
+                preset: { type: "string", enum: PIANO_PRESETS.map(p => p.id), description: "For action preset." },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        soundboardResonance: { type: "number" },
+                        sympatheticCoupling: { type: "number" },
+                        hammerHardness: { type: "number" },
+                        inharmonicityScale: { type: "number" },
+                        sustainPedal: { type: "number" },
+                        unaCorda: { type: "number" },
+                        quality: { type: "string", enum: MODEL_QUALITIES.map(q => q.id) },
+                    }
+                },
+                sustain: { type: "number", description: "For action pedal: 0-1." },
+                unaCorda: { type: "number", description: "For action pedal: 0-1." },
+                note: { type: "number", description: "For hear: MIDI note (default: 60 = C4)." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isPianoTrack(track)) return { success: false, error: `${track.name} is not a piano track. Use daw_set_track_params with waveform "piano" first.` };
+        const p = trackPiano(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describePiano(p), ...extra });
+        switch (args.action) {
+            case "info":
+                return done();
+            case "preset":
+                if (!PIANO_PRESETS.some(pr => pr.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + PIANO_PRESETS.map(pr => pr.id).join(", ") };
+                loadPianoPreset(track, args.preset);
+                return done();
+            case "params": {
+                const par = args.params ?? {};
+                const merged = repairPiano({ ...p, ...par });
+                if (typeof par.soundboardResonance === "number") p.soundboardResonance = merged.soundboardResonance;
+                if (typeof par.sympatheticCoupling === "number") p.sympatheticCoupling = merged.sympatheticCoupling;
+                if (typeof par.hammerHardness === "number") p.hammerHardness = merged.hammerHardness;
+                if (typeof par.inharmonicityScale === "number") p.inharmonicityScale = merged.inharmonicityScale;
+                if (typeof par.sustainPedal === "number") p.sustainPedal = merged.sustainPedal;
+                if (typeof par.unaCorda === "number") p.unaCorda = merged.unaCorda;
+                if (typeof par.quality === "string") p.quality = merged.quality;
+                addon.Audio.pianoSetPedal(track.id,track.id,p.sustainPedal,p.unaCorda);
+                syncTrackBus(track);
+                scheduleSave();
+                return done();
+            }
+            case "pedal": {
+                if (typeof args.sustain === "number") p.sustainPedal = Math.min(1, Math.max(0, args.sustain));
+                if (typeof args.unaCorda === "number") p.unaCorda = Math.min(1, Math.max(0, args.unaCorda));
+                addon.Audio.pianoSetPedal(track.id, track.id, p.sustainPedal, p.unaCorda);
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const midi = typeof args.note === "number" ? args.note : p.auditionNote;
+                const config = pianoNoteConfig(track.id, p, { freq: midiToFreq(midi), velocity: 0.8, duration: 1.0 });
+                const a = addon.Piano.analyzeNote(config, 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({
+                    note: midiToName(midi), pitchHz: r(a.pitchHz, 2), centsOff: r(a.centsOff), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb),
+                    brightnessHz: r(a.centroidHz, 0), harmonicsDb: (a.harmonicsDb ?? []).slice(0, 10).map(v => r(v)),
+                    contactTimeMs: r(a.contactTimeMs, 2), peakForceN: r(a.peakForceN, 1),
+                    promptDecayDbPerSec: r(a.promptDecayDbPerSec, 1), aftersoundDecayDbPerSec: r(a.aftersoundDecayDbPerSec, 1),
+                    twoStageRatio: r(a.twoStageRatio, 2), inharmonicityB: a.inharmonicityB,
                 });
             }
             default:

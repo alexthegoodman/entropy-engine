@@ -111,7 +111,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         physModViews: new Map<string, any>(),
         physModNotes: [] as { id: string; cfg: any }[],
         // Instruments the addon asked the engine to build ahead of their first note.
-        modelPrepared: [] as { kind: "physmod" | "brass"; id: string; cfg: any }[],
+        modelPrepared: [] as { kind: "physmod" | "brass" | "piano"; id: string; cfg: any }[],
         physModHeld: new Map<number, { id: string; cfg: any; released: boolean; bow: Record<string, number> }>(),
         physModExports: [] as any[][],
         removedInstruments: [] as string[],
@@ -124,6 +124,14 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         brassExports: [] as any[][],
         brassInfo: new Map<string, any>(),
         removedBrass: [] as string[],
+        // Grand Piano: views as declared, timed notes, held notes, pedals, exports, and removed ids.
+        pianoViews: new Map<string, any>(),
+        pianoNotes: [] as { id: string; cfg: any }[],
+        pianoHeld: new Map<number, { id: string; cfg: any; released: boolean }>(),
+        pianoExports: [] as any[][],
+        pianoInfo: new Map<string, any>(),
+        removedPiano: [] as string[],
+        pianoPedals: new Map<string, { sustain: number; unaCorda: number }>(),
         // Drum kits: the views as declared, the hits played, what the export was handed, what each
         // prepare was asked for, and the kits removed. `matterStatus` is what prepare answers (a
         // test sets it to "building" to see hits dropped).
@@ -200,6 +208,8 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         reverbEq: (_win: string, c: any) => { w.reverbEqViews.set(c.id ?? c.source, c); },
         physModString: (_win: string, c: any) => { w.physModViews.set(c.id ?? c.instrument, c); },
         brass: (_win: string, c: any) => { w.brassViews.set(c.id ?? c.instrument, c); },
+        piano: (_win: string, c: any) => { w.pianoViews.set(c.id ?? c.instrument, c); },
+        pianoGrand: (_win: string, c: any) => { w.pianoViews.set(c.id ?? c.instrument, c); },
         matter: (_win: string, c: any) => { w.matterViews.set(c.id ?? c.kit, c); },
         water: (_win: string, c: any) => { w.waterViews.set(c.id ?? c.water, c); },
         treeView: (_win: string, c: any) => { w.trees.set(c.id, c); },
@@ -268,6 +278,22 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 const n = w.brassHeld.get(voice);
                 if (n && !n.released) n.live[which] = value;
             },
+            playPianoOnTrack: (id: string, cfg: any) => { w.pianoNotes.push({ id, cfg }); return { ok: true }; },
+            preparePiano: (id: string, cfg: any) => { w.modelPrepared.push({ kind: "piano", id, cfg }); return { ok: true, status: "ready" }; },
+            pianoNoteOn: (id: string, cfg: any) => {
+                const voice = w.nextVoice++;
+                w.pianoHeld.set(voice, { id, cfg, released: false });
+                return { ok: true, voice };
+            },
+            pianoNoteOff: (_trackId: string, _instrument: string, _freq: number) => {
+                for (const n of w.pianoHeld.values()) {
+                    if (!n.released) n.released = true;
+                }
+            },
+            pianoAllNotesOff: (trackId: string) => { for (const n of w.pianoHeld.values()) if(n.id===trackId) n.released=true; },
+            pianoSetPedal: (trackId: string, _instrument: string, sustain: number, unaCorda: number) => {
+                w.pianoPedals.set(trackId, { sustain, unaCorda });
+            },
             prepareMatter: (id: string, cfg: any) => { w.matterPrepared.push({ id, cfg }); return { ok: true, status: w.matterStatus }; },
             playMatterOnTrack: (id: string, cfg: any) => {
                 const played = w.matterStatus !== "building";
@@ -298,9 +324,10 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 w.wavPolls.length = 0;
                 w.wavResult = { success: false, error: "Export cancelled" };
             },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[], options?: any) => {
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[], brassEvents?: any[], matterEvents?: any[], waterEvents?: any[], options?: any, pianoEvents?: any[]) => {
                 w.wavOptions.push(options);
                 w.brassExports.push(brassEvents ?? []);
+                w.pianoExports.push(pianoEvents ?? []);
                 w.waterExports.push(waterEvents ?? []);
                 w.matterExports.push(matterEvents ?? []);
                 w.exports.push(events);
@@ -402,6 +429,28 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             remove: (id: string) => { w.removedBrass.push(id); return true; },
             analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.9, peakDb: -10, rmsDb: -14, pitchHz: cfg.freq, centsOff: 0.5, centroidHz: 400 + 3000 * cfg.breath, harmonicsDb: [0, -3, -6], partial: 4, position: 1, valves: cfg.instrument && cfg.instrument !== "trombone" ? [2] : [], fSide: false, mouthPressurePa: 500 * 32 ** cfg.breath, waveSteepness: 1e6, attackSeconds: 0.04 }),
         },
+        // The engine's physically modelled grand piano registry.
+        Piano: {
+            info: (id: string) => w.pianoInfo.get(id) ?? { ok: true, id, activeVoices: 0, sustainPedal: 0, unaCorda: 0 },
+            remove: (id: string) => { w.removedPiano.push(id); return true; },
+            analyzeNote: (cfg: any, _seconds?: number) => ({
+                ok: true,
+                seconds: 1.0,
+                peakDb: -10,
+                rmsDb: -18,
+                pitchHz: cfg.freq ?? 440,
+                centsOff: 0.2,
+                centroidHz: 1200,
+                harmonicsDb: [0, -3, -7, -12],
+                attackSeconds: 0.005,
+                contactTimeMs: 2.1,
+                peakForceN: 45.0,
+                promptDecayDbPerSec: 15.0,
+                aftersoundDecayDbPerSec: 3.5,
+                twoStageRatio: 4.28,
+                inharmonicityB: 0.00035,
+            }),
+        },
         // The engine's kit registry, reduced to what the addon can observe. `analyzeHit` gets brighter
         // with the stick's speed, so a test can tell how hard a hit was heard.
         Matter: {
@@ -498,7 +547,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
     const renderOnly = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.buttonConfigs.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear(); w.musicVisualizers.clear(); w.reverbEqViews.clear(); w.colorInputs.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.matterViews.clear(); w.waterViews.clear();
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear(); w.brassViews.clear(); w.pianoViews.clear(); w.matterViews.clear(); w.waterViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null; w.tabBars.clear();
         drawOnce();
     };

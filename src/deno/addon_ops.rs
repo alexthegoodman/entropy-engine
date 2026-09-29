@@ -553,6 +553,16 @@ pub struct PhysModViewConfig {
     pub exaggeration: Option<f32>,
 }
 
+/// `Widget.piano` - see `entropy_gui::PianoView`. `instrument` names a piano in the piano registry.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PianoViewConfig {
+    pub instrument: String,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    pub physics_view: Option<bool>,
+}
+
 /// `Widget.brass` - see `entropy_gui::BrassView`. `instrument` names a player in the brass registry
 /// (`Entropy.Brass` publishes to it as notes play).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -922,6 +932,7 @@ pub enum UiWidget {
     ReverbEqView { id: String, config: ReverbEqViewConfig },
     /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
     PhysModView { id: String, config: PhysModViewConfig },
+    PianoView { id: String, config: PianoViewConfig },
     BrassView { id: String, config: BrassViewConfig },
     MatterView { id: String, config: MatterViewConfig },
     WaterView { id: String, config: WaterViewConfig },
@@ -3192,6 +3203,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] matter_events: Vec<crate::deno::matter_ops::MatterHitConfig>,
     #[serde] water_events: Vec<crate::deno::water_ops::WaterNoteConfig>,
     #[serde] options: Option<RenderWavOptions>,
+    #[serde] piano_events: Option<Vec<crate::deno::piano_ops::PianoNoteConfig>>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -3251,6 +3263,8 @@ pub fn op_audio_render_pattern_wav(
         let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
         let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
         let brass_routes: Vec<Option<usize>> = brass_events.iter().map(|e| bus_of(&e.track_id)).collect();
+        let piano_list = piano_events.unwrap_or_default();
+        let piano_routes: Vec<Option<usize>> = piano_list.iter().map(|e| bus_of(&e.track_id)).collect();
         // A hit that names no piece the kit has is left out (with its route, so the two stay parallel).
         let matter_hits: Vec<(crate::audio::MatterEvent, Option<usize>)> = matter_events.iter().filter_map(|e| e.to_event().ok().map(|ev| (ev, bus_of(&e.track_id)))).collect();
         let matter_routes: Vec<Option<usize>> = matter_hits.iter().map(|h| h.1).collect();
@@ -3298,6 +3312,7 @@ pub fn op_audio_render_pattern_wav(
         let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
         let physmod_hits: Vec<crate::audio::PhysModEvent> = physmod_events.iter().map(|e| e.to_event()).collect();
         let brass_hits: Vec<crate::audio::BrassEvent> = brass_events.iter().map(|e| e.to_event()).collect();
+        let piano_hits: Vec<crate::audio::PianoEvent> = piano_list.iter().map(|e| e.to_event()).collect();
 
         let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
             .into_iter()
@@ -3325,11 +3340,12 @@ pub fn op_audio_render_pattern_wav(
             wavetable: &wavetable_routes,
             physmod: &physmod_routes,
             brass: &brass_routes,
+            piano: &piano_routes,
             matter: &matter_routes,
             water: &water_routes,
             vst3: &vst3_routes,
         };
-        let outcome = crate::audio::render_mix_to_wav_with_progress(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &staging_path, |progress| {
+        let outcome = crate::audio::render_mix_to_wav_with_progress(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &piano_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &staging_path, |progress| {
             if thread_cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err("Export cancelled".to_string());
             }
@@ -4509,6 +4525,18 @@ pub fn op_ui_widget_physmod(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PhysModView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_piano(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: PianoViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PianoView { id, config });
     }
 }
 

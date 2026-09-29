@@ -85,7 +85,7 @@ const audioAPI = {
     // dialog (for handing the bounce straight to Video.exportMusicVideo).
     pollWavExport: () => ops.op_audio_poll_wav_export(),
     cancelWavExport: () => ops.op_audio_cancel_wav_export(),
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents, options) => {
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses, brassEvents, matterEvents, waterEvents, options, pianoEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -130,7 +130,7 @@ const audioAPI = {
             gain: b.gain ?? 1.0,
             effects: (b.effects || []).map(characterConfig),
             silences: b.silences || []
-        })), brassEvents || [], matterEvents || [], waterEvents || [], options || null);
+        })), brassEvents || [], matterEvents || [], waterEvents || [], options || null, pianoEvents || null);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -203,6 +203,18 @@ const audioAPI = {
     // Moves a held brass note while it sounds. which: "breath" (0..1, a breath controller's home),
     // "lipTension" (-1..1), "vibratoDepth" (cents) or "bend" (cents; on the trombone, the slide).
     brassSetControl: (voice, which, value) => ops.op_audio_brass_set_control(voice, which, value),
+    // A physically modeled grand piano note on a track's bus (see Entropy.Piano). config: {instrument,
+    // freq, velocity, gain, duration, sustainPedal, unaCorda, preset, soundboardResonance,
+    // sympatheticCoupling, hammerHardness, inharmonicityScale, quality}. Returns {ok, error?}.
+    playPianoOnTrack: (trackId, config) => ops.op_audio_play_piano_on_track({ ...config, trackId }),
+    // Builds or pre-warms the track's piano ahead of its first note.
+    preparePiano: (trackId, config) => ops.op_audio_piano_prepare({ ...config, trackId }),
+    // Starts a piano note that sounds until pianoNoteOff(trackId, instrument, freq).
+    pianoNoteOn: (trackId, config) => ops.op_audio_piano_note_on({ ...config, trackId }),
+    pianoNoteOff: (trackId, instrument, freq) => ops.op_audio_piano_note_off(trackId, instrument || trackId, freq),
+    // Sets piano pedals: sustain (0..1) and unaCorda (0..1).
+    pianoAllNotesOff: (trackId) => ops.op_audio_piano_all_notes_off(trackId),
+    pianoSetPedal: (trackId, instrument, sustain, unaCorda) => ops.op_audio_piano_set_pedal(trackId, instrument || trackId, sustain, unaCorda),
     // A physically modeled drum kit on a track's bus (see Entropy.Matter). kit: {kick, snare,
     // rackTom, floorTom (tunings, Hz), kickMuffling (0..1), snares (bool), snareTension (N),
     // sympathetic (bool), brushes (bool: the snare set up to be swirled all round)}. A kit takes a
@@ -366,6 +378,18 @@ const brassAPI = {
     // harmonicsDb, partial, position, mouthPressurePa, waveSteepness, attackSeconds}. No audio
     // device is used, so this is how to check what a brass note sounds like.
     analyzeNote: (config, seconds) => ops.op_brass_render_analyze(config, seconds || 0)
+};
+
+// Physically-modeled grand piano (see src/audio/piano and Widget.piano).
+const pianoAPI = {
+    // {ok, id, activeVoices, sustainPedal, unaCorda, soundboardEnergy, bridgeVelocity,
+    //  latestContactTimeMs, latestPeakForceN, keys: [{key, down, damperDown, energy, hammerPos}, ...]}
+    info: (id) => ops.op_piano_info(id),
+    remove: (id) => ops.op_piano_remove(id),
+    // Plays one note offline and reads it back: {ok, seconds, peakDb, rmsDb, pitchHz, centsOff, centroidHz,
+    // harmonicsDb, attackSeconds, contactTimeMs, peakForceN, promptDecayDbPerSec, aftersoundDecayDbPerSec,
+    // twoStageRatio, inharmonicityB}. No audio device is used.
+    analyzeNote: (config, seconds) => ops.op_piano_render_analyze(config, seconds || 0)
 };
 
 // Water (see src/audio/matter/water_voice.rs): drips, glasses, fills, rain, a brook, surf, a tub,
@@ -1103,11 +1127,11 @@ globalThis.Entropy = {
                 Wavetable: wavetableAPI,
                 PhysMod: physModAPI,
                 Brass: brassAPI,
+                Piano: pianoAPI,
                 Matter: matterAPI,
                 Water: waterAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
-    Guitar: guitarAPI,
                 Guitar: guitarAPI,
                 IO: {
                     // Pretty-printing is opt-in: large saved states (for example canvas artwork)
@@ -1686,6 +1710,28 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A physically modeled grand piano instrument (see Entropy.Piano and entropy_gui::PianoView).
+            // The widget reads the engine's PianoShared directly. config: {instrument, height, width,
+            // physicsView}; the caller hears about interaction through callbacks:
+            // onKeyDown(key, freq, velocity), onKeyUp(key, freq), onSustain(sustain), onPhysicsView(on).
+            piano: (windowId, config) => {
+                const id = nextWidgetId(windowId, "piano", config?.id);
+                ops.op_ui_widget_piano(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "PIANO_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]), parseFloat(parts[4]));
+                        else if (type === "PIANO_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10), parseFloat(parts[3]));
+                        else if (type === "PIANO_SUSTAIN" && config.onSustain) config.onSustain(parseFloat(parts[2]));
+                        else if (type === "PIANO_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
+                    });
+                }
+            },
+            pianoGrand: (windowId, config) => {
+                return widgets.piano(windowId, config);
+            },
             // A physically modeled drum kit, drawn from the modes it rings with in the same neon way
             // (see Entropy.Matter and entropy_gui::MatterView). The widget reads the engine's
             // MatterShared directly. config: {kit, height, width, pads, physicsView, exaggeration,
@@ -2010,7 +2056,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PIANO_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
@@ -2290,6 +2336,7 @@ globalThis.Entropy = {
     Wavetable: wavetableAPI,
     PhysMod: physModAPI,
     Brass: brassAPI,
+    Piano: pianoAPI,
     Matter: matterAPI,
     Water: waterAPI,
     Icons: iconsAPI,
