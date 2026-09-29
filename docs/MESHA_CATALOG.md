@@ -49,6 +49,9 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Architecture | Dome Building | `architecture.dome_building` | 24 | 5 | 7 | 5 | 174 | Ready | 11 ms |
 | Architecture | House | `architecture.house` | 63 | 10 | 18 | 21 | 298 | Ready | 41 ms |
+| Architecture | Hab Lodge | `architecture.hab_lodge` | 41 | 8 | 10 | 18 | 337 | Ready | 32 ms |
+| Architecture | Wasteland Depot | `architecture.wasteland_depot` | 41 | 8 | 11 | 22 | 208 | Ready | 29 ms |
+| Architecture | Arcane Emporium | `architecture.arcane_emporium` | 39 | 7 | 7 | 18 | 222 | Ready | 43 ms |
 | Architecture | Door | `architecture.door` | 23 | 5 | 4 | 6 | 139 | Ready | 3 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
@@ -121,6 +124,79 @@ and cutting away storeys expose the floors below. Live BDD captures the colonial
 and ground floor from above, a three-storey hip-roofed version, the farmhouse and a locked
 Variation of it. (The viewport's aerial haze and floor fade scale with the camera's focus
 distance, so a building framed from 40 m reads as crisply as a chair framed from 3 m.)
+
+### Themed buildings
+
+Three buildings built to the house's standard for thematic scenes: each is walkable, with a real
+entrance, interior walls and doorways, stairs where it has more than one floor, an **Inspect** group
+that lifts the roof or cuts a storey away, and no furniture. They lean on a few materials made for
+them: self-lit `glow.*` (light strips, crystals, candlelit windows: the viewport draws them unlit),
+`composite.*` hull panels and `solar.cell` (a panel-seam pattern), `metal.corrugated*` (ribbed sheet,
+rusted or not), `metal.rust*` and `masonry.darkConcrete` (rust and grime streaks),
+`glass.fibreglass`, `wood.weathered`, `fabric.sandbag`, `stone.purple`, `stone.moss`,
+`masonry.plaster` and `roofing.violet`/`roofing.moss`.
+
+**Hab Lodge** (high-tech interplanetary lodgings): a panelled habitat hull with a pill-shaped
+section (flat walls between rounded shoulders; the keel and crown are service voids) on four or
+eight landing legs with hydraulic pistons and lit foot pads, over an optional chamfered landing pad.
+One or two decks: a corridor runs the hull's length between guest cabins (1 to 3 each side of a
+centre cell, on both sides, every deck), each through a chamfered doorway with a frame, each with a
+rounded viewport. At the front of the lower deck the centre cell is the airlock vestibule: a hatch
+whose leaf slides aside, a light ring, a canopy, a landing platform and a boarding stair to the
+ground. At the back, with two decks, it is the stair core: a spiral stair of wedge treads round a
+column with a helical handrail, through a stairwell guarded on the upper deck except where the stair
+arrives. Open lounges at both ends with long panoramas along the sides and across the ends; the
+observation dome (glass, ribs, collar, beacon) opens over the -X lounge through a well in the crown.
+Outside: structural hull rings at every cabin wall, shoulder light strips, nav lights, solar arrays on
+masts, radiator wings on the back crown shoulder, an antenna dish. Viewport width stays clear of the
+partitions and of the open hatch; cabins are at least 2.3 m deep and the stair core at least 0.8 m in
+radius. Five presets: Orbital lodge, Mars outpost inn, Luxury star hotel, Lunar bunkhouse and
+Deep-space research lodge. Geometry tests walk it: the open hatch leads through the airlock across the
+corridor (and the closed hatch seals it); every doorway on every deck opens into a cabin reaching the
+hull; every spiral tread is where its riser says, with 2 m of headroom, and the stair lands on the
+upper deck; lifting the crown and hiding the top deck expose the decks.
+
+**Wasteland Depot** (apocalyptic warehouse): a steel portal-frame shed after the end of the world.
+I-section columns and rafters at every bay line, purlins, girts and a concrete plinth wall carry
+rusted corrugated cladding and roof sheets. Decay is per sheet and per pane, stable for the seed (the
+`keep` node field): missing roof sheets open the roof onto the purlins, salvage patches in another
+finish are bolted over the cladding and roof, fibreglass skylight sheets, clerestory strip windows
+with broken panes, some nailed over with planks; a gutter hangs loose. The roller door rolls up
+part-way with its bottom slats buckled; a steel side door (`architecture.door`) stands ajar under
+caged lamps and a sign board. Inside: a mezzanine along the back on columns standing on the office
+partitions, with a railing, reached by a steel stair up the left wall; under it, a row of offices,
+each with a doorway and a window onto the floor. Fortifications: sandbag walls either side of the
+door, Czech hedgehogs, tyre stacks, razor wire coils along the eaves and the barricade, and a braced
+watchtower with a parapet, ladder, searchlight, tarp and a scrap wind turbine. A stove flue with a rain
+cap. Five presets: Scavenger depot, Raider fortress, Abandoned factory, Settler workshop and
+Irradiated garage. Geometry tests: the rolled-up door opens onto the floor as far as the offices (and
+rolled down it shuts); roof damage removes a share of the sheets and stripping the roof opens it to
+the sky; the mezzanine stair's treads are where they should be and land on the deck; every office has
+a doorway.
+
+**Arcane Emporium** (magical retail shop): a crooked storybook shop. A stone ground floor with a
+projecting bay shop window (leaded panes, a panelled stall riser, a cornice with a glowing rune strip,
+a little roof), a glazed door with a fanlight up two steps, a hanging sign (iron scroll bracket, board
+with a glowing star) and a lantern. A jettied, half-timbered upper floor (posts, rails, braces and a
+St Andrew's cross, a bressumer on brackets, joist ends carrying the oversail) under a steep gable roof
+whose slabs sag and ripple with **Crookedness**, which also tilts the timbers, twists the chimney and
+curls the tower's hat. Gables have king posts, collars and round moon windows. The round stone tower
+on the left rises a storey above the shop: its wall is a ring of narrow stone pieces per band, and
+`keep` removes the pieces where its doorways and lancet windows are, so the openings in the curved
+wall are real (each lancet has glass, a lead bar, a stone arch and a sill). Inside the tower, stone
+block steps wind 300 degrees a storey round a newel from beside its doorway to sector floors at each
+storey. The shop and workroom downstairs and two rooms upstairs open off each other through
+doorways, and the tower through doorways from the shop and the front room. The hat is swept up a
+curling path with a glowing band and a star finial; crystals float around it; a glowing rune circle
+with standing stones lies before the door; **Candlelit windows** makes every pane glow. Five presets:
+Twilight emporium, Hedge-witch apothecary, Archmage's curios, Pumpkin-hat sweet shop and Grim
+grimoire vault. Geometry tests: the door opens into the shop and the tower opens off it on both
+floors; the tower's steps climb evenly and land on floors; every lancet is a real opening and the wall
+between them solid; lifting the roofs and cutting away the upper floor open the rooms to view.
+
+The live BDD feature captures each building: exteriors, roof-off and cut-away interiors, locked
+Variations, the lodge and emporium under Gallery night lighting (glow reads best there), and a GLB
+export of the lot.
 
 **Door:** a hinged door in its frame, facing +Z, frame centred on a wall `depth` thick: raised
 panels (1 or 2 columns, up to 4 rows) with mouldings, half glazed with glazing bars, flush, or
@@ -263,6 +339,7 @@ Each node is one catalog component (`"type"`) plus its inputs, and these common 
 | `id` | Name for `@id` references. |
 | `when` | Skip the node unless this holds (`"=hasApron"`). |
 | `repeat` | Build it N times; inputs see `index`, `count` and `t` (0..1). The copies join. |
+| `keep` | Per copy of a repeat: drop the copies where this is false (`"=rand(index, 11) >= roofDamage"`, a window's wall pieces). |
 | `at`, `rotate` (degrees), `scale` | Place the result: scale, then rotate X, Y, Z, then move. |
 | `rest` | Lift each placed copy so its lowest point is on the floor (splayed legs, casters). |
 | `region` | Semantic material region for everything the node makes. |
@@ -299,8 +376,12 @@ barks (oak, grey, dark, pine, birch, palm), stems, fruit; and foliage: leaves (s
 green, evergreen, silver olive, tropical, autumn orange and gold, maple red, copper beech, cherry
 blossom, spruce and blue spruce needles, fern, palm, succulent), grasses (lawn, meadow, dry,
 lavender) and petals (white, cream, yellow, orange, red, pink, purple, blue) with seed heads and
-pollen. Each has a color, roughness, metalness and a surface pattern (wood grain, fabric sheen,
-brushed, speckle, bark furrows, birch, foliage) the viewport draws; foliage also has a second
+pollen; and themed architecture: composite hull panels, titanium, gold foil, corrugated sheet (bare,
+rusted, red, green), rusted plate, concrete, weathered and charred timber, canvas, sandbags, solar
+cells, regolith, mossy and twilight stone, lime plaster, tinted, violet and fibreglass glazing, and
+self-lit `glow.*` colors. Each has a color, roughness, metalness and a surface pattern (wood grain,
+fabric sheen, brushed, speckle, bark furrows, birch, foliage, glow, corrugated ribs, rust, hull panel
+seams) the viewport draws; foliage also has a second
 `tint` color each leaf varies toward.
 
 ## The authoring loop

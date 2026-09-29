@@ -263,3 +263,81 @@ Feature: Mesha in the real window
     And I call the tool "mesha_view" with {"yaw": 12, "pitch": 9, "lighting": "daylight"}
     And I advance 10 frames
     Then I capture "51-garden"
+
+  Scenario: Interplanetary lodgings with cabins, a spiral stair and an airlock
+    When I call the tool "mesha_add" with {"objectId": "architecture.hab_lodge", "preset": "Orbital lodge", "position": [500, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 14, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "52-hab-orbital"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 200, "pitch": 60}
+    And I advance 8 frames
+    Then I capture "53-hab-top-deck"
+    When I call the tool "mesha_set" with {"values": {"cutaway": 1}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 55}
+    And I advance 8 frames
+    Then I capture "54-hab-lower-deck"
+    When I call the tool "mesha_add" with {"objectId": "architecture.hab_lodge", "preset": "Mars outpost inn", "position": [540, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 14, "lighting": "warm"}
+    And I advance 8 frames
+    Then I capture "55-hab-mars"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:plan", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 5}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 14}
+    And I advance 8 frames
+    Then I capture "56-hab-variation"
+    When I call the tool "mesha_add" with {"objectId": "architecture.hab_lodge", "preset": "Luxury star hotel", "position": [580, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 12, "lighting": "night"}
+    And I advance 8 frames
+    Then I capture "57-hab-luxury-night"
+
+  Scenario: A fortified wasteland depot, wrecked and stripped
+    When I call the tool "mesha_add" with {"objectId": "architecture.wasteland_depot", "preset": "Scavenger depot", "position": [640, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 12, "lighting": "warm"}
+    And I advance 8 frames
+    Then I capture "58-depot-scavenger"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 20, "pitch": 58}
+    And I advance 8 frames
+    Then I capture "59-depot-inside"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": true, "rollerOpen": 0, "roofDamage": 0.8}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "60-depot-shut-and-wrecked"
+    When I call the tool "mesha_add" with {"objectId": "architecture.wasteland_depot", "preset": "Abandoned factory", "position": [700, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "61-depot-factory"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.8, "seed": 21}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 18}
+    And I advance 8 frames
+    Then I capture "62-depot-variation"
+
+  Scenario: A crooked magic shop with a tower, crystals and candlelit windows
+    When I call the tool "mesha_add" with {"objectId": "architecture.arcane_emporium", "preset": "Twilight emporium", "position": [760, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 12, "lighting": "night"}
+    And I advance 8 frames
+    Then I capture "63-arcane-twilight"
+    When I call the tool "mesha_set" with {"values": {"litWindows": true, "crystals": 9}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "64-arcane-candlelit"
+    When I call the tool "mesha_set" with {"values": {"roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 60, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "65-arcane-rooms"
+    When I call the tool "mesha_set" with {"values": {"cutaway": true}}
+    And I call the tool "mesha_view" with {"yaw": 60, "pitch": 55}
+    And I advance 8 frames
+    Then I capture "66-arcane-shop-and-tower-stair"
+    When I call the tool "mesha_add" with {"objectId": "architecture.arcane_emporium", "preset": "Hedge-witch apothecary", "position": [800, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "67-arcane-apothecary"
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 8}
+    And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12}
+    And I advance 8 frames
+    Then I capture "68-arcane-variation"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-themed-export.glb"}
