@@ -5,7 +5,8 @@
 
 use entropy_engine::guitar::replay::{percentile, trial, NoteTrial};
 use entropy_engine::guitar::testsig::{self, Pluck};
-use entropy_engine::guitar::{Algorithm, GuitarConfig, GuitarEngine, Mode};
+use entropy_engine::guitar::poly::{NoteSet, PolyDetector, PolyFrame, PolyParams};
+use entropy_engine::guitar::{Algorithm, GuitarConfig, GuitarEngine, Mode, STANDARD_TUNING};
 use std::time::Instant;
 
 fn profile() -> &'static str {
@@ -118,6 +119,99 @@ fn report(label: &str, cfg: &GuitarConfig, peak_db: f32, seeds: u32) {
     }
 }
 
+/// One chord trial's note-level outcome.
+#[derive(Default, Clone, Copy)]
+struct Score {
+    tp: usize,
+    fp: usize,
+    fn_: usize,
+    exact: usize,
+    trials: usize,
+    /// Pitch classes right, octaves aside.
+    chroma_exact: usize,
+}
+
+impl Score {
+    fn add(&mut self, truth: &[u8], got: &[u8]) {
+        let tp = got.iter().filter(|n| truth.contains(n)).count();
+        self.tp += tp;
+        self.fp += got.len() - tp;
+        self.fn_ += truth.len() - tp;
+        self.trials += 1;
+        if tp == truth.len() && got.len() == truth.len() {
+            self.exact += 1;
+        }
+        let pc = |v: &[u8]| v.iter().fold(0u16, |m, n| m | 1 << (n % 12));
+        if pc(truth) == pc(got) {
+            self.chroma_exact += 1;
+        }
+    }
+
+    fn line(&self) -> String {
+        let p = self.tp as f32 / (self.tp + self.fp).max(1) as f32 * 100.0;
+        let r = self.tp as f32 / (self.tp + self.fn_).max(1) as f32 * 100.0;
+        let f = 2.0 * p * r / (p + r).max(1e-6);
+        format!(
+            "precision {p:5.1}%  recall {r:5.1}%  F1 {f:5.1}  exact {:5.1}%  pitch classes exact {:5.1}%  ({} trials)",
+            self.exact as f32 / self.trials.max(1) as f32 * 100.0,
+            self.chroma_exact as f32 / self.trials.max(1) as f32 * 100.0,
+            self.trials
+        )
+    }
+}
+
+/// A rendered trial: the samples from 3 ms after the first string, and the notes in it.
+struct ChordCase {
+    name: String,
+    x: Vec<f32>,
+    notes: Vec<u8>,
+    single: bool,
+}
+
+/// Every chord shape strummed with each seed, and every single note, rendered once.
+fn chord_corpus(seeds: u32, spread_ms: f32, seconds: f32) -> Vec<ChordCase> {
+    let fs = 48_000.0;
+    let mut out = Vec::new();
+    let skip = (0.1 * fs) as usize + (0.003 * fs) as usize;
+    for seed in 1..=seeds {
+        for (name, shape) in testsig::CHORD_SHAPES {
+            let notes = testsig::shape_notes(shape, &STANDARD_TUNING);
+            let plucks = testsig::strum(&notes, 0.1, spread_ms, -18.0, seed % 2 == 1, seed * 101 + notes[0] as u32);
+            let (x, _) = testsig::mix(fs, 0.1 + seconds, &plucks);
+            let mut sorted = notes.clone();
+            sorted.sort();
+            sorted.dedup();
+            out.push(ChordCase { name: format!("{name} seed {seed}"), x: x[skip..].to_vec(), notes: sorted, single: false });
+        }
+        for midi in 40u8..=88 {
+            let plucks = testsig::strum(&[midi], 0.1, 0.0, -18.0, true, seed * 7 + midi as u32);
+            let (x, _) = testsig::mix(fs, 0.1 + seconds, &plucks);
+            out.push(ChordCase { name: format!("single {midi} seed {seed}"), x: x[skip..].to_vec(), notes: vec![midi], single: true });
+        }
+    }
+    out
+}
+
+/// The detector alone on each case, reading everything from 3 ms after the first string to `after_ms`.
+fn chord_frames(corpus: &[ChordCase], params: PolyParams, after_ms: f32, verbose: bool) -> (Score, Score) {
+    let fs = 48_000.0;
+    let mut det = PolyDetector::new(&mut realfft::RealFftPlanner::new(), fs, 70.0, 1400.0, 440.0, STANDARD_TUNING, 24, 4096);
+    det.set_params(params);
+    let (mut chords, mut singles) = (Score::default(), Score::default());
+    let end = ((after_ms - 3.0) / 1000.0 * fs) as usize;
+    for case in corpus {
+        let mut frame = PolyFrame::default();
+        det.analyze(&case.x[..end.min(case.x.len())], NoteSet::default(), &mut frame);
+        let mut got: Vec<u8> = frame.iter().map(|n| n.note).collect();
+        got.sort();
+        if case.single { singles.add(&case.notes, &got) } else { chords.add(&case.notes, &got) }
+        if verbose && got != case.notes {
+            println!("  {:24}: want {:?} got {got:?}", case.name, case.notes);
+        }
+    }
+    (chords, singles)
+}
+
 fn main() {
     let arg = std::env::args().nth(1).unwrap_or_else(|| "sweep".into());
     println!("guitar_bench: {}  ({} )", profile(), std::env::consts::OS);
@@ -210,6 +304,68 @@ fn main() {
             let (p99, p999, max) = (percentile(&mut sorted.clone(), 99.0), percentile(&mut sorted.clone(), 99.9), percentile(&mut sorted, 100.0));
             println!("128-sample callback ({period_us:.0} us of audio), {} callbacks", times.len());
             println!("  mean {mean:.1} us ({:.1}%)  p99 {p99:.1} us  p99.9 {p999:.1} us ({:.1}%)  max {max:.1} us", mean / period_us * 100.0, p999 / period_us * 100.0);
+        }
+        "chords" => {
+            let verbose = std::env::args().any(|a| a == "-v");
+            let corpus = chord_corpus(4, 25.0, 0.2);
+            for after in [45.0f32, 70.0, 100.0, 150.0] {
+                let (c, s) = chord_frames(&corpus, PolyParams::default(), after, verbose);
+                println!("detector alone, window {after} ms after the first string, strum 25 ms");
+                println!("  chords  {}", c.line());
+                println!("  singles {}", s.line());
+            }
+        }
+        "chord-trace" => {
+            let name = std::env::args().nth(2).unwrap_or_else(|| "A octave".into());
+            let after: f32 = std::env::args().nth(3).and_then(|a| a.parse().ok()).unwrap_or(100.0);
+            let corpus = chord_corpus(4, 25.0, 0.2);
+            let mut det = PolyDetector::new(&mut realfft::RealFftPlanner::new(), 48_000.0, 70.0, 1400.0, 440.0, STANDARD_TUNING, 24, 4096);
+            let end = ((after - 3.0) / 1000.0 * 48_000.0) as usize;
+            for case in corpus.iter().filter(|c| c.name.starts_with(&name)) {
+                let mut frame = PolyFrame::default();
+                det.analyze(&case.x[..end], NoteSet::default(), &mut frame);
+                let mut got: Vec<u8> = frame.iter().map(|n| n.note).collect();
+                got.sort();
+                println!("{}: want {:?} got {got:?}", case.name, case.notes);
+                for t in det.trace() {
+                    println!("    {:3} rel {:5.3} {:6.1} dB {:?}", t.note, t.rel, t.strength_db, t.verdict);
+                }
+            }
+        }
+        "tune" => {
+            let corpus = chord_corpus(3, 25.0, 0.2);
+            let d = PolyParams::default();
+            let f1 = |s: &Score| {
+                let pr = s.tp as f32 / (s.tp + s.fp).max(1) as f32;
+                let r = s.tp as f32 / (s.tp + s.fn_).max(1) as f32;
+                2.0 * pr * r / (pr + r).max(1e-6) * 100.0
+            };
+            let mut rows = Vec::new();
+            for rel_new in [0.18f32, 0.22, 0.28] {
+                for rel_clean in [0.12f32, 0.16, 0.2] {
+                    for rel_related in [0.3f32, 0.45] {
+                        for max_below_db in [15.0f32, 20.0, 30.0] {
+                            for compress in [1.0f32, 0.7] {
+                                let p = PolyParams { rel_new, rel_clean: rel_clean.min(rel_new), rel_related, max_below_db, compress, ..d };
+                                let mut line = String::new();
+                                let (mut total, mut single_fp) = (0.0, 0);
+                                for after in [70.0f32, 100.0, 150.0] {
+                                    let (c, s) = chord_frames(&corpus, p, after, false);
+                                    total += f1(&c);
+                                    single_fp += s.fp;
+                                    line += &format!(" {after}ms F1 {:.1} exact {:.0}% pc {:.0}% |", f1(&c), c.exact as f32 / c.trials as f32 * 100.0, c.chroma_exact as f32 / c.trials as f32 * 100.0);
+                                }
+                                let score = total / 3.0 - 0.5 * single_fp as f32;
+                                rows.push((score, format!("new {rel_new} clean {rel_clean} related {rel_related} below {max_below_db} compress {compress}:{line} singles fp {single_fp}")));
+                            }
+                        }
+                    }
+                }
+            }
+            rows.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            for r in rows.iter().take(20) {
+                println!("{:.1} {}", r.0, r.1);
+            }
         }
         other => eprintln!("unknown mode {other}; use sweep, compare or cpu"),
     }

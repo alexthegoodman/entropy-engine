@@ -15,12 +15,14 @@ pub mod dsp;
 pub mod engine;
 pub mod events;
 pub mod pitch;
+pub mod poly;
 pub mod replay;
+pub mod tab;
 pub mod testsig;
 pub mod tracker;
 
 pub use calibrate::{calibrate, gate_from_levels, velocity_range_from_levels, Calibration};
-pub use config::{Algorithm, GuitarConfig, Mode, ModeParams, Tunables};
+pub use config::{Algorithm, GuitarConfig, Mode, ModeParams, Polyphony, Tunables, STANDARD_TUNING};
 pub use engine::{Diagnostics, GuitarEngine};
 pub use events::{bend_cents, bend_value, hz_to_midi, midi_to_hz, EventSink, GuitarEvent, GuitarEventKind, BEND_CENTER, BEND_MAX};
 pub use pitch::{PitchDetector, PitchEstimate, TierDetector};

@@ -91,6 +91,10 @@ pub struct Pluck {
     pub inharmonicity: f32,
     /// Pick noise level relative to the note's peak.
     pub pick_noise: f32,
+    /// Where the string is plucked, as a fraction of its length from the bridge. A pluck at 1/n of the
+    /// length leaves out every nth partial, and the partials between the gaps rise and fall: the comb
+    /// that gives a real string its uneven spectrum. 0 leaves the spectrum smooth.
+    pub pluck_position: f32,
     pub motion: Motion,
     pub seed: u32,
 }
@@ -109,6 +113,7 @@ impl Default for Pluck {
             partials: 14,
             inharmonicity: 1.0e-4,
             pick_noise: 0.35,
+            pluck_position: 0.0,
             motion: Motion::Steady,
             seed: 1,
         }
@@ -161,6 +166,93 @@ impl Pluck {
     }
 }
 
+/// A chord shape as frets on each string, lowest string first: `x` is a string not played, `0`-`9`
+/// frets 0 to 9 and `a`-`o` frets 10 to 24. "x32010" is an open C major.
+pub fn shape_notes(shape: &str, tuning: &[u8; 6]) -> Vec<u8> {
+    assert_eq!(shape.chars().count(), 6, "a shape names all six strings: {shape}");
+    shape
+        .chars()
+        .zip(tuning.iter())
+        .filter_map(|(c, &open)| match c {
+            'x' | 'X' => None,
+            '0'..='9' => Some(open + c as u8 - b'0'),
+            'a'..='o' => Some(open + 10 + c as u8 - b'a'),
+            other => panic!("{other} is not a fret in {shape}"),
+        })
+        .collect()
+}
+
+/// Common chord shapes in standard tuning, as a guitarist plays them: open chords, sevenths, barre
+/// chords up the neck, power chords, partial chords on the top strings and two-note intervals. The
+/// corpus the chord detector is measured on.
+pub const CHORD_SHAPES: [(&str, &str); 40] = [
+    ("E", "022100"),
+    ("Em", "022000"),
+    ("E7", "020100"),
+    ("A", "x02220"),
+    ("Am", "x02210"),
+    ("A7", "x02020"),
+    ("Amaj7", "x02120"),
+    ("D", "xx0232"),
+    ("Dm", "xx0231"),
+    ("D7", "xx0212"),
+    ("Dmaj7", "xx0222"),
+    ("G", "320003"),
+    ("G (4-note top)", "320033"),
+    ("G7", "320001"),
+    ("C", "x32010"),
+    ("C7", "x32310"),
+    ("Cmaj7", "x32000"),
+    ("Cadd9", "x32033"),
+    ("F barre", "133211"),
+    ("Fmaj7", "xx3210"),
+    ("B7", "x21202"),
+    ("Bm barre", "x24432"),
+    ("Bb barre", "x13331"),
+    ("F#m barre", "244222"),
+    ("G barre 3", "355433"),
+    ("Am barre 5", "577555"),
+    ("C barre 8", "8aa988"),
+    ("D barre 10", "accbba"),
+    ("E5 power", "022xxx"),
+    ("A5 power", "x022xx"),
+    ("G5 power", "355xxx"),
+    ("C5 power", "x355xx"),
+    ("D triad top", "xxx775"),
+    ("G triad top", "xxx433"),
+    ("C triad top", "xxx558"),
+    ("E octave", "xx2x5x"),
+    ("A octave", "x0x2xx"),
+    ("third C-E", "xxx55x"),
+    ("sixth G-E", "xx5x5x"),
+    ("semitone B-C", "xxx41x"),
+];
+
+/// A strum: the notes picked one after another, lowest first for a downstroke, `spread_ms` from the
+/// first string to the last. Each string gets its own seed, a slightly different level and pluck
+/// position, as a real strum does.
+pub fn strum(notes: &[u8], start_s: f32, spread_ms: f32, peak_db: f32, down: bool, seed: u32) -> Vec<Pluck> {
+    let mut rng = Rng::new(seed.wrapping_mul(747796405).max(1));
+    let n = notes.len().max(1);
+    let mut order: Vec<u8> = notes.to_vec();
+    if !down {
+        order.reverse();
+    }
+    order
+        .iter()
+        .enumerate()
+        .map(|(i, &note)| {
+            let t = if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 };
+            let mut p = Pluck::note(note)
+                .starting(start_s + t * spread_ms / 1000.0)
+                .loud(peak_db + 3.0 * rng.signed())
+                .seeded(seed.wrapping_mul(31).wrapping_add(i as u32 + 1));
+            p.pluck_position = 0.1 + 0.15 * rng.unit();
+            p
+        })
+        .collect()
+}
+
 /// Ground truth for one note in a mix.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Truth {
@@ -195,7 +287,9 @@ pub fn add_pluck(out: &mut [f32], fs: f32, p: &Pluck) -> Truth {
                 phases[h - 1] -= 2.0 * PI;
             }
             let odd = if h >= 3 && h % 2 == 1 { p.odd_gain } else { 1.0 };
-            let weight = if h == 1 { p.fundamental } else { odd } / hf.powf(0.9);
+            // |sin(pi h beta)| over its average, so the comb reshapes the spectrum without making it quieter.
+            let comb = if p.pluck_position > 0.0 { (PI * hf * p.pluck_position).sin().abs() * 1.5 } else { 1.0 };
+            let weight = if h == 1 { p.fundamental } else { odd } * comb / hf.powf(0.9);
             let decay = (-t / (p.decay_s / hf.powf(0.6))).exp();
             v += weight * decay * phases[h - 1].sin();
         }
