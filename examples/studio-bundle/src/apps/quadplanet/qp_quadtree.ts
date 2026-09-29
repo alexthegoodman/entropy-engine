@@ -37,7 +37,7 @@
 
 import { type Vec3, add, addScaled, cross, distance, dot, length, normalize, scale, sub } from "./qp_math";
 import {
-    type PlanetDef, CHUNK_SEGMENTS, chunkVerticesFor, maxLevelFor, levelWorldSize, levelSpacing, maxRelief, sampleSurface, surfaceColor, surfaceNormal,
+    type PlanetDef, type SurfaceSample, CHUNK_SEGMENTS, chunkVerticesFor, maxLevelFor, levelWorldSize, levelSpacing, maxRelief, sampleSurface, surfaceColor, surfaceNormal,
 } from "./qp_planet";
 import { Simplex3 } from "./qp_noise";
 
@@ -88,6 +88,8 @@ export interface ChunkNode {
      * (a-min/b-min, a-max/b-min, a-min/b-max, a-max/b-max). Set by selectChunks.
      */
     stitch?: number;
+    /** World-space center of the node's ground (band-limited to its level), once known. */
+    center?: Vec3;
 }
 
 export const chunkKey = (n: ChunkNode): string => `qp-${n.planet}-${n.face}-${n.level}-${n.ia}-${n.ib}-${n.stitch ?? 0}`;
@@ -139,6 +141,15 @@ export function nodeCenterDirection(n: ChunkNode): Vec3 {
     return faceDirection(n.face, -1 + (n.ia + 0.5) * size, -1 + (n.ib + 0.5) * size);
 }
 
+/** The node's ground center, computed once per node object. */
+export function nodeGroundCenter(p: PlanetDef, n: ChunkNode): Vec3 {
+    if (!n.center) {
+        const dir = nodeCenterDirection(n);
+        n.center = addScaled(p.center, dir, p.radius + sampleSurface(p, dir, levelSpacing(p, n.level)).surface);
+    }
+    return n.center;
+}
+
 /** Approximate edge length of the node on the planet's surface, world units. */
 export function nodeWorldSize(p: PlanetDef, level: number): number {
     return levelWorldSize(p, level);
@@ -172,7 +183,8 @@ export class LeafIndex {
     constructor(readonly maxLevel: number) {}
 
     private static id(face: number, level: number, ia: number, ib: number): number {
-        return ((level * 6 + face) * 4096 + ia) * 4096 + ib;
+        // 2^20 cells a side covers every level MAX_CHUNK_LEVELS allows, well inside 2^53.
+        return ((level * 6 + face) * 1048576 + ia) * 1048576 + ib;
     }
 
     add(n: ChunkNode): void { this.map.set(LeafIndex.id(n.face, n.level, n.ia, n.ib), n); }
@@ -299,8 +311,7 @@ export function selectChunks(p: PlanetDef, planetIndex: number, viewer: Vec3, lo
         const angularRadius = (size * 0.75) / p.radius;
         const angle = Math.acos(Math.max(-1, Math.min(1, dot(dir, viewDir))));
         if (angle - angularRadius > horizon) { hidden++; return; }
-        const s = sampleSurface(p, dir, levelSpacing(p, n.level));
-        const center = addScaled(p.center, dir, p.radius + s.surface);
+        const center = nodeGroundCenter(p, n);
         const d = Math.max(0, distance(viewer, center) - size * 0.7);
         if (n.level < maxLevel && (n.level < lod.minLevel || d < lod.splitFactor * size)) {
             for (const c of children(n)) visit(c);
@@ -325,12 +336,35 @@ export function nodesOverlap(a: ChunkNode, b: ChunkNode): boolean {
 // --- Chunk meshes --------------------------------------------------------------------------------
 
 export interface ChunkMesh {
+    /** Vertex positions are relative to `origin` (see POSITION_QUANTUM). */
     vertexData: number[];
     indexData: number[];
     vertexCount: number;
     triangles: number;
     /** World-space center of the chunk's surface. */
     center: Vec3;
+    /**
+     * World-space anchor the vertex positions are relative to. The renderer places the chunk by
+     * `origin - renderOrigin`, so positions stay small numbers and keep full f32 precision
+     * however far the planet is from the world's origin.
+     */
+    origin: Vec3;
+}
+
+/**
+ * Positions are snapped to this grid (1/1024 m) before being made relative to a chunk's origin,
+ * and origins (and the renderer's origin) lie on it too. Within 16 km of the origin every such
+ * offset is exact in f32 and so is the GPU's sum `position + (origin - renderOrigin)`: two chunks
+ * sharing a border vertex put it at bit-identical render positions, as they did before in world
+ * space, so moving to relative positions opens no cracks.
+ */
+export const POSITION_QUANTUM = 1 / 1024;
+export const quantize = (x: number): number => Math.round(x / POSITION_QUANTUM) * POSITION_QUANTUM;
+export const quantize3 = (v: Vec3): Vec3 => [quantize(v[0]), quantize(v[1]), quantize(v[2])];
+
+/** Writes a world position into vertex data relative to `origin` (both snapped, so exact). */
+function relative(out: number[], world: Vec3, origin: Vec3): void {
+    out.push(quantize(world[0]) - origin[0], quantize(world[1]) - origin[1], quantize(world[2]) - origin[2]);
 }
 
 const jitterNoise = new Simplex3(77);
@@ -412,6 +446,8 @@ function buildUniformChunk(p: PlanetDef, n: ChunkNode, segments: number): ChunkM
 
     const vertexData: number[] = [];
     const jf = p.radius / 9;
+    const mid = Math.floor(V / 2) * V + Math.floor(V / 2);
+    const origin = quantize3(pos[mid]);
     for (let j = 0; j < V; j++) {
         for (let i = 0; i < V; i++) {
             const k = j * V + i;
@@ -430,8 +466,8 @@ function buildUniformChunk(p: PlanetDef, n: ChunkNode, segments: number): ChunkM
             const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
             // uv carries (material + u, level + v): the integer parts are the material id and the
             // quadtree level, the fractions the chunk-local grid position (for the LOD debug view).
-            const x = pos[k];
-            vertexData.push(x[0], x[1], x[2], nn[0], nn[1], nn[2], packChunkUv(material, i / N), packChunkUv(n.level, j / N), c[0], c[1], c[2], 1);
+            relative(vertexData, pos[k], origin);
+            vertexData.push(nn[0], nn[1], nn[2], packChunkUv(material, i / N), packChunkUv(n.level, j / N), c[0], c[1], c[2], c[3]);
         }
     }
 
@@ -453,8 +489,7 @@ function buildUniformChunk(p: PlanetDef, n: ChunkNode, segments: number): ChunkM
         }
     }
 
-    const mid = Math.floor(V / 2) * V + Math.floor(V / 2);
-    return { vertexData, indexData, vertexCount: V * V, triangles: indexData.length / 3, center: pos[mid] };
+    return { vertexData, indexData, vertexCount: V * V, triangles: indexData.length / 3, center: pos[mid], origin };
 }
 
 /** Build only the configured interior and used border vertices, joined by four triangle strips. */
@@ -464,18 +499,42 @@ function buildVariableChunk(p: PlanetDef, n: ChunkNode, edgeSegments: number, ve
     const size = nodeParamSize(n.level);
     const spacing = levelWorldSize(p, n.level) / N;
     const jf = p.radius / 9;
+    const borderSpacing = levelSpacing(p, n.level);
+    const a0 = -1 + n.ia * size, b0 = -1 + n.ib * size;
+    const centerDir = faceDirection(n.face, a0 + size / 2, b0 + size / 2);
+    const center = addScaled(p.center, centerDir, p.radius + sampleSurface(p, centerDir, borderSpacing).surface);
+    const origin = quantize3(center);
+    // The interior-resolution grid including its outer ring: the ring is never drawn (the
+    // border vertices are), it only gives the outermost interior vertices neighbours, so every
+    // interior normal comes from central differences on the grid instead of four extra samples.
+    const V = N + 1;
+    const gridPos: Vec3[] = new Array(V * V);
+    const gridDir: Vec3[] = new Array(V * V);
+    const gridSample: SurfaceSample[] = new Array(V * V);
+    for (let j = 0; j < V; j++) for (let i = 0; i < V; i++) {
+        const k = j * V + i;
+        const d = faceDirection(n.face, -1 + (n.ia + i / N) * size, -1 + (n.ib + j / N) * size);
+        const s = sampleSurface(p, d, spacing);
+        gridDir[k] = d;
+        gridSample[k] = s;
+        gridPos[k] = addScaled(p.center, d, p.radius + s.surface);
+    }
     const inner: number[][] = [];
     for (let j = 1; j < N; j++) {
         const row: number[] = [];
         for (let i = 1; i < N; i++) {
-            const d = faceDirection(n.face, -1 + (n.ia + i / N) * size, -1 + (n.ib + j / N) * size);
-            const s = sampleSurface(p, d, spacing);
-            const pos = addScaled(p.center, d, p.radius + s.surface);
-            const normal = s.sea ? d : surfaceNormal(p, d, spacing, spacing);
+            const k = j * V + i;
+            const d = gridDir[k], s = gridSample[k];
+            let normal: Vec3 = d;
+            if (!s.sea) {
+                normal = normalize(cross(sub(gridPos[k + 1], gridPos[k - 1]), sub(gridPos[k + V], gridPos[k - V])));
+                if (dot(normal, d) < 0) normal = scale(normal, -1);
+            }
             const c = surfaceColor(p, s, dot(normal, d), d, jitterNoise.noise(d[0] * jf, d[1] * jf, d[2] * jf), spacing);
             const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
             row.push(vertexData.length / VERTEX_FLOATS);
-            vertexData.push(...pos, ...normal, packChunkUv(material, i / N), packChunkUv(n.level, j / N), ...c, 1);
+            relative(vertexData, gridPos[k], origin);
+            vertexData.push(...normal, packChunkUv(material, i / N), packChunkUv(n.level, j / N), ...c);
         }
         inner.push(row);
     }
@@ -483,8 +542,6 @@ function buildVariableChunk(p: PlanetDef, n: ChunkNode, edgeSegments: number, ve
         const a = inner[j][i], b = inner[j][i + 1], c = inner[j + 1][i + 1], d = inner[j + 1][i];
         indexData.push(a, b, c, a, c, d);
     }
-    const borderSpacing = levelSpacing(p, n.level);
-    const a0 = -1 + n.ia * size, b0 = -1 + n.ib * size;
     const edgeStep = size / edgeSegments;
     const borderIds = new Map<number, number>();
     const borderVertex = (i: number, j: number): number => {
@@ -500,7 +557,8 @@ function buildVariableChunk(p: PlanetDef, n: ChunkNode, edgeSegments: number, ve
             const c = surfaceColor(p, s, dot(normal, d), d, jitterNoise.noise(d[0] * jf, d[1] * jf, d[2] * jf), band);
             const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
             id = vertexData.length / VERTEX_FLOATS;
-            vertexData.push(...pos, ...normal, packChunkUv(material, i / edgeSegments), packChunkUv(n.level, j / edgeSegments), ...c, 1);
+            relative(vertexData, pos, origin);
+            vertexData.push(...normal, packChunkUv(material, i / edgeSegments), packChunkUv(n.level, j / edgeSegments), ...c);
             borderIds.set(key, id);
         }
         return id;
@@ -525,9 +583,7 @@ function buildVariableChunk(p: PlanetDef, n: ChunkNode, edgeSegments: number, ve
             }
         }
     }
-    const centerDir = faceDirection(n.face, a0 + size / 2, b0 + size / 2);
-    const center = addScaled(p.center, centerDir, p.radius + sampleSurface(p, centerDir, borderSpacing).surface);
-    return { vertexData, indexData, vertexCount: vertexData.length / VERTEX_FLOATS, triangles: indexData.length / 3, center };
+    return { vertexData, indexData, vertexCount: vertexData.length / VERTEX_FLOATS, triangles: indexData.length / 3, center, origin };
 }
 
 // --- Streaming -----------------------------------------------------------------------------------
@@ -588,8 +644,9 @@ export class PlanetStreamer {
     }
 
     private select(viewer: Vec3) {
-        // Selection (with balancing) is not free; a quarter meter of movement can't change it much.
-        if (this.cache && distance(this.cache.viewer, viewer) < 0.25) return this.cache;
+        // Selection (with balancing) takes milliseconds; a meter of movement can't change it much
+        // (the smallest chunks are tens of meters across).
+        if (this.cache && distance(this.cache.viewer, viewer) < 1) return this.cache;
         const wanted = new Map<string, ChunkNode>();
         let hidden = 0, balanced = 0;
         this.planets.forEach((p, i) => {
@@ -610,11 +667,14 @@ export class PlanetStreamer {
         const started = Date.now();
         const { wanted, hidden, balanced } = this.select(viewer);
 
-        // Build the closest missing chunks first.
-        const missing = [...wanted.entries()].filter(([k]) => !this.live.has(k));
-        missing.sort((x, y) => distance(viewer, this.approxCenter(x[1])) - distance(viewer, this.approxCenter(y[1])));
+        // Build the missing chunks that look biggest first: distance relative to size, so the
+        // ground under your feet comes first, but a distant range's coarse chunk is not left as
+        // a hole in the horizon while dozens of small nearby ones stream in.
+        const missing = [...wanted.entries()].filter(([k]) => !this.live.has(k))
+            .map(([k, n]) => ({ k, n, priority: distance(viewer, nodeGroundCenter(this.planets[n.planet], n)) / levelWorldSize(this.planets[n.planet], n.level) }));
+        missing.sort((x, y) => x.priority - y.priority);
         let built = 0;
-        for (const [key, node] of missing) {
+        for (const { k: key, n: node } of missing) {
             if (built >= maxBuilds || (built > 0 && Date.now() - started > maxMs)) break;
             const mesh = buildChunk(this.planets[node.planet], node);
             this.sink.create(key, node, mesh);
@@ -666,10 +726,5 @@ export class PlanetStreamer {
         for (const key of this.live.keys()) this.sink.destroy(key);
         this.live.clear();
         this.cache = null;
-    }
-
-    private approxCenter(n: ChunkNode): Vec3 {
-        const p = this.planets[n.planet];
-        return add(p.center, scale(nodeCenterDirection(n), p.radius));
     }
 }

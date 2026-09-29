@@ -10,12 +10,16 @@ export { DEFAULT_CHUNK_DETAIL, type ChunkDetail } from "./qp_config";
 
 export type RGB = [number, number, number];
 
+/** Deepest quadtree a planet may use, counting the root: enough for sub-meter cells on a planet
+ * a few hundred kilometers across. */
+export const MAX_CHUNK_LEVELS = 18;
+
 /** Resolve and validate once when configuring a planet, before building any meshes. */
 export function chunkResolutions(detail: ChunkDetail): readonly number[] {
     let sizes: number[];
     if (detail.mode === "half") {
-        if (!Number.isInteger(detail.levels) || detail.levels < 1 || detail.levels > 13) {
-            throw new Error("Chunk levels must be an integer from 1 to 13 (including the root).");
+        if (!Number.isInteger(detail.levels) || detail.levels < 1 || detail.levels > MAX_CHUNK_LEVELS) {
+            throw new Error(`Chunk levels must be an integer from 1 to ${MAX_CHUNK_LEVELS} (including the root).`);
         }
         sizes = Array.from({ length: detail.levels }, (_, i) => Math.max(3, Math.floor(detail.leafVertices / 2 ** i)));
         sizes[0] = detail.leafVertices;
@@ -24,8 +28,8 @@ export function chunkResolutions(detail: ChunkDetail): readonly number[] {
     } else {
         throw new Error("Chunk detail mode must be 'half' or 'explicit'.");
     }
-    if (sizes.length < 1 || sizes.length > 13 || sizes.some(v => !Number.isInteger(v) || v < 3 || v > 257)) {
-        throw new Error("Specify 1–13 levels, each with 3–257 vertices per side.");
+    if (sizes.length < 1 || sizes.length > MAX_CHUNK_LEVELS || sizes.some(v => !Number.isInteger(v) || v < 3 || v > 257)) {
+        throw new Error(`Specify 1–${MAX_CHUNK_LEVELS} levels, each with 3–257 vertices per side.`);
     }
     return Object.freeze(sizes);
 }
@@ -61,18 +65,18 @@ export interface PlanetDef {
     id: string;
     name: string;
     center: Vec3;
-    /** Mean radius (sea level) in world units. */
+    /** Mean radius (sea level) in world units (meters: the walker is 1.8 tall). */
     radius: number;
     seed: number;
     /** Continents: how far land rises above / sinks below sea level at the largest scale. */
     continentHeight: number;
     /** Ridged mountains added on top of the land. */
     mountainHeight: number;
-    /** Rolling hills (~140 m across) on land. */
+    /** Rolling hills (~2 km across) on land. */
     hillHeight: number;
-    /** Rocky outcrops and crags (~34 m across), only in patches of rough ground. */
+    /** Rocky outcrops and crags (~250 m across) on rough ground and all over the mountains. */
     rockHeight: number;
-    /** Meter-scale bumps: what you notice when walking. */
+    /** Boulders, stones and meter-scale bumps: what you notice when walking. */
     detailHeight: number;
     /** Terrace step height (mesas and stepped canyon walls), 0 for none. */
     terraceStep: number;
@@ -92,36 +96,41 @@ export interface PlanetDef {
     polarCaps: number;
 }
 
+// One world unit is a meter. The walker is 1.8 m tall and the highest peaks stand 2-3.5 km above
+// the sea, so a mountain really is a thousand times your height. The planets are small by real
+// standards (Verdant is 100 km in radius, Earth is 6,371 km) so you can still fly between them in
+// half a minute, but large enough that the ground looks flat underfoot and ranges sink below the
+// horizon as you walk away from them.
 export const PLANETS: PlanetDef[] = [
     {
-        id: "verdant", name: "Verdant", center: [0, 0, 0], radius: 900, seed: 1337,
-        continentHeight: 34, mountainHeight: 70, hillHeight: 14, rockHeight: 7, detailHeight: 0.9, terraceStep: 0, continentFrequency: 1.6,
+        id: "verdant", name: "Verdant", center: [0, 0, 0], radius: 100_000, seed: 1337,
+        continentHeight: 700, mountainHeight: 4200, hillHeight: 180, rockHeight: 70, detailHeight: 1.1, terraceStep: 0, continentFrequency: 1.6,
         hasSea: true, frozenSea: false,
         palette: {
             deepWater: [0.02, 0.09, 0.22], shallowWater: [0.06, 0.32, 0.45], beach: [0.78, 0.72, 0.52],
             lowland: [0.36, 0.52, 0.24], highland: [0.46, 0.5, 0.3], rock: [0.5, 0.47, 0.44], snow: [0.94, 0.95, 0.97],
         },
-        atmosphereColor: [0.42, 0.66, 1.0], atmosphereHeight: 60, gravity: 14, polarCaps: 0.55,
+        atmosphereColor: [0.42, 0.66, 1.0], atmosphereHeight: 8000, gravity: 9.8, polarCaps: 0.55,
     },
     {
-        id: "ember", name: "Ember", center: [5200, 900, -3400], radius: 650, seed: 4242,
-        continentHeight: 26, mountainHeight: 58, hillHeight: 12, rockHeight: 9, detailHeight: 0.8, terraceStep: 5, continentFrequency: 2.1,
+        id: "ember", name: "Ember", center: [520_000, 90_000, -340_000], radius: 72_000, seed: 4242,
+        continentHeight: 520, mountainHeight: 3500, hillHeight: 150, rockHeight: 90, detailHeight: 1.0, terraceStep: 45, continentFrequency: 2.1,
         hasSea: false, frozenSea: false,
         palette: {
             deepWater: [0.2, 0.05, 0.03], shallowWater: [0.3, 0.08, 0.04], beach: [0.62, 0.3, 0.16],
             lowland: [0.72, 0.36, 0.17], highland: [0.6, 0.28, 0.15], rock: [0.46, 0.28, 0.21], snow: [0.88, 0.66, 0.48],
         },
-        atmosphereColor: [1.0, 0.6, 0.38], atmosphereHeight: 45, gravity: 11, polarCaps: 0.0,
+        atmosphereColor: [1.0, 0.6, 0.38], atmosphereHeight: 6000, gravity: 8.2, polarCaps: 0.0,
     },
     {
-        id: "glacia", name: "Glacia", center: [-4600, -700, -4200], radius: 520, seed: 9001,
-        continentHeight: 22, mountainHeight: 46, hillHeight: 9, rockHeight: 6, detailHeight: 0.6, terraceStep: 0, continentFrequency: 1.9,
+        id: "glacia", name: "Glacia", center: [-460_000, -70_000, -420_000], radius: 58_000, seed: 9001,
+        continentHeight: 450, mountainHeight: 3000, hillHeight: 120, rockHeight: 60, detailHeight: 0.8, terraceStep: 0, continentFrequency: 1.9,
         hasSea: true, frozenSea: true,
         palette: {
             deepWater: [0.52, 0.7, 0.8], shallowWater: [0.68, 0.84, 0.9], beach: [0.8, 0.86, 0.9],
             lowland: [0.86, 0.9, 0.95], highland: [0.72, 0.78, 0.86], rock: [0.36, 0.4, 0.48], snow: [0.97, 0.98, 1.0],
         },
-        atmosphereColor: [0.66, 0.84, 1.0], atmosphereHeight: 40, gravity: 9, polarCaps: 1.0,
+        atmosphereColor: [0.66, 0.84, 1.0], atmosphereHeight: 5000, gravity: 7.4, polarCaps: 1.0,
     },
 ];
 
@@ -134,7 +143,7 @@ export function planetById(id: string): PlanetDef | undefined {
 
 /** Largest height above sea level the terrain can reach (for horizon culling). */
 export function maxRelief(p: PlanetDef): number {
-    return p.continentHeight + p.mountainHeight + p.hillHeight + p.rockHeight + p.detailHeight * 5 + p.terraceStep;
+    return p.continentHeight + p.mountainHeight + p.hillHeight + p.rockHeight + p.detailHeight * 6 + p.terraceStep;
 }
 
 // --- Chunk grid ----------------------------------------------------------------------------------
@@ -162,19 +171,22 @@ export function levelSpacing(p: PlanetDef, level: number): number {
 }
 
 /**
- * The finest spacing anything samples at: the deepest chunks' grid. The walker's footing uses
- * it too, so feet meet exactly the ground that is drawn.
+ * The finest spacing anything samples at: the deepest chunks' grid (their configured interior
+ * when that is finer than the border grid). The walker's footing uses it too, so feet meet the
+ * ground that is drawn.
  */
 export function finestSpacing(p: PlanetDef): number {
     const level = maxLevelFor(p);
+    const vertices = chunkVerticesFor(p, level);
     let entry = finestCache.get(p);
-    if (!entry || entry.level !== level) {
-        entry = { level, spacing: levelSpacing(p, level) };
+    if (!entry || entry.level !== level || entry.vertices !== vertices) {
+        const spacing = Math.min(levelSpacing(p, level), levelWorldSize(p, level) / (vertices - 1));
+        entry = { level, vertices, spacing };
         finestCache.set(p, entry);
     }
     return entry.spacing;
 }
-const finestCache = new WeakMap<PlanetDef, { level: number; spacing: number }>();
+const finestCache = new WeakMap<PlanetDef, { level: number; vertices: number; spacing: number }>();
 
 // --- Terrain -------------------------------------------------------------------------------------
 
@@ -218,9 +230,12 @@ function layer(p: PlanetDef, d: Vec3, period: number, offset: number): [number, 
  * `spacing` is the distance between the samples being taken (a chunk's grid step): coarse
  * chunks get a smoother, band-limited version of the same surface, like QuadScape's mips.
  *
- * The layers run from continents (thousands of units) through mountain ranges, rolling hills
- * and patches of rocky crags down to meter-scale bumps, so every level of the quadtree has
- * detail of its own to add as you close in.
+ * The layers run from continents (tens of kilometers) and mountain belts kilometers high,
+ * through hills and crags, down to boulders, scree and meter-scale bumps. Rock is not one layer
+ * but a property of the ground: mountain slopes and rough patches of lowland get crags, boulder
+ * fields and stones, and because each of those is band-limited to the mesh, the rocks appear as
+ * you close in on them - a smooth slope from orbit, a crag field from the air, loose stones
+ * underfoot.
  */
 export function sampleSurface(p: PlanetDef, d: Vec3, spacing = finestSpacing(p)): SurfaceSample {
     const n = noiseFor(p.seed);
@@ -232,26 +247,39 @@ export function sampleSurface(p: PlanetDef, d: Vec3, spacing = finestSpacing(p))
     const continents = n.fbm(d[0] * f + wx, d[1] * f + wy, d[2] * f, 5, 2, 0.5, octavesFor(p.radius / f, 2, sp)) + 0.08;
     // Land mask: 0 at the coast, 1 well inland (mountains only grow on land).
     const land = smoothstep(0.0, 0.35, continents);
-    const ridges = n.ridged(d[0] * 5.5 + 3.1, d[1] * 5.5, d[2] * 5.5 - 7.4, 6, octavesFor(p.radius / 5.5, 2.1, sp));
-    const mountains = Math.pow(ridges, 2.2) * land;
+    // Mountain belts: long ridged ranges (crests ~25 km apart, the finest octave ~40 m) that
+    // are tallest inside broad belts and lower foothills between them.
+    const [gx, gy, gz] = layer(p, d, 60000, 5.3);
+    const belt = smoothstep(-0.2, 0.3, n.fbm(gx, gy, gz, 3, 2, 0.5, octavesFor(60000, 2, sp)));
+    const [kx, ky, kz] = layer(p, d, 26000, 3.1);
+    const ridges = n.ridged(kx, ky, kz, 9, octavesFor(26000, 2.1, sp));
+    const mountains = Math.pow(ridges, 2.1) * land * (0.2 + 0.8 * belt);
     // Rolling hills everywhere on land.
-    const [hx, hy, hz] = layer(p, d, 140, 31.7);
-    const hills = n.fbm(hx, hy, hz, 4, 2.1, 0.5, octavesFor(140, 2.1, sp));
-    // Patches of rough ground where crags break through, with smooth meadows between.
-    const [mx, my, mz] = layer(p, d, 90, 57.1);
-    const patch = n.fbm(mx, my, mz, 2, 2, 0.5, octavesFor(90, 2, sp));
+    const [hx, hy, hz] = layer(p, d, 1800, 31.7);
+    const hills = n.fbm(hx, hy, hz, 5, 2.1, 0.5, octavesFor(1800, 2.1, sp));
+    // Patches of rough ground where crags break through, with smooth meadows between; up in
+    // the mountains all of it is rough.
+    const [mx, my, mz] = layer(p, d, 900, 57.1);
+    const patch = n.fbm(mx, my, mz, 3, 2, 0.5, octavesFor(900, 2, sp));
     const rough = smoothstep(0.02, 0.4, patch) * land;
-    const [rx, ry, rz] = layer(p, d, 34, 71.3);
-    const crags = rough > 0 ? n.ridged(rx, ry, rz, 4, octavesFor(34, 2.1, sp)) : 0;
-    const rocks = Math.pow(crags, 3) * rough;
-    // Boulders and hummocks scattered over all land: rounded mounds a few meters across.
-    const [ox, oy, oz] = layer(p, d, 11, 91.3);
-    const boulderOctaves = octavesFor(11, 2, sp);
+    const alpine = smoothstep(0.04, 0.3, mountains);
+    const rocky = Math.max(rough, alpine);
+    // Crags and outcrops, ~240 m across down to ~12 m.
+    const [rx, ry, rz] = layer(p, d, 240, 71.3);
+    const crags = rocky > 0 ? n.ridged(rx, ry, rz, 5, octavesFor(240, 2.1, sp)) : 0;
+    const rocks = Math.pow(crags, 2.5) * rocky;
+    // Boulders and hummocks over all land (thicker on rocky ground): mounds a few meters across.
+    const [ox, oy, oz] = layer(p, d, 14, 91.3);
+    const boulderOctaves = octavesFor(14, 2, sp);
     const lump = boulderOctaves > 0 ? n.fbm(ox, oy, oz, 2, 2, 0.45, boulderOctaves) : 0;
-    const boulders = Math.pow(Math.max(0, lump - 0.18) / 0.82, 1.6) * land;
-    // Meter-scale bumps: stones, tussocks, ripples.
-    const [bx, by, bz] = layer(p, d, 5, 13.9);
-    const bumpOctaves = octavesFor(5, 2.05, sp);
+    const boulders = Math.pow(Math.max(0, lump - 0.12) / 0.88, 1.5) * land * (0.35 + 0.65 * rocky);
+    // Scree: sharp stones a couple of meters across, only on rocky ground.
+    const [qx, qy, qz] = layer(p, d, 2.6, 43.7);
+    const stoneOctaves = octavesFor(2.6, 2.1, sp);
+    const stones = stoneOctaves > 0 && rocky > 0 ? Math.pow(n.ridged(qx, qy, qz, 2, stoneOctaves), 3) * rocky : 0;
+    // Meter-scale bumps: tussocks, ripples, lumps of soil.
+    const [bx, by, bz] = layer(p, d, 6, 13.9);
+    const bumpOctaves = octavesFor(6, 2.05, sp);
     const bumps = bumpOctaves > 0 ? n.fbm(bx, by, bz, 3, 2.05, 0.5, bumpOctaves) : 0;
 
     let terrain = continents * p.continentHeight + mountains * p.mountainHeight
@@ -261,12 +289,13 @@ export function sampleSurface(p: PlanetDef, d: Vec3, spacing = finestSpacing(p))
     if (p.terraceStep > 0 && terrain > 0) {
         const t = terrain / p.terraceStep;
         const stepped = (Math.floor(t) + smoothstep(0.25, 0.75, t - Math.floor(t))) * p.terraceStep;
-        terrain += (stepped - terrain) * 0.8 * (1 - smoothstep(1.5, 6, sp)) * land;
+        terrain += (stepped - terrain) * 0.8 * (1 - smoothstep(8, 40, sp)) * land;
     }
     terrain += rocks * p.rockHeight
-        + boulders * p.detailHeight * 3.2
-        + bumps * p.detailHeight * (0.5 + land + rough);
-    const rock = clamp(rocks * 2.2 + boulders * 0.8, 0, 1);
+        + boulders * p.detailHeight * 2.4
+        + stones * p.detailHeight * 0.5
+        + bumps * p.detailHeight * (0.3 + 0.5 * land + 0.4 * rocky);
+    const rock = clamp(rocks * 1.8 + alpine * 0.55 + boulders * 0.6 + stones * 0.6, 0, 1);
     if (p.hasSea && terrain < 0) return { terrain, surface: 0, sea: true, rock: 0, patch };
     return { terrain, surface: terrain, sea: false, rock, patch };
 }
@@ -313,17 +342,22 @@ export function surfaceNormal(p: PlanetDef, d: Vec3, step = 0.8, spacing = fines
 const mix = (a: RGB, b: RGB, t: number): RGB => lerp(a as Vec3, b as Vec3, clamp(t, 0, 1)) as RGB;
 const colorNoise = new Simplex3(4711);
 
+/** Vertex color plus, in alpha, how much of the spot is bare rock (for the shader's textures). */
+export type RGBA = [number, number, number, number];
+
 /**
  * Biome color from height, slope (`upDot` = dot(surface normal, radial up)), latitude and a
  * little noise. `jitter` is in [-1, 1]. `spacing` is the mesh's sample spacing: a thin band like
  * the beach can only be drawn where the mesh is fine enough to resolve it, or coarse chunks turn
- * it into big interpolated patches.
+ * it into big interpolated patches. Alpha is the rock weight: outcrops, scree and cliffs, but not
+ * where snow lies. The shader textures rock and soil differently from it; texture detail finer
+ * than the mesh is the shader's job, so these colors stay smooth.
  */
-export function surfaceColor(p: PlanetDef, s: SurfaceSample, upDot: number, d: Vec3, jitter: number, spacing = finestSpacing(p)): RGB {
+export function surfaceColor(p: PlanetDef, s: SurfaceSample, upDot: number, d: Vec3, jitter: number, spacing = finestSpacing(p)): RGBA {
     const pal = p.palette;
     if (s.sea) {
         const depth = clamp(-s.terrain / (p.continentHeight * 0.6), 0, 1);
-        return mix(pal.shallowWater, pal.deepWater, Math.sqrt(depth));
+        return [...mix(pal.shallowWater, pal.deepWater, Math.sqrt(depth)), 0];
     }
     const h = s.terrain;
     const relief = p.continentHeight + p.mountainHeight;
@@ -332,24 +366,22 @@ export function surfaceColor(p: PlanetDef, s: SurfaceSample, upDot: number, d: V
     c = mix(pal.lowland, pal.highland, smoothstep(0.05, 0.4, t + jitter * 0.05));
     // Patchy ground: lusher and drier stretches (dune shades on Ember, blue ice on Glacia).
     c = mix(c, pal.highland, smoothstep(-0.1, 0.35, s.patch) * 0.45);
-    // Fine mottling at the finest chunks' scale: grass tones, bare dirt, scree. Faded out on
-    // meshes too coarse to show it, like the terrain's own detail.
-    const fine = 1 - smoothstep(1.5, 5, spacing);
+    // Bare earth showing through in patches tens of meters across, on meshes fine enough to
+    // hold them.
+    const fine = 1 - smoothstep(8, 30, spacing);
     if (fine > 0) {
-        const m = colorNoise.noise(d[0] * p.radius / 3.5, d[1] * p.radius / 3.5, d[2] * p.radius / 3.5);
-        const dirt = smoothstep(0.35, 0.75, m) * fine;
-        c = mix(c, pal.beach, dirt * 0.45);
-        const tone = 1 + colorNoise.noise(d[0] * p.radius / 1.3 + 7, d[1] * p.radius / 1.3, d[2] * p.radius / 1.3) * 0.12 * fine;
-        c = [c[0] * tone, c[1] * tone, c[2] * tone];
+        const k = p.radius / 25;
+        const m = colorNoise.noise(d[0] * k, d[1] * k, d[2] * k);
+        c = mix(c, pal.beach, smoothstep(0.35, 0.75, m) * fine * 0.4);
     }
     // Outcrops show their stone, and Ember's terraces show banded strata on the risers.
-    c = mix(c, pal.rock, s.rock * 0.75);
+    c = mix(c, pal.rock, s.rock * 0.8);
     if (p.terraceStep > 0) {
-        const band = 0.5 + 0.5 * Math.sin(h * 1.7 + s.patch * 2);
+        const band = 0.5 + 0.5 * Math.sin((h / p.terraceStep) * Math.PI * 5 + s.patch * 2);
         c = mix(c, pal.beach, band * 0.3 * (1 - smoothstep(0.85, 0.97, upDot)));
     }
-    if (p.hasSea && !p.frozenSea && h < 2.2) {
-        const beach = (1 - smoothstep(0.8, 2.2, h)) * (1 - smoothstep(3, 10, spacing));
+    if (p.hasSea && !p.frozenSea && h < 6) {
+        const beach = (1 - smoothstep(2, 6, h)) * (1 - smoothstep(12, 40, spacing));
         c = mix(c, pal.beach, beach);
     }
     // Steep ground is bare rock.
@@ -357,11 +389,12 @@ export function surfaceColor(p: PlanetDef, s: SurfaceSample, upDot: number, d: V
     c = mix(c, pal.rock, steep * 0.9);
     // High peaks and polar caps get snow, but not on cliffs.
     const lat = Math.abs(dot(d, [0, 1, 0]));
-    const snowLine = 0.62 - p.polarCaps * 0.5 * smoothstep(0.55, 0.95, lat) + jitter * 0.04;
+    const snowLine = 0.5 - p.polarCaps * 0.4 * smoothstep(0.55, 0.95, lat) + jitter * 0.04;
     const snow = smoothstep(snowLine, snowLine + 0.08, t + p.polarCaps * 0.35 * smoothstep(0.7, 0.98, lat)) * smoothstep(0.62, 0.8, upDot);
     c = mix(c, pal.snow, snow);
     const v = 1 + jitter * 0.07;
-    return [c[0] * v, c[1] * v, c[2] * v];
+    const rock = clamp(Math.max(s.rock, steep), 0, 1) * (1 - snow);
+    return [c[0] * v, c[1] * v, c[2] * v, rock];
 }
 
 // --- Sites ---------------------------------------------------------------------------------------

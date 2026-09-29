@@ -630,7 +630,9 @@ const bufferAPI = {
     write: (bufferId, data, offset = 0) => {
         const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
         ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
-    }
+    },
+    // Frees a buffer (e.g. a per-mesh uniform once its mesh is cleared). Unknown ids are ignored.
+    destroy: (bufferId) => ops.op_buffer_destroy(bufferId)
 };
 
 const createComputePipeline = (config) => ops.op_compute_pipeline_create({

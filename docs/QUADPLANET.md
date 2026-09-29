@@ -8,6 +8,21 @@ custom WGSL pipeline.
 
 ![Verdant from orbit](../public/quadplanet-verdant-from-orbit.png)
 
+## Scale
+
+One world unit is a meter. The walker is 1.8 m tall, and the mountains are kilometers high: the
+highest peaks on Verdant stand about 3.4 km above the sea, well over a thousand times your
+height. The planets are 58–100 km in radius and some 600 km apart. That is small for a real
+planet (Earth's radius is 6,371 km), but large enough that the ground looks flat underfoot and
+a range sinks below the horizon as you walk away from it. It is also small enough to fly
+between planets in about 15 seconds.
+
+| Planet | Radius | Highest peaks | Atmosphere | Gravity |
+|---|---|---|---|---|
+| Verdant | 100 km | ~3.4 km | 8 km | 9.8 m/s² |
+| Ember | 72 km | ~2.8 km | 6 km | 8.2 m/s² |
+| Glacia | 58 km | ~2.3 km | 5 km | 7.4 m/s² |
+
 ## From QuadScape to a planet
 
 QuadScape (`src/heightfield_landscapes/QuadTree.rs` and `QuadScape.rs`) streams one flat
@@ -19,16 +34,20 @@ on:
 | QuadScape | QuadPlanet (`qp_quadtree.ts`) |
 |---|---|
 | One quadtree over a heightmap | Six quadtrees, one per face of a cube, every grid point pushed onto the sphere (the spherified-cube mapping keeps cells close to equal-area) and out by the terrain height |
-| Four fixed LOD rings | A node splits while the viewer is closer than 1.5x its own size, down to a level where a leaf cell is at most 0.8 m (level 7 on Verdant and Ember, 6 on Glacia), so detail follows you continuously from orbit to the ground |
+| Four fixed LOD rings | A node splits while the viewer is closer than 1.5x its own size, down to the deepest configured level (13 by default: ~19 m chunks with vertices 0.3 m apart on Verdant), so detail follows you continuously from orbit to the ground |
 | Heights from a u16 heightmap | Heights from seeded 3D noise sampled on the unit sphere (`qp_planet.ts`), so there are no seams at cube edges and nothing pinches at the poles |
 | Coarse LODs read an averaged mip pyramid | Coarse chunks sample band-limited noise: octaves finer than ~3 samples of the chunk's spacing are faded out. It is the same idea in frequency, and it is what keeps coasts and limbs from aliasing into spikes from orbit |
 | Tile borders pinned to full-res samples, so neighbours agree on them | Same rule, adapted to chunks that double in size per level: the tree is kept 2:1 balanced, a chunk bordering a coarser one uses only the coarse chunk's vertices on that edge (it triangulates around the skipped ones), and every border vertex is sampled at the detail level of the coarsest chunk touching it. Neighbours share bit-identical edges, even across cube faces, with no skirts |
 | Tiles outside `VIEW_RADIUS` dropped | Chunks below the horizon are skipped, counting how far past it the highest peak still shows |
 | Stale tiles dropped the same frame | A stale chunk stays until every wanted chunk overlapping it is built, so streaming never opens a hole |
 
-By default each chunk is a 17x17 vertex grid. Standing on Verdant that is about 270 chunks
-(some 230k triangles) for the planet under you and about 20 each for the other two. Building is
-bounded per frame (10 chunks or 12 ms), closest first.
+The default configuration (`qp_config.ts`) has 14 levels: 64x64-vertex leaf chunks, 32x32
+above them, and 48-64 on the few planet-sized chunks seen from orbit. Standing on Verdant that
+is about 560 chunks (some 2M triangles) for the planet under you and about 20 each for the
+other two. Building is bounded per frame (10 chunks or
+12 ms). The chunks that look biggest go first (distance divided by size), so the ground at your
+feet comes first and distant ranges don't leave holes in the horizon. A run with `fixedStep`
+set streams everything each frame, so it looks the same on any machine.
 
 ## Configuring chunk detail
 
@@ -51,13 +70,16 @@ export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = {
 };
 ```
 
+Planets are big, so the tree is deep. With fewer levels, the leaves are too coarse to walk on:
+eight levels would make Verdant's leaf chunks about 1.2 km across.
+
 These counts describe the nominal grid width including endpoints: `64` gives a 62x62 interior.
 The existing border vertices, their sampling, and edge stitching are retained. Triangle strips
 connect the configured interior to that boundary, so the total vertex count is the interior
 count plus the existing border count. Counts need not be powers of two.
 
 Automatic mode halves the vertex count at each coarser level, rounding down and stopping at
-three vertices per side. Valid counts are 3–257; valid level counts are 1–13, including root
+three vertices per side. Valid counts are 3–257; valid level counts are 1–18, including root
 level 0. Explicit mode uses exactly the supplied list. An eight-level configuration has its
 deepest leaf at quadtree level 7. Replace configuration objects rather than mutating them.
 
@@ -74,6 +96,59 @@ You can also apply settings while running through `quadplanet_config`:
 Omit `planet` to apply to all planets. `{"chunkDetail":null}` restores the source defaults.
 Applying settings rebuilds the streamed terrain; `quadplanet_state` reports each planet's
 resolved `verticesPerLevel` list in leaf-to-root order.
+
+## Terrain: rock that appears as you close in
+
+`sampleSurface` (`qp_planet.ts`) builds the ground from layers at the following scales:
+
+| Layer | Size | Where |
+|---|---|---|
+| Continents | tens of km | everywhere; the sea fills the low ground |
+| Mountain belts | ridged ranges ~25 km between crests, finest octave ~40 m, up to 4.2 km high | on land, tallest inside broad belts |
+| Hills | ~2 km | on land |
+| Crags and outcrops | ~240 m down to ~12 m | on rough ground and throughout the mountains |
+| Boulders | a few meters | on all land, denser on rocky ground |
+| Scree | ~2.6 m stones | on rocky ground only |
+| Bumps | ~6 m | everywhere |
+
+Rock is a property of the ground rather than a single layer. Mountain slopes and rough patches
+of lowland get crags, boulders and scree. Every layer is band-limited to the mesh sampling it,
+so from orbit a slope is smooth, from the air it is a field of crags, and on foot you walk among
+loose stones. The sample's `rock` weight and the slope together pick how rocky the ground is
+colored. The weight is also passed to the shader in the vertex color's alpha.
+
+## Rendering at planet scale
+
+- **Camera-relative positions.** f32 can't place a vertex to the millimeter hundreds of
+  kilometers from the origin. Each chunk's vertices are stored relative to its own origin, and
+  everything is drawn relative to a *render origin* kept within 2 km of the camera. Each chunk
+  has its own small uniform holding its translation (chunk origin minus render origin). When
+  the camera moves more than 2 km, the origin moves and those uniforms are rewritten; the meshes
+  never are. Positions and origins are snapped to a 1/1024 m grid, so within 16 km of the
+  camera the GPU's sum is exact. Neighbouring chunks still meet bit for bit, as before.
+- **Logarithmic depth.** The engine's depth buffer is 24-bit with a 0.1 m near plane, which
+  would leave hundreds of meters of depth resolution at a far mountain range. The QuadPlanet
+  shader writes depth as log2(1 + distance), accurate from the walker's boots to the next
+  planet.
+- **Procedural textures.** The fragment shader textures terrain with 3D value noise and bumps
+  the normal with the noise's analytic gradient:
+  - rock: lumpy grain, fracture lines and faint strata;
+  - soil and grass: tufts, bare earth and pebbles;
+  - snow: drifts and glinting crystals;
+  - water: wind ripples;
+  - ice: fracture lines.
+
+  Each octave fades out once it is finer than a pixel, so close ground is detailed and distant
+  ground doesn't shimmer. The noise repeats every 1024 m. Each chunk gets its origin modulo
+  that period (`tex_origin`), so the pattern is continuous across chunks, and the numbers the
+  shader works with stay small.
+
+Engine support added for this:
+
+- `Entropy.Buffer.destroy(id)` frees each chunk's uniform when the chunk goes.
+- A camera set in an addon's update now applies to that same frame, like the buffers the
+  update wrote. Before, it lagged a frame behind them, so moving the render origin would have
+  shown a one-frame jump.
 
 ## The rest of the app
 
@@ -98,8 +173,8 @@ optional `up` keeps the horizon level when you walk on the far side of a planet.
 
 | On foot | In the ship |
 |---|---|
-| W / S walk, A / D turn, Shift run, Space jump | W thrust, Shift boost, S brake, A / D yaw, arrow keys pitch, Space / C climb and sink |
-| E board (within 9 u of the ship) | E step out (landed), T autopilot to the next planet |
+| W / S walk, A / D turn, Shift run, Space jump | W thrust, Shift boost (thrust and climb), S brake, A / D yaw, arrow keys pitch, Space / C climb and sink |
+| E board (within 9 m of the ship) | E step out (landed), T autopilot to the next planet |
 
 Drag to orbit the camera, scroll to zoom. L colors every chunk by its quadtree level and O
 outlines each chunk (in white: a drawn line, not a gap). V toggles an orbit view of the nearest
@@ -128,8 +203,9 @@ planet), `quadplanet_planets`, `quadplanet_config` (`fixedStep` for reproducible
 
 ## Limits
 
-- Positions are world-space `f32`, fine for this system (planets within about 10,000 units of the
-  origin). A much larger system would need camera-relative rendering.
+- The simulation runs in world-space doubles (JavaScript numbers); only rendering is camera
+  relative. A much larger system than a few thousand kilometers would still need the
+  simulation itself rebased.
 - The walker and ship use the analytic surface, not Rapier colliders.
 - There are no cast shadows, and the ship lands only where the autopilot finds flat ground or
   where you set it down.

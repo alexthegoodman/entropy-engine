@@ -5380,6 +5380,16 @@ pub fn op_buffer_create(state: &mut OpState, #[serde] config: BufferConfig) -> R
     }
 }
 
+/// Releases an addon buffer. Meshes and bind groups already built from it keep their own
+/// reference, so it is safe to drop a per-mesh uniform right after clearing that mesh; the id is
+/// simply gone for later `Buffer.write` / binding lookups. Unknown ids are ignored.
+#[op2(fast)]
+pub fn op_buffer_destroy(state: &mut OpState, #[string] buffer_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.buffers.remove(&buffer_id);
+    }
+}
+
 #[op2(fast)]
 pub fn op_buffer_write(
     state: &mut OpState,

@@ -10,10 +10,10 @@
 // E step out once landed, T (or the HUD buttons) autopilot to the next planet.
 // Anywhere: drag to orbit the camera, wheel to zoom, L tints chunks by quadtree level.
 
-import { type Vec3, frameMatrix, identity4, makeFrame, normalize, rotateAround, round3, add, scale, cross, dot } from "./qp_math";
+import { type Vec3, frameMatrix, identity4, makeFrame, normalize, rotateAround, round3, add, scale, cross, dot, distance, sub } from "./qp_math";
 import { PLANETS, SUN_DIRECTION, planetById, chunkResolutions, chunkVerticesFor, surfacePoint, type ChunkDetail } from "./qp_planet";
 import { PlanetStreamer, maxLevelFor, type ChunkMesh, type ChunkNode } from "./qp_quadtree";
-import { QUADPLANET_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_shader";
+import { QUADPLANET_SHADER, ITEM_FLOATS, TEX_PERIOD, WORLD_FLOATS, packWorld } from "./qp_shader";
 import { buildShip, buildSky, buildWalkerBody, buildWalkerLeg, HIP_HEIGHT, type ModelMesh } from "./qp_models";
 import {
     type GameState, type Input, type CameraPose, NO_INPUT, cameraPose, initialState, interact, nearestPlanet, orbitPose,
@@ -39,7 +39,7 @@ const WARM: [number, number, number, number] = [1.0, 0.72, 0.4, 1];
 let state: GameState = initialState();
 let pipelineId = "";
 let worldBuffer = "";
-let terrainItem = "";
+let skyItem = "";
 let shipItem = "";
 let bodyItem = "";
 let legItems: [string, string] = ["", ""];
@@ -57,6 +57,14 @@ let lastFrameMs = 0;
 let viewOverride: { planet: number; distance: number } | null = null;
 let lastCamera: CameraPose | null = null;
 let hudWindow = "";
+/**
+ * World point everything is drawn relative to (see qp_shader.ts, "Coordinates"): kept within
+ * REBASE_DISTANCE of the camera, on whole meters so it lies on the chunks' position grid.
+ */
+let renderOrigin: Vec3 = [0, 0, 0];
+const REBASE_DISTANCE = 2048;
+/** Each live chunk's own Item uniform (its placement and texture origin), by chunk id. */
+const chunkItems = new Map<string, { buffer: string; origin: Vec3; texOrigin: Vec3 }>();
 let frameCount = 0;
 
 // --- Engine meshes -------------------------------------------------------------------------------
@@ -76,26 +84,67 @@ function spawn(id: string, mesh: ModelMesh | ChunkMesh, item: string): void {
     Entropy.Model.createMesh({ id, position: [0, 0, 0], vertexData: mesh.vertexData, indexData: mesh.indexData, pipelineId, bindings: bindings(item) });
 }
 
-function writeItem(item: string, matrix: number[], tint: [number, number, number, number]): void {
-    Entropy.Buffer.write(item, new Float32Array([...matrix, ...tint]));
+function writeItem(item: string, matrix: number[], tint: [number, number, number, number], texOrigin: Vec3 = [0, 0, 0]): void {
+    Entropy.Buffer.write(item, new Float32Array([...matrix, ...tint, ...texOrigin, 0]));
+}
+
+/** A world position as the GPU sees it: relative to the render origin. */
+const toRender = (p: Vec3): Vec3 => sub(p, renderOrigin);
+
+function translation(t: Vec3): number[] {
+    const m = identity4();
+    m[12] = t[0]; m[13] = t[1]; m[14] = t[2];
+    return m;
+}
+
+function writeChunkItem(item: { buffer: string; origin: Vec3; texOrigin: Vec3 }): void {
+    writeItem(item.buffer, translation(toRender(item.origin)), [1, 1, 1, 0], item.texOrigin);
+}
+
+function spawnChunk(id: string, node: ChunkNode, mesh: ChunkMesh): void {
+    const center = PLANETS[node.planet].center;
+    // The chunk origin relative to its planet, wrapped into the texture noise's period: exact,
+    // since both lie on the 1/1024 m position grid.
+    const texOrigin = mesh.origin.map((o, k) => {
+        const x = o - center[k];
+        return x - TEX_PERIOD * Math.floor(x / TEX_PERIOD);
+    }) as Vec3;
+    const item = { buffer: uniformBuffer(ITEM_FLOATS), origin: mesh.origin, texOrigin };
+    writeChunkItem(item);
+    chunkItems.set(id, item);
+    spawn(id, mesh, item.buffer);
+}
+
+function destroyChunk(id: string): void {
+    Entropy.Model.clearMesh(id);
+    const item = chunkItems.get(id);
+    if (item) Entropy.Buffer.destroy(item.buffer);
+    chunkItems.delete(id);
+}
+
+/** Moves the render origin to the camera once it strays too far, re-placing every chunk. */
+function followWithOrigin(camera: Vec3): void {
+    if (distance(camera, renderOrigin) < REBASE_DISTANCE) return;
+    renderOrigin = [Math.round(camera[0]), Math.round(camera[1]), Math.round(camera[2])];
+    for (const item of chunkItems.values()) writeChunkItem(item);
 }
 
 const HIDDEN = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 function updateModels(): void {
     const ship = state.ship;
-    writeItem(shipItem, frameMatrix(ship.pos, ship.frame), [1, 1, 1, ship.thrust]);
+    writeItem(shipItem, frameMatrix(toRender(ship.pos), ship.frame), [1, 1, 1, ship.thrust]);
     if (state.mode === "walk") {
         const w = state.walker;
         const up = upAt(PLANETS[w.planet], w.pos);
         const frame = makeFrame(w.forward, up);
-        writeItem(bodyItem, frameMatrix(w.pos, frame), [1, 1, 1, 0]);
+        writeItem(bodyItem, frameMatrix(toRender(w.pos), frame), [1, 1, 1, 0]);
         const swing = Math.sin(w.stride) * Math.min(1, w.speed / 5) * 0.6;
         [-1, 1].forEach((side, k) => {
             const hip = add(add(w.pos, scale(up, HIP_HEIGHT)), scale(frame.right, side * 0.16));
             const a = swing * side;
             const legFrame = makeFrame(rotateAround(frame.forward, frame.right, a), rotateAround(frame.up, frame.right, a));
-            writeItem(legItems[k], frameMatrix(hip, legFrame), [1, 1, 1, 0]);
+            writeItem(legItems[k], frameMatrix(toRender(hip), legFrame), [1, 1, 1, 0]);
         });
     } else {
         for (const item of [bodyItem, ...legItems]) writeItem(item, HIDDEN, [1, 1, 1, 0]);
@@ -110,7 +159,7 @@ function writeWorld(): void {
         exposure,
         debugLod,
         debugOutlines,
-        planets: PLANETS.map(p => ({ center: p.center, radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
+        planets: PLANETS.map(p => ({ center: toRender(p.center), radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
     }));
 }
 
@@ -172,6 +221,8 @@ function setupInput(): void {
 // --- HUD -----------------------------------------------------------------------------------------
 
 const fmt = (n: number, digits = 0) => n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+/** Meters, switching to kilometers once they get large. */
+const meters = (n: number, unit = "m") => Math.abs(n) < 10000 ? `${fmt(n, 1)} ${unit}` : `${fmt(n / 1000, 1)} k${unit}`;
 
 function renderHud(): void {
     const id = hudWindow;
@@ -183,9 +234,9 @@ function renderHud(): void {
         W.label(id, { text: r.mode === "walk" ? Icons.label("person-simple-walk", "On foot") : Icons.label("rocket", r.autopilot ? "Autopilot" : r.landed ? "Ship, landed" : "Flying"), color: WARM });
     });
     W.label(id, { text: `${Icons.get("globe-hemisphere-west")} ${r.planet}`, bold: true });
-    W.label(id, { text: `Altitude ${fmt(Math.max(0, r.altitude), 1)} u   Speed ${fmt(r.speed, 1)} u/s`, monospace: true, color: DIM });
+    W.label(id, { text: `Altitude ${meters(Math.max(0, r.altitude))}   Speed ${meters(r.speed, "m/s")}`, monospace: true, color: DIM });
     if (r.autopilot) W.label(id, { text: `${Icons.get("navigation-arrow")} To ${r.autopilot.target}: ${fmt(r.autopilot.progress * 100)}%`, monospace: true, color: ACCENT });
-    if (state.mode === "walk" && r.shipDistance < 60) W.label(id, { text: `Ship ${fmt(r.shipDistance, 1)} u away`, color: DIM, monospace: true });
+    if (state.mode === "walk" && r.shipDistance < 60) W.label(id, { text: `Ship ${fmt(r.shipDistance, 1)} m away`, color: DIM, monospace: true });
     W.label(id, { text: state.message, wrap: true });
     if (state.mode === "ship" && !state.ship.autopilot) {
         W.horizontal(id, () => {
@@ -377,14 +428,14 @@ addon.onInit(() => {
         ] }],
     });
     worldBuffer = uniformBuffer(WORLD_FLOATS);
-    terrainItem = uniformBuffer(ITEM_FLOATS);
+    skyItem = uniformBuffer(ITEM_FLOATS);
     shipItem = uniformBuffer(ITEM_FLOATS);
     bodyItem = uniformBuffer(ITEM_FLOATS);
     legItems = [uniformBuffer(ITEM_FLOATS), uniformBuffer(ITEM_FLOATS)];
-    writeItem(terrainItem, identity4(), [1, 1, 1, 0]);
+    writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     writeWorld();
 
-    spawn("qp-sky", buildSky(), terrainItem);
+    spawn("qp-sky", buildSky(), skyItem);
     spawn("qp-ship", buildShip(), shipItem);
     spawn("qp-walker", buildWalkerBody(), bodyItem);
     const leg = buildWalkerLeg();
@@ -392,10 +443,7 @@ addon.onInit(() => {
     spawn("qp-leg-right", leg, legItems[1]);
     updateModels();
 
-    streamer = new PlanetStreamer(PLANETS, {
-        create: (id: string, _node: ChunkNode, mesh: ChunkMesh) => spawn(id, mesh, terrainItem),
-        destroy: (id: string) => Entropy.Model.clearMesh(id),
-    });
+    streamer = new PlanetStreamer(PLANETS, { create: spawnChunk, destroy: destroyChunk });
 
     Entropy.setGameMode(false);
     Entropy.Lighting.updateSun({ horizonColor: [0, 0, 0], zenithColor: [0, 0, 0], sunDirection: SUN_DIRECTION, sunColor: [1, 0.96, 0.9], sunIntensity: 0.2 });
@@ -414,7 +462,6 @@ addon.onUpdatePlus("Global", () => {
     frameCount++;
 
     step(state, readInput(), dt);
-    updateModels();
 
     let pose = cameraPose(state);
     if (viewOverride) pose = viewOverride.planet < 0 ? overheadPose(state, viewOverride.distance) : orbitPose(viewOverride.planet, PLANETS, viewOverride.distance);
@@ -422,12 +469,19 @@ addon.onUpdatePlus("Global", () => {
     const look = normalize([pose.target[0] - pose.position[0], pose.target[1] - pose.position[1], pose.target[2] - pose.position[2]] as Vec3);
     let up = pose.up;
     if (Math.abs(dot(look, up)) > 0.98) up = normalize(cross(cross(look, up), look));
-    Entropy.Camera.setTransform(pose.position, pose.target, up);
+    // Everything this frame is placed relative to the same origin: chunks, models, planets and
+    // the camera (the engine applies a camera set here to this same frame).
+    followWithOrigin(pose.position);
+    Entropy.Camera.setTransform(toRender(pose.position), toRender(pose.target), up);
     lastCamera = { ...pose, up };
 
+    updateModels();
     writeWorld();
     // Stream around the camera (what is being looked at), a bounded amount per frame - except in
-    // the overhead view, which is there to show the detail centered on you.
+    // the overhead view, which is there to show the detail centered on you. A fixed-step run
+    // wants the same frames on any machine, so it streams everything it wants every frame
+    // instead of whatever fits in the time budget.
     const focus = viewOverride && viewOverride.planet < 0 ? (state.mode === "walk" ? state.walker.pos : state.ship.pos) : pose.position;
-    streamer.update(focus, 10, 12);
+    if (fixedStep) streamer.update(focus, Infinity, Infinity);
+    else streamer.update(focus, 10, 12);
 });

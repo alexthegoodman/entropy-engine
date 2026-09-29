@@ -46,7 +46,9 @@ fn quadplanet_live_feature() {
     let started = std::time::Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
-        if started.elapsed() > std::time::Duration::from_secs(300) {
+        // Kilometer-scale planets are ~2M triangles of textured terrain: several minutes under
+        // a software Vulkan driver (the in-app budget is 600 s, startup.rs).
+        if started.elapsed() > std::time::Duration::from_secs(660) {
             let _ = child.kill(); let _ = child.wait();
             panic!("QuadPlanet live BDD timed out");
         }
@@ -84,7 +86,7 @@ fn quadplanet_live_feature() {
     let (ember_chunks, ember_deepest, _) = planet_chunks(start, "Ember");
     assert!(verdant_chunks > 5 * ember_chunks && ember_deepest <= 2, "far planets stay coarse: {start:#}");
 
-    // Holding W for 40 frames walked 40 x (1/30 s) x 5 u/s along the curved ground to the ship.
+    // Holding W for 40 frames walked 40 x (1/30 s) x 5 m/s along the curved ground to the ship.
     let walked = states[1];
     assert!((f(&walked["walked"]) - 6.66).abs() < 0.1, "{walked:#}");
     assert!(f(&walked["shipDistance"]) < 9.0);
@@ -98,12 +100,12 @@ fn quadplanet_live_feature() {
     assert!(f(&flying["altitude"]) > 20.0, "{flying:#}");
     assert!(f(&flying["speed"]) > 10.0);
 
-    // Mid-flight: out in space between the planets at hundreds of units per second.
+    // Mid-flight: out in space between the planets, kilometers up at kilometers per second.
     let cruise = states[4];
     let progress = f(&cruise["autopilot"]["progress"]);
     assert!(progress > 0.2 && progress < 0.8, "{cruise:#}");
     assert_eq!(cruise["autopilot"]["target"], "Ember");
-    assert!(f(&cruise["altitude"]) > 300.0 && f(&cruise["speed"]) > 200.0, "{cruise:#}");
+    assert!(f(&cruise["altitude"]) > 20_000.0 && f(&cruise["speed"]) > 5_000.0, "{cruise:#}");
 
     // Landed on Ember, where the quadtree now goes deepest.
     let landed = states[5];
@@ -158,7 +160,8 @@ fn quadplanet_live_feature() {
     let black = share(&space, SCENE, &dark);
     let red_planet = share(&space, SCENE, &orange);
     println!("04 dark {black:.3}, orange {red_planet:.3}");
-    assert!(black > 0.3, "between planets much of the frame is black space ({black:.3})");
+    // (Mid-arc, Ember's disc and the ship cover a good part of the rest.)
+    assert!(black > 0.25, "between planets much of the frame is black space ({black:.3})");
     // Whether Ember is in frame at this moment depends on where the landing site puts the arc, so
     // the flight itself is checked through the state replies above rather than by its pixels.
 

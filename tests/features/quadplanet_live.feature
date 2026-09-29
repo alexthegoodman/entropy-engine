@@ -18,7 +18,7 @@ Feature: QuadPlanet in the real window
 
   Scenario: The rings of detail around you
     When I call the tool "quadplanet_config" with {"debugLod": true, "debugOutlines": true}
-    And I call the tool "quadplanet_view" with {"mode": "overhead", "height": 110}
+    And I call the tool "quadplanet_view" with {"mode": "overhead", "height": 450}
     And I advance 60 frames
     Then I capture "01b-detail-rings-around-you"
     When I call the tool "quadplanet_config" with {"debugLod": false, "debugOutlines": false}
