@@ -2,7 +2,8 @@
 // binds each to one of these by id, usually through a "finish" parameter, so a user picks "Walnut"
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
-export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark" | "birch";
+export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark" | "birch"
+    | "glow" | "corrugated" | "rust" | "rustyCorrugated" | "panels";
 
 export interface MaterialPreset {
     id: string;
@@ -10,7 +11,12 @@ export interface MaterialPreset {
     color: [number, number, number];
     roughness: number;
     metallic: number;
-    /** A procedural surface detail the viewport shader draws on top of the base color. */
+    /**
+     * A procedural surface detail the viewport shader draws on top of the base color. "glow" is
+     * self-lit (light strips, crystals, lit windows); "corrugated" ribs sheet metal across each
+     * face (down the slope on a roof); "rust" mottles and streaks it; "panels" draws the seams of
+     * a panelled hull on a 1.2 x 0.8 m grid.
+     */
     pattern: Pattern;
     /** Glass and similar: rendered as a tinted, glossy, slightly see-through-looking surface. */
     transmission?: number;
@@ -123,6 +129,46 @@ export const MATERIALS: MaterialPreset[] = [
     f("flower.pink", "Pink petals", "#e777a4", "#f6bcd2", 0.5),
     f("flower.purple", "Purple petals", "#7747a8", "#a67cd6", 0.5),
     f("flower.blue", "Blue petals", "#4672c6", "#8fb0ea", 0.5),
+    // Themed architecture: sci-fi hulls, wasteland salvage and magical glows.
+    m("composite.white", "White composite", "#e9eaea", 0.35, 0, "panels"),
+    m("composite.grey", "Grey composite", "#8e949a", 0.4, 0, "panels"),
+    m("composite.orange", "Signal orange composite", "#d9682c", 0.4, 0, "panels"),
+    m("metal.titanium", "Titanium", "#a8aaa6", 0.3, 1, "brushed"),
+    m("metal.gold", "Gold foil", "#d8a93c", 0.2, 1, "speckle"),
+    m("metal.corrugated", "Galvanized corrugated", "#a9aeb1", 0.38, 1, "corrugated"),
+    m("metal.corrugatedRust", "Rusted corrugated", "#8d8b86", 0.55, 1, "rustyCorrugated"),
+    m("metal.corrugatedRed", "Red corrugated", "#8e3a2c", 0.5, 0, "rustyCorrugated"),
+    m("metal.corrugatedGreen", "Green corrugated", "#50624a", 0.5, 0, "rustyCorrugated"),
+    m("metal.rust", "Rusted steel", "#6e6560", 0.6, 1, "rust"),
+    m("metal.rustRed", "Rusted red plate", "#83392b", 0.6, 0, "rust"),
+    m("metal.rustYellow", "Rusted hazard yellow", "#c49a2c", 0.55, 0, "rust"),
+    m("masonry.concrete", "Concrete", "#a39f98", 0.9, 0, "speckle"),
+    m("masonry.darkConcrete", "Weathered concrete", "#6f6c67", 0.92, 0, "rust"),
+    m("wood.weathered", "Weathered boards", "#8b8171", 0.85, 0, "wood"),
+    m("wood.charred", "Charred timber", "#3a3330", 0.9, 0, "wood"),
+    m("fabric.canvas", "Canvas tarp", "#8c8467", 0.95, 0, "fabric"),
+    m("fabric.sandbag", "Sandbag hessian", "#a8946b", 0.95, 0, "fabric"),
+    m("solar.cell", "Solar cells", "#1d2a4a", 0.18, 0, "panels"),
+    m("stone.regolith", "Regolith", "#8a7f74", 0.95, 0, "speckle"),
+    m("stone.moss", "Mossy stone", "#6f7462", 0.92, 0, "speckle"),
+    m("stone.purple", "Twilight stone", "#5f566c", 0.85, 0, "speckle"),
+    m("masonry.plaster", "Lime plaster", "#e6dcc4", 0.9, 0, "speckle"),
+    m("roofing.violet", "Twilight slate", "#473e5a", 0.7, 0, "speckle"),
+    m("roofing.moss", "Mossy shingles", "#566041", 0.9, 0, "speckle"),
+    m("paint.plum", "Plum paint", "#4c2c4f", 0.45, 0),
+    m("paint.teal", "Teal paint", "#1f5f63", 0.45, 0),
+    m("paint.ochre", "Ochre paint", "#b98a32", 0.5, 0),
+    m("glass.tinted", "Smoked visor glass", "#3b4d5c", 0.03, 0, "none", 0.8),
+    m("glass.violet", "Violet glass", "#6a4b9a", 0.05, 0, "none", 0.7),
+    m("glass.fibreglass", "Fibreglass sheet", "#b9b28a", 0.55, 0, "corrugated", 0.45),
+    m("glow.cyan", "Cyan light", "#62e3ff", 0.3, 0, "glow"),
+    m("glow.white", "White light", "#f2f6ff", 0.3, 0, "glow"),
+    m("glow.amber", "Amber light", "#ffb347", 0.3, 0, "glow"),
+    m("glow.red", "Red light", "#ff4a3d", 0.3, 0, "glow"),
+    m("glow.green", "Green light", "#7dff8a", 0.3, 0, "glow"),
+    m("glow.violet", "Arcane violet", "#b27bff", 0.3, 0, "glow"),
+    m("glow.magenta", "Magenta light", "#ff5fd2", 0.3, 0, "glow"),
+    m("glow.candle", "Candlelit window", "#ffc76a", 0.3, 0, "glow"),
     m("fruit.green", "Green coconut", "#6f8a3a", 0.45, 0),
     m("fruit.coconut", "Ripe coconut", "#6b4a2b", 0.8, 0, "speckle"),
     m("fruit.red", "Red fruit", "#b3222a", 0.3, 0),

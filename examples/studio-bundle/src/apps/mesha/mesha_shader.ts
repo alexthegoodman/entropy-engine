@@ -174,7 +174,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (dot(n, v) < 0.0) { n = -n; } // open shells shade from both sides
     var base = pow(in.color.rgb, vec3<f32>(2.2));
     let a = in.color.a;
-    let metal = select(0.0, 1.0, a >= 0.5);
+    var metal = select(0.0, 1.0, a >= 0.5);
     var rough = clamp((a - metal * 0.5) / 0.49, 0.03, 1.0);
     var sheen = 0.0;
     var spec_scale = 1.0;
@@ -225,6 +225,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dash = smoothstep(0.68, 0.8, vnoise(vec3<f32>(in.uv.x * 7.0, in.uv.y * 34.0, 3.1)));
         let blotch = smoothstep(0.66, 0.82, fbm(vec3<f32>(in.uv.x * 3.0, in.uv.y * 2.2, 8.3)));
         base = mix(base * (0.92 + 0.1 * vnoise(p * 25.0)), vec3<f32>(0.035, 0.03, 0.028), max(dash * 0.9, blotch * 0.85));
+    } else if (pattern == 12 || pattern == 14) {
+        // Corrugated sheet: ribs across the face (down the slope on a roof), shaded by bending the
+        // normal, faded out where they get finer than a pixel.
+        var t = vec3<f32>(1.0, 0.0, 0.0);
+        if (abs(n.y) < 0.85) { t = normalize(cross(n, vec3<f32>(0.0, 1.0, 0.0))); }
+        let s = dot(p, t) * 82.0;
+        let fade = clamp(1.4 - fwidth(s) * 0.45, 0.0, 1.0);
+        n = normalize(n + t * sin(s) * 0.42 * fade);
+        base = base * (0.93 + 0.07 * cos(s) * fade);
+    } else if (pattern == 15) {
+        // Hull panels: dark seams on a 1.2 x 0.8 m grid across the face, each panel a touch different.
+        var u = p.x;
+        var w = p.z;
+        if (abs(n.y) < 0.7) { u = dot(p, normalize(cross(n, vec3<f32>(0.0, 1.0, 0.0)))); w = p.y; }
+        let g = vec2<f32>(u / 1.2, w / 0.8);
+        let e = min(fract(g), 1.0 - fract(g)) * vec2<f32>(1.2, 0.8);
+        let fw = max(fwidth(g) * vec2<f32>(1.2, 0.8), vec2<f32>(0.0001));
+        let seam = 1.0 - clamp(min(e.x / (fw.x + 0.006), e.y / (fw.y + 0.006)), 0.0, 1.0);
+        base = base * (0.96 + 0.08 * hash3(vec3<f32>(floor(g), 0.5))) * (1.0 - 0.5 * seam);
+    }
+    if (pattern == 13 || pattern == 14) {
+        // Rust: fine blotches, streaks running down from edges, heavier near the ground.
+        let blot = fbm(p * 2.6 + vec3<f32>(3.1, 0.0, 1.7)) * 0.7 + vnoise(p * 9.0) * 0.3;
+        let streak = vnoise(vec3<f32>(p.x * 11.0 + p.z * 11.0, p.y * 0.7, 2.3));
+        let low = 1.0 - smoothstep(0.0, 1.2, p.y);
+        let amount = clamp(smoothstep(0.5, 0.75, blot) * 0.8 + smoothstep(0.55, 0.9, streak) * 0.45 + low * 0.2, 0.0, 0.85);
+        let rust = mix(vec3<f32>(0.13, 0.045, 0.02), vec3<f32>(0.3, 0.11, 0.035), vnoise(p * 17.0));
+        base = mix(base, rust, amount);
+        rough = clamp(mix(rough, 0.9, amount), 0.03, 1.0);
+        metal = metal * (1.0 - amount);
     }
 
     let key = normalize(studio.key_dir.xyz);
@@ -262,6 +292,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Glass: tinted body, strong fresnel reflections, a bright caustic-ish glint through it.
         let body = base * (0.35 + 0.45 * pow(nv, 0.5)) * (hemi + key_light * 0.25);
         col = body + env * (0.08 + fresnel * 1.1) + studio.key_color.rgb * spec * 1.2;
+    }
+
+    if (pattern == 11) {
+        // Self-lit: light strips, crystals and lit windows glow whatever the key light does.
+        col = base * 2.4 + env * fresnel * 0.3;
     }
 
     // Selection: a thin accent rim on the silhouette only.

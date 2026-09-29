@@ -464,4 +464,4 @@ export const CATALOG_CATEGORIES = [...new Set(LIST.map(c => c.category))];
  * Fields every node may carry besides its component inputs. `object` nodes take `object` and `params`;
  * `rest: true` lifts each placed copy so its lowest point sits on the floor (splayed legs, casters).
  */
-export const COMMON_NODE_FIELDS = ["id", "type", "when", "repeat", "at", "rotate", "scale", "rest", "region", "output", "note", "object", "params"] as const;
+export const COMMON_NODE_FIELDS = ["id", "type", "when", "repeat", "keep", "at", "rotate", "scale", "rest", "region", "output", "note", "object", "params"] as const;

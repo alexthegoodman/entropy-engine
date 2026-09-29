@@ -19,7 +19,7 @@ fn mesha_live_feature() {
     let started = std::time::Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
-        if started.elapsed() > std::time::Duration::from_secs(180) {
+        if started.elapsed() > std::time::Duration::from_secs(300) {
             let _ = child.kill(); let _ = child.wait();
             panic!("Mesha live BDD timed out");
         }
@@ -68,10 +68,11 @@ fn mesha_live_feature() {
     assert_eq!(state["lighting"], "warm");
 
     // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses, a
-    // door, and the foliage: trees, conifers, palms, ferns, shrubs, grasses, flowers, pots and a garden.
+    // door, the foliage (trees, conifers, palms, ferns, shrubs, grasses, flowers, pots and a garden)
+    // and the themed buildings: hab lodges, wasteland depots and arcane emporiums.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 37);
+    assert_eq!(saved.len(), 44);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -201,6 +202,74 @@ fn mesha_live_feature() {
     let foliage_glb = fs::read(foliage_export["path"].as_str().unwrap()).unwrap();
     assert_eq!(&foliage_glb[..4], b"glTF");
     assert!(foliage_export["triangles"].as_u64().unwrap() > house_export["triangles"].as_u64().unwrap());
+
+    // Hab lodge: lifting the crown and hiding the top deck each strip geometry away; Variation
+    // restyles the Mars inn's airlock, viewports and systems but keeps its hull, cabins and finishes.
+    let orbital = &reply("mesha_add", 36)["instance"];
+    assert_eq!(orbital["objectId"], "architecture.hab_lodge");
+    assert_eq!(orbital["violations"].as_array().unwrap().len(), 0, "{orbital:#}");
+    let hab_open = &reply("mesha_set", 15)["instance"];
+    assert!(hab_open["triangles"].as_u64().unwrap() < orbital["triangles"].as_u64().unwrap());
+    let hab_cut = &reply("mesha_set", 16)["instance"];
+    assert_eq!(hab_cut["values"]["cutaway"], 1);
+    assert!(hab_cut["triangles"].as_u64().unwrap() * 10 < hab_open["triangles"].as_u64().unwrap() * 7);
+    assert_eq!(saved[37]["values"]["roofVisible"], false);
+    let mars = &reply("mesha_add", 37)["instance"];
+    let mars_varied = &reply("mesha_vary", 6)["instance"];
+    for key in ["decks", "beam", "lounge", "cabins", "cabinWidth", "corridor", "hullFinish", "glowFinish", "padFinish"] {
+        assert_eq!(mars_varied["values"][key], mars["values"][key], "locked hab control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 6)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(mars_varied["violations"].as_array().unwrap().len(), 0, "{mars_varied:#}");
+    assert_eq!(saved[38]["values"], mars_varied["values"]);
+    assert_eq!(saved[39]["values"]["legs"], "eight");
+
+    // Wasteland depot: stripping the roof removes sheets; shutting the roller door and wrecking the
+    // roof are persisted; Variation keeps the shed's size and finishes.
+    let depot = &reply("mesha_add", 39)["instance"];
+    assert_eq!(depot["objectId"], "architecture.wasteland_depot");
+    assert_eq!(depot["violations"].as_array().unwrap().len(), 0, "{depot:#}");
+    let stripped = &reply("mesha_set", 17)["instance"];
+    assert!(stripped["triangles"].as_u64().unwrap() < depot["triangles"].as_u64().unwrap());
+    let shut = &reply("mesha_set", 18)["instance"];
+    assert!(shut["triangles"].as_u64().unwrap() > stripped["triangles"].as_u64().unwrap());
+    assert_eq!(saved[40]["values"]["rollerOpen"], 0);
+    assert_eq!(saved[40]["values"]["roofDamage"], 0.8);
+    let factory = &reply("mesha_add", 40)["instance"];
+    let factory_varied = &reply("mesha_vary", 7)["instance"];
+    for key in ["width", "bays", "bayLength", "eave", "pitch", "claddingFinish", "roofFinish", "frameFinish"] {
+        assert_eq!(factory_varied["values"][key], factory["values"][key], "locked depot control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 7)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(factory_varied["violations"].as_array().unwrap().len(), 0, "{factory_varied:#}");
+    assert_eq!(saved[41]["values"], factory_varied["values"]);
+
+    // Arcane emporium: more crystals add geometry, lifting the roofs and cutting away the upper
+    // floor take it away; Variation keeps the shop's size, tower and finishes (the tower's radius sets
+    // the least depth, so it is locked with the size).
+    let twilight = &reply("mesha_add", 41)["instance"];
+    assert_eq!(twilight["objectId"], "architecture.arcane_emporium");
+    assert_eq!(twilight["violations"].as_array().unwrap().len(), 0, "{twilight:#}");
+    let lit = &reply("mesha_set", 19)["instance"];
+    assert_eq!(lit["values"]["litWindows"], true);
+    assert!(lit["triangles"].as_u64().unwrap() > twilight["triangles"].as_u64().unwrap());
+    let roofless_shop = &reply("mesha_set", 20)["instance"];
+    assert!(roofless_shop["triangles"].as_u64().unwrap() < lit["triangles"].as_u64().unwrap());
+    let ground_shop = &reply("mesha_set", 21)["instance"];
+    assert!(ground_shop["triangles"].as_u64().unwrap() * 10 < roofless_shop["triangles"].as_u64().unwrap() * 7);
+    assert_eq!(saved[42]["values"]["cutaway"], true);
+    let apothecary = &reply("mesha_add", 42)["instance"];
+    let apothecary_varied = &reply("mesha_vary", 8)["instance"];
+    for key in ["width", "depth", "storeyHeight", "jetty", "pitch", "whimsy", "towerRadius", "hatHeight", "stoneFinish", "roofFinish", "hatFinish", "glowFinish"] {
+        assert_eq!(apothecary_varied["values"][key], apothecary["values"][key], "locked emporium control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 8)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(apothecary_varied["violations"].as_array().unwrap().len(), 0, "{apothecary_varied:#}");
+    assert_eq!(saved[43]["values"], apothecary_varied["values"]);
+    let themed_export = reply("mesha_export", 6);
+    let themed_glb = fs::read(themed_export["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&themed_glb[..4], b"glTF");
+    assert!(themed_export["triangles"].as_u64().unwrap() > foliage_export["triangles"].as_u64().unwrap());
 
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);

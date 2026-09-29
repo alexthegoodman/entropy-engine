@@ -453,6 +453,190 @@ describe("Mesha house", () => {
     });
 });
 
+describe("Mesha keep", () => {
+    it("drops single copies of a repeat, seeing each copy's index", () => {
+        const def: ObjectDef = {
+            id: "t.keep", name: "Keep", category: "t", groups: [], params: [], regions: { default: { label: "", material: "paint.white" } },
+            nodes: [{ type: "mesh.box", repeat: 6, keep: "=index % 3 != 1", size: [0.5, 0.5, 0.5], at: ["=index", 0.25, 0] }],
+        };
+        expect(validateDefinition(def)).toEqual([]);
+        const e = evaluateObject(def);
+        expect(e.stats.triangles).toBe(4 * 12);
+        expect(rayHit(e.mesh, [1, 0.25, 3], [0, 0, -1])).toBe(Infinity);
+        expect(rayHit(e.mesh, [2, 0.25, 3], [0, 0, -1])).toBeCloseTo(2.75, 5);
+    });
+});
+
+/** Evaluates an object and gives its derived values and a ray-castable triangle soup. */
+const planOf = (id: string) => (values: Record<string, unknown>) => {
+    const def = lookupObject(id)!;
+    const e = evaluateObject(def, values as never, lookupObject);
+    const n = (name: string) => Number(evaluateExpression(def, e.params, `=${name}`));
+    return { e, n, tris: flatten(e.mesh), p: e.params };
+};
+const without = (mesh: Mesh, regions: string[]) => flatten({ parts: mesh.parts.filter(p => !regions.includes(p.region)) });
+
+describe("Mesha hab lodge", () => {
+    const def = lookupObject("architecture.hab_lodge")!;
+    const plan = planOf(def.id);
+    const layouts: Record<string, unknown>[] = [
+        {}, ...(def.presets ?? []).map(p => p.values), { decks: 1 }, { cabins: 3, cabinWidth: 3.6 }, { cabins: 1, beam: 0, corridor: 2.1 },
+        { deckHeight: 100, lift: 100, shoulder: 100, hatchWidth: 100 }, { deckHeight: 0, lift: 0, shoulder: 0, beam: 0, hatchWidth: 0 },
+    ];
+    it("the open hatch leads through the airlock across the corridor", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan({ ...values, hatchOpen: 1 });
+            const y = n("H0") + 1.2, where = JSON.stringify(values);
+            expect(castRay(tris, [0.3, y, n("D2") + 6], [0, 0, -1]), where).toBeGreaterThan(6 + n("D2") + n("cz") - 0.02);
+            expect(castRay(tris, [0.3, y, n("D2") - 1], [0, -1, 0]), where).toBeCloseTo(1.2, 3);
+        }
+        // Closed, the hatch seals the airlock.
+        const { n, tris } = plan({ hatchOpen: 0 });
+        expect(castRay(tris, [0.3, n("H0") + 1.2, n("D2") + 6], [0, 0, -1])).toBeLessThan(6.3);
+    });
+    it("every corridor doorway on every deck opens into a cabin that reaches the hull", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan(values);
+            for (let d = 0; d < n("decks"); d++) for (let i = 0; i < n("nC"); i++) for (const side of [1, -1]) {
+                if (i === n("kC") && ((side > 0 && d === 0) || (side < 0 && n("decks") > 1))) continue;
+                const x = -n("Zc2") + (i + 0.5) * n("cw"), y = n("H0") + d * n("dH") + 1.0;
+                const hull = n("cz") + n("pt") + n("cd"), where = `${JSON.stringify(values)} deck ${d} cell ${i} side ${side}`;
+                const hit = castRay(tris, [x, y, 0], [0, 0, side]);
+                expect(hit, where).toBeGreaterThan(hull - 0.05);
+                expect(hit, where).toBeLessThan(hull + n("th") + 0.2);
+            }
+        }
+    });
+    it("the spiral stair climbs in even steps with headroom and lands on the upper deck", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan(values);
+            if (n("decks") < 2) continue;
+            const r = n("rs") * 0.6;
+            for (let k = 0; k < n("nT"); k++) {
+                const a = (n("th0") + k * n("da")) * Math.PI / 180, top = n("H0") + (k + 1) * n("rh");
+                const o: Vec3 = [r * Math.cos(a), top + 0.4, n("zS") + r * Math.sin(a)], where = `${JSON.stringify(values)} tread ${k}`;
+                expect(castRay(tris, o, [0, -1, 0]), where).toBeCloseTo(0.4, 3);
+                expect(castRay(tris, [o[0], top + 0.01, o[2]], [0, 1, 0]), where).toBeGreaterThan(2.0);
+            }
+            const a = (n("thEnd") + 12) * Math.PI / 180, r2 = n("holeR") + 0.3;
+            expect(castRay(tris, [r2 * Math.cos(a), n("H0") + n("dH") + 0.5, n("zS") + r2 * Math.sin(a)], [0, -1, 0])).toBeCloseTo(0.5, 3);
+            expect(n("rh")).toBeLessThanOrEqual(0.19 + 1e-9);
+        }
+    });
+    it("lifting the crown or hiding the top deck opens the decks to view", () => {
+        const full = plan({}), open = plan({ roofVisible: false }), cut = plan({ cutaway: 1 });
+        const n = full.n, o: Vec3 = [0, n("yC") - 0.5, 0.1];
+        expect(castRay(full.tris, o, [0, 1, 0])).toBeCloseTo(0.5, 3);
+        expect(castRay(open.tris, o, [0, 1, 0])).toBe(Infinity);
+        expect(open.e.mesh.parts.some(p => ["solar", "radiator", "navRed"].includes(p.region))).toBe(false);
+        expect(cut.e.stats.bounds!.max[1]).toBeLessThan(n("H0") + n("dH") + 0.3);
+        expect(40 - castRay(cut.tris, [-n("Zc2") + 0.5 * n("cw"), 40, n("zCab")], [0, -1, 0])).toBeCloseTo(n("H0"), 2);
+    });
+});
+
+describe("Mesha wasteland depot", () => {
+    const def = lookupObject("architecture.wasteland_depot")!;
+    const plan = planOf(def.id);
+    const layouts: Record<string, unknown>[] = [
+        {}, ...(def.presets ?? []).map(p => p.values), { width: 9, bays: 3, bayLength: 3.6, offices: 1 }, { width: 22, bays: 8, eave: 8.5, mezzDepth: 100, offices: 4 },
+        { width: 0, eave: 0, plinth: 100, rollerWidth: 100, rollerHeight: 100 },
+    ];
+    it("the rolled-up door opens onto the shop floor as far as the offices", () => {
+        for (const values of layouts) {
+            const { n, tris, p } = plan({ ...values, rollerOpen: 1 });
+            const where = JSON.stringify(values), stop = p.mezzanine ? n("D2") - n("zM") + 0.2 : n("D") - 0.3;
+            expect(castRay(tris, [0.4, n("fl") + 1.5, n("D2") + 6], [0, 0, -1]), where).toBeGreaterThan(6 + stop - 0.05);
+            expect(castRay(tris, [0.4, n("fl") + 1, n("D2") - 1], [0, -1, 0]), where).toBeCloseTo(1, 3);
+        }
+        // Rolled down, the curtain shuts the doorway.
+        const { n, tris } = plan({ rollerOpen: 0 });
+        expect(castRay(tris, [0.4, n("fl") + 1.5, n("D2") + 6], [0, 0, -1])).toBeLessThan(6.3);
+    });
+    it("roof damage takes sheets away, stripping the roof opens it to the sky", () => {
+        const sheets = (values: Record<string, unknown>) => plan(values).e.mesh.parts.filter(p => ["roof", "patch", "skylight"].includes(p.region) && p.positions.some((v, i) => i % 3 === 1 && v > 5)).reduce((t, p) => t + p.indices.length / 3, 0);
+        const intact = sheets({ roofDamage: 0, patches: 0, tower: false }), wrecked = sheets({ roofDamage: 1, patches: 0, tower: false });
+        expect(wrecked).toBeLessThan(intact * 0.6);
+        expect(wrecked).toBeGreaterThan(intact * 0.1);
+        const { n, tris } = plan({ roofDamage: 0 }), up: Vec3 = [0.4, 2, n("zFrame0") + (Math.floor(n("bays") / 2) + 0.5) * n("frameStep")];
+        expect(castRay(tris, up, [0, 1, 0])).toBeLessThan(n("ridge"));
+        expect(castRay(plan({ roofVisible: false }).tris, up, [0, 1, 0])).toBe(Infinity);
+    });
+    it("the mezzanine stair climbs to the deck, and every office has a doorway", () => {
+        for (const values of layouts) {
+            const { n, tris, p } = plan(values);
+            if (!p.mezzanine) continue;
+            for (let k = 0; k < n("nR") - 1; k++) {
+                const top = n("fl") + (k + 1) * n("rR"), z = n("zM") + (n("nR") - 1 - k - 0.5) * n("go");
+                expect(castRay(tris, [n("sx"), top + 0.4, z], [0, -1, 0]), `${JSON.stringify(values)} tread ${k}`).toBeCloseTo(0.4, 3);
+            }
+            expect(castRay(tris, [n("sx"), n("mH") + 0.5, n("zM") - 0.5], [0, -1, 0])).toBeCloseTo(0.5, 3);
+            for (let k = 0; k < n("nOff"); k++) {
+                const x = -n("W2") + n("pw") + (k + 1) * n("ow") - 0.925;
+                expect(castRay(tris, [x, n("fl") + 1, n("zM") + 1], [0, 0, -1]), `${JSON.stringify(values)} office ${k}`).toBeGreaterThan(1.5);
+            }
+        }
+    });
+});
+
+describe("Mesha arcane emporium", () => {
+    const def = lookupObject("architecture.arcane_emporium")!;
+    const plan = planOf(def.id);
+    const layouts: Record<string, unknown>[] = [
+        {}, ...(def.presets ?? []).map(p => p.values), { width: 6.4, depth: 0, towerRadius: 1.5 }, { width: 11, depth: 9.5, towerRadius: 2.4, storeyHeight: 3.5, towerWindows: 6 },
+        { storeyHeight: 0, towerTop: 0, jetty: 0, whimsy: 0 },
+    ];
+    it("the shop door opens into the shop, and the tower opens off it on both floors", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan({ ...values, doorOpen: 90 });
+            const where = JSON.stringify(values);
+            expect(castRay(tris, [n("xD"), n("pl") + 1.2, n("D2") + 5], [0, 0, -1]), where).toBeGreaterThan(5 + n("D2") - n("zP"));
+            for (const y of [n("pl") + 1.2, n("y1") + 1.2]) {
+                expect(castRay(tris, [-n("W2") + 1.2, y, n("zT")], [-1, 0, 0]), `${where} y ${y}`).toBeGreaterThan(1.2 + 0.4);
+            }
+        }
+    });
+    it("the tower's steps climb evenly round the newel to floors at each storey", () => {
+        for (const values of layouts) {
+            const { n, tris } = plan(values);
+            const r = n("ri") * 0.6;
+            for (let f = 0; f < 2; f++) for (let k = 0; k < n("nT"); k++) {
+                const a = (n("th0") + k * n("da")) * Math.PI / 180, top = n("pl") + f * n("H") + (k + 1) * n("rh");
+                const o: Vec3 = [n("xT") + r * Math.cos(a), top + 0.4, n("zT") + r * Math.sin(a)];
+                expect(castRay(tris, o, [0, -1, 0]), `${JSON.stringify(values)} flight ${f} step ${k}`).toBeCloseTo(0.4, 3);
+            }
+            // Step off the top of each flight onto the next floor.
+            for (let f = 1; f <= 2; f++) {
+                const a = (n("thEnd") + 20) * Math.PI / 180;
+                expect(castRay(tris, [n("xT") + r * Math.cos(a), n("pl") + f * n("H") + 0.5, n("zT") + r * Math.sin(a)], [0, -1, 0])).toBeCloseTo(0.5, 3);
+            }
+            expect(n("rh")).toBeLessThanOrEqual(0.19 + 1e-9);
+        }
+    });
+    it("the tower's lancet windows are real openings in its curved wall", () => {
+        for (const values of layouts) {
+            const { e, n, p } = plan(values);
+            const walls = without(e.mesh, ["glass", "iron"]), w = Number(p.towerWindows);
+            for (let k = 0; k < w; k++) {
+                const c = Math.round((k + 0.5) * 60 / w), a = c * 6 * Math.PI / 180, b = a + Math.PI / w;
+                const y = n("yT") + n("sillT") + n("whT") / 2, where = `${JSON.stringify(values)} window ${k}`;
+                expect(castRay(walls, [n("xT") + 0.3 * Math.cos(a), y, n("zT") + 0.3 * Math.sin(a)], [Math.cos(a), 0, Math.sin(a)]), where).toBeGreaterThan(n("rt") - 0.3 + 0.05);
+                expect(castRay(walls, [n("xT") + 0.3 * Math.cos(b), y, n("zT") + 0.3 * Math.sin(b)], [Math.cos(b), 0, Math.sin(b)]), where).toBeCloseTo(n("ri") - 0.3, 1);
+            }
+        }
+    });
+    it("lifting the roofs or cutting the upper floor away opens the rooms to view", () => {
+        const full = plan({}), open = plan({ roofVisible: false }), cut = plan({ cutaway: true });
+        const high = (m: Mesh, region: string) => m.parts.some(p => p.region === region && p.positions.some((v, i) => i % 3 === 1 && v > full.n("yT") + 0.5));
+        expect(high(full.e.mesh, "roof") && high(full.e.mesh, "hat")).toBe(true);
+        expect(high(open.e.mesh, "roof") || high(open.e.mesh, "hat")).toBe(false);
+        const n = full.n, o: Vec3 = [1, n("yT") - 0.5, n("zShop")];
+        expect(castRay(full.tris, o, [0, 1, 0])).toBeLessThan(1);
+        expect(castRay(open.tris, o, [0, 1, 0])).toBe(Infinity);
+        expect(40 - castRay(cut.tris, [1, 40, n("zShop")], [0, -1, 0])).toBeCloseTo(n("pl") + 0.02, 2);
+        expect(cut.e.stats.triangles).toBeLessThan(full.e.stats.triangles * 0.6);
+    });
+});
+
 describe("Mesha variation", () => {
     const chair = lookupObject("furniture.office_chair")!;
     it("is deterministic per seed and respects rules", () => {

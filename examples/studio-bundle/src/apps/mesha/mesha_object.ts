@@ -378,7 +378,12 @@ function evaluateNode(ctx: EvalContext, node: NodeDef, id: string): unknown {
     const count = Math.max(0, Math.min(4096, Math.floor(num(resolveAny(ctx, node.repeat, ctx.root, `${where}.repeat`) as Value))));
     if (output !== "mesh") return count > 0 ? once(withLocals(ctx.root, { index: 0, count })) : [];
     const meshes: Mesh[] = [];
-    for (let index = 0; index < count; index++) meshes.push(once(withLocals(ctx.root, { index, count, t: count > 1 ? index / (count - 1) : 0 })) as Mesh);
+    for (let index = 0; index < count; index++) {
+        const scope = withLocals(ctx.root, { index, count, t: count > 1 ? index / (count - 1) : 0 });
+        // `keep` drops individual copies (a missing roof sheet, a broken pane) where `when` drops the node.
+        if (node.keep !== undefined && !truthy(resolveAny(ctx, node.keep, scope, `${where}.keep`) as Value)) continue;
+        meshes.push(once(scope) as Mesh);
+    }
     return join(...meshes);
 }
 
@@ -498,7 +503,7 @@ export function validateDefinition(def: ObjectDef, lookup: ObjectLookup = () => 
                 walk(n[input.name], `${where}.${input.name}`);
             }
         }
-        for (const k of ["when", "repeat", "at", "rotate", "scale", "rest", "region"]) walk(n[k], `${where}.${k}`);
+        for (const k of ["when", "repeat", "keep", "at", "rotate", "scale", "rest", "region"]) walk(n[k], `${where}.${k}`);
     });
     return problems;
 }

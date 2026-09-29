@@ -103,6 +103,39 @@ function patterned(mat: MaterialPreset, uv: [number, number]): { mat: MaterialPr
     return { mat, dim: 1, leaf: false };
 }
 
+/**
+ * The viewport's world-space surface patterns, approximated for contact sheets: corrugated ribs bend
+ * the normal, rust mottles the color toward the ground, panels draw hull seams. Glow is handled by
+ * the caller (it isn't lit at all).
+ */
+function worldPatterned(mat: MaterialPreset, n: Vec3, p: Vec3): { mat: MaterialPreset; n: Vec3 } {
+    let color: [number, number, number] = [mat.color[0], mat.color[1], mat.color[2]];
+    let roughness = mat.roughness, metallic = mat.metallic;
+    if (mat.pattern === "corrugated" || mat.pattern === "rustyCorrugated") {
+        const t: Vec3 = Math.abs(n[1]) < 0.85 ? normalize3(cross3(n, [0, 1, 0])) : [1, 0, 0];
+        const s = dot3(p, t) * 82;
+        // Too fine to resolve at contact-sheet size: keep a hint of the ribs as banding.
+        n = normalize3(add3(n, scale3(t, Math.sin(s) * 0.25)));
+        color = color.map(c => c * (0.94 + 0.06 * Math.cos(s))) as [number, number, number];
+    } else if (mat.pattern === "panels") {
+        const vertical = Math.abs(n[1]) < 0.7;
+        const u = vertical ? dot3(p, normalize3(cross3(n, [0, 1, 0]))) : p[0], w = vertical ? p[1] : p[2];
+        const eu = Math.abs(u / 1.2 - Math.round(u / 1.2)) * 1.2, ew = Math.abs(w / 0.8 - Math.round(w / 0.8)) * 0.8;
+        if (Math.min(eu, ew) < 0.012) color = color.map(c => c * 0.6) as [number, number, number];
+    }
+    if (mat.pattern === "rust" || mat.pattern === "rustyCorrugated") {
+        const blot = (noise3(p[0] * 2.6 + 3.1, p[1] * 2.6, p[2] * 2.6 + 1.7) * 0.5 + 0.5) * 0.7 + (noise3(p[0] * 9, p[1] * 9, p[2] * 9) * 0.5 + 0.5) * 0.3;
+        const streak = noise3((p[0] + p[2]) * 11, p[1] * 0.7, 2.3) * 0.5 + 0.5;
+        const low = 1 - clamp01(p[1] / 1.2);
+        const amount = Math.min(0.85, clamp01((blot - 0.5) / 0.25) * 0.8 + clamp01((streak - 0.55) / 0.35) * 0.45 + low * 0.2);
+        const rust = [0.4, 0.22, 0.12];
+        color = color.map((c, k) => c + (rust[k] - c) * amount) as [number, number, number];
+        roughness = roughness + (0.9 - roughness) * amount;
+        metallic = metallic * (1 - amount);
+    }
+    return { mat: { ...mat, color, roughness, metallic }, n };
+}
+
 export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, options: RasterOptions = {}): Image {
     const ss = options.ss ?? 2;
     const W = (options.width ?? 320) * ss, H = (options.height ?? 320) * ss;
@@ -211,6 +244,11 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                         const lin = pm.mat.color.map(srgbToLinear);
                         col = [col[0] + lin[0] * through, col[1] + lin[1] * through * 1.12, col[2] + lin[2] * through * 0.62];
                     }
+                } else if (t.mat.pattern === "glow") {
+                    col = t.mat.color.map(c => srgbToLinear(c) * 2.4) as Vec3;
+                } else if (t.mat.pattern === "corrugated" || t.mat.pattern === "rustyCorrugated" || t.mat.pattern === "rust" || t.mat.pattern === "panels") {
+                    const wpm = worldPatterned(t.mat, n, wp);
+                    col = shade(wpm.mat, wpm.n, view, occ);
                 } else col = shade(t.mat, n, view, occ);
                 const o = idx * 3;
                 color[o] = col[0]; color[o + 1] = col[1]; color[o + 2] = col[2];
