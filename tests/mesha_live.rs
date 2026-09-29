@@ -245,7 +245,8 @@ fn mesha_live_feature() {
     assert_eq!(saved[41]["values"], factory_varied["values"]);
 
     // Arcane emporium: more crystals add geometry, lifting the roofs and cutting away the upper
-    // floor take it away; Variation keeps the shop's size and finishes.
+    // floor take it away; Variation keeps the shop's size, tower and finishes (the tower's radius sets
+    // the least depth, so it is locked with the size).
     let twilight = &reply("mesha_add", 41)["instance"];
     assert_eq!(twilight["objectId"], "architecture.arcane_emporium");
     assert_eq!(twilight["violations"].as_array().unwrap().len(), 0, "{twilight:#}");
@@ -259,7 +260,7 @@ fn mesha_live_feature() {
     assert_eq!(saved[42]["values"]["cutaway"], true);
     let apothecary = &reply("mesha_add", 42)["instance"];
     let apothecary_varied = &reply("mesha_vary", 8)["instance"];
-    for key in ["width", "depth", "storeyHeight", "jetty", "pitch", "whimsy", "stoneFinish", "roofFinish", "hatFinish", "glowFinish"] {
+    for key in ["width", "depth", "storeyHeight", "jetty", "pitch", "whimsy", "towerRadius", "hatHeight", "stoneFinish", "roofFinish", "hatFinish", "glowFinish"] {
         assert_eq!(apothecary_varied["values"][key], apothecary["values"][key], "locked emporium control moved: {key}");
     }
     assert!(reply("mesha_vary", 8)["changed"].as_array().unwrap().len() >= 2);

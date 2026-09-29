@@ -335,7 +335,7 @@ Feature: Mesha in the real window
     And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12, "lighting": "daylight"}
     And I advance 8 frames
     Then I capture "67-arcane-apothecary"
-    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:materials"], "locked": true}
+    When I call the tool "mesha_lock" with {"keys": ["group:size", "group:tower", "group:materials"], "locked": true}
     And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 8}
     And I call the tool "mesha_view" with {"yaw": 30, "pitch": 12}
     And I advance 8 frames
