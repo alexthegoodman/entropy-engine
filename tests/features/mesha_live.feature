@@ -11,7 +11,7 @@ Feature: Mesha in the real window
     When I advance 30 frames
     Then I see the label "Add object"
     And I see the label "Scene"
-    And I see the label "Zoom strength"
+    And I see the label "Zoom"
     And I capture "01-office-chair"
 
   Scenario: Variation keeps what is locked

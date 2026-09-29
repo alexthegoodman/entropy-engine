@@ -239,7 +239,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `UI.selectDialogueOption(index)` | Programmatically picks a dialogue-tree option (see `DialogueSystem` under Behaviors). |
 | `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. `label`/`button` take optional `fontSize` (default 14) and `alpha` (0-1, for a caller-driven fade - there is no engine-side tweening) overrides; `button` also takes `frame: false` for a borderless icon-tile look (fill/border only appear on hover), `selected` for a toggle that is on, `accent` (RGBA) for the one filled primary action in a bar, and `minWidth`. `label` also takes `color`, `monospace` (fixed-width digits for a readout that changes as you watch) and `wrap` (break at spaces to fit the width). |
 | `Widget.slider` / `numericInput` | Drag-to-adjust and type-a-number inputs for numeric values. |
-| `Widget.knob` | A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up raises the value, down lowers it); label and value are drawn on the knob itself rather than beside it. |
+| `Widget.knob` | A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up raises the value, down lowers it). Set `size: "small"` for a compact horizontal layout with left label, smaller dial, and right value. |
 | `Widget.dropdown` | A select-one-of-N dropdown. |
 | `Widget.segmented` | Two to five mutually exclusive options as one row of buttons, where a dropdown would hide them. Same `options`/`selectedIndex`/`onChange` as `dropdown`, plus `label`, `compact` and an `accent` tint. |
 | `Widget.colorInput` | An RGBA color swatch/cycler. |
@@ -530,7 +530,7 @@ compose several into a scene and export ordinary GLB geometry. `npm run test:mes
 `cargo test --release --test mesha_live -- --nocapture` drives the real one.
 
 Mesha viewport: drag the gizmo arrows to move or its rings to rotate (no scale handles).
-Right-drag orbits, middle-drag pans, and the wheel zooms. The toolbar's **Zoom strength** knob
+Right-drag orbits, middle-drag pans, and the wheel zooms. The toolbar's **Zoom** knob
 sets a saved 0.1x-3x sensitivity multiplier; scrolling over GUI panels does not zoom the scene.
 Transform drags keep object meshes
 resident on the GPU; contact shadows refresh when the drag ends.

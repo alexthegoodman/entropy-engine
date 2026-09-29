@@ -973,6 +973,8 @@ export interface SliderConfig extends NumericExtras {
     id?: string;
 }
 
+export type KnobSize = "normal" | "small";
+
 /** A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up
  *  raises the value, down lowers it); there is no fixed track to click a position on, so unlike
  *  `slider` a click alone does not move it. Label and value are drawn on the knob itself. */
@@ -981,6 +983,8 @@ export interface KnobConfig extends NumericExtras {
     value: number;
     min: number;
     max: number;
+    /** Layout size: "normal" (default stacked) or "small" (horizontal compact layout). */
+    size?: KnobSize;
     onChange?: (value: string) => void;
     id?: string;
 }

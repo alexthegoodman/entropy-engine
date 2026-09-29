@@ -762,7 +762,7 @@ function nextWidgetId(windowId, label, explicitId) {
 // Presentation options any widget config may carry (tooltip, shortcut, unit, defaultValue,
 // step, decimals, min, max, speed, disabled, selected). Sent as an `Extras` entry right before
 // the widget itself - see `UiWidget::Extras` in addon_ops.rs.
-const WIDGET_EXTRA_KEYS = ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed", "disabled", "selected", "accent", "color", "monospace", "minWidth", "wrap"];
+const WIDGET_EXTRA_KEYS = ["tooltip", "shortcut", "unit", "defaultValue", "step", "decimals", "min", "max", "speed", "disabled", "selected", "accent", "color", "monospace", "minWidth", "wrap", "size"];
 function emitWidgetExtras(windowId, config, only) {
     if (!config || typeof config !== 'object') return;
     let extras = null;
@@ -1348,7 +1348,7 @@ globalThis.Entropy = {
                 const max = config?.max || 100;
                 const id = nextWidgetId(windowId, label, config?.id);
 
-                emitWidgetExtras(windowId, config, ["unit", "defaultValue", "step", "decimals"]);
+                emitWidgetExtras(windowId, config, ["unit", "defaultValue", "step", "decimals", "size"]);
                 ops.op_ui_widget_knob(windowId, label, value, min, max, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },

@@ -607,7 +607,7 @@ function renderToolbar(): void {
         W.button(id, { id: "mesha-export", text: Icons.label("export", "Export GLB"), accent: ACCENT, tooltip: "Every object as ordinary meshes, one per material", onClick: () => exportScene() });
         W.spacer(id, 12);
         W.knob(id, {
-            id: "mesha-zoom-strength", label: "Zoom strength", value: zoomStrength, min: 0.1, max: 3,
+            id: "mesha-zoom-strength", label: "Zoom", value: zoomStrength, min: 0.1, max: 3, size: "small",
             defaultValue: 1, unit: "x", step: 0.1, decimals: 1,
             onChange: v => {
                 zoomStrength = Math.max(0.1, Math.min(3, Number(v)));

@@ -67,7 +67,7 @@ pub use toast::{Toast, ToastEvent, ToastKind};
 pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widgets, slate_style, style_from_theme};
 pub use ui::{FocusOptions, InnerResponse, Ui};
 pub use context::InputState;
-pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, Knob, ScrollArea, Slider};
+pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, Knob, KnobSize, ScrollArea, Slider};
 pub use widgets_analysis::{LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, ScopeMode, ScopeOptions, ScopeResponse, SpectrumHover, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView};
 pub use widgets_color_picker::ColorPicker;
 pub use widgets_doc_editor::{DocEditor, DocEditorCommand, DocEditorResponse, DocEditorState, PageConfig, PageEntry, PageLayout};

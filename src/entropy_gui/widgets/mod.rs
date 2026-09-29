@@ -36,7 +36,7 @@ pub use button::Button;
 pub use collapsing_header::CollapsingHeader;
 pub use combo_box::ComboBox;
 pub use drag_value::DragValue;
-pub use knob::Knob;
+pub use knob::{Knob, KnobSize};
 pub use scroll_area::ScrollArea;
 pub use slider::{Slider, SliderNumeric};
 pub use value_entry::ValueSpec;

@@ -724,6 +724,8 @@ pub struct WidgetExtras {
     pub wrap: Option<bool>,
     /// Button: at least this wide (lines up a column of actions).
     pub min_width: Option<f32>,
+    /// Knob/widget layout size: "normal" (default) or "small".
+    pub size: Option<String>,
 }
 
 /// `Widget.bar(...)`: a full-width, fixed-height strip with left / centre / right zones.

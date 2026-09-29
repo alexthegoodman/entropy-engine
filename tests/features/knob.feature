@@ -55,3 +55,16 @@ Feature: The knob drags to a new value and shows it as a filled arc
     And a frame is drawn
     Then I save the picture "knob-full"
     And "knob-empty" and "knob-full" look different
+
+  Scenario: A small knob lays out horizontally with label on left and value on right
+    Given a small knob with label "Zoom" from 0 to 10 starting at 1 with unit "x"
+    When a frame is drawn
+    Then the knob is horizontal and more wide than tall
+    And I save the picture "knob-small"
+
+  Scenario: Dragging a small knob up raises the value
+    Given a small knob with label "Zoom" from 0 to 10 starting at 1 with unit "x"
+    When I press the knob
+    And I drag the pointer up 72 points
+    And I release the pointer
+    Then the value is 5

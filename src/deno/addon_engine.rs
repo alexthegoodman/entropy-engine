@@ -4256,6 +4256,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if let Some(d) = extras.default_value { knob = knob.default_value(d); }
                     if let Some(st) = extras.step { knob = knob.step(st); }
                     if let Some(dp) = extras.decimals { knob = knob.decimals(dp as usize); }
+                    if let Some(sz) = &extras.size {
+                        if sz == "small" {
+                            knob = knob.size(egui::KnobSize::Small);
+                        }
+                    }
                     if ui.add(knob).changed() {
                         let payload = format!("{}|{}", knob_id, current_value);
                         events_to_push.push(payload);

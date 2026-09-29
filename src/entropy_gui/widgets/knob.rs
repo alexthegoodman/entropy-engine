@@ -10,6 +10,7 @@
 
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::geometry::{pos2, vec2, Align2, Rect};
+use crate::entropy_gui::painter::Painter;
 use crate::entropy_gui::response::{Response, Sense};
 use crate::entropy_gui::ui::Ui;
 use crate::entropy_gui::FontId;
@@ -27,11 +28,32 @@ const START_ANGLE: f32 = std::f32::consts::PI * 0.75;
 /// is deliberately dead space - it is where a real knob's finger-grip notch would be.
 const SWEEP: f32 = std::f32::consts::PI * 1.5;
 
+/// Sizing and layout style for a [`Knob`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KnobSize {
+    /// Standard stacked layout: label above dial, value below dial.
+    #[default]
+    Normal,
+    /// Compact horizontal layout: label on the left, smaller dial in the middle, value on the right.
+    Small,
+}
+
+impl KnobSize {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "small" => Self::Small,
+            _ => Self::Normal,
+        }
+    }
+}
+
 pub struct Knob<'a, T: SliderNumeric> {
     value: &'a mut T,
     spec: ValueSpec,
     text: Option<String>,
-    diameter: f32,
+    diameter: Option<f32>,
+    size: KnobSize,
     tooltip: bool,
 }
 
@@ -40,7 +62,14 @@ impl<'a, T: SliderNumeric> Knob<'a, T> {
         let min = range.start().to_f32();
         let max = range.end().to_f32();
         let integer = T::from_f32(0.5).to_f32() != 0.5;
-        Self { value, spec: ValueSpec { min, max, integer, ..Default::default() }, text: None, diameter: 42.0, tooltip: true }
+        Self {
+            value,
+            spec: ValueSpec { min, max, integer, ..Default::default() },
+            text: None,
+            diameter: None,
+            size: KnobSize::Normal,
+            tooltip: true,
+        }
     }
 
     pub fn text(mut self, t: impl Into<String>) -> Self {
@@ -48,8 +77,19 @@ impl<'a, T: SliderNumeric> Knob<'a, T> {
         self
     }
 
+    /// Sets the layout and size mode.
+    pub fn size(mut self, size: KnobSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Convenience helper for compact horizontal small layout.
+    pub fn small(self) -> Self {
+        self.size(KnobSize::Small)
+    }
+
     pub fn diameter(mut self, d: f32) -> Self {
-        self.diameter = d.max(20.0);
+        self.diameter = Some(d.max(12.0));
         self
     }
 
@@ -85,18 +125,58 @@ impl<'a, T: SliderNumeric> Knob<'a, T> {
 
 impl<'a, T: SliderNumeric> Widget for Knob<'a, T> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let Knob { value, spec, text, diameter, tooltip } = self;
+        let Knob { value, spec, text, diameter: explicit_diameter, size, tooltip } = self;
+        let is_small = matches!(size, KnobSize::Small);
+        let diameter = explicit_diameter.unwrap_or(if is_small { 22.0 } else { 42.0 });
+        let radius = diameter / 2.0;
         let (min, max) = (spec.min, spec.max);
         let label_font = FontId::proportional(11.0);
-        let label_h = if text.is_some() { 14.0 } else { 0.0 };
-        let value_h = 13.0;
-        let width = diameter.max(56.0);
-        let height = label_h + diameter + value_h + 4.0;
-        let (rect, mut response) = ui.allocate_response(vec2(width, height), Sense::click_and_drag());
-        let ctx = ui.ctx().clone();
-        let value_rect = Rect::from_min_size(pos2(rect.min.x, rect.max.y - value_h - 3.0), vec2(width, value_h + 4.0));
-
         let cur = value.to_f32();
+        let ctx = ui.ctx().clone();
+
+        let (rect, mut response, value_rect, center) = if is_small {
+            let (label_w, label_h) = if let Some(ref l) = text {
+                let s = Painter::measure_text(&ctx, label_font, l);
+                (s.x, s.y)
+            } else {
+                (0.0, 0.0)
+            };
+            let label_gap = if label_w > 0.0 { 6.0 } else { 0.0 };
+            let val_sample = spec.format(cur);
+            let val_size = Painter::measure_text(&ctx, label_font, &val_sample);
+            let val_w = val_size.x.max(22.0);
+            let val_gap = 6.0;
+
+            let width = label_w + label_gap + diameter + val_gap + val_w;
+            let height = diameter.max(ui.style().spacing.interact_size.y).max(label_h).max(13.0);
+            let (rect, response) = ui.allocate_response(vec2(width, height), Sense::click_and_drag());
+
+            let center_x = rect.min.x + label_w + label_gap + radius;
+            let center_y = rect.center().y;
+            let center = pos2(center_x, center_y);
+
+            let val_start_x = center_x + radius + val_gap;
+            let val_rect = Rect::from_min_size(
+                pos2(val_start_x - 2.0, center_y - 8.5),
+                vec2(val_w + 4.0, 17.0),
+            );
+
+            (rect, response, val_rect, center)
+        } else {
+            let label_h = if text.is_some() { 14.0 } else { 0.0 };
+            let value_h = 13.0;
+            let width = diameter.max(56.0);
+            let height = label_h + diameter + value_h + 4.0;
+            let (rect, response) = ui.allocate_response(vec2(width, height), Sense::click_and_drag());
+
+            let val_rect = Rect::from_min_size(
+                pos2(rect.min.x, rect.max.y - value_h - 3.0),
+                vec2(width, value_h + 4.0),
+            );
+            let center = pos2(rect.center().x, rect.min.y + label_h + radius);
+
+            (rect, response, val_rect, center)
+        };
 
         let typing = value_entry::entry_active(&ctx, response.id);
         if typing {
@@ -135,8 +215,6 @@ impl<'a, T: SliderNumeric> Widget for Knob<'a, T> {
 
         let visuals = ui.visuals();
         let painter = ui.painter();
-        let center = pos2(rect.center().x, rect.min.y + label_h + diameter / 2.0);
-        let radius = diameter / 2.0;
 
         let arc = |from_t: f32, to_t: f32, stroke: Stroke, r: f32| {
             const STEPS: usize = 24;
@@ -154,32 +232,46 @@ impl<'a, T: SliderNumeric> Widget for Knob<'a, T> {
         painter.circle_filled(center, radius, visuals.widgets.inactive.bg_fill);
         painter.circle_stroke(center, radius, Stroke::new(1.0, visuals.widgets.inactive.bg_stroke.color));
         if response.has_focus() && ctx.focus_visible() {
-            painter.circle_stroke(center, radius + 3.0, Stroke::new(2.0, visuals.selection.stroke.color));
+            painter.circle_stroke(center, radius + if is_small { 2.0 } else { 3.0 }, Stroke::new(if is_small { 1.5 } else { 2.0 }, visuals.selection.stroke.color));
         }
-        let track_r = radius - 4.0;
-        arc(0.0, 1.0, Stroke::new(2.5, visuals.widgets.inactive.bg_stroke.color.linear_multiply(1.6)), track_r);
+        let track_r = if is_small { (radius - 2.5).max(3.0) } else { radius - 4.0 };
+        let arc_stroke = if is_small { 2.0 } else { 2.5 };
+        arc(0.0, 1.0, Stroke::new(arc_stroke, visuals.widgets.inactive.bg_stroke.color.linear_multiply(1.6)), track_r);
         if t > 0.0 {
             let ring_color = if response.dragged() || response.hovered() || response.has_focus() { visuals.selection.stroke.color } else { visuals.selection.bg_fill };
-            arc(0.0, t, Stroke::new(2.5, ring_color), track_r);
+            arc(0.0, t, Stroke::new(arc_stroke, ring_color), track_r);
         }
         // A tick where the default sits, so "back to default" has a visible target.
         if let (Some(d), true) = (spec.default, max > min) {
             let dt = ((d - min) / (max - min)).clamp(0.0, 1.0);
             let a = START_ANGLE + dt * SWEEP;
-            let (r0, r1) = (radius + 1.0, radius + 4.0);
+            let (r0, r1) = if is_small { (radius + 1.0, radius + 3.0) } else { (radius + 1.0, radius + 4.0) };
             painter.line_segment([pos2(center.x + r0 * a.cos(), center.y + r0 * a.sin()), pos2(center.x + r1 * a.cos(), center.y + r1 * a.sin())], Stroke::new(1.5, Color32::from_gray(150)));
         }
 
         let angle = START_ANGLE + t * SWEEP;
-        let tip = pos2(center.x + (radius - 6.0) * angle.cos(), center.y + (radius - 6.0) * angle.sin());
+        let tip_r = if is_small { (radius - 3.0).max(2.0) } else { radius - 6.0 };
+        let tip = pos2(center.x + tip_r * angle.cos(), center.y + tip_r * angle.sin());
         let pointer_color = visuals.override_text_color.unwrap_or(Color32::from_gray(235));
-        painter.line_segment([center, tip], Stroke::new(2.0, pointer_color));
+        painter.line_segment([center, tip], Stroke::new(if is_small { 1.5 } else { 2.0 }, pointer_color));
 
-        if let Some(label) = &text {
-            painter.text(pos2(rect.center().x, rect.min.y + label_h / 2.0), Align2::CENTER_CENTER, label, label_font, Color32::from_gray(190));
-        }
-        if !typing {
-            painter.text(pos2(rect.center().x, rect.max.y - value_h / 2.0), Align2::CENTER_CENTER, spec.format(value_after), label_font, visuals.override_text_color.unwrap_or(Color32::from_gray(220)));
+        if is_small {
+            if let Some(label) = &text {
+                painter.text(pos2(rect.min.x, center.y), Align2::LEFT_CENTER, label, label_font, Color32::from_gray(190));
+            }
+            if !typing {
+                let val_start_x = center.x + radius + 6.0;
+                painter.text(pos2(val_start_x, center.y), Align2::LEFT_CENTER, spec.format(value_after), label_font, visuals.override_text_color.unwrap_or(Color32::from_gray(220)));
+            }
+        } else {
+            let label_h = if text.is_some() { 14.0 } else { 0.0 };
+            let value_h = 13.0;
+            if let Some(label) = &text {
+                painter.text(pos2(rect.center().x, rect.min.y + label_h / 2.0), Align2::CENTER_CENTER, label, label_font, Color32::from_gray(190));
+            }
+            if !typing {
+                painter.text(pos2(rect.center().x, rect.max.y - value_h / 2.0), Align2::CENTER_CENTER, spec.format(value_after), label_font, visuals.override_text_color.unwrap_or(Color32::from_gray(220)));
+            }
         }
 
         if response.hovered() || response.dragged() {

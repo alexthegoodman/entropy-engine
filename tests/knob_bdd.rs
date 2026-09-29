@@ -31,6 +31,9 @@ struct KnobWorld {
     pointer: Pos2,
     pending: Vec<DrawCommand>,
     images: HashMap<String, RgbaImage>,
+    small: bool,
+    label: String,
+    unit: String,
 }
 
 impl std::fmt::Debug for KnobWorld {
@@ -51,6 +54,9 @@ impl Default for KnobWorld {
             pointer: pos2(0.0, 0.0),
             pending: Vec::new(),
             images: HashMap::new(),
+            small: false,
+            label: "Cutoff".to_string(),
+            unit: String::new(),
         }
     }
 }
@@ -60,8 +66,18 @@ impl KnobWorld {
         let (min, max) = (self.min, self.max);
         let mut val = self.value;
         let mut resp = None;
+        let small = self.small;
+        let label = self.label.clone();
+        let unit = self.unit.clone();
         self.pending = self.h.run(pointer, 0.0, |ui| {
-            resp = Some(ui.add(Knob::new(&mut val, min..=max).text("Cutoff")));
+            let mut k = Knob::new(&mut val, min..=max).text(label);
+            if small {
+                k = k.small();
+            }
+            if !unit.is_empty() {
+                k = k.unit(unit);
+            }
+            resp = Some(ui.add(k));
         });
         let resp = resp.expect("the knob was not drawn");
         self.changed = resp.changed();
@@ -100,7 +116,37 @@ fn a_knob(world: &mut KnobWorld, min: f32, max: f32, start: f32) {
     world.min = min;
     world.max = max;
     world.value = start;
+    world.small = false;
+    world.label = "Cutoff".to_string();
+    world.unit = String::new();
     world.rect = Rect::NOTHING;
+}
+
+#[given(expr = "a small knob with label {string} from {float} to {float} starting at {float} with unit {string}")]
+fn a_small_knob(world: &mut KnobWorld, label: String, min: f32, max: f32, start: f32, unit: String) {
+    world.min = min;
+    world.max = max;
+    world.value = start;
+    world.small = true;
+    world.label = label;
+    world.unit = unit;
+    world.rect = Rect::NOTHING;
+}
+
+#[then("the knob is horizontal and more wide than tall")]
+fn knob_is_horizontal(world: &mut KnobWorld) {
+    world.ensure_frame();
+    assert!(
+        world.rect.width() > world.rect.height(),
+        "small knob should be wider than tall (width: {}, height: {})",
+        world.rect.width(),
+        world.rect.height()
+    );
+    assert!(
+        world.rect.height() <= 24.0,
+        "small knob height should be compact (<= 24.0), got {}",
+        world.rect.height()
+    );
 }
 
 #[when("a frame is drawn")]
