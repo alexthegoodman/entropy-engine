@@ -712,6 +712,8 @@ export interface ScopedAPI {
   Buffer: {
     create: (config: { size: number; usage?: BufferUsage }) => string;
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
+    /** Frees the buffer; meshes already bound to it keep working. Unknown ids are ignored. */
+    destroy: (bufferId: string) => void;
   };
   Compute: {
     createPipeline: (config: ComputePipelineConfig) => string;
@@ -3263,6 +3265,8 @@ export interface EntropyAPI {
   Buffer: {
     create: (config: { size: number; usage?: BufferUsage }) => string;
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
+    /** Frees the buffer; meshes already bound to it keep working. Unknown ids are ignored. */
+    destroy: (bufferId: string) => void;
   };
   Model: {
     // Loads a .glb - `path` resolves as `<dir>/path`, where `<dir>` is whatever directory

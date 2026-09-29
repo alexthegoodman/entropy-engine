@@ -25,8 +25,18 @@ export type ChunkDetail =
 // { mode: "explicit", verticesPerLevel: [17, 17, 17, 17, 17, 17, 17, 17] } // works, but low max
 //
 // Valid counts: 3-257 vertices per side, including endpoints (64 gives a 62x62 interior).
-// Valid level counts: 1-13, including the root. Halving rounds down, with a minimum of 3.
+// Valid level counts: 1-18, including the root. Halving rounds down, with a minimum of 3.
+//
+// Planet scale: the planets are 58-100 km in radius, so a root face is 90-160 km across and each
+// level halves that. Fourteen levels put Verdant's leaf chunks at ~19 m (0.3 m between vertices
+// with 64 per side), fine enough for the rocks and stones you walk over; fewer levels leave the
+// ground coarse underfoot (eight levels would make Verdant's leaves ~1.2 km).
 // Applies to every planet unless its PlanetDef.chunkDetail or runtime config overrides it.
 // export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = undefined;
 
-export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = { mode: "explicit", verticesPerLevel: [64, 32, 16, 16, 16, 16, 8, 8] };
+// Leaf (level 13, ~19 m chunks on Verdant) first, root face last. The few coarsest chunks (what
+// you see from orbit, tens of kilometers each) get more vertices so coastlines and the limb
+// don't turn blocky; there are only a few dozen of them, so they are cheap.
+export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = {
+    mode: "explicit", verticesPerLevel: [64, 32, 32, 32, 32, 32, 32, 32, 32, 48, 48, 64, 64, 64],
+};

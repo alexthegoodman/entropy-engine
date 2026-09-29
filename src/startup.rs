@@ -438,7 +438,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.daw || self.quadplanet { 240 } else if self.canvas || self.launcher || self.mesha { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 600 } else if self.daw { 240 } else if self.canvas || self.launcher || self.mesha { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

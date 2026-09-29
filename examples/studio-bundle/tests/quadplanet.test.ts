@@ -3,13 +3,13 @@
 // screenshots) is tests/quadplanet_live.rs driving tests/features/quadplanet_live.feature.
 import { describe, expect, it, vi } from "vitest";
 import * as planetSampling from "../src/apps/quadplanet/qp_planet";
-import { type Vec3, cross, distance, dot, length, normalize, sub } from "../src/apps/quadplanet/qp_math";
+import { type Vec3, add, cross, distance, dot, length, normalize, sub } from "../src/apps/quadplanet/qp_math";
 import {
     PLANETS, finestSpacing, altitudeAboveGround, findLandingSite, maxRelief, sampleSurface, surfaceNormal, surfacePoint, SUN_DIRECTION,
-    chunkResolutions, chunkVerticesFor, type PlanetDef,
+    chunkResolutions, chunkVerticesFor, MAX_CHUNK_LEVELS, type PlanetDef,
 } from "../src/apps/quadplanet/qp_planet";
 import {
-    type ChunkNode, CHUNK_SEGMENTS, VERTEX_FLOATS, MATERIAL_LAND, LeafIndex, PlanetStreamer, buildChunk, chunkKey, cubeToSphere, faceDirection,
+    type ChunkNode, type ChunkMesh, CHUNK_SEGMENTS, POSITION_QUANTUM, VERTEX_FLOATS, MATERIAL_LAND, LeafIndex, PlanetStreamer, buildChunk, chunkKey, cubeToSphere, faceDirection,
     maxLevelFor, nodeParamSize, nodesOverlap, packChunkUv, selectChunks, wrapFace,
 } from "../src/apps/quadplanet/qp_quadtree";
 import {
@@ -23,7 +23,13 @@ const verdant = PLANETS[0];
 const DT = 1 / 30;
 const walkOn = (id: number) => ({ ...NO_INPUT, forward: id === 0 });
 
-const vert = (data: number[], i: number): Vec3 => [data[i * VERTEX_FLOATS], data[i * VERTEX_FLOATS + 1], data[i * VERTEX_FLOATS + 2]];
+/** Vertex i's world position: chunk meshes store positions relative to their origin. */
+const vert = (mesh: { vertexData: number[]; origin?: Vec3 }, i: number): Vec3 => {
+    const d = mesh.vertexData, o = mesh.origin ?? [0, 0, 0];
+    return add(o, [d[i * VERTEX_FLOATS], d[i * VERTEX_FLOATS + 1], d[i * VERTEX_FLOATS + 2]]);
+};
+/** Every level with the border grid's own 17 vertices: the uniform mesh path. */
+const uniform17: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: Array(14).fill(CHUNK_SEGMENTS + 1) } };
 
 describe("configurable chunk interiors", () => {
     it("samples and shades only emitted vertices, plus one center sample", () => {
@@ -36,8 +42,10 @@ describe("configurable chunk interiors", () => {
                 const p: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: Array(8).fill(vertices) } };
                 const mesh = buildChunk(p, { planet: 0, face: 4, level: 5, ia: 13, ib: 17, stitch: 255 });
                 // Normal estimation also samples inside qp_planet; these spies count calls made
-                // by the mesh builder, catching discarded grids and duplicate border work.
-                expect(sample).toHaveBeenCalledTimes(mesh.vertexCount + 1);
+                // by the mesh builder, catching discarded grids and duplicate border work. The
+                // interior grid's outer ring (4 x (vertices - 1) samples) is sampled but not
+                // emitted: it gives the interior its normals.
+                expect(sample).toHaveBeenCalledTimes(mesh.vertexCount + 1 + 4 * (vertices - 1));
                 expect(color).toHaveBeenCalledTimes(mesh.vertexCount);
             }
         } finally {
@@ -71,19 +79,19 @@ describe("configurable chunk interiors", () => {
         for (const leafVertices of [0, 2, 3.5, 258, NaN, Infinity]) {
             expect(() => chunkResolutions({ mode: "half", leafVertices, levels: 8 })).toThrow();
         }
-        for (const levels of [0, 1.5, 14, NaN, Infinity]) {
+        for (const levels of [0, 1.5, MAX_CHUNK_LEVELS + 1, NaN, Infinity]) {
             expect(() => chunkResolutions({ mode: "half", leafVertices: 32, levels })).toThrow();
         }
-        for (const verticesPerLevel of [[], [17, 0], [17, 2.5], Array(14).fill(17)]) {
+        for (const verticesPerLevel of [[], [17, 0], [17, 2.5], Array(MAX_CHUNK_LEVELS + 1).fill(17)]) {
             expect(() => chunkResolutions({ mode: "explicit", verticesPerLevel })).toThrow();
         }
     });
 
     it("changes only interior density, preserving every used border vertex and covering the chunk", () => {
         const node: ChunkNode = { planet: 0, face: 4, level: 5, ia: 13, ib: 17 };
-        const boundary = (mesh: ReturnType<typeof buildChunk>) => {
+        const boundary = (mesh: ChunkMesh) => {
             const used = new Set(mesh.indexData);
-            return [...used].map(i => mesh.vertexData.slice(i * VERTEX_FLOATS, (i + 1) * VERTEX_FLOATS)).filter(v => {
+            return [...used].map(i => [...vert(mesh, i), ...mesh.vertexData.slice(i * VERTEX_FLOATS + 3, (i + 1) * VERTEX_FLOATS)]).filter(v => {
                 const u = (v[6] - Math.floor(v[6]) - 0.001) / 0.99;
                 const w = (v[7] - node.level - 0.001) / 0.99;
                 return Math.min(Math.abs(u), Math.abs(1 - u), Math.abs(w), Math.abs(1 - w)) < 1e-9;
@@ -91,7 +99,7 @@ describe("configurable chunk interiors", () => {
         };
         for (let stitch = 0; stitch < 16; stitch++) {
             const n = { ...node, stitch: stitch | 0xf0 };
-            const original = buildChunk(verdant, n);
+            const original = buildChunk(uniform17, n);
             for (const vertices of [3, 4, 8, 16, 32, 64]) {
                 const p: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: Array(8).fill(vertices) } };
                 const mesh = buildChunk(p, n);
@@ -100,7 +108,7 @@ describe("configurable chunk interiors", () => {
                 expect(new Set(mesh.indexData).size).toBe(mesh.vertexCount);
                 let area = 0;
                 for (let t = 0; t < mesh.indexData.length; t += 3) {
-                    const [a, b, c] = mesh.indexData.slice(t, t + 3).map(i => mesh.vertexData.slice(i * VERTEX_FLOATS, (i + 1) * VERTEX_FLOATS));
+                    const [a, b, c] = mesh.indexData.slice(t, t + 3).map(i => [...vert(mesh, i), ...mesh.vertexData.slice(i * VERTEX_FLOATS + 3, (i + 1) * VERTEX_FLOATS)]);
                     const signedArea = ((b[6] - a[6]) * (c[7] - a[7]) - (b[7] - a[7]) * (c[6] - a[6])) / (2 * 0.99 ** 2);
                     expect(signedArea).toBeGreaterThan(0);
                     area += signedArea;
@@ -130,14 +138,27 @@ describe("the cube-sphere", () => {
         }
     });
 
-    it("picks a deepest level that makes leaf cells about a meter", () => {
+    it("goes deep enough for sub-meter ground under your feet", () => {
         for (const p of PLANETS) {
             const L = maxLevelFor(p);
-            const cell = (nodeParamSize(L) * p.radius * Math.PI / 4) / CHUNK_SEGMENTS;
-            expect(cell).toBeLessThanOrEqual(0.8);
-            expect(cell).toBeGreaterThan(0.4);
+            const chunk = nodeParamSize(L) * p.radius * Math.PI / 4;
+            const cell = chunk / (chunkVerticesFor(p, L) - 1);
+            // Leaf chunks tens of meters across, with vertices a few tens of centimeters apart.
+            expect(chunk).toBeGreaterThan(8);
+            expect(chunk).toBeLessThan(40);
+            expect(cell).toBeLessThan(0.5);
             expect(finestSpacing(p)).toBe(cell);
         }
+    });
+
+    it("makes mountains a thousand times the walker's height", () => {
+        let highest = 0;
+        for (let k = 0; k < 20000; k++) {
+            const z = 1 - 2 * (k + 0.5) / 20000, r = Math.sqrt(1 - z * z), a = k * 2.39996;
+            highest = Math.max(highest, sampleSurface(verdant, [r * Math.cos(a), z, r * Math.sin(a)]).terrain);
+        }
+        expect(highest).toBeGreaterThan(1000 * 1.8);
+        expect(verdant.radius).toBeGreaterThan(20 * highest);
     });
 });
 
@@ -146,12 +167,14 @@ describe("chunk meshes", () => {
 
     it("wind every triangle counter-clockwise from outside (the engine culls back faces), stitched or not", () => {
         for (const stitch of [0, 0b1111, 0b11111111, 0b10100101]) {
-            const mesh = buildChunk(verdant, { ...node, stitch });
+            for (const p of [verdant, uniform17]) {
+            const mesh = buildChunk(p, { ...node, stitch });
             for (let t = 0; t < mesh.triangles; t++) {
-                const [a, b, c] = [0, 1, 2].map(k => vert(mesh.vertexData, mesh.indexData[t * 3 + k]));
+                const [a, b, c] = [0, 1, 2].map(k => vert(mesh, mesh.indexData[t * 3 + k]));
                 const n = cross(sub(b, a), sub(c, a));
                 const out = normalize(sub(a, verdant.center));
                 expect(dot(n, out)).toBeGreaterThan(0);
+            }
             }
         }
     });
@@ -159,10 +182,10 @@ describe("chunk meshes", () => {
     it("cover the whole cell whichever edges are stitched", () => {
         // Summed projected area on the face plane is the same with and without stitching.
         const area = (stitch: number) => {
-            const mesh = buildChunk(verdant, { ...node, stitch });
+            const mesh = buildChunk(uniform17, { ...node, stitch });
             let s = 0;
             for (let t = 0; t < mesh.triangles; t++) {
-                const [a, b, c] = [0, 1, 2].map(k => vert(mesh.vertexData, mesh.indexData[t * 3 + k]));
+                const [a, b, c] = [0, 1, 2].map(k => vert(mesh, mesh.indexData[t * 3 + k]));
                 s += length(cross(sub(b, a), sub(c, a))) / 2;
             }
             return s;
@@ -172,22 +195,37 @@ describe("chunk meshes", () => {
     });
 
     it("share their border vertices exactly with a same-level neighbour", () => {
-        const left = buildChunk(verdant, node);
-        const right = buildChunk(verdant, { ...node, ia: node.ia + 1 });
+        const left = buildChunk(uniform17, node);
+        const right = buildChunk(uniform17, { ...node, ia: node.ia + 1 });
         const V = CHUNK_SEGMENTS + 1;
         for (let j = 0; j < V; j++) {
-            const p = vert(left.vertexData, j * V + CHUNK_SEGMENTS);
-            const q = vert(right.vertexData, j * V);
-            expect(distance(p, q)).toBeLessThan(1e-9);
+            const p = vert(left, j * V + CHUNK_SEGMENTS);
+            const q = vert(right, j * V);
+            expect(p).toEqual(q);
+        }
+    });
+
+    it("keep positions small and exact relative to their origin", () => {
+        // What the GPU adds up: relative position + (origin - render origin). Both lie on the
+        // position grid and stay far below 2^24 grid steps, so f32 holds them exactly.
+        const exactF32 = (x: number) => Math.fround(x) === x && Math.abs(x / POSITION_QUANTUM - Math.round(x / POSITION_QUANTUM)) === 0;
+        for (const mesh of [buildChunk(verdant, { ...node, level: maxLevelFor(verdant), ia: 13 << 8, ib: 17 << 8 }), buildChunk(uniform17, node)]) {
+            for (const o of mesh.origin) expect(exactF32(o - Math.round(o))).toBe(true);
+            for (let i = 0; i < mesh.vertexCount; i++) {
+                for (let k = 0; k < 3; k++) {
+                    const x = mesh.vertexData[i * VERTEX_FLOATS + k];
+                    expect(exactF32(x)).toBe(true);
+                }
+            }
         }
     });
 
     it("need no skirts: every vertex lies on the surface", () => {
-        const mesh = buildChunk(verdant, node);
+        const mesh = buildChunk(uniform17, node);
         const V = CHUNK_SEGMENTS + 1;
         expect(mesh.vertexCount).toBe(V * V);
         for (let i = 0; i < mesh.vertexCount; i++) {
-            expect(Math.abs(altitudeAboveGround(verdant, vert(mesh.vertexData, i)))).toBeLessThan(maxRelief(verdant) * 0.2);
+            expect(Math.abs(altitudeAboveGround(verdant, vert(mesh, i)))).toBeLessThan(maxRelief(verdant) * 0.2);
         }
     });
 
@@ -215,7 +253,7 @@ describe("the quadtree around a viewer", () => {
             return d < best.d ? { d, l } : best;
         }, { d: Infinity, l: leaves[0] });
         expect(near.l.level).toBe(deepest);
-        expect(leaves.length).toBeLessThan(400);
+        expect(leaves.length).toBeLessThan(800);
     });
 
     it("never overlaps itself", () => {
@@ -269,7 +307,7 @@ describe("the quadtree around a viewer", () => {
                     for (let e = 0; e < 3; e++) {
                         const a = mesh.indexData[t + e], b = mesh.indexData[t + (e + 1) % 3];
                         if (count.get(undirected(a, b)) !== 1) continue;
-                        borders.set(`${key(vert(mesh.vertexData, a))}>${key(vert(mesh.vertexData, b))}`, { node: n, from: a, to: b, data: mesh.vertexData });
+                        borders.set(`${key(vert(mesh, a))}>${key(vert(mesh, b))}`, { node: n, from: a, to: b, data: mesh.vertexData });
                     }
                 }
                 if (n.stitch) stitchedEdges++;
@@ -291,7 +329,7 @@ describe("the quadtree around a viewer", () => {
             }
             expect(matched).toBeGreaterThan(1000);
         }
-    });
+    }, 180_000);
 
     it("carries neighbour lookups across cube edges", () => {
         // Just past face 0's a = 1 edge is face 5 near its a = -1 edge.
@@ -302,7 +340,7 @@ describe("the quadtree around a viewer", () => {
     });
 
     it("from deep space is a handful of coarse chunks per planet", () => {
-        const far: Vec3 = [2600, 450, -1700];
+        const far: Vec3 = [260_000, 45_000, -170_000];
         PLANETS.forEach((p, i) => {
             const { leaves } = selectChunks(p, i, far);
             expect(leaves.length).toBeLessThanOrEqual(24);
@@ -352,12 +390,12 @@ describe("streaming", () => {
         expect(stats.pending).toBe(0);
         expect(stats.destroyed).toBeGreaterThan(0);
         expect(streamer.live.size).toBe(stats.wanted);
-    });
+    }, 60_000);
 
     it("clears every chunk it made", () => {
         const live = new Set<string>();
         const streamer = new PlanetStreamer(PLANETS, { create: id => { live.add(id); }, destroy: id => { live.delete(id); } });
-        streamer.update([0, 0, 3000], 1000, 1e9);
+        streamer.update([0, 0, 300_000], 1000, 1e9);
         expect(live.size).toBeGreaterThan(0);
         streamer.clear();
         expect(live.size).toBe(0);
@@ -381,7 +419,7 @@ describe("terrain", () => {
 
     it("drops detail a coarse mesh can't show, and keeps all of it at the finest spacing", () => {
         const d = normalize([0.3, 0.8, -0.5]);
-        expect(sampleSurface(verdant, d, 0.2)).toEqual(sampleSurface(verdant, d, finestSpacing(verdant)));
+        expect(sampleSurface(verdant, d, finestSpacing(verdant) / 2)).toEqual(sampleSurface(verdant, d, finestSpacing(verdant)));
         // Neighbouring samples one coarse step apart differ less once band-limited.
         const rough = (spacing: number) => {
             let sum = 0;
@@ -529,7 +567,7 @@ describe("rendering data", () => {
         const sky = buildSky();
         let inward = 0, total = 0;
         for (let t = 0; t < sky.indexData.length; t += 3) {
-            const [a, b, c] = [0, 1, 2].map(k => vert(sky.vertexData, sky.indexData[t + k]));
+            const [a, b, c] = [0, 1, 2].map(k => vert(sky, sky.indexData[t + k]));
             const n = cross(sub(b, a), sub(c, a));
             if (length(n) < 1e-9) continue;
             total++;

@@ -189,9 +189,13 @@ function stepWalker(s: GameState, input: Input, dt: number, planets: PlanetDef[]
 
 // --- The ship ------------------------------------------------------------------------------------
 
-export const SHIP_THRUST = 55;
-export const SHIP_BOOST = 420;
+// Planets are tens of kilometers across and hundreds apart (qp_planet.ts), so boost is strong:
+// kilometers a second in the air, tens of kilometers a second in space.
+export const SHIP_THRUST = 90;
+export const SHIP_BOOST = 2400;
 export const SHIP_CLIMB = 28;
+/** Shift multiplies the climb rate too: an atmosphere is kilometers deep. */
+export const SHIP_CLIMB_BOOST = 12;
 export const SHIP_YAW_RATE = 1.1;
 export const SHIP_PITCH_RATE = 0.9;
 
@@ -231,12 +235,12 @@ function stepShip(s: GameState, input: Input, dt: number, planets: PlanetDef[]):
     const power = input.boost ? SHIP_BOOST : SHIP_THRUST;
     accel = addScaled(accel, ship.frame.forward, fwd * power);
     const climb = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-    accel = addScaled(accel, inAtmosphere ? radial : ship.frame.up, climb * SHIP_CLIMB);
+    accel = addScaled(accel, inAtmosphere ? radial : ship.frame.up, climb * SHIP_CLIMB * (input.boost ? SHIP_CLIMB_BOOST : 1));
     ship.vel = addScaled(ship.vel, accel, dt);
     // Hover assist cancels gravity; drag keeps it arcade-controllable.
     const drag = inAtmosphere ? 0.9 : 0.12;
     ship.vel = scale(ship.vel, Math.exp(-drag * dt));
-    const maxSpeed = inAtmosphere ? 60 + alt * 1.5 : 1400;
+    const maxSpeed = inAtmosphere ? 90 + alt * 0.8 : 40000;
     const sp = length(ship.vel);
     if (sp > maxSpeed) ship.vel = scale(ship.vel, maxSpeed / sp);
     ship.pos = addScaled(ship.pos, ship.vel, dt);
@@ -268,7 +272,7 @@ function land(s: GameState, planets: PlanetDef[]): void {
 // --- Autopilot -----------------------------------------------------------------------------------
 
 /** Minimum clearance the autopilot keeps above every planet's highest peaks. */
-const CLEARANCE = 60;
+const CLEARANCE = 3000;
 
 function pathClear(a: Autopilot, planets: PlanetDef[]): boolean {
     for (let k = 1; k < 64; k++) {
@@ -295,14 +299,14 @@ export function planAutopilot(s: GameState, target: number, planets: PlanetDef[]
     const land = surfacePoint(B, landDir);
     const upA = upAt(planets[from], ship.pos);
     const span = distance(ship.pos, land);
-    let h = Math.max(span * 0.3, 150);
+    let h = Math.max(span * 0.3, 12000);
     let plan: Autopilot = { target, from, p0: ship.pos, p1: ship.pos, p2: land, p3: land, elapsed: 0, duration: 0, landDir };
     for (let attempt = 0; attempt < 8; attempt++) {
         plan = {
             ...plan,
             p1: addScaled(ship.pos, upA, h),
             p2: addScaled(land, landDir, h),
-            duration: clamp(span / 420, 7, 22),
+            duration: clamp(span / 50000, 8, 15),
         };
         if (pathClear(plan, planets)) break;
         h *= 1.35;
@@ -317,7 +321,7 @@ export function startAutopilot(s: GameState, target: number, planets: PlanetDef[
     const plan = planAutopilot(s, target, planets);
     s.ship.autopilot = plan;
     s.ship.landed = false;
-    s.message = `Autopilot: flying to ${planets[target].name} (${Math.round(distance(plan.p0, plan.p3))} u).`;
+    s.message = `Autopilot: flying to ${planets[target].name} (${Math.round(distance(plan.p0, plan.p3) / 1000)} km).`;
     return plan;
 }
 
@@ -342,7 +346,7 @@ function stepAutopilot(s: GameState, dt: number, planets: PlanetDef[]): void {
     const flat = projectOnPlane(tangent, up);
     const forward = length(flat) > 1e-3 * length(tangent) ? flat : ship.frame.forward;
     ship.frame = makeFrame(lerp(ship.frame.forward, normalize(forward), clamp(dt * 3, 0, 1)), up);
-    ship.thrust = clamp(length(ship.vel) / 400, 0.2, 1);
+    ship.thrust = clamp(length(ship.vel) / 20000, 0.2, 1);
     ship.planet = nearestPlanet(ship.pos, planets);
     if (t >= 1) {
         ship.autopilot = null;
@@ -359,7 +363,7 @@ export function interact(s: GameState, planets: PlanetDef[] = PLANETS): string {
     const ship = s.ship;
     if (s.mode === "walk") {
         const d = distance(s.walker.pos, ship.pos);
-        if (d > BOARD_DISTANCE) { s.message = `The ship is ${Math.round(d)} u away - get within ${BOARD_DISTANCE}.`; return "too-far"; }
+        if (d > BOARD_DISTANCE) { s.message = `The ship is ${Math.round(d)} m away - get within ${BOARD_DISTANCE} m.`; return "too-far"; }
         s.mode = "ship";
         s.rig = { yaw: 0, pitch: 0.22, distance: 24 };
         s.message = ship.landed ? "Aboard. Space or W to lift off; T flies the autopilot to the next planet." : "Aboard.";

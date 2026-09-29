@@ -97,7 +97,7 @@ use crate::deno::addon_ops::{
     op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
-    op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
+    op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
@@ -196,6 +196,7 @@ extension!(
         op_compute_dispatch,
         op_buffer_create,
         op_buffer_write,
+        op_buffer_destroy,
         op_cube_spawn,
         op_model_load,
         op_model_export_glb,
@@ -1232,27 +1233,8 @@ impl AddonEngine {
             context.window_size = [camera.viewport.window_size.width, camera.viewport.window_size.height];
             context.selected_entity_id = renderer_state.selected_entity_id.clone();
 
-            // Apply pending camera changes
-            if let Some(pos) = context.pending_camera_position.take() {
-                camera.position = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
-            }
-            if let Some(up) = context.pending_camera_up.take() {
-                let up = nalgebra::Vector3::new(up[0], up[1], up[2]);
-                if up.norm() > 1e-6 {
-                    camera.up = up.normalize();
-                }
-            }
-            if let Some(target) = context.pending_camera_target.take() {
-                camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();
-            }
-            if let Some((enabled, view_height)) = context.pending_camera_ortho.take() {
-                camera.is_orthographic = enabled;
-                if let Some(view_height) = view_height {
-                    camera.ortho_view_height = view_height;
-                }
-            }
-            camera.update();
-            camera_binding.update_3d(&gpu_resources.queue, camera);
+            // Apply pending camera changes (made during last frame's callbacks, or by tools)
+            apply_pending_camera(context, camera, camera_binding, gpu_resources);
         }
 
         // 0. Execute Entity Behaviors
@@ -1795,6 +1777,17 @@ impl AddonEngine {
                     println!("[ADDON UPDATE ERROR in {}] {}", addon_name, msg);
                 }
             }
+        }
+
+        // A camera set in this frame's update applies to this frame, like the buffers and meshes
+        // the same callback wrote: otherwise the view lags one frame behind them (a chase camera
+        // judders against its target, and an addon that moves its render origin sees everything
+        // jump for a frame).
+        {
+            let mut state = self.runtime.op_state();
+            let mut state = state.borrow_mut();
+            let context = state.borrow_mut::<AddonContext>();
+            apply_pending_camera(context, camera, camera_binding, gpu_resources);
         }
 
         // 1. Process UI Events
@@ -5610,4 +5603,29 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 fn analysis_color(c: [f32; 4]) -> crate::entropy_gui::color::Color32 {
     let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     crate::entropy_gui::color::Color32::from_rgba_unmultiplied(byte(c[0]), byte(c[1]), byte(c[2]), byte(c[3]))
+}
+
+/// Moves `camera` to wherever an addon last asked (`Entropy.Camera.setTransform` /
+/// `setOrthographic`) and uploads it. Nothing pending leaves the camera as it is.
+fn apply_pending_camera(context: &mut AddonContext, camera: &mut SimpleCamera, camera_binding: &mut CameraBinding, gpu_resources: &Arc<GpuResources>) {
+    if let Some(pos) = context.pending_camera_position.take() {
+        camera.position = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+    }
+    if let Some(up) = context.pending_camera_up.take() {
+        let up = nalgebra::Vector3::new(up[0], up[1], up[2]);
+        if up.norm() > 1e-6 {
+            camera.up = up.normalize();
+        }
+    }
+    if let Some(target) = context.pending_camera_target.take() {
+        camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();
+    }
+    if let Some((enabled, view_height)) = context.pending_camera_ortho.take() {
+        camera.is_orthographic = enabled;
+        if let Some(view_height) = view_height {
+            camera.ortho_view_height = view_height;
+        }
+    }
+    camera.update();
+    camera_binding.update_3d(&gpu_resources.queue, camera);
 }
