@@ -30,7 +30,7 @@
 ## Building Entropy and all example addons
 
 From this directory, run `node scripts/build-all.mjs`. It builds the default Studio bundle first
-(which Cargo embeds), then runs `cargo build` alongside all 21 standalone example addon bundles.
+(which Cargo embeds), then runs `cargo build` alongside all 22 standalone example addon bundles.
 Extra arguments go to Cargo, for example `node scripts/build-all.mjs --release --locked`.
 Set `ENTROPY_BUNDLE_JOBS` to change the number of simultaneous Deno bundle processes (default 3).
 You can also run `npm run build:all -- --release` from `examples/studio-bundle`.
@@ -197,6 +197,7 @@ Heightmap terrain, arbitrary 3D landscapes, and the noise fields used to generat
 | `Landscape.getHeightAt(x, z)` | Samples the terrain's height at a world-space point for placing objects on the ground or driving gameplay logic. |
 | `Landscape3D.create(config)` | Builds a terrain using 3D noise, creating unique underhangs, caves, and floating terrain pieces. |
 | `Quadscape.create(config)` | An alternate landscape construction path using a quadtree mesh instead of `Landscape`'s single mesh. |
+| *(example)* QuadPlanet | The same quadtree idea wrapped around whole planets, built in TypeScript on `Model.createMesh`: see the [QuadPlanet example](#quadplanet) and [docs/QUADPLANET.md](docs/QUADPLANET.md). |
 | `Noise.create(config)` | Generates a procedural noise field (Perlin, fractal Brownian motion, etc.) you can feed into terrain heights or textures. |
 
 </details>
@@ -285,7 +286,7 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Input.onStylusDown/Move/Up` | Subscribes to real pressure and tilt pen/stylus input. Windows only; it never fires for mouse or finger touch. |
 | `Input.isKeyPressed` / `isCtrlPressed` / `isShiftPressed` / `isAltPressed` | One-shot polling checks instead of subscribing to events. |
 | `Input.isPointerOverUI()` | True if the cursor is over an Entropy UI window/widget. Check this before treating a click as a world or game interaction, since UI and world input are not otherwise mutually exclusive. |
-| `Camera.getTransform` / `setTransform` | Reads or sets the camera's position and look-at target directly. |
+| `Camera.getTransform` / `setTransform(position, target, up?)` | Reads or sets the camera's position and look-at target directly. The optional `up` vector (world +Y by default, kept until changed) lets a camera stand anywhere on a sphere. |
 | `Camera.setOrthographic(enabled, viewHeight)` | Switches between perspective and true orthographic projection, with constant apparent size regardless of depth, for 2D-style or isometric views. |
 | `Camera.screenToWorldRay(x, y)` | Converts a screen pixel coordinate into a world-space ray, for click-to-pick logic. |
 | `Controls.enable("orbit" \| "pan", options)` | Turns on a ready-made camera control scheme (shift-drag-to-orbit, drag-to-pan, configurable trigger/buttons/speed/pitch limits) instead of wiring `Input` events and spherical math yourself. |
@@ -487,6 +488,10 @@ cargo run --bin example --release -- canvas-surface-demo
 // procedural objects you shape, vary and export as GLB (Mesha)
 npm run build-mesha
 cargo run --bin example --release -- mesha
+
+// quadtree planets you walk on, and a ship to fly between them (QuadPlanet)
+npm run build-quadplanet
+cargo run --bin example --release -- quadplanet
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,
@@ -502,6 +507,19 @@ subtitle path. The controls cover seek, volume, speed, repeat, captions and full
 `cargo test --release --test video_export_live -- --nocapture` exports the `video-export-demo` clip
 and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
 by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
+
+<a id="quadplanet"></a>
+**QuadPlanet** ([how it works](docs/QUADPLANET.md)) wraps the QuadScape quadtree terrain around
+whole planets. Three of them (green Verdant with oceans, red desert Ember, frozen Glacia) are each
+six cube-face quadtrees streamed around the camera, from a few coarse chunks seen across space
+down to meter-sized cells under your boots. You start on Verdant next to your ship: walk over
+(W/S, A/D to turn, Shift to run, Space to jump), press **E** to board, lift off with Space or W, and
+fly (W thrust, Shift boost, A/D yaw, arrow keys pitch, Space/C climb and sink) or press **T** (or a
+**Fly to ...** button) for the autopilot, which arcs across to a sunlit landing site on the next
+planet. **E** steps out once landed. Drag to orbit the camera, scroll to zoom, and **L** tints every
+chunk by its quadtree level. `npm run test:quadplanet` runs the TypeScript tier;
+`cargo test --release --test quadplanet_live -- --nocapture` walks, boards, flies to Ember and on
+to Glacia in the real window and checks the captures (under `xvfb-run -a` on a headless box).
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
 library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), gear, bolt and
@@ -609,6 +627,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Entropy Engine / Keyframe Tracks](public/entropy-keyframe-tracks-clip-drag.png "Entropy Engine / Keyframe Tracks") | ![Entropy Drawing Example](public/entropy-stylus-drawing-tilt-hello.png "Entropy Drawing Example") |
 | ![Entropy Engine](public/water1.png "Entropy Engine") | ![Entropy Engine](public/image-3.png "Entropy Engine") |
 | ![Entropy Multi-Page Documents](public/entropy-doc-editor-pagination.png "Entropy Multi-Page Documents") | ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") |
+| ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
 
 ## MCP
 
