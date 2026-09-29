@@ -48,7 +48,7 @@ Feature: QuadPlanet in the real window
     And I capture "06-walking-on-ember"
 
   Scenario: The quadtree seen from orbit
-    When I call the tool "quadplanet_view" with {"mode": "orbit", "planet": "Ember", "distance": 1.9}
+    When I call the tool "quadplanet_view" with {"mode": "orbit", "planet": "Ember", "distance": 1.35}
     And I call the tool "quadplanet_config" with {"debugLod": true}
     And I advance 30 frames
     Then I call the tool "quadplanet_state"

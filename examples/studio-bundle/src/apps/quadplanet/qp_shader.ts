@@ -11,8 +11,9 @@
 // - The ship and walker: painted, glass and glowing (engine) surfaces, placed by a per-object
 //   model matrix so they move without re-uploading geometry.
 //
-// Material ids ride in uv.x (see qp_quadtree.ts / qp_models.ts); uv.y is the chunk's LOD level
-// (0..1) for the debug tint.
+// Material ids ride in uv.x's integer part and the chunk's quadtree level in uv.y's; terrain
+// chunks put their local grid position in the fractions (qp_quadtree.ts packChunkUv) so the debug
+// view can color each level and outline each chunk.
 
 /** Floats in the World uniform (9 vec4). */
 export const WORLD_FLOATS = 36;
@@ -88,7 +89,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    let material = i32(round(in.tex_coords.x));
+    let material = i32(floor(in.tex_coords.x + 0.0005));
     if (material == 9) {
         // The sky sphere rides with the camera and sits at the far end of the depth range.
         let w = camera.view_pos.xyz + in.position * 30000.0;
@@ -149,7 +150,7 @@ struct Haze { light: vec3<f32>, transmit: f32 };
 
 // k is the scattering strength: the sky integrates the whole shell (k ~ 1.2), while the haze in
 // front of terrain is much lighter (k ~ 0.1) or the ground would vanish a few hundred meters out.
-// `extinction` is how much lit air hides what is behind it: strongly for stars (they vanish by
+// extinction is how much lit air hides what is behind it: strongly for stars (they vanish by
 // day), no more than the haze adds for terrain (it fades into the haze, not into black).
 fn atmosphere_segment(o: vec3<f32>, d: vec3<f32>, i: i32, t_max: f32, k: f32, extinction: f32) -> Haze {
     var out: Haze;
@@ -216,14 +217,15 @@ fn finish(c: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(pow(aces(c * world.params.x), vec3<f32>(1.0 / 2.2)), 1.0);
 }
 
-fn lod_color(t: f32) -> vec3<f32> {
-    let k = t * 5.0;
+// A distinct hue per quadtree level (golden-ratio steps around the color wheel).
+fn lod_color(level: f32) -> vec3<f32> {
+    let k = fract(level * 0.618034 + 0.08) * 6.0;
     return clamp(vec3<f32>(abs(k - 3.0) - 1.0, 2.0 - abs(k - 2.0), 2.0 - abs(k - 4.0)), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let material = i32(round(in.uv.x));
+    let material = i32(floor(in.uv.x + 0.0005));
     let cam = camera.view_pos.xyz;
     let sun = normalize(world.sun_dir.xyz);
     let count = i32(world.params.z);
@@ -281,7 +283,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             col = col + atmo * fres * 0.5 * day;
         }
         if (world.params.y > 0.5 && material <= 2) {
-            col = mix(col, lod_color(in.uv.y) * (0.35 + 0.65 * lit + 0.15), 0.55);
+            let level = floor(in.uv.y + 0.0005);
+            let local = vec2<f32>(in.uv.x - f32(material), in.uv.y - level);
+            let tint = linear(lod_color(level)) * (0.25 + 0.75 * lit + 0.1);
+            col = mix(col, tint, 0.6);
+            // Outline every chunk: darken within ~1.5 pixels of its border.
+            let edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));
+            let line = 1.0 - smoothstep(0.0, max(fwidth(edge) * 1.5, 0.0001), edge - 0.001);
+            col = mix(col, vec3<f32>(0.01), line * 0.85);
         }
     }
 

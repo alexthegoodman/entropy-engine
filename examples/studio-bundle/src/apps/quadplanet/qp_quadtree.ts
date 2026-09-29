@@ -29,6 +29,14 @@ export const CHUNK_SEGMENTS = 16;
 /** Floats per vertex: position(3) normal(3) uv(2) color(4) - the engine's `Vertex` layout. */
 export const VERTEX_FLOATS = 12;
 
+/**
+ * An integer id plus a [0, 1] fraction in one float: id + 0.001 + 0.99 x fraction. The shader
+ * reads the id as floor(x + 0.0005), so exact integers (the models' materials) decode too.
+ */
+export function packChunkUv(id: number, fraction: number): number {
+    return id + 0.001 + 0.99 * Math.min(1, Math.max(0, fraction));
+}
+
 /** Material ids carried in uv.x, read by the shader. */
 export const MATERIAL_LAND = 0;
 export const MATERIAL_WATER = 1;
@@ -181,7 +189,7 @@ const jitterNoise = new Simplex3(77);
  * neighbouring grid points (one extra ring is sampled beyond the chunk, so chunks of the same
  * level agree on their shared border's shading), biome vertex colors, and a skirt.
  */
-export function buildChunk(p: PlanetDef, n: ChunkNode, maxLevel: number, segments = CHUNK_SEGMENTS): ChunkMesh {
+export function buildChunk(p: PlanetDef, n: ChunkNode, segments = CHUNK_SEGMENTS): ChunkMesh {
     const N = segments;
     const G = N + 3; // grid with a one-sample border ring
     const size = nodeParamSize(n.level);
@@ -205,12 +213,14 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, maxLevel: number, segment
 
     const vertexData: number[] = [];
     const indexData: number[] = [];
-    const lodTag = n.level / Math.max(1, maxLevel);
     const jf = p.radius / 9;
     const edgeNormals: Vec3[] = [];
     const edgeColors: number[][] = [];
-    const push = (x: Vec3, nn: Vec3, material: number, c: number[]) => {
-        vertexData.push(x[0], x[1], x[2], nn[0], nn[1], nn[2], material, lodTag, c[0], c[1], c[2], 1);
+    // uv carries (material + u, level + v): the integer parts are the material id and the
+    // quadtree level, the fractions the chunk-local grid position (for the LOD debug view's
+    // per-level colors and chunk outlines). See packChunkUv.
+    const push = (x: Vec3, nn: Vec3, material: number, c: number[], u: number, v: number) => {
+        vertexData.push(x[0], x[1], x[2], nn[0], nn[1], nn[2], packChunkUv(material, u), packChunkUv(n.level, v), c[0], c[1], c[2], 1);
     };
     for (let j = 1; j <= N + 1; j++) {
         for (let i = 1; i <= N + 1; i++) {
@@ -224,7 +234,7 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, maxLevel: number, segment
             const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
             // Sea is flat: shade it with the sphere's normal, not the (flat) grid's.
             if (s.sea) nn = d;
-            push(pos[k], nn, material, c);
+            push(pos[k], nn, material, c, (i - 1) / N, (j - 1) / N);
             edgeNormals.push(nn);
             edgeColors.push([c[0], c[1], c[2], material]);
         }
@@ -253,7 +263,7 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, maxLevel: number, segment
             const k = (Math.floor(vi / V) + 1) * G + (vi % V) + 1;
             const x = addScaled(pos[k], dirs[k], -skirtDepth);
             const c = edgeColors[vi];
-            push(x, edgeNormals[vi], c[3], c);
+            push(x, edgeNormals[vi], c[3], c, (vi % V) / N, Math.floor(vi / V) / N);
             next++;
         }
         for (let t = 0; t < N; t++) {
@@ -338,7 +348,7 @@ export class PlanetStreamer {
         let built = 0;
         for (const [key, node] of missing) {
             if (built >= maxBuilds || (built > 0 && Date.now() - started > maxMs)) break;
-            const mesh = buildChunk(this.planets[node.planet], node, this.maxLevel(node.planet));
+            const mesh = buildChunk(this.planets[node.planet], node);
             this.sink.create(key, node, mesh);
             this.live.set(key, { node, triangles: mesh.triangles });
             built++;
