@@ -27,6 +27,8 @@ export interface WorldUniform {
     sunColor: [number, number, number];
     exposure: number;
     debugLod: boolean;
+    /** Outline every chunk (independent of the level tint). */
+    debugOutlines?: boolean;
     planets: { center: [number, number, number]; radius: number; atmosphere: [number, number, number]; atmosphereHeight: number }[];
 }
 
@@ -34,7 +36,7 @@ export function packWorld(w: WorldUniform): Float32Array {
     const out = new Float32Array(WORLD_FLOATS);
     out.set([...w.sunDir, w.time], 0);
     out.set([...w.sunColor, 0], 4);
-    out.set([w.exposure, w.debugLod ? 1 : 0, Math.min(MAX_PLANETS, w.planets.length), 0], 8);
+    out.set([w.exposure, w.debugLod ? 1 : 0, Math.min(MAX_PLANETS, w.planets.length), w.debugOutlines ? 1 : 0], 8);
     for (let i = 0; i < MAX_PLANETS; i++) {
         const p = w.planets[i];
         if (!p) continue;
@@ -59,7 +61,7 @@ struct Camera {
 struct World {
     sun_dir: vec4<f32>,        // xyz, w = time
     sun_color: vec4<f32>,
-    params: vec4<f32>,         // x = exposure, y = LOD debug tint, z = planet count
+    params: vec4<f32>,         // x = exposure, y = LOD debug tint, z = planet count, w = chunk outlines
     planet: array<vec4<f32>, 3>,     // center xyz, radius
     atmosphere: array<vec4<f32>, 3>, // color rgb, shell thickness
 };
@@ -284,13 +286,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         if (world.params.y > 0.5 && material <= 2) {
             let level = floor(in.uv.y + 0.0005);
-            let local = vec2<f32>(in.uv.x - f32(material), in.uv.y - level);
             let tint = linear(lod_color(level)) * (0.25 + 0.75 * lit + 0.1);
             col = mix(col, tint, 0.6);
-            // Outline every chunk: darken within ~1.5 pixels of its border.
+        }
+        if (world.params.w > 0.5 && material <= 2) {
+            // Outline every chunk (a drawn line, not a gap): white, so it can't pass for a crack
+            // showing the dark space behind the ground.
+            let level = floor(in.uv.y + 0.0005);
+            let local = vec2<f32>(in.uv.x - f32(material), in.uv.y - level);
             let edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));
             let line = 1.0 - smoothstep(0.0, max(fwidth(edge) * 1.5, 0.0001), edge - 0.001);
-            col = mix(col, vec3<f32>(0.01), line * 0.85);
+            col = mix(col, vec3<f32>(1.0), line * 0.8);
         }
     }
 

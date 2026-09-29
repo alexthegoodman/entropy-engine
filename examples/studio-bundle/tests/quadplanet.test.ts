@@ -4,11 +4,11 @@
 import { describe, expect, it } from "vitest";
 import { type Vec3, cross, distance, dot, length, normalize, sub } from "../src/apps/quadplanet/qp_math";
 import {
-    PLANETS, FINEST_SPACING, altitudeAboveGround, findLandingSite, maxRelief, sampleSurface, surfaceNormal, surfacePoint, SUN_DIRECTION,
+    PLANETS, finestSpacing, altitudeAboveGround, findLandingSite, maxRelief, sampleSurface, surfaceNormal, surfacePoint, SUN_DIRECTION,
 } from "../src/apps/quadplanet/qp_planet";
 import {
-    type ChunkNode, CHUNK_SEGMENTS, VERTEX_FLOATS, MATERIAL_LAND, PlanetStreamer, buildChunk, chunkKey, cubeToSphere, faceDirection,
-    maxLevelFor, nodeParamSize, nodesOverlap, packChunkUv, selectChunks,
+    type ChunkNode, CHUNK_SEGMENTS, VERTEX_FLOATS, MATERIAL_LAND, LeafIndex, PlanetStreamer, buildChunk, chunkKey, cubeToSphere, faceDirection,
+    maxLevelFor, nodeParamSize, nodesOverlap, packChunkUv, selectChunks, wrapFace,
 } from "../src/apps/quadplanet/qp_quadtree";
 import {
     NO_INPUT, BOARD_DISTANCE, cameraPose, initialState, interact, planAutopilot, readout, startAutopilot, step, upAt, autopilotEase,
@@ -45,8 +45,9 @@ describe("the cube-sphere", () => {
         for (const p of PLANETS) {
             const L = maxLevelFor(p);
             const cell = (nodeParamSize(L) * p.radius * Math.PI / 4) / CHUNK_SEGMENTS;
-            expect(cell).toBeLessThan(1.3);
-            expect(cell).toBeGreaterThan(0.5);
+            expect(cell).toBeLessThanOrEqual(0.8);
+            expect(cell).toBeGreaterThan(0.4);
+            expect(finestSpacing(p)).toBe(cell);
         }
     });
 });
@@ -54,15 +55,31 @@ describe("the cube-sphere", () => {
 describe("chunk meshes", () => {
     const node: ChunkNode = { planet: 0, face: 4, level: 5, ia: 13, ib: 17 };
 
-    it("wind every surface triangle counter-clockwise from outside (the engine culls back faces)", () => {
-        const mesh = buildChunk(verdant, node);
-        const grid = CHUNK_SEGMENTS * CHUNK_SEGMENTS * 2;
-        for (let t = 0; t < grid; t++) {
-            const [a, b, c] = [0, 1, 2].map(k => vert(mesh.vertexData, mesh.indexData[t * 3 + k]));
-            const n = cross(sub(b, a), sub(c, a));
-            const out = normalize(sub(a, verdant.center));
-            expect(dot(n, out)).toBeGreaterThan(0);
+    it("wind every triangle counter-clockwise from outside (the engine culls back faces), stitched or not", () => {
+        for (const stitch of [0, 0b1111, 0b11111111, 0b10100101]) {
+            const mesh = buildChunk(verdant, { ...node, stitch });
+            for (let t = 0; t < mesh.triangles; t++) {
+                const [a, b, c] = [0, 1, 2].map(k => vert(mesh.vertexData, mesh.indexData[t * 3 + k]));
+                const n = cross(sub(b, a), sub(c, a));
+                const out = normalize(sub(a, verdant.center));
+                expect(dot(n, out)).toBeGreaterThan(0);
+            }
         }
+    });
+
+    it("cover the whole cell whichever edges are stitched", () => {
+        // Summed projected area on the face plane is the same with and without stitching.
+        const area = (stitch: number) => {
+            const mesh = buildChunk(verdant, { ...node, stitch });
+            let s = 0;
+            for (let t = 0; t < mesh.triangles; t++) {
+                const [a, b, c] = [0, 1, 2].map(k => vert(mesh.vertexData, mesh.indexData[t * 3 + k]));
+                s += length(cross(sub(b, a), sub(c, a))) / 2;
+            }
+            return s;
+        };
+        const plain = area(0);
+        for (const stitch of [0b0001, 0b1010, 0b1111]) expect(Math.abs(area(stitch) - plain) / plain).toBeLessThan(0.05);
     });
 
     it("share their border vertices exactly with a same-level neighbour", () => {
@@ -76,12 +93,12 @@ describe("chunk meshes", () => {
         }
     });
 
-    it("hang a skirt under every edge, below the surface", () => {
+    it("need no skirts: every vertex lies on the surface", () => {
         const mesh = buildChunk(verdant, node);
         const V = CHUNK_SEGMENTS + 1;
-        expect(mesh.vertexCount).toBe(V * V + 4 * V);
-        for (let i = V * V; i < mesh.vertexCount; i++) {
-            expect(altitudeAboveGround(verdant, vert(mesh.vertexData, i))).toBeLessThan(-1);
+        expect(mesh.vertexCount).toBe(V * V);
+        for (let i = 0; i < mesh.vertexCount; i++) {
+            expect(Math.abs(altitudeAboveGround(verdant, vert(mesh.vertexData, i)))).toBeLessThan(maxRelief(verdant) * 0.2);
         }
     });
 
@@ -117,6 +134,79 @@ describe("the quadtree around a viewer", () => {
         for (let i = 0; i < leaves.length; i++) {
             for (let j = i + 1; j < leaves.length; j++) expect(nodesOverlap(leaves[i], leaves[j])).toBe(false);
         }
+    });
+
+    it("is balanced: no chunk touches one more than a level finer or coarser", () => {
+        const { leaves } = selectChunks(verdant, 0, eye);
+        const index = new LeafIndex(maxLevelFor(verdant));
+        for (const l of leaves) index.add(l);
+        for (const n of leaves) {
+            const s = nodeParamSize(n.level), a0 = -1 + n.ia * s, b0 = -1 + n.ib * s, e = s * 1e-4;
+            for (let k = 0; k < 8; k++) {
+                const t = ((k + 0.5) / 8) * s;
+                for (const [a, b] of [[a0 + t, b0 - e], [a0 + t, b0 + s + e], [a0 - e, b0 + t], [a0 + s + e, b0 + t], [a0 - e, b0 - e], [a0 + s + e, b0 + s + e]]) {
+                    const m = index.find(n.face, a, b);
+                    if (m) expect(Math.abs(m.level - n.level)).toBeLessThanOrEqual(1);
+                }
+            }
+        }
+    });
+
+    // The crack test. Every chunk's outline (the edges used by only one of its triangles) must be
+    // matched, point for point and bit for bit, by the chunk on the other side - unless nothing is
+    // there (ground below the horizon isn't drawn at all). Covers stitched edges, different levels
+    // and cube-face seams.
+    it("is watertight: every chunk border is exactly the neighbour's border", () => {
+        for (const [p, pi, viewer] of [[verdant, 0, eye], [PLANETS[1], 1, surfacePoint(PLANETS[1], normalize([-0.5, 0.2, 0.84]))]] as const) {
+            const { leaves } = selectChunks(p, pi, viewer as Vec3);
+            const index = new LeafIndex(maxLevelFor(p));
+            for (const l of leaves) index.add(l);
+            const key = (v: Vec3) => `${v[0]},${v[1]},${v[2]}`;
+            const borders = new Map<string, { node: ChunkNode; from: number; to: number }>();
+            let stitchedEdges = 0;
+            for (const n of leaves) {
+                const mesh = buildChunk(p, n);
+                const count = new Map<string, number>();
+                const undirected = (a: number, b: number) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+                for (let t = 0; t < mesh.indexData.length; t += 3) {
+                    for (let e = 0; e < 3; e++) {
+                        const u = undirected(mesh.indexData[t + e], mesh.indexData[t + (e + 1) % 3]);
+                        count.set(u, (count.get(u) ?? 0) + 1);
+                    }
+                }
+                for (let t = 0; t < mesh.indexData.length; t += 3) {
+                    for (let e = 0; e < 3; e++) {
+                        const a = mesh.indexData[t + e], b = mesh.indexData[t + (e + 1) % 3];
+                        if (count.get(undirected(a, b)) !== 1) continue;
+                        borders.set(`${key(vert(mesh.vertexData, a))}>${key(vert(mesh.vertexData, b))}`, { node: n, from: a, to: b });
+                    }
+                }
+                if (n.stitch) stitchedEdges++;
+            }
+            expect(stitchedEdges).toBeGreaterThan(10);
+            let matched = 0;
+            for (const [k, edge] of borders) {
+                const [from, to] = k.split(">");
+                if (borders.has(`${to}>${from}`)) { matched++; continue; }
+                // Unmatched is only allowed where no chunk is on the other side.
+                const V = CHUNK_SEGMENTS + 1, n = edge.node, s = nodeParamSize(n.level);
+                const [i0, j0, i1, j1] = [edge.from % V, Math.floor(edge.from / V), edge.to % V, Math.floor(edge.to / V)];
+                const mi = (i0 + i1) / 2 / CHUNK_SEGMENTS, mj = (j0 + j1) / 2 / CHUNK_SEGMENTS;
+                const out = 1e-4 * s;
+                const a = -1 + n.ia * s + mi * s + (i0 === 0 && i1 === 0 ? -out : i0 === CHUNK_SEGMENTS && i1 === CHUNK_SEGMENTS ? out : 0);
+                const b = -1 + n.ib * s + mj * s + (j0 === 0 && j1 === 0 ? -out : j0 === CHUNK_SEGMENTS && j1 === CHUNK_SEGMENTS ? out : 0);
+                expect(index.find(n.face, a, b), `crack at ${p.name} ${JSON.stringify(n)} edge ${i0},${j0}-${i1},${j1}`).toBeUndefined();
+            }
+            expect(matched).toBeGreaterThan(1000);
+        }
+    });
+
+    it("carries neighbour lookups across cube edges", () => {
+        // Just past face 0's a = 1 edge is face 5 near its a = -1 edge.
+        const [f, a, b] = wrapFace(0, 1.001, 0.25);
+        expect(f).toBe(5);
+        expect(a).toBeCloseTo(-1 + 0.001, 2);
+        expect(b).toBeCloseTo(0.25, 2);
     });
 
     it("from deep space is a handful of coarse chunks per planet", () => {
@@ -179,7 +269,8 @@ describe("streaming", () => {
         expect(live.size).toBeGreaterThan(0);
         streamer.clear();
         expect(live.size).toBe(0);
-        expect(chunkKey({ planet: 1, face: 2, level: 3, ia: 4, ib: 5 })).toBe("qp-1-2-3-4-5");
+        expect(chunkKey({ planet: 1, face: 2, level: 3, ia: 4, ib: 5 })).toBe("qp-1-2-3-4-5-0");
+        expect(chunkKey({ planet: 1, face: 2, level: 3, ia: 4, ib: 5, stitch: 9 })).toBe("qp-1-2-3-4-5-9");
     });
 });
 
@@ -198,7 +289,7 @@ describe("terrain", () => {
 
     it("drops detail a coarse mesh can't show, and keeps all of it at the finest spacing", () => {
         const d = normalize([0.3, 0.8, -0.5]);
-        expect(sampleSurface(verdant, d, 0.2)).toEqual(sampleSurface(verdant, d, FINEST_SPACING));
+        expect(sampleSurface(verdant, d, 0.2)).toEqual(sampleSurface(verdant, d, finestSpacing(verdant)));
         // Neighbouring samples one coarse step apart differ less once band-limited.
         const rough = (spacing: number) => {
             let sum = 0;
@@ -209,7 +300,7 @@ describe("terrain", () => {
             }
             return sum;
         };
-        expect(rough(80)).toBeLessThan(rough(FINEST_SPACING) * 0.7);
+        expect(rough(80)).toBeLessThan(rough(finestSpacing(verdant)) * 0.7);
     });
 
     it("finds flat dry landing sites on every planet", () => {

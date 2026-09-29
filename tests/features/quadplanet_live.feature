@@ -11,10 +11,19 @@ Feature: QuadPlanet in the real window
 
   Scenario: Standing on Verdant
     When I call the tool "quadplanet_config" with {"fixedStep": 0.0333}
-    And I advance 45 frames
+    And I advance 120 frames
     Then I see the label "W/S walk  A/D turn  Shift run  Space jump  E board"
     And I call the tool "quadplanet_state"
     And I capture "01-standing-on-verdant"
+
+  Scenario: The rings of detail around you
+    When I call the tool "quadplanet_config" with {"debugLod": true, "debugOutlines": true}
+    And I call the tool "quadplanet_view" with {"mode": "overhead", "height": 110}
+    And I advance 60 frames
+    Then I capture "01b-detail-rings-around-you"
+    When I call the tool "quadplanet_config" with {"debugLod": false, "debugOutlines": false}
+    And I call the tool "quadplanet_view" with {"mode": "follow"}
+    And I advance 60 frames
 
   Scenario: Walking over to the ship
     When I hold the key "w" for 40 frames

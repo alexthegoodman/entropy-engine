@@ -19,14 +19,14 @@ on:
 | QuadScape | QuadPlanet (`qp_quadtree.ts`) |
 |---|---|
 | One quadtree over a heightmap | Six quadtrees, one per face of a cube, every grid point pushed onto the sphere (the spherified-cube mapping keeps cells close to equal-area) and out by the terrain height |
-| Four fixed LOD rings | A node splits while the viewer is closer than 1.5x its own size, down to a level where a leaf cell is about 1 m (level 7 on Verdant, 6 on Ember and Glacia), so detail follows you continuously from orbit to the ground |
+| Four fixed LOD rings | A node splits while the viewer is closer than 1.5x its own size, down to a level where a leaf cell is at most 0.8 m (level 7 on Verdant and Ember, 6 on Glacia), so detail follows you continuously from orbit to the ground |
 | Heights from a u16 heightmap | Heights from seeded 3D noise sampled on the unit sphere (`qp_planet.ts`), so there are no seams at cube edges and nothing pinches at the poles |
 | Coarse LODs read an averaged mip pyramid | Coarse chunks sample band-limited noise: octaves finer than ~3 samples of the chunk's spacing are faded out. It is the same idea in frequency, and it is what keeps coasts and limbs from aliasing into spikes from orbit |
-| Tile borders pinned to full-res samples | Neighbours can differ by several levels and meet across cube edges, so every chunk hangs a skirt under its edges that fills any sliver |
+| Tile borders pinned to full-res samples, so neighbours agree on them | Same rule, adapted to chunks that double in size per level: the tree is kept 2:1 balanced, a chunk bordering a coarser one uses only the coarse chunk's vertices on that edge (it triangulates around the skipped ones), and every border vertex is sampled at the detail level of the coarsest chunk touching it. Neighbours share bit-identical edges, even across cube faces, with no skirts |
 | Tiles outside `VIEW_RADIUS` dropped | Chunks below the horizon are skipped, counting how far past it the highest peak still shows |
 | Stale tiles dropped the same frame | A stale chunk stays until every wanted chunk overlapping it is built, so streaming never opens a hole |
 
-Each chunk is a 17x17 vertex grid plus its skirt. Standing on Verdant that is about 270 chunks
+Each chunk is a 17x17 vertex grid. Standing on Verdant that is about 270 chunks
 (some 230k triangles) for the planet under you and about 20 each for the other two. Building is
 bounded per frame (10 chunks or 12 ms), closest first.
 
@@ -56,8 +56,10 @@ optional `up` keeps the horizon level when you walk on the far side of a planet.
 | W / S walk, A / D turn, Shift run, Space jump | W thrust, Shift boost, S brake, A / D yaw, arrow keys pitch, Space / C climb and sink |
 | E board (within 9 u of the ship) | E step out (landed), T autopilot to the next planet |
 
-Drag to orbit the camera, scroll to zoom. L tints every chunk by its quadtree level and outlines
-it. V toggles an orbit view of the nearest planet.
+Drag to orbit the camera, scroll to zoom. L colors every chunk by its quadtree level and O
+outlines each chunk (in white: a drawn line, not a gap). V toggles an orbit view of the nearest
+planet. The `quadplanet_view` tool's `overhead` mode looks straight down on you with the detail
+centered on you, which shows the rings of levels.
 
 ## MCP tools
 
@@ -69,7 +71,7 @@ planet), `quadplanet_planets`, `quadplanet_config` (`fixedStep` for reproducible
 ## Tests
 
 - `npm run test:quadplanet` (`tests/quadplanet.test.ts`) covers the pure tier: cube-face seams,
-  triangle winding (the engine culls back faces), skirts, LOD selection, streaming that never
+  triangle winding (the engine culls back faces), watertight borders between chunks of different levels (every chunk outline matched bit for bit by its neighbour), 2:1 balance, LOD selection, streaming that never
   drops drawn ground, band limiting, landing sites, walking on the far side of a planet, boarding,
   and autopilot flights to every planet.
 - `cargo test --release --test quadplanet_live -- --nocapture` (under `xvfb-run -a` on a headless

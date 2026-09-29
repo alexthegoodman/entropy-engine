@@ -428,6 +428,19 @@ export function cameraPose(s: GameState, planets: PlanetDef[] = PLANETS): Camera
     return { position, target, up };
 }
 
+/**
+ * Straight down on the walker (or ship) from `height` above it, facing its way: the view that
+ * shows the quadtree's rings of detail tightening around you.
+ */
+export function overheadPose(s: GameState, height: number, planets: PlanetDef[] = PLANETS): CameraPose {
+    const onFoot = s.mode === "walk";
+    const pos = onFoot ? s.walker.pos : s.ship.pos;
+    const p = planets[onFoot ? s.walker.planet : nearestPlanet(pos, planets)];
+    const up = upAt(p, pos);
+    const forward = onFoot ? s.walker.forward : s.ship.frame.forward;
+    return { position: addScaled(pos, up, height), target: pos, up: normalize(projectOnPlane(forward, up)) };
+}
+
 /** A viewpoint far enough out to see the whole of planet `i`, lit by the sun. */
 export function orbitPose(i: number, planets: PlanetDef[] = PLANETS, distanceFactor = 3.2): CameraPose {
     const p = planets[i];

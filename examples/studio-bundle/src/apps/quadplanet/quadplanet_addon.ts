@@ -17,7 +17,7 @@ import { QUADPLANET_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_sh
 import { buildShip, buildSky, buildWalkerBody, buildWalkerLeg, HIP_HEIGHT, type ModelMesh } from "./qp_models";
 import {
     type GameState, type Input, type CameraPose, NO_INPUT, cameraPose, initialState, interact, nearestPlanet, orbitPose,
-    readout, startAutopilot, step, upAt,
+    overheadPose, readout, startAutopilot, step, upAt,
 } from "./qp_sim";
 
 const addon = Entropy.AddonAtom.register({
@@ -45,11 +45,15 @@ let bodyItem = "";
 let legItems: [string, string] = ["", ""];
 let streamer: PlanetStreamer | null = null;
 let debugLod = false;
+let debugOutlines = false;
 let exposure = 1.0;
 /** Seconds per frame when set (a scripted run wants the same result on any machine). */
 let fixedStep: number | null = null;
 let lastFrameMs = 0;
-/** A camera held by the view tool (orbit shots); null follows the walker or ship. */
+/**
+ * A camera held by the view tool: an orbit shot of `planet` from `distance` radii, or (planet -1)
+ * straight down from `distance` above you. Null follows the walker or ship.
+ */
 let viewOverride: { planet: number; distance: number } | null = null;
 let lastCamera: CameraPose | null = null;
 let hudWindow = "";
@@ -105,6 +109,7 @@ function writeWorld(): void {
         sunColor: [1.0, 0.96, 0.9],
         exposure,
         debugLod,
+        debugOutlines,
         planets: PLANETS.map(p => ({ center: p.center, radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
     }));
 }
@@ -143,6 +148,7 @@ function setupInput(): void {
         if (lower === "e") interact(state);
         else if (lower === "t") startAutopilot(state, nextPlanet());
         else if (lower === "l") debugLod = !debugLod;
+        else if (lower === "o") debugOutlines = !debugOutlines;
         else if (lower === "v") viewOverride = viewOverride ? null : { planet: nearestPlanet(lastCamera?.position ?? state.walker.pos), distance: 3.2 };
     });
     Entropy.Input.onMouseDown((_button: number, x: number, y: number) => {
@@ -190,10 +196,13 @@ function renderHud(): void {
         });
     }
     W.separator(id);
-    W.checkbox(id, { id: "qp-lod-debug", label: "Tint chunks by quadtree level (L)", value: debugLod, onChange: v => { debugLod = !!v; } });
+    W.horizontal(id, () => {
+        W.checkbox(id, { id: "qp-lod-debug", label: "Color by level (L)", value: debugLod, onChange: v => { debugLod = !!v; } });
+        W.checkbox(id, { id: "qp-outlines", label: "Outline chunks (O)", value: debugOutlines, onChange: v => { debugOutlines = !!v; } });
+    });
     if (stats) {
         const deep = PLANETS.map((p, i) => `${p.name} ${stats.perPlanet[i]} @L${stats.deepest[i]}/${maxLevelFor(p)}`).join("  ");
-        W.label(id, { text: `${Icons.get("stack")} ${stats.live} chunks, ${fmt(stats.triangles / 1000)}k tris${stats.pending ? `, ${stats.pending} streaming` : ""}`, monospace: true, color: DIM });
+        W.label(id, { text: `${Icons.get("stack")} ${stats.live} chunks (${stats.stitched} stitched), ${fmt(stats.triangles / 1000)}k tris${stats.pending ? `, ${stats.pending} streaming` : ""}`, monospace: true, color: DIM });
         W.label(id, { text: deep, monospace: true, color: DIM });
     }
     W.label(id, { text: state.mode === "walk" ? "W/S walk  A/D turn  Shift run  Space jump  E board" : "W thrust  Shift boost  A/D yaw  arrows pitch  Space/C climb/sink  E exit  T autopilot", color: DIM, wrap: true });
@@ -242,10 +251,11 @@ function snapshot() {
         camera: lastCamera ? { position: round3(lastCamera.position), target: round3(lastCamera.target), up: round3(lastCamera.up, 3) } : null,
         chunks: stats ? {
             live: stats.live, pending: stats.pending, hidden: stats.hidden, triangles: stats.triangles,
-            built: stats.built, destroyed: stats.destroyed,
+            built: stats.built, destroyed: stats.destroyed, stitched: stats.stitched, balanced: stats.balanced,
             planets: PLANETS.map((p, i) => ({ name: p.name, chunks: stats.perPlanet[i], deepestLevel: stats.deepest[i], maxLevel: maxLevelFor(p) })),
         } : null,
         debugLod,
+        debugOutlines,
         fixedStep,
     };
 }
@@ -271,11 +281,12 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "quadplanet_config",
-        description: "fixedStep: simulate this many seconds per frame (null for real time). debugLod: tint chunks by quadtree level. exposure: brightness.",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, debugLod: { type: "boolean" }, exposure: { type: "number" } } },
+        description: "fixedStep: simulate this many seconds per frame (null for real time). debugLod: color chunks by quadtree level. debugOutlines: outline every chunk. exposure: brightness.",
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, debugLod: { type: "boolean" }, debugOutlines: { type: "boolean" }, exposure: { type: "number" } } },
         run: a => {
             if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null;
             if (typeof a.debugLod === "boolean") debugLod = a.debugLod;
+            if (typeof a.debugOutlines === "boolean") debugOutlines = a.debugOutlines;
             if (typeof a.exposure === "number") exposure = Math.max(0.2, Math.min(3, a.exposure));
             return snapshot();
         },
@@ -298,10 +309,11 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "quadplanet_view",
-        description: "mode 'orbit' holds the camera out in space looking at a planet (whole-planet LOD shots); 'follow' returns to the chase camera.",
-        parameters: { type: "object", properties: { mode: { type: "string", enum: ["orbit", "follow"] }, planet: { type: "string" }, distance: { type: "number", description: "In planet radii (default 3.2)" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" } } },
+        description: "mode 'orbit' holds the camera out in space looking at a planet (whole-planet LOD shots); 'overhead' looks straight down on you from `height` (the rings of detail around you); 'follow' returns to the chase camera.",
+        parameters: { type: "object", properties: { mode: { type: "string", enum: ["orbit", "overhead", "follow"] }, planet: { type: "string" }, distance: { type: "number", description: "In planet radii (default 3.2)" }, height: { type: "number", description: "Overhead height (default 120)" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" } } },
         run: a => {
             if (a.mode === "orbit") viewOverride = { planet: a.planet ? planetIndex(a.planet) : nearestPlanet(lastCamera?.position ?? state.walker.pos), distance: typeof a.distance === "number" ? a.distance : 3.2 };
+            else if (a.mode === "overhead") viewOverride = { planet: -1, distance: typeof a.height === "number" ? a.height : 120 };
             else if (a.mode === "follow") viewOverride = null;
             if (typeof a.yaw === "number") state.rig.yaw = a.yaw;
             if (typeof a.pitch === "number") state.rig.pitch = a.pitch;
@@ -378,7 +390,7 @@ addon.onUpdatePlus("Global", () => {
     updateModels();
 
     let pose = cameraPose(state);
-    if (viewOverride) pose = orbitPose(viewOverride.planet, PLANETS, viewOverride.distance);
+    if (viewOverride) pose = viewOverride.planet < 0 ? overheadPose(state, viewOverride.distance) : orbitPose(viewOverride.planet, PLANETS, viewOverride.distance);
     // Keep the view direction off the up axis (look_at can't use a parallel up).
     const look = normalize([pose.target[0] - pose.position[0], pose.target[1] - pose.position[1], pose.target[2] - pose.position[2]] as Vec3);
     let up = pose.up;
@@ -387,6 +399,8 @@ addon.onUpdatePlus("Global", () => {
     lastCamera = { ...pose, up };
 
     writeWorld();
-    // Stream around the camera (what is being looked at), a bounded amount per frame.
-    streamer.update(pose.position, 10, 12);
+    // Stream around the camera (what is being looked at), a bounded amount per frame - except in
+    // the overhead view, which is there to show the detail centered on you.
+    const focus = viewOverride && viewOverride.planet < 0 ? (state.mode === "walk" ? state.walker.pos : state.ship.pos) : pose.position;
+    streamer.update(focus, 10, 12);
 });
