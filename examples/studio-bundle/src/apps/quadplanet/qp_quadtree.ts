@@ -37,7 +37,7 @@
 
 import { type Vec3, add, addScaled, cross, distance, dot, length, normalize, scale, sub } from "./qp_math";
 import {
-    type PlanetDef, CHUNK_SEGMENTS, maxLevelFor, levelWorldSize, levelSpacing, maxRelief, sampleSurface, surfaceColor, surfaceNormal,
+    type PlanetDef, CHUNK_SEGMENTS, chunkVerticesFor, maxLevelFor, levelWorldSize, levelSpacing, maxRelief, sampleSurface, surfaceColor, surfaceNormal,
 } from "./qp_planet";
 import { Simplex3 } from "./qp_noise";
 
@@ -302,7 +302,7 @@ export function selectChunks(p: PlanetDef, planetIndex: number, viewer: Vec3, lo
         const s = sampleSurface(p, dir, levelSpacing(p, n.level));
         const center = addScaled(p.center, dir, p.radius + s.surface);
         const d = Math.max(0, distance(viewer, center) - size * 0.7);
-        if (n.level < lod.minLevel || (n.level < maxLevel && d < lod.splitFactor * size)) {
+        if (n.level < maxLevel && (n.level < lod.minLevel || d < lod.splitFactor * size)) {
             for (const c of children(n)) visit(c);
         } else {
             index.add(n);
@@ -342,7 +342,30 @@ const jitterNoise = new Simplex3(77);
  * normals computed from the surface itself, so neighbours agree on them exactly. Stitched edges
  * skip their odd vertices (see the file comment).
  */
-export function buildChunk(p: PlanetDef, n: ChunkNode, segments = CHUNK_SEGMENTS): ChunkMesh {
+export function buildChunk(p: PlanetDef, n: ChunkNode, segments?: number): ChunkMesh {
+    const edgeSegments = segments ?? CHUNK_SEGMENTS;
+    const vertices = segments === undefined ? chunkVerticesFor(p, n.level) : segments + 1;
+    if (vertices === edgeSegments + 1) return buildUniformChunk(p, n, edgeSegments);
+    return buildVariableChunk(p, n, edgeSegments, vertices);
+}
+
+/** Band limit at a border vertex, shared by the uniform and variable grid builders. */
+function borderBand(i: number, j: number, N: number, stitch: number, spacing: number): number {
+    let bit: number;
+    if (i === 0 && j === 0) bit = 4;
+    else if (i === N && j === 0) bit = 5;
+    else if (i === 0 && j === N) bit = 6;
+    else if (i === N && j === N) bit = 7;
+    else if (j === 0) bit = EDGE_B_MIN;
+    else if (j === N) bit = EDGE_B_MAX;
+    else if (i === 0) bit = EDGE_A_MIN;
+    else if (i === N) bit = EDGE_A_MAX;
+    else return spacing;
+    return (stitch >> bit) & 1 ? spacing * 2 : spacing;
+}
+
+/** The original mesh path when interior and border resolutions match. */
+function buildUniformChunk(p: PlanetDef, n: ChunkNode, segments: number): ChunkMesh {
     const N = segments;
     const V = N + 1;
     const size = nodeParamSize(n.level);
@@ -352,21 +375,6 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, segments = CHUNK_SEGMENTS
     const bit = (k: number) => (stitch >> k) & 1;
     // This chunk's grid spacing in world units: the terrain is sampled band-limited to it.
     const spacing = levelSpacing(p, n.level);
-    const coarse = spacing * 2;
-
-    // Band limit of each vertex: the coarsest chunk touching it.
-    const bandAt = (i: number, j: number): number => {
-        const onA0 = i === 0, onA1 = i === N, onB0 = j === 0, onB1 = j === N;
-        if (onA0 && onB0) return bit(4) ? coarse : spacing;
-        if (onA1 && onB0) return bit(5) ? coarse : spacing;
-        if (onA0 && onB1) return bit(6) ? coarse : spacing;
-        if (onA1 && onB1) return bit(7) ? coarse : spacing;
-        if (onB0) return bit(EDGE_B_MIN) ? coarse : spacing;
-        if (onB1) return bit(EDGE_B_MAX) ? coarse : spacing;
-        if (onA0) return bit(EDGE_A_MIN) ? coarse : spacing;
-        if (onA1) return bit(EDGE_A_MAX) ? coarse : spacing;
-        return spacing;
-    };
     // An odd vertex on a stitched edge isn't part of the mesh: the coarse neighbour has none there.
     const skipped = (i: number, j: number): boolean =>
         (j === 0 && i % 2 === 1 && bit(EDGE_B_MIN) === 1) || (j === N && i % 2 === 1 && bit(EDGE_B_MAX) === 1) ||
@@ -383,7 +391,7 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, segments = CHUNK_SEGMENTS
             const d = faceDirection(n.face, a0 + i * step, b0 + j * step);
             dirs[k] = d;
             if (skipped(i, j)) continue;
-            const band = bandAt(i, j);
+            const band = borderBand(i, j, N, stitch, spacing);
             const s = sampleSurface(p, d, band);
             bands[k] = band;
             samples[k] = s;
@@ -447,6 +455,79 @@ export function buildChunk(p: PlanetDef, n: ChunkNode, segments = CHUNK_SEGMENTS
 
     const mid = Math.floor(V / 2) * V + Math.floor(V / 2);
     return { vertexData, indexData, vertexCount: V * V, triangles: indexData.length / 3, center: pos[mid] };
+}
+
+/** Build only the configured interior and used border vertices, joined by four triangle strips. */
+function buildVariableChunk(p: PlanetDef, n: ChunkNode, edgeSegments: number, vertices: number): ChunkMesh {
+    const vertexData: number[] = [], indexData: number[] = [];
+    const N = vertices - 1, innerWidth = vertices - 2;
+    const size = nodeParamSize(n.level);
+    const spacing = levelWorldSize(p, n.level) / N;
+    const jf = p.radius / 9;
+    const inner: number[][] = [];
+    for (let j = 1; j < N; j++) {
+        const row: number[] = [];
+        for (let i = 1; i < N; i++) {
+            const d = faceDirection(n.face, -1 + (n.ia + i / N) * size, -1 + (n.ib + j / N) * size);
+            const s = sampleSurface(p, d, spacing);
+            const pos = addScaled(p.center, d, p.radius + s.surface);
+            const normal = s.sea ? d : surfaceNormal(p, d, spacing, spacing);
+            const c = surfaceColor(p, s, dot(normal, d), d, jitterNoise.noise(d[0] * jf, d[1] * jf, d[2] * jf), spacing);
+            const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
+            row.push(vertexData.length / VERTEX_FLOATS);
+            vertexData.push(...pos, ...normal, packChunkUv(material, i / N), packChunkUv(n.level, j / N), ...c, 1);
+        }
+        inner.push(row);
+    }
+    for (let j = 0; j < innerWidth - 1; j++) for (let i = 0; i < innerWidth - 1; i++) {
+        const a = inner[j][i], b = inner[j][i + 1], c = inner[j + 1][i + 1], d = inner[j + 1][i];
+        indexData.push(a, b, c, a, c, d);
+    }
+    const borderSpacing = levelSpacing(p, n.level);
+    const a0 = -1 + n.ia * size, b0 = -1 + n.ib * size;
+    const edgeStep = size / edgeSegments;
+    const borderIds = new Map<number, number>();
+    const borderVertex = (i: number, j: number): number => {
+        const key = j * (edgeSegments + 1) + i;
+        let id = borderIds.get(key);
+        if (id === undefined) {
+            // Use the original arithmetic and band limit so shared borders stay bit-identical.
+            const d = faceDirection(n.face, a0 + i * edgeStep, b0 + j * edgeStep);
+            const band = borderBand(i, j, edgeSegments, n.stitch ?? 0, borderSpacing);
+            const s = sampleSurface(p, d, band);
+            const pos = addScaled(p.center, d, p.radius + s.surface);
+            const normal = s.sea ? d : surfaceNormal(p, d, band, band);
+            const c = surfaceColor(p, s, dot(normal, d), d, jitterNoise.noise(d[0] * jf, d[1] * jf, d[2] * jf), band);
+            const material = s.sea ? (p.frozenSea ? MATERIAL_ICE : MATERIAL_WATER) : MATERIAL_LAND;
+            id = vertexData.length / VERTEX_FLOATS;
+            vertexData.push(...pos, ...normal, packChunkUv(material, i / edgeSegments), packChunkUv(n.level, j / edgeSegments), ...c, 1);
+            borderIds.set(key, id);
+        }
+        return id;
+    };
+    const sides = [
+        { bit: EDGE_B_MIN, outer: (k: number) => borderVertex(k, 0), inner: inner[0] },
+        { bit: EDGE_A_MAX, outer: (k: number) => borderVertex(edgeSegments, k), inner: inner.map(row => row[innerWidth - 1]) },
+        { bit: EDGE_B_MAX, outer: (k: number) => borderVertex(edgeSegments - k, edgeSegments), inner: [...inner[innerWidth - 1]].reverse() },
+        { bit: EDGE_A_MIN, outer: (k: number) => borderVertex(0, edgeSegments - k), inner: inner.map(row => row[0]).reverse() },
+    ];
+    for (const side of sides) {
+        const stride = ((n.stitch ?? 0) >> side.bit) & 1 ? 2 : 1;
+        const outer = Array.from({ length: edgeSegments / stride + 1 }, (_, k) => side.outer(k * stride));
+        let a = 0, b = 0;
+        while (a < outer.length - 1 || b < innerWidth - 1) {
+            if (a < outer.length - 1 && (b === innerWidth - 1 || (a + 1) * stride / edgeSegments <= (b + 2) / N)) {
+                indexData.push(outer[a], outer[a + 1], side.inner[b]);
+                a++;
+            } else {
+                indexData.push(outer[a], side.inner[b + 1], side.inner[b]);
+                b++;
+            }
+        }
+    }
+    const centerDir = faceDirection(n.face, a0 + size / 2, b0 + size / 2);
+    const center = addScaled(p.center, centerDir, p.radius + sampleSurface(p, centerDir, borderSpacing).surface);
+    return { vertexData, indexData, vertexCount: vertexData.length / VERTEX_FLOATS, triangles: indexData.length / 3, center };
 }
 
 // --- Streaming -----------------------------------------------------------------------------------

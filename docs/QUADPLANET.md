@@ -26,9 +26,54 @@ on:
 | Tiles outside `VIEW_RADIUS` dropped | Chunks below the horizon are skipped, counting how far past it the highest peak still shows |
 | Stale tiles dropped the same frame | A stale chunk stays until every wanted chunk overlapping it is built, so streaming never opens a hole |
 
-Each chunk is a 17x17 vertex grid. Standing on Verdant that is about 270 chunks
+By default each chunk is a 17x17 vertex grid. Standing on Verdant that is about 270 chunks
 (some 230k triangles) for the planet under you and about 20 each for the other two. Building is
 bounded per frame (10 chunks or 12 ms), closest first.
+
+## Configuring chunk detail
+
+Set `DEFAULT_CHUNK_DETAIL` in
+[`qp_config.ts`](../examples/studio-bundle/src/apps/quadplanet/qp_config.ts) for all planets,
+or add `chunkDetail` to an individual `PlanetDef`. The configuration file includes examples
+for both modes. Leave it undefined for the existing defaults, and run `npm run build-quadplanet`
+in `examples/studio-bundle` after editing it.
+
+```ts
+// Eight levels, from leaf to root: 64, 32, 16, 8, 4, 3, 3, 3 vertices per side.
+export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = {
+    mode: "half", leafVertices: 64, levels: 8,
+};
+
+// Or choose every level explicitly, deepest leaf first and root face last.
+// The list length is the number of levels (eight here).
+export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = {
+    mode: "explicit", verticesPerLevel: [64, 48, 32, 24, 16, 12, 8, 4],
+};
+```
+
+These counts describe the nominal grid width including endpoints: `64` gives a 62x62 interior.
+The existing border vertices, their sampling, and edge stitching are retained. Triangle strips
+connect the configured interior to that boundary, so the total vertex count is the interior
+count plus the existing border count. Counts need not be powers of two.
+
+Automatic mode halves the vertex count at each coarser level, rounding down and stopping at
+three vertices per side. Valid counts are 3–257; valid level counts are 1–13, including root
+level 0. Explicit mode uses exactly the supplied list. An eight-level configuration has its
+deepest leaf at quadtree level 7. Replace configuration objects rather than mutating them.
+
+You can also apply settings while running through `quadplanet_config`:
+
+```json
+{"planet":"Verdant","chunkDetail":{"mode":"half","leafVertices":64,"levels":8}}
+```
+
+```json
+{"chunkDetail":{"mode":"explicit","verticesPerLevel":[64,48,32,24,16,12,8,4]}}
+```
+
+Omit `planet` to apply to all planets. `{"chunkDetail":null}` restores the source defaults.
+Applying settings rebuilds the streamed terrain; `quadplanet_state` reports each planet's
+resolved `verticesPerLevel` list in leaf-to-root order.
 
 ## The rest of the app
 

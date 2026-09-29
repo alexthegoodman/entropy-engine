@@ -3,9 +3,47 @@
 // picking a landing site. The surface is a function of the unit direction from the planet's center.
 
 import { Simplex3 } from "./qp_noise";
+import { DEFAULT_CHUNK_DETAIL, type ChunkDetail } from "./qp_config";
 import { type Vec3, add, addScaled, clamp, cross, dot, length, lerp, normalize, scale, smoothstep, sub, anyPerpendicular, rotateAround } from "./qp_math";
 
+export { DEFAULT_CHUNK_DETAIL, type ChunkDetail } from "./qp_config";
+
 export type RGB = [number, number, number];
+
+/** Resolve and validate once when configuring a planet, before building any meshes. */
+export function chunkResolutions(detail: ChunkDetail): readonly number[] {
+    let sizes: number[];
+    if (detail.mode === "half") {
+        if (!Number.isInteger(detail.levels) || detail.levels < 1 || detail.levels > 13) {
+            throw new Error("Chunk levels must be an integer from 1 to 13 (including the root).");
+        }
+        sizes = Array.from({ length: detail.levels }, (_, i) => Math.max(3, Math.floor(detail.leafVertices / 2 ** i)));
+        sizes[0] = detail.leafVertices;
+    } else if (detail.mode === "explicit" && Array.isArray(detail.verticesPerLevel)) {
+        sizes = [...detail.verticesPerLevel];
+    } else {
+        throw new Error("Chunk detail mode must be 'half' or 'explicit'.");
+    }
+    if (sizes.length < 1 || sizes.length > 13 || sizes.some(v => !Number.isInteger(v) || v < 3 || v > 257)) {
+        throw new Error("Specify 1–13 levels, each with 3–257 vertices per side.");
+    }
+    return Object.freeze(sizes);
+}
+
+const detailCache = new WeakMap<ChunkDetail, readonly number[]>();
+function resolutionsFor(p: PlanetDef): readonly number[] | undefined {
+    const detail = p.chunkDetail ?? DEFAULT_CHUNK_DETAIL;
+    if (!detail) return undefined;
+    let sizes = detailCache.get(detail);
+    if (!sizes) { sizes = chunkResolutions(detail); detailCache.set(detail, sizes); }
+    return sizes;
+}
+
+/** Nominal grid width, including endpoints; only its interior replaces the existing mesh. */
+export function chunkVerticesFor(p: PlanetDef, level: number): number {
+    const sizes = resolutionsFor(p);
+    return sizes ? sizes[Math.max(0, Math.min(sizes.length - 1, sizes.length - 1 - level))] : CHUNK_SEGMENTS + 1;
+}
 
 export interface PlanetPalette {
     deepWater: RGB;
@@ -18,6 +56,8 @@ export interface PlanetPalette {
 }
 
 export interface PlanetDef {
+    /** Replace this object to change detail; resolutions are leaf-to-root. Edges retain their existing grid. */
+    chunkDetail?: ChunkDetail;
     id: string;
     name: string;
     center: Vec3;
@@ -99,7 +139,7 @@ export function maxRelief(p: PlanetDef): number {
 
 // --- Chunk grid ----------------------------------------------------------------------------------
 
-/** Quads per chunk side: a chunk is a (N+1)^2 vertex grid at every level. */
+/** Existing border grid and default interior: N quads, N+1 vertices per side. */
 export const CHUNK_SEGMENTS = 16;
 /** Target size of a leaf cell (world units): the deepest level is the first at least this fine. */
 export const LEAF_CELL = 0.8;
@@ -109,12 +149,14 @@ export function levelWorldSize(p: PlanetDef, level: number): number {
     return (2 / (1 << level)) * p.radius * (Math.PI / 4);
 }
 
-/** Deepest quadtree level: the first whose cells are at most LEAF_CELL across. */
+/** Configured deepest level, or the first whose default cells are at most LEAF_CELL across. */
 export function maxLevelFor(p: PlanetDef): number {
+    const sizes = resolutionsFor(p);
+    if (sizes) return sizes.length - 1;
     return Math.max(1, Math.ceil(Math.log2(levelWorldSize(p, 0) / (CHUNK_SEGMENTS * LEAF_CELL))));
 }
 
-/** Grid spacing of a chunk at this level (world units). */
+/** Existing border/default grid spacing at this level (world units). */
 export function levelSpacing(p: PlanetDef, level: number): number {
     return levelWorldSize(p, level) / CHUNK_SEGMENTS;
 }
@@ -124,11 +166,15 @@ export function levelSpacing(p: PlanetDef, level: number): number {
  * it too, so feet meet exactly the ground that is drawn.
  */
 export function finestSpacing(p: PlanetDef): number {
-    let v = finestCache.get(p);
-    if (v === undefined) { v = levelSpacing(p, maxLevelFor(p)); finestCache.set(p, v); }
-    return v;
+    const level = maxLevelFor(p);
+    let entry = finestCache.get(p);
+    if (!entry || entry.level !== level) {
+        entry = { level, spacing: levelSpacing(p, level) };
+        finestCache.set(p, entry);
+    }
+    return entry.spacing;
 }
-const finestCache = new WeakMap<PlanetDef, number>();
+const finestCache = new WeakMap<PlanetDef, { level: number; spacing: number }>();
 
 // --- Terrain -------------------------------------------------------------------------------------
 

@@ -1,10 +1,12 @@
 // QuadPlanet's pure tier: the cube-sphere quadtree, chunk meshes, streaming, terrain sampling and
 // the walker/ship/autopilot simulation, without a window. The live tier (the real app, keys and
 // screenshots) is tests/quadplanet_live.rs driving tests/features/quadplanet_live.feature.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as planetSampling from "../src/apps/quadplanet/qp_planet";
 import { type Vec3, cross, distance, dot, length, normalize, sub } from "../src/apps/quadplanet/qp_math";
 import {
     PLANETS, finestSpacing, altitudeAboveGround, findLandingSite, maxRelief, sampleSurface, surfaceNormal, surfacePoint, SUN_DIRECTION,
+    chunkResolutions, chunkVerticesFor, type PlanetDef,
 } from "../src/apps/quadplanet/qp_planet";
 import {
     type ChunkNode, CHUNK_SEGMENTS, VERTEX_FLOATS, MATERIAL_LAND, LeafIndex, PlanetStreamer, buildChunk, chunkKey, cubeToSphere, faceDirection,
@@ -22,6 +24,93 @@ const DT = 1 / 30;
 const walkOn = (id: number) => ({ ...NO_INPUT, forward: id === 0 });
 
 const vert = (data: number[], i: number): Vec3 => [data[i * VERTEX_FLOATS], data[i * VERTEX_FLOATS + 1], data[i * VERTEX_FLOATS + 2]];
+
+describe("configurable chunk interiors", () => {
+    it("samples and shades only emitted vertices, plus one center sample", () => {
+        const sample = vi.spyOn(planetSampling, "sampleSurface");
+        const color = vi.spyOn(planetSampling, "surfaceColor");
+        try {
+            for (const vertices of [3, 8, 32, 64]) {
+                sample.mockClear();
+                color.mockClear();
+                const p: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: Array(8).fill(vertices) } };
+                const mesh = buildChunk(p, { planet: 0, face: 4, level: 5, ia: 13, ib: 17, stitch: 255 });
+                // Normal estimation also samples inside qp_planet; these spies count calls made
+                // by the mesh builder, catching discarded grids and duplicate border work.
+                expect(sample).toHaveBeenCalledTimes(mesh.vertexCount + 1);
+                expect(color).toHaveBeenCalledTimes(mesh.vertexCount);
+            }
+        } finally {
+            sample.mockRestore();
+            color.mockRestore();
+        }
+    });
+
+    it("halves vertex counts from leaf to root, with a minimum of three", () => {
+        const detail = { mode: "half", leafVertices: 64, levels: 8 } as const;
+        expect(chunkResolutions(detail)).toEqual([64, 32, 16, 8, 4, 3, 3, 3]);
+        const p = { ...verdant, chunkDetail: detail };
+        expect(maxLevelFor(p)).toBe(7);
+        expect(chunkVerticesFor(p, 7)).toBe(64);
+        expect(chunkVerticesFor(p, 6)).toBe(32);
+        expect(chunkVerticesFor(p, 0)).toBe(3);
+    });
+
+    it("takes explicit leaf-to-root counts and derives the level count", () => {
+        const p: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: [48, 24, 12, 8] } };
+        expect(maxLevelFor(p)).toBe(3);
+        expect([3, 2, 1, 0].map(l => chunkVerticesFor(p, l))).toEqual([48, 24, 12, 8]);
+        const leaves = selectChunks(p, 0, surfacePoint(p, SUN_DIRECTION)).leaves;
+        expect(Math.max(...leaves.map(n => n.level))).toBe(3);
+        p.chunkDetail = { mode: "explicit", verticesPerLevel: [5] };
+        expect(selectChunks(p, 0, surfacePoint(p, SUN_DIRECTION)).leaves.every(n => n.level === 0)).toBe(true);
+        expect(finestSpacing(p)).toBeGreaterThan(finestSpacing(verdant));
+    });
+
+    it("rejects invalid counts and depths before building", () => {
+        for (const leafVertices of [0, 2, 3.5, 258, NaN, Infinity]) {
+            expect(() => chunkResolutions({ mode: "half", leafVertices, levels: 8 })).toThrow();
+        }
+        for (const levels of [0, 1.5, 14, NaN, Infinity]) {
+            expect(() => chunkResolutions({ mode: "half", leafVertices: 32, levels })).toThrow();
+        }
+        for (const verticesPerLevel of [[], [17, 0], [17, 2.5], Array(14).fill(17)]) {
+            expect(() => chunkResolutions({ mode: "explicit", verticesPerLevel })).toThrow();
+        }
+    });
+
+    it("changes only interior density, preserving every used border vertex and covering the chunk", () => {
+        const node: ChunkNode = { planet: 0, face: 4, level: 5, ia: 13, ib: 17 };
+        const boundary = (mesh: ReturnType<typeof buildChunk>) => {
+            const used = new Set(mesh.indexData);
+            return [...used].map(i => mesh.vertexData.slice(i * VERTEX_FLOATS, (i + 1) * VERTEX_FLOATS)).filter(v => {
+                const u = (v[6] - Math.floor(v[6]) - 0.001) / 0.99;
+                const w = (v[7] - node.level - 0.001) / 0.99;
+                return Math.min(Math.abs(u), Math.abs(1 - u), Math.abs(w), Math.abs(1 - w)) < 1e-9;
+            }).map(v => JSON.stringify(v)).sort();
+        };
+        for (let stitch = 0; stitch < 16; stitch++) {
+            const n = { ...node, stitch: stitch | 0xf0 };
+            const original = buildChunk(verdant, n);
+            for (const vertices of [3, 4, 8, 16, 32, 64]) {
+                const p: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: Array(8).fill(vertices) } };
+                const mesh = buildChunk(p, n);
+                expect(boundary(mesh)).toEqual(boundary(original));
+                expect(mesh.vertexCount).toBe((vertices - 2) ** 2 + boundary(original).length);
+                expect(new Set(mesh.indexData).size).toBe(mesh.vertexCount);
+                let area = 0;
+                for (let t = 0; t < mesh.indexData.length; t += 3) {
+                    const [a, b, c] = mesh.indexData.slice(t, t + 3).map(i => mesh.vertexData.slice(i * VERTEX_FLOATS, (i + 1) * VERTEX_FLOATS));
+                    const signedArea = ((b[6] - a[6]) * (c[7] - a[7]) - (b[7] - a[7]) * (c[6] - a[6])) / (2 * 0.99 ** 2);
+                    expect(signedArea).toBeGreaterThan(0);
+                    area += signedArea;
+                    expect(dot(cross(sub(b.slice(0, 3) as Vec3, a.slice(0, 3) as Vec3), sub(c.slice(0, 3) as Vec3, a.slice(0, 3) as Vec3)), sub(a.slice(0, 3) as Vec3, p.center))).toBeGreaterThan(0);
+                }
+                expect(area).toBeCloseTo(1, 9);
+            }
+        }
+    });
+});
 
 describe("the cube-sphere", () => {
     it("maps every face onto the unit sphere", () => {
@@ -157,12 +246,14 @@ describe("the quadtree around a viewer", () => {
     // there (ground below the horizon isn't drawn at all). Covers stitched edges, different levels
     // and cube-face seams.
     it("is watertight: every chunk border is exactly the neighbour's border", () => {
-        for (const [p, pi, viewer] of [[verdant, 0, eye], [PLANETS[1], 1, surfacePoint(PLANETS[1], normalize([-0.5, 0.2, 0.84]))]] as const) {
+        const half: PlanetDef = { ...verdant, chunkDetail: { mode: "half", leafVertices: 32, levels: 8 } };
+        const explicit: PlanetDef = { ...verdant, chunkDetail: { mode: "explicit", verticesPerLevel: [24, 12, 8, 6, 4, 3, 3, 3] } };
+        for (const [p, pi, viewer] of [[verdant, 0, eye], [PLANETS[1], 1, surfacePoint(PLANETS[1], normalize([-0.5, 0.2, 0.84]))], [half, 0, eye], [explicit, 0, eye]] as const) {
             const { leaves } = selectChunks(p, pi, viewer as Vec3);
             const index = new LeafIndex(maxLevelFor(p));
             for (const l of leaves) index.add(l);
             const key = (v: Vec3) => `${v[0]},${v[1]},${v[2]}`;
-            const borders = new Map<string, { node: ChunkNode; from: number; to: number }>();
+            const borders = new Map<string, { node: ChunkNode; from: number; to: number; data: number[] }>();
             let stitchedEdges = 0;
             for (const n of leaves) {
                 const mesh = buildChunk(p, n);
@@ -178,7 +269,7 @@ describe("the quadtree around a viewer", () => {
                     for (let e = 0; e < 3; e++) {
                         const a = mesh.indexData[t + e], b = mesh.indexData[t + (e + 1) % 3];
                         if (count.get(undirected(a, b)) !== 1) continue;
-                        borders.set(`${key(vert(mesh.vertexData, a))}>${key(vert(mesh.vertexData, b))}`, { node: n, from: a, to: b });
+                        borders.set(`${key(vert(mesh.vertexData, a))}>${key(vert(mesh.vertexData, b))}`, { node: n, from: a, to: b, data: mesh.vertexData });
                     }
                 }
                 if (n.stitch) stitchedEdges++;
@@ -189,8 +280,9 @@ describe("the quadtree around a viewer", () => {
                 const [from, to] = k.split(">");
                 if (borders.has(`${to}>${from}`)) { matched++; continue; }
                 // Unmatched is only allowed where no chunk is on the other side.
-                const V = CHUNK_SEGMENTS + 1, n = edge.node, s = nodeParamSize(n.level);
-                const [i0, j0, i1, j1] = [edge.from % V, Math.floor(edge.from / V), edge.to % V, Math.floor(edge.to / V)];
+                const n = edge.node, s = nodeParamSize(n.level);
+                const uv = (i: number) => [Math.round((edge.data[i * VERTEX_FLOATS + 6] % 1 - 0.001) / 0.99 * CHUNK_SEGMENTS), Math.round((edge.data[i * VERTEX_FLOATS + 7] - n.level - 0.001) / 0.99 * CHUNK_SEGMENTS)];
+                const [i0, j0, i1, j1] = [...uv(edge.from), ...uv(edge.to)];
                 const mi = (i0 + i1) / 2 / CHUNK_SEGMENTS, mj = (j0 + j1) / 2 / CHUNK_SEGMENTS;
                 const out = 1e-4 * s;
                 const a = -1 + n.ia * s + mi * s + (i0 === 0 && i1 === 0 ? -out : i0 === CHUNK_SEGMENTS && i1 === CHUNK_SEGMENTS ? out : 0);

@@ -11,7 +11,7 @@
 // Anywhere: drag to orbit the camera, wheel to zoom, L tints chunks by quadtree level.
 
 import { type Vec3, frameMatrix, identity4, makeFrame, normalize, rotateAround, round3, add, scale, cross, dot } from "./qp_math";
-import { PLANETS, SUN_DIRECTION, planetById } from "./qp_planet";
+import { PLANETS, SUN_DIRECTION, planetById, chunkResolutions, chunkVerticesFor, surfacePoint, type ChunkDetail } from "./qp_planet";
 import { PlanetStreamer, maxLevelFor, type ChunkMesh, type ChunkNode } from "./qp_quadtree";
 import { QUADPLANET_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_shader";
 import { buildShip, buildSky, buildWalkerBody, buildWalkerLeg, HIP_HEIGHT, type ModelMesh } from "./qp_models";
@@ -252,7 +252,8 @@ function snapshot() {
         chunks: stats ? {
             live: stats.live, pending: stats.pending, hidden: stats.hidden, triangles: stats.triangles,
             built: stats.built, destroyed: stats.destroyed, stitched: stats.stitched, balanced: stats.balanced,
-            planets: PLANETS.map((p, i) => ({ name: p.name, chunks: stats.perPlanet[i], deepestLevel: stats.deepest[i], maxLevel: maxLevelFor(p) })),
+            planets: PLANETS.map((p, i) => ({ name: p.name, chunks: stats.perPlanet[i], deepestLevel: stats.deepest[i], maxLevel: maxLevelFor(p),
+                verticesPerLevel: Array.from({ length: maxLevelFor(p) + 1 }, (_, j) => chunkVerticesFor(p, maxLevelFor(p) - j)) })),
         } : null,
         debugLod,
         debugOutlines,
@@ -281,9 +282,35 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "quadplanet_config",
-        description: "fixedStep: simulate this many seconds per frame (null for real time). debugLod: color chunks by quadtree level. debugOutlines: outline every chunk. exposure: brightness.",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, debugLod: { type: "boolean" }, debugOutlines: { type: "boolean" }, exposure: { type: "number" } } },
+        description: "Configure timing, debug display, exposure and chunk interiors. chunkDetail: {mode:'half',leafVertices:64,levels:8} or {mode:'explicit',verticesPerLevel:[64,32,16,8]}. Lists run leaf to root; borders keep the existing grid and stitching. planet optionally limits the change to one planet; null chunkDetail restores defaults.",
+        parameters: { type: "object", properties: {
+            fixedStep: { type: ["number", "null"] }, debugLod: { type: "boolean" }, debugOutlines: { type: "boolean" }, exposure: { type: "number" },
+            planet: { type: "string" },
+            chunkDetail: { type: ["object", "null"], properties: {
+                mode: { type: "string", enum: ["half", "explicit"] },
+                leafVertices: { type: "integer", minimum: 3, maximum: 257 },
+                levels: { type: "integer", minimum: 1, maximum: 13 },
+                verticesPerLevel: { type: "array", minItems: 1, maxItems: 13, items: { type: "integer", minimum: 3, maximum: 257 } },
+            } },
+        } },
         run: a => {
+            if ("chunkDetail" in a) {
+                const targets = a.planet === undefined ? PLANETS : [PLANETS[planetIndex(a.planet)]];
+                const value = a.chunkDetail;
+                if (value !== null && (typeof value !== "object" || Array.isArray(value))) throw new Error("chunkDetail must be an object or null.");
+                // Resolve before changing any state; copy the list so callers cannot mutate it later.
+                const detail: ChunkDetail | undefined = value === null ? undefined : { mode: "explicit", verticesPerLevel: chunkResolutions(value as ChunkDetail) };
+                for (const p of targets) p.chunkDetail = detail;
+                streamer?.clear();
+                if (state.walker.grounded) {
+                    const p = PLANETS[state.walker.planet];
+                    state.walker.pos = surfacePoint(p, upAt(p, state.walker.pos));
+                }
+                if (state.ship.landed) {
+                    const p = PLANETS[state.ship.planet];
+                    state.ship.pos = surfacePoint(p, upAt(p, state.ship.pos));
+                }
+            }
             if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null;
             if (typeof a.debugLod === "boolean") debugLod = a.debugLod;
             if (typeof a.debugOutlines === "boolean") debugOutlines = a.debugOutlines;
