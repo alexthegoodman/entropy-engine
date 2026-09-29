@@ -63,7 +63,7 @@ fn quadplanet_live_feature() {
     let find = |name: &str| artifacts.iter().find(|a| a.ends_with(&format!("{name}.png"))).unwrap_or_else(|| panic!("no {name} capture")).clone();
     let states: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter()
         .filter(|t| t["tool"] == "quadplanet_state").map(|t| &t["result"]).collect();
-    assert_eq!(states.len(), 9, "one state reply per checkpoint");
+    assert_eq!(states.len(), 12, "one state reply per checkpoint");
     let f = |v: &serde_json::Value| v.as_f64().unwrap();
     let planet_chunks = |s: &serde_json::Value, name: &str| -> (u64, u64, u64) {
         let p = s["chunks"]["planets"].as_array().unwrap().iter().find(|p| p["name"] == name).unwrap();
@@ -129,6 +129,23 @@ fn quadplanet_live_feature() {
     // Back to the chase camera; the streamer refines Ember around the walker again.
     assert_eq!(states[8]["mode"], "walk");
 
+    // Walked back, boarded again, and the autopilot crossed to Glacia (from Ember this time).
+    assert_eq!(states[9]["mode"], "ship");
+    assert_eq!(states[9]["planet"], "Ember");
+    let glacia = states[10];
+    assert_eq!(glacia["planet"], "Glacia");
+    assert_eq!(glacia["shipLanded"], true);
+    let (_, glacia_deepest, glacia_max) = planet_chunks(glacia, "Glacia");
+    assert_eq!(glacia_deepest, glacia_max, "{glacia:#}");
+    let on_ice = states[11];
+    assert_eq!(on_ice["mode"], "walk");
+    assert_eq!(on_ice["walker"]["planet"], "Glacia");
+    assert!(f(&on_ice["walked"]) > f(&states[9]["walked"]) + 5.0, "{on_ice:#}");
+    assert!(f(&on_ice["altitude"]).abs() < 0.1);
+    for planet in ["verdant", "ember", "glacia"] {
+        assert!(on_ice["visited"].as_array().unwrap().iter().any(|v| v == planet), "{on_ice:#}");
+    }
+
     // What reached the screen.
     let verdant = find("01-standing-on-verdant");
     let sky = share(&verdant, (0.35, 0.0, 1.0, 0.2), &sky_blue);
@@ -170,6 +187,13 @@ fn quadplanet_live_feature() {
     };
     println!("07 distinct hue buckets {hues}");
     assert!(hues >= 3, "the LOD view should show several level colors ({hues})");
+
+    // Glacia's ground is ice and snow: bright and cool.
+    for name in ["10-landed-on-glacia", "11-walking-on-glacia"] {
+        let ice = share(&find(name), (0.0, 0.75, 1.0, 1.0), &|p| p.iter().all(|&c| c > 150) && p[2] >= p[0]);
+        println!("{name} icy ground {ice:.3}");
+        assert!(ice > 0.6, "{name}: Glacia's ground should be ice and snow ({ice:.3})");
+    }
 
     let orbit = find("08-verdant-from-orbit");
     let (space_share, ocean, land) = (share(&orbit, SCENE, &dark), share(&orbit, SCENE, &|p| p[2] as i32 > p[0] as i32 + 40 && p[2] as i32 > p[1] as i32), share(&orbit, SCENE, &green));

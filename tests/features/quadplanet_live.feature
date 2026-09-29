@@ -61,3 +61,19 @@ Feature: QuadPlanet in the real window
     And I advance 20 frames
     Then I call the tool "quadplanet_state"
     And I capture "09-back-on-ember"
+
+  Scenario: On to Glacia
+    When I hold the key "s" for 20 frames
+    And I hold the key "e" for 1 frame
+    And I advance 2 frames
+    Then I call the tool "quadplanet_state"
+    When I call the tool "quadplanet_autopilot" with {"target": "Glacia"}
+    And I advance 720 frames
+    Then I call the tool "quadplanet_state"
+    And I capture "10-landed-on-glacia"
+    When I hold the key "e" for 1 frame
+    And I hold the key "d" for 20 frames
+    And I hold the key "w" for 40 frames
+    And I advance 10 frames
+    Then I call the tool "quadplanet_state"
+    And I capture "11-walking-on-glacia"
