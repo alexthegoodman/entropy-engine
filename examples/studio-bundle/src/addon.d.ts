@@ -3506,7 +3506,10 @@ export interface EntropyAPI {
   };
   Camera: {
     getTransform: () => [[number, number, number], [number, number, number]];
-    setTransform: (position?: [number, number, number], target?: [number, number, number]) => void;
+    // `up` (optional) sets the camera's up vector and keeps it until changed; world +Y by default.
+    // A walker on a planet passes the direction away from the planet's center, so the horizon
+    // stays level anywhere on the sphere.
+    setTransform: (position?: [number, number, number], target?: [number, number, number], up?: [number, number, number]) => void;
     // Switches the render camera between perspective (default) and a true orthographic
     // projection centered on the camera's position - constant apparent sprite size
     // regardless of screen position, unlike perspective. `viewHeight` is the world-space
