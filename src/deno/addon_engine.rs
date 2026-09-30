@@ -57,6 +57,11 @@ use crate::deno::matter_ops::{
     op_matter_info, op_matter_remove, op_audio_matter_prepare, op_audio_play_matter_on_track, op_audio_matter_remove,
     op_matter_render_analyze, op_audio_hold_matter_on_track,
 };
+use crate::deno::quadplanet_ops::{
+    op_quadplanet_create, op_quadplanet_update, op_quadplanet_sample, op_quadplanet_normal, op_quadplanet_landing_site,
+    op_quadplanet_info, op_quadplanet_configure, op_quadplanet_clear, op_quadplanet_destroy, op_quadplanet_geocode,
+    op_quadplanet_place_name,
+};
 use crate::deno::water_ops::{
     op_water_info, op_water_remove, op_audio_water_prepare, op_audio_play_water_on_track, op_audio_water_remove,
     op_water_render_analyze,
@@ -467,6 +472,17 @@ extension!(
         op_entity_get_stats,
         op_model_set_bone_transform,
         op_quadscape_create,
+        op_quadplanet_create,
+        op_quadplanet_update,
+        op_quadplanet_sample,
+        op_quadplanet_normal,
+        op_quadplanet_landing_site,
+        op_quadplanet_info,
+        op_quadplanet_configure,
+        op_quadplanet_clear,
+        op_quadplanet_destroy,
+        op_quadplanet_geocode,
+        op_quadplanet_place_name,
         op_yumon_brain_create,
         op_yumon_brain_observe,
         op_yumon_brain_infer,
@@ -802,6 +818,7 @@ impl AddonEngine {
             pending_ui_clear: false,
             pending_alpha_models: Vec::new(),
             pending_quadscapes: Vec::new(),
+            quadplanets: HashMap::new(),
             yumon_sims: HashMap::new(),
             yumon_brains: HashMap::new(),
             yumon_runtime_actions: HashMap::new(),

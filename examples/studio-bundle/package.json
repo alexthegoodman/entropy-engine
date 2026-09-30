@@ -43,6 +43,7 @@
     "build-mesha": "npm run ensure-dist && deno bundle src/apps/mesha/mesha_addon.ts --output dist/mesha.js",
     "build-quadplanet": "npm run ensure-dist && deno bundle src/apps/quadplanet/quadplanet_addon.ts --output dist/quadplanet.js",
     "test:quadplanet": "vitest run tests/quadplanet.test.ts",
+    "typecheck:quadplanet": "tsc --project tsconfig.quadplanet.json --noEmit",
     "test:mesha":"vitest run tests/mesha.test.ts tests/mesha_viewport.test.ts",
     "typecheck:mesha": "tsc --project tsconfig.mesha.json --noEmit",
     "mesha:verify": "deno run -A --unstable-sloppy-imports tools/mesha_verify.ts",

@@ -197,7 +197,7 @@ Heightmap terrain, arbitrary 3D landscapes, and the noise fields used to generat
 | `Landscape.getHeightAt(x, z)` | Samples the terrain's height at a world-space point for placing objects on the ground or driving gameplay logic. |
 | `Landscape3D.create(config)` | Builds a terrain using 3D noise, creating unique underhangs, caves, and floating terrain pieces. |
 | `Quadscape.create(config)` | An alternate landscape construction path using a quadtree mesh instead of `Landscape`'s single mesh. |
-| *(example)* QuadPlanet | The same quadtree idea wrapped around whole planets, built in TypeScript on `Model.createMesh`: see the [QuadPlanet example](#quadplanet) and [docs/QUADPLANET.md](docs/QUADPLANET.md). |
+| `QuadPlanet.create(config)` / `update` / `sample` | The same quadtree idea wrapped around whole planets, streamed on the Rust side: six cube-face quadtrees per planet, procedural terrain or real Earth elevation (SRTM-derived tiles), meshed straight into your pipeline within a triangle budget. `sample`/`normal`/`findLandingSite` query the ground the chunks are built from; `geocode`/`placeName` look places up on OpenStreetMap. See the [QuadPlanet example](#quadplanet) and [docs/QUADPLANET.md](docs/QUADPLANET.md). |
 | `Noise.create(config)` | Generates a procedural noise field (Perlin, fractal Brownian motion, etc.) you can feed into terrain heights or textures. |
 
 </details>
@@ -491,7 +491,7 @@ cargo run --bin example --release -- canvas-surface-demo
 npm run build-mesha
 cargo run --bin example --release -- mesha
 
-// quadtree planets you walk on, and a ship to fly between them (QuadPlanet)
+// quadtree planets you walk on, a ship to fly between them, and the real Earth (QuadPlanet)
 npm run build-quadplanet
 cargo run --bin example --release -- quadplanet
 ```
@@ -519,9 +519,15 @@ down to meter-sized cells under your boots. You start on Verdant next to your sh
 fly (W thrust, Shift boost, A/D yaw, arrow keys pitch, Space/C climb and sink) or press **T** (or a
 **Fly to ...** button) for the autopilot, which arcs across to a sunlit landing site on the next
 planet. **E** steps out once landed. Drag to orbit the camera, scroll to zoom, and **L** tints every
-chunk by its quadtree level. `npm run test:quadplanet` runs the TypeScript tier;
-`cargo test --release --test quadplanet_live -- --nocapture` walks, boards, flies to Ember and on
-to Glacia in the real window and checks the captures (under `xvfb-run -a` on a headless box).
+chunk by its quadtree level. The fourth planet is **Earth** at its real size, with real terrain:
+elevation streamed from the open SRTM-derived Terrain Tiles (cached on disk, with a built-in world
+tile for offline use). Type a place into the HUD's **Earth** box (or use the `quadplanet_goto`
+tool) to go there: "Matterhorn", "Grand Canyon", "46.0, 7.6", or any name OpenStreetMap knows.
+The terrain streaming is Rust-side and exposed to TypeScript as `Entropy.QuadPlanet`.
+`npm run test:quadplanet` runs the TypeScript tier, `cargo test --release --lib QuadPlanet` the
+terrain tier, and `cargo test --release --test quadplanet_live -- --nocapture` walks, boards,
+flies to Ember and on to Glacia, then goes to Earth and the Matterhorn in the real window and
+checks the captures (under `xvfb-run -a` on a headless box).
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
 library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), gear, bolt and

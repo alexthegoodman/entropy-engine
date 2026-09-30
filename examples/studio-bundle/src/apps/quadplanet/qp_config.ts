@@ -25,7 +25,7 @@ export type ChunkDetail =
 // { mode: "explicit", verticesPerLevel: [17, 17, 17, 17, 17, 17, 17, 17] } // works, but low max
 //
 // Valid counts: 3-257 vertices per side, including endpoints (64 gives a 62x62 interior).
-// Valid level counts: 1-18, including the root. Halving rounds down, with a minimum of 3.
+// Valid level counts: 1-21, including the root. Halving rounds down, with a minimum of 3.
 //
 // Planet scale: the planets are 58-100 km in radius, so a root face is 90-160 km across and each
 // level halves that. Fourteen levels put Verdant's leaf chunks at ~19 m (0.3 m between vertices
@@ -39,4 +39,13 @@ export type ChunkDetail =
 // don't turn blocky; there are only a few dozen of them, so they are cheap.
 export const DEFAULT_CHUNK_DETAIL: ChunkDetail | undefined = {
     mode: "explicit", verticesPerLevel: [64, 32, 32, 32, 32, 32, 32, 32, 32, 48, 48, 64, 64, 64],
+};
+
+// Earth (6,371 km radius) needs 20 levels for the same ~19 m leaf chunks: its root faces are
+// 10,000 km across. Leaf first. The coarsest levels are what you see from orbit (a couple of dozen
+// chunks thousands of kilometers across), so they get 96-128 vertices to keep coastlines smooth;
+// on the ground horizon culling leaves none of them. The Rust streamer keeps the whole solar
+// system under its triangle budget (2M by default) by tightening the split distance if it has to.
+export const EARTH_CHUNK_DETAIL: ChunkDetail = {
+    mode: "explicit", verticesPerLevel: [64, ...Array(13).fill(32), 48, 48, 96, 128, 128, 128],
 };

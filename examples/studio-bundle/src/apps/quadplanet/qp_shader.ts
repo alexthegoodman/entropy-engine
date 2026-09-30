@@ -16,9 +16,9 @@
 //   analytic gradient. Every octave fades out once it is finer than a pixel, so the detail is
 //   there when you look at the ground at your feet and never shimmers on a distant mountain.
 //   Which texture a spot gets comes from the vertex color: its alpha is the rock weight
-//   (qp_planet.ts surfaceColor), snow is told apart by its color.
+//   (planet.rs Planet::color), snow is told apart by its color.
 //
-// Coordinates. Planets are tens of kilometers across and hundreds apart, more than f32 can place
+// Coordinates. Planets are tens (Earth: thousands) of kilometers across and hundreds apart, more than f32 can place
 // to the millimeter. Everything is drawn relative to a render origin near the camera
 // (quadplanet_addon.ts): chunk vertices are relative to their own origin and the per-object model
 // matrix moves them by (chunk origin - render origin); the camera and the planets in the World
@@ -32,16 +32,16 @@
 // next planet.
 //
 // Material ids ride in uv.x's integer part and the chunk's quadtree level in uv.y's; terrain
-// chunks put their local grid position in the fractions (qp_quadtree.ts packChunkUv) so the debug
+// chunks put their local grid position in the fractions (mesh.rs pack_chunk_uv) so the debug
 // view can color each level and outline each chunk.
 
-/** Floats in the World uniform (9 vec4). */
-export const WORLD_FLOATS = 36;
+/** Floats in the World uniform (11 vec4). */
+export const WORLD_FLOATS = 44;
 /** Floats in the per-object Item uniform: model matrix, tint, texture origin. */
 export const ITEM_FLOATS = 24;
 /** The texture noise repeats every this many meters (a power of two: see the shader). */
 export const TEX_PERIOD = 1024;
-export const MAX_PLANETS = 3;
+export const MAX_PLANETS = 4;
 
 export interface WorldUniform {
     sunDir: [number, number, number];
@@ -63,7 +63,7 @@ export function packWorld(w: WorldUniform): Float32Array {
         const p = w.planets[i];
         if (!p) continue;
         out.set([...p.center, p.radius], 12 + i * 4);
-        out.set([...p.atmosphere, p.atmosphereHeight], 24 + i * 4);
+        out.set([...p.atmosphere, p.atmosphereHeight], 12 + MAX_PLANETS * 4 + i * 4);
     }
     return out;
 }
@@ -84,8 +84,8 @@ struct World {
     sun_dir: vec4<f32>,        // xyz, w = time
     sun_color: vec4<f32>,
     params: vec4<f32>,         // x = exposure, y = LOD debug tint, z = planet count, w = chunk outlines
-    planet: array<vec4<f32>, 3>,     // center xyz (relative to the render origin), radius
-    atmosphere: array<vec4<f32>, 3>, // color rgb, shell thickness
+    planet: array<vec4<f32>, ${MAX_PLANETS}>,     // center xyz (relative to the render origin), radius
+    atmosphere: array<vec4<f32>, ${MAX_PLANETS}>, // color rgb, shell thickness
 };
 @group(2) @binding(0) var<uniform> world: World;
 
@@ -316,7 +316,10 @@ fn blend_surface(a: Surface, b: Surface, t: f32) -> Surface {
 fn sphere_hit(o: vec3<f32>, d: vec3<f32>, c: vec3<f32>, r: f32) -> vec2<f32> {
     let oc = o - c;
     let b = dot(oc, d);
-    let h = b * b - (dot(oc, oc) - r * r);
+    // |oc|^2 - r^2 as a product: on Earth both squares are ~4e13, and their f32 difference
+    // would lose everything below a few hundred meters of altitude.
+    let l = length(oc);
+    let h = b * b - (l - r) * (l + r);
     if (h < 0.0) { return vec2<f32>(1.0, -1.0); }
     let s = sqrt(h);
     return vec2<f32>(-b - s, -b + s);

@@ -1349,6 +1349,8 @@ pub struct AddonContext {
     pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_quadscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    /// Rust-side planet systems (`Entropy.QuadPlanet`), by id. See quadplanet_ops.rs.
+    pub quadplanets: HashMap<String, crate::heightfield_landscapes::QuadPlanet::QuadPlanetSystem>,
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,

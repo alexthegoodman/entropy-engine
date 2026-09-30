@@ -86,3 +86,19 @@ Feature: QuadPlanet in the real window
     And I advance 10 frames
     Then I call the tool "quadplanet_state"
     And I capture "11-walking-on-glacia"
+
+  Scenario: Earth, the real one
+    Earth is 6,371 km in radius and its terrain is real: SRTM-derived elevation tiles (compiled in
+    at the coarsest zoom, streamed and cached beyond it). From orbit you see the continents; then
+    the goto tool sets you down on the Matterhorn's summit ridge, 4 km up in the Alps.
+    When I call the tool "quadplanet_view" with {"mode": "orbit", "planet": "Earth", "distance": 2.6}
+    And I call the tool "quadplanet_settle" with {"timeoutMs": 90000}
+    And I advance 10 frames
+    Then I call the tool "quadplanet_state"
+    And I capture "12-earth-from-orbit"
+    When I call the tool "quadplanet_view" with {"mode": "follow"}
+    And I call the tool "quadplanet_goto" with {"lat": 45.9763, "lon": 7.6586, "mode": "teleport"}
+    And I call the tool "quadplanet_settle" with {"timeoutMs": 90000}
+    And I advance 10 frames
+    Then I call the tool "quadplanet_state"
+    And I capture "13-on-the-matterhorn"

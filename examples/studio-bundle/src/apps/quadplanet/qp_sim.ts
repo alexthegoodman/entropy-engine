@@ -5,7 +5,7 @@
 
 import {
     type Vec3, type Frame, add, addScaled, bezier, bezierTangent, clamp, cross, distance, dot, length, lerp,
-    makeFrame, normalize, projectOnPlane, rotateAround, scale, smoothstep, sub,
+    anyPerpendicular, makeFrame, normalize, projectOnPlane, rotateAround, scale, smoothstep, sub,
 } from "./qp_math";
 import {
     type PlanetDef, PLANETS, SUN_DIRECTION, altitudeAboveGround, findLandingSite, maxRelief, sampleSurface,
@@ -106,36 +106,77 @@ export function nearestPlanet(pos: Vec3, planets: PlanetDef[] = PLANETS): number
     return best;
 }
 
+/** How far (m) a landing site may be from the place you asked for before the ship sets down right
+ * at the place instead, flat or not. */
+export const NEAR_SITE = 1000;
+
+/**
+ * Where the ship sets down for a trip to `dir`: the nearest flat, dry patch if there is one
+ * within NEAR_SITE, otherwise `dir` itself (a mountain top gets you the mountain top).
+ */
+export function siteNear(p: PlanetDef, dir: Vec3): Vec3 {
+    const d = normalize(dir);
+    const site = findLandingSite(p, d);
+    const off = Math.acos(Math.max(-1, Math.min(1, dot(site, d)))) * p.radius;
+    return off <= NEAR_SITE || sampleSurface(p, d, true).sea ? site : d;
+}
+
+/**
+ * Puts the walker on planet `index` near direction `preferred`, with the ship parked a short walk
+ * ahead (the walk toward it lit from the front). With `exact`, the walker stands at `preferred`
+ * itself (unless it is open water) and the ship on the nearest flat ground close by.
+ */
+export function arriveAt(s: GameState, index: number, preferred: Vec3, planets: PlanetDef[] = PLANETS, exact = false): void {
+    const home = planets[index];
+    const want = normalize(preferred);
+    const dry = (d: Vec3) => home.frozenSea || !sampleSurface(home, d, true).sea;
+    let shipDir: Vec3;
+    let dir: Vec3;
+    if (exact && dry(want)) {
+        dir = want;
+        shipDir = siteNear(home, want);
+        if (dot(shipDir, want) > 1 - 1e-15) {
+            // No flat ground nearby: park beside the walker, sunward.
+            const toward = normalize(projectOnPlane(SUN_DIRECTION, want));
+            shipDir = normalize(addScaled(want, toward, 13 / home.radius));
+        }
+    } else {
+        shipDir = findLandingSite(home, want);
+        // The walker starts 13 units from the ship, on the side away from the sun, on dry ground.
+        const toward = normalize(projectOnPlane(SUN_DIRECTION, shipDir));
+        dir = shipDir;
+        for (let k = 0; k < 16; k++) {
+            const away = rotateAround(scale(toward, -1), shipDir, k * 0.4);
+            const d = normalize(addScaled(shipDir, away, 13 / home.radius));
+            if (dry(d)) { dir = d; break; }
+        }
+    }
+    const shipPos = surfacePoint(home, shipDir);
+    const walkerPos = surfacePoint(home, dir);
+    const walkerForward = normalize(projectOnPlane(sub(shipPos, walkerPos), dir));
+    s.mode = "walk";
+    s.walker = { planet: index, pos: walkerPos, forward: length(walkerForward) > 0 ? walkerForward : anyPerpendicular(dir), verticalSpeed: 0, grounded: true, stride: 0, speed: 0 };
+    s.ship = { pos: shipPos, frame: makeFrame(rotateAround(s.walker.forward, shipDir, 0.9), shipDir), vel: [0, 0, 0], landed: true, planet: index, thrust: 0, autopilot: null };
+    s.rig = { yaw: 0.35, pitch: 0.28, distance: 7 };
+    if (!s.visited.includes(home.id)) s.visited.push(home.id);
+}
+
 /** A sunlit, walkable start on the first planet, with the ship parked a short walk ahead. */
 export function initialState(planets: PlanetDef[] = PLANETS): GameState {
     const home = planets[0];
-    // Morning light: the sun about 40 degrees up behind the walker's right shoulder.
-    const pref = normalize(add(SUN_DIRECTION, scale(normalize(cross(SUN_DIRECTION, [0, 1, 0])), 0.9)));
-    // The ship needs a flat patch; the walker starts 13 units from it, on the side away from the
-    // sun (so the walk toward the ship is lit from the front), on any dry ground.
-    const shipDir = findLandingSite(home, pref);
-    const shipPos = surfacePoint(home, shipDir);
-    const toward = normalize(projectOnPlane(SUN_DIRECTION, shipDir));
-    let dir = shipDir;
-    for (let k = 0; k < 16; k++) {
-        const away = rotateAround(scale(toward, -1), shipDir, k * 0.4);
-        const d = normalize(addScaled(shipDir, away, 13 / home.radius));
-        if (!sampleSurface(home, d).sea) { dir = d; break; }
-    }
-    const up = dir;
-    const walkerPos = surfacePoint(home, dir);
-    const walkerForward = normalize(projectOnPlane(sub(shipPos, walkerPos), up));
-    const shipFrame = makeFrame(rotateAround(walkerForward, shipDir, 0.9), shipDir);
-    return {
+    const s: GameState = {
         mode: "walk",
-        walker: { planet: 0, pos: walkerPos, forward: walkerForward, verticalSpeed: 0, grounded: true, stride: 0, speed: 0 },
-        ship: { pos: shipPos, frame: shipFrame, vel: [0, 0, 0], landed: true, planet: 0, thrust: 0, autopilot: null },
+        walker: { planet: 0, pos: [0, 0, 0], forward: [1, 0, 0], verticalSpeed: 0, grounded: true, stride: 0, speed: 0 },
+        ship: { pos: [0, 0, 0], frame: makeFrame([1, 0, 0], [0, 1, 0]), vel: [0, 0, 0], landed: true, planet: 0, thrust: 0, autopilot: null },
         rig: { yaw: 0.35, pitch: 0.28, distance: 7 },
         time: 0,
         walked: 0,
-        visited: [home.id],
+        visited: [],
         message: `Welcome to ${home.name}. Walk to your ship (W) and press E to board.`,
     };
+    // Morning light: the sun about 40 degrees up behind the walker's right shoulder.
+    arriveAt(s, 0, normalize(add(SUN_DIRECTION, scale(normalize(cross(SUN_DIRECTION, [0, 1, 0])), 0.9))), planets);
+    return s;
 }
 
 // --- Walking -------------------------------------------------------------------------------------
@@ -189,7 +230,7 @@ function stepWalker(s: GameState, input: Input, dt: number, planets: PlanetDef[]
 
 // --- The ship ------------------------------------------------------------------------------------
 
-// Planets are tens of kilometers across and hundreds apart (qp_planet.ts), so boost is strong:
+// The small planets are tens of kilometers across and hundreds apart (qp_planet.ts), so boost is strong:
 // kilometers a second in the air, tens of kilometers a second in space.
 export const SHIP_THRUST = 90;
 export const SHIP_BOOST = 2400;
@@ -288,14 +329,16 @@ function pathClear(a: Autopilot, planets: PlanetDef[]): boolean {
     return true;
 }
 
-/** Plans a smooth arc from where the ship is to a sunlit landing site on `target`. */
-export function planAutopilot(s: GameState, target: number, planets: PlanetDef[] = PLANETS): Autopilot {
+/**
+ * Plans a smooth arc from where the ship is to a landing site on `target`: near `site` (a
+ * direction from its center) when given, otherwise the sunlit side facing the ship.
+ */
+export function planAutopilot(s: GameState, target: number, planets: PlanetDef[] = PLANETS, site?: Vec3): Autopilot {
     const ship = s.ship;
     const from = nearestPlanet(ship.pos, planets);
     const B = planets[target];
     const fromDir = normalize(sub(ship.pos, B.center));
-    const pref = normalize(add(fromDir, scale(SUN_DIRECTION, 1.3)));
-    const landDir = findLandingSite(B, pref);
+    const landDir = site ? siteNear(B, site) : findLandingSite(B, normalize(add(fromDir, scale(SUN_DIRECTION, 1.3))));
     const land = surfacePoint(B, landDir);
     const upA = upAt(planets[from], ship.pos);
     const span = distance(ship.pos, land);
@@ -314,11 +357,11 @@ export function planAutopilot(s: GameState, target: number, planets: PlanetDef[]
     return plan;
 }
 
-export function startAutopilot(s: GameState, target: number, planets: PlanetDef[] = PLANETS): Autopilot | null {
+export function startAutopilot(s: GameState, target: number, planets: PlanetDef[] = PLANETS, site?: Vec3): Autopilot | null {
     if (s.mode !== "ship") { s.message = "Board the ship first (E next to it)."; return null; }
     const here = nearestPlanet(s.ship.pos, planets);
-    if (here === target && s.ship.landed) { s.message = `Already on ${planets[target].name}.`; return null; }
-    const plan = planAutopilot(s, target, planets);
+    if (here === target && s.ship.landed && !site) { s.message = `Already on ${planets[target].name}.`; return null; }
+    const plan = planAutopilot(s, target, planets, site);
     s.ship.autopilot = plan;
     s.ship.landed = false;
     s.message = `Autopilot: flying to ${planets[target].name} (${Math.round(distance(plan.p0, plan.p3) / 1000)} km).`;
