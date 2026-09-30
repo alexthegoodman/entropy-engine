@@ -241,6 +241,10 @@ pub struct UiWindowConfig {
 
     pub title: String,
 
+    /// Tab that owns this floating window. An inactive tab keeps its windows open but hidden.
+    #[serde(default)]
+    pub owner_tab_id: Option<String>,
+
     #[serde(default = "default_resizable")]
     pub resizable: bool,
 
@@ -273,6 +277,10 @@ pub struct UiWindowConfig {
 pub struct UiTabConfig {
 
     pub title: String,
+
+    /// Leave the viewport visible beneath this tab's floating windows.
+    #[serde(default)]
+    pub transparent: bool,
 
     /// `false` lays the tab out to the window instead of inside a page-long vertical scroll, for
     /// an app that fills the window itself (header, a `split` main area, a status bar). Default true.

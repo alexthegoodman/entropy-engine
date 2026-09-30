@@ -6544,11 +6544,14 @@ addon.onInit(async () => {
         }
     });
 
+    const createDawWindow = (config: Parameters<typeof Entropy.UI.createWindow>[0]) =>
+        Entropy.UI.createWindow({ ...config, ownerTabId: tabId });
+
     // The analyzer floats over the tab, bottom right of the main view by default (clear of the
     // inspector, over the room under the lanes); drag it wherever suits. The engine draws tabs
     // first and windows on top of them.
     const [screenW, screenH] = Entropy.Window.getSize();
-    analyzerWindowId = Entropy.UI.createWindow({
+    analyzerWindowId = createDawWindow({
         title: "Analyzer",
         width: 720,
         height: 330,
@@ -6561,7 +6564,7 @@ addon.onInit(async () => {
     Entropy.UI.setWindowVisible(analyzerWindowId, analyzerVisible);
 
     // The music video panel, hidden until asked for: preview on the left, the look on the right.
-    visualizerWindowId = Entropy.UI.createWindow({
+    visualizerWindowId = createDawWindow({
         title: "Music Video",
         width: Math.min(960, screenW - 32),
         height: Math.max(520, Math.min(700, screenH - 72)),
@@ -6575,7 +6578,7 @@ addon.onInit(async () => {
     // Reverb & EQ, hidden until asked for: tall enough for the 3D room, the EQ and the knobs.
     spaceWindowHeight = Math.max(640, Math.min(920, screenH - 72));
     const spaceWidth = Math.max(760, Math.min(1120, screenW - 32));
-    spaceWindowId = Entropy.UI.createWindow({
+    spaceWindowId = createDawWindow({
         title: "Reverb & EQ",
         width: spaceWidth,
         height: spaceWindowHeight,
@@ -6589,7 +6592,7 @@ addon.onInit(async () => {
     // The drum rack: sample browser, pad bank and pad editor side by side, top-left over the
     // arrangement (drag it wherever suits) and clear of the analyzer at the bottom right.
     const rackWidth = Math.max(640, Math.min(1290, screenW - 32));
-    rackWindowId = Entropy.UI.createWindow({
+    rackWindowId = createDawWindow({
         title: "Drum Rack",
         width: rackWidth,
         height: 590,
@@ -6604,7 +6607,7 @@ addon.onInit(async () => {
     // The wavetable editor, hidden until asked for. Tall and wide: the terrain wants room.
     wavetableWindowHeight = Math.max(560, Math.min(940, screenH - 72));
     wavetableWindowWidth = Math.max(760, Math.min(1240, screenW - 32));
-    wavetableWindowId = Entropy.UI.createWindow({
+    wavetableWindowId = createDawWindow({
         title: "Wavetable",
         width: wavetableWindowWidth,
         height: wavetableWindowHeight,
@@ -6619,7 +6622,7 @@ addon.onInit(async () => {
     // The bowed-string editor, hidden until asked for.
     physModWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     physModWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
-    physModWindowId = Entropy.UI.createWindow({
+    physModWindowId = createDawWindow({
         title: "Bowed String",
         width: physModWindowWidth,
         height: physModWindowHeight,
@@ -6634,7 +6637,7 @@ addon.onInit(async () => {
     // The brass editor, hidden until asked for.
     brassWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     brassWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
-    brassWindowId = Entropy.UI.createWindow({
+    brassWindowId = createDawWindow({
         title: "Brass",
         width: brassWindowWidth,
         height: brassWindowHeight,
@@ -6649,7 +6652,7 @@ addon.onInit(async () => {
     // The grand piano, hidden until asked for.
     pianoWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     pianoWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
-    pianoWindowId = Entropy.UI.createWindow({
+    pianoWindowId = createDawWindow({
         title: "Grand Piano",
         width: pianoWindowWidth,
         height: pianoWindowHeight,
@@ -6663,7 +6666,7 @@ addon.onInit(async () => {
     // The drum kit, hidden until asked for.
     matterWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     matterWindowWidth = Math.max(700, Math.min(1120, screenW - 32));
-    matterWindowId = Entropy.UI.createWindow({
+    matterWindowId = createDawWindow({
         title: "Kit",
         width: matterWindowWidth,
         height: matterWindowHeight,
@@ -6678,7 +6681,7 @@ addon.onInit(async () => {
     // Water, hidden until asked for.
     waterWindowHeight = Math.max(520, Math.min(820, screenH - 72));
     waterWindowWidth = Math.max(760, Math.min(1120, screenW - 32));
-    waterWindowId = Entropy.UI.createWindow({
+    waterWindowId = createDawWindow({
         title: "Water",
         width: waterWindowWidth,
         height: waterWindowHeight,
@@ -6691,7 +6694,7 @@ addon.onInit(async () => {
     Entropy.UI.setWindowVisible(waterWindowId, waterVisible);
 
     // The song library and the open song's version history, hidden until asked for.
-    songsWindowId = Entropy.UI.createWindow({
+    songsWindowId = createDawWindow({
         title: "Songs",
         width: 620,
         height: Math.max(520, Math.min(760, screenH - 72)),
@@ -6702,7 +6705,7 @@ addon.onInit(async () => {
         onClose: () => { songsVisible = false; }
     });
     Entropy.UI.setWindowVisible(songsWindowId, songsVisible);
-    historyWindowId = Entropy.UI.createWindow({
+    historyWindowId = createDawWindow({
         title: "History",
         width: 600,
         height: Math.max(520, Math.min(760, screenH - 72)),
@@ -6730,7 +6733,7 @@ addon.onInit(async () => {
     });
 
     // The guitar input, top right, hidden until asked for. Drag it anywhere.
-    guitarWindowId = Entropy.UI.createWindow({
+    guitarWindowId = createDawWindow({
         title: "Guitar Input",
         width: 620,
         height: 590,

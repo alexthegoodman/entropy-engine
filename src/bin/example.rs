@@ -153,7 +153,7 @@ async fn main() {
                 .with_hot_reload(true)
                 .with_title("Entropy Studio Suite")
                 .with_window_size(1800.0, 1020.0)
-                // Unified bundle includes CC Manager, DAW, and Guitar Tabs. Points data dir
+                // Unified bundle includes CC Manager, DAW, Guitar Tabs, and Mesha. Points data dir
                 // to ../cc-manager so tasks.json loads predictably from repo root.
                 .with_data_dir(env::var("ENTROPY_BUNDLE_BDD_DATA").unwrap_or_else(|_| "../cc-manager".to_string())),
             Some("stylus-drawing") => entropy_engine::EntropyApp::new()

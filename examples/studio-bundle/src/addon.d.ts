@@ -890,6 +890,8 @@ export interface AddonStore {
 
 export interface WindowConfig {
   title?: string;
+  /** Keep this window open but draw it only while its owning taskbar tab is selected. */
+  ownerTabId?: string;
   width?: number;
   height?: number;
   // Starting top-left position in screen pixels. Both must be set together or neither is used
@@ -916,6 +918,8 @@ export interface WindowConfig {
 
 export interface TabConfig {
   title?: string;
+  /** Show the native viewport behind floating windows instead of a tab content panel. */
+  transparent?: boolean;
   onRender?: () => void;
   /** `false` lays the tab out to the window rather than inside a page-long vertical scroll - for
    * an app that fills the window itself (a `bar`, a `split`, a status `bar`). Default true. */

@@ -196,7 +196,10 @@ function rebuildInstance(inst: Instance): void {
     for (const rm of local.meshes) {
         const { vertexData, indexData } = packVertices(rm);
         const id = Entropy.generateUUID();
-        Entropy.Model.createMesh({
+        addon.Model.createMesh({ 
+            // NOTE: creates Mesh for this addon only, not in "Global" which is why Mesha screen is currently black in the special-bundle app. see pipeline.rs. 
+            // TODO: make sure the new taskbar selection reflects in the legacy active addon field used by render_addon_frame.rs to determine what gets rendered when
+            // NOTE: also ensure that the standalone apps like Mesha from example bin can still run on their own successfully and pass tests
             id, position: [0, 0, 0], vertexData, indexData, pipelineId,
             bindings: [
                 { group: 2, binding: 0, resource: { type: "Buffer", value: { id: studioBuffer } } },
@@ -267,7 +270,7 @@ function rebuildGround(): void {
         indexData.push(a, c, b, b, c, d);
     }
     Entropy.Model.clearMesh(GROUND_MESH_ID);
-    Entropy.Model.createMesh({
+    addon.Model.createMesh({
         id: GROUND_MESH_ID, position: [0, 0, 0], vertexData, indexData, pipelineId,
         bindings: [
             { group: 2, binding: 0, resource: { type: "Buffer", value: { id: studioBuffer } } },
@@ -288,7 +291,7 @@ function createBackdrop(): void {
     // Reverse the winding so the inside faces the camera.
     const indexData: number[] = [];
     for (let t = 0; t < part.indices.length; t += 3) indexData.push(part.indices[t], part.indices[t + 2], part.indices[t + 1]);
-    Entropy.Model.createMesh({
+    addon.Model.createMesh({
         id: BACKDROP_MESH_ID, position: [0, 0, 0], vertexData, indexData, pipelineId,
         bindings: [
             { group: 2, binding: 0, resource: { type: "Buffer", value: { id: studioBuffer } } },
@@ -785,6 +788,9 @@ function renderProperties(): void {
 
 function setupUI(): void {
     const [sw, sh] = Entropy.Window.getSize();
+    const tabId = addon.UI.createTab({ title: "Mesha", transparent: true, onRender: () => {} });
+    const createMeshaWindow = (config: Parameters<typeof Entropy.UI.createWindow>[0]) =>
+        Entropy.UI.createWindow({ ...config, ownerTabId: tabId });
     Entropy.UI.setTheme({
         background: [0.075, 0.08, 0.09, 0.72],
         surface: [0.14, 0.145, 0.16, 0.9],
@@ -797,9 +803,9 @@ function setupUI(): void {
         itemSpacing: 7,
         buttonPadding: [10, 5],
     });
-    libraryWindow = Entropy.UI.createWindow({ title: "Library", width: 300, height: sh - 96, x: 16, y: 80, glass: true, onRender: renderLibrary });
-    propsWindow = Entropy.UI.createWindow({ title: "Properties", width: 380, height: sh - 96, x: sw - 396, y: 80, glass: true, onRender: renderProperties });
-    toolbarWindow = Entropy.UI.createWindow({ title: "Mesha", width: 820, height: 96, x: Math.round((sw - 820) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
+    libraryWindow = createMeshaWindow({ title: "Library", width: 300, height: sh - 96, x: 16, y: 80, glass: true, onRender: renderLibrary });
+    propsWindow = createMeshaWindow({ title: "Properties", width: 380, height: sh - 96, x: sw - 396, y: 80, glass: true, onRender: renderProperties });
+    toolbarWindow = createMeshaWindow({ title: "Mesha", width: 820, height: 96, x: Math.round((sw - 820) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
 }
 
 // --- MCP tools -----------------------------------------------------------------------------------
@@ -987,7 +993,8 @@ addon.onInit(() => {
     Entropy.println("[mesha] initialized");
 });
 
-addon.onUpdatePlus("Global", () => {
+// addon.onUpdatePlus("Global", () => {
+addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
     if (gizmoId && pointerHeld) {
         const s = Entropy.Gizmo.getState(gizmoId);
         if (s?.isActive) gizmoWasActive = true;

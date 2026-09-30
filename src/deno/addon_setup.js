@@ -1309,6 +1309,7 @@ globalThis.Entropy = {
             // existed.
             const windowId = ops.op_ui_create_window({
                 title: config.title || "",
+                ownerTabId: config.ownerTabId || null,
                 resizable: config.resizable !== undefined ? config.resizable : true,
                 defaultSize: { width: config.width || 400, height: config.height || 300 },
                 defaultPos: (config.x !== undefined && config.y !== undefined) ? [config.x, config.y] : null,

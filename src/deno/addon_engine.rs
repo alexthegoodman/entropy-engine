@@ -3858,7 +3858,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let mut op_state = self.runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                    let mut windows: Vec<_> = context.ui_windows.iter().map(|(id, (_, cb))| (id.clone(), cb.clone())).collect();
+                    let mut windows: Vec<_> = context.ui_windows.iter()
+                        .filter(|(_, (config, _))| config.owner_tab_id.as_ref().map_or(true, |owner| context.active_tab.as_ref() == Some(owner)))
+                        .map(|(id, (_, cb))| (id.clone(), cb.clone())).collect();
                     windows.sort_by(|a, b| a.0.cmp(&b.0));
                     windows
                 } else {
@@ -3922,7 +3924,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     context.ui_frame_labels.clear();
                 }
                 for (id, config) in &sorted_windows {
-                    if !config.visible { continue; }
+                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| context.active_tab.as_ref() != Some(owner)) { continue; }
+                    context.ui_frame_labels.push(config.title.clone());
                     if let Some(widgets) = context.ui_widgets.get(id) {
                         context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| match widget {
                             UiWidget::Label { text, .. } => Some(text.clone()),
@@ -3934,7 +3937,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 for (id, config) in sorted_windows {
-                    if !config.visible { continue; }
+                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| context.active_tab.as_ref() != Some(owner)) { continue; }
                     let mut open = true;
                     let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
@@ -4160,17 +4163,20 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                 }
                 let scroll = context.ui_tabs.get(&active_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    if let Some(widgets) = widgets {
-                        if scroll {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
+                let transparent = context.ui_tabs.get(&active_id).is_some_and(|(cfg, _, _)| cfg.transparent);
+                if !transparent {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if let Some(widgets) = widgets {
+                            if scroll {
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                                });
+                            } else {
                                 Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
-                            });
-                        } else {
-                            Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         }
 

@@ -474,6 +474,10 @@ All studio-bundle examples share one binary - pass the example's name as an arg:
 ```bash
 cd examples/studio-bundle/
 
+// DAW, Guitar Tabs, Mesha, and CC Manager in one taskbar; floating windows follow their app
+npm run build-special-bundle
+cargo run --bin example --release -- special-bundle
+
 // audio editor (arrangement, drum rack, guitar input, wavetable synth, quick knobs and moves,
 // music video export)
 npm run build-daw
