@@ -174,7 +174,8 @@ pub fn op_quadplanet_normal(state: &mut OpState, #[string] id: String, #[string]
     })
 }
 
-/// A flat, dry spot near `preferred` big enough for the ship (waits for elevation data).
+/// A flat, dry spot near `preferred` big enough for the ship. Non-blocking: answers from
+/// whatever elevation is cached now, falling back to coarser data while the rest streams in.
 #[op2]
 #[serde]
 pub fn op_quadplanet_landing_site(state: &mut OpState, #[string] id: String, #[string] planet: String, #[serde] preferred: V3) -> Result<V3, JsErrorBox> {

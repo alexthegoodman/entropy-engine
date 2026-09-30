@@ -163,7 +163,8 @@ export interface SurfaceSample {
 
 /** Answers terrain questions; the addon uses `Entropy.QuadPlanet`, tests their own. */
 export interface TerrainBackend {
-    /** The finest (walkable) ground along direction `d`; `wait` loads missing elevation data. */
+    /** The finest (walkable) ground along direction `d`. `wait` blocks the calling thread until
+     * missing elevation data loads - only for one-off tooling/test queries, never per-frame code. */
     sample(p: PlanetDef, d: Vec3, wait?: boolean): SurfaceSample;
     normal(p: PlanetDef, d: Vec3, step: number): Vec3;
     landingSite(p: PlanetDef, preferred: Vec3): Vec3;
@@ -190,10 +191,11 @@ export function surfaceRadius(p: PlanetDef, d: Vec3): number {
     return p.radius + sampleSurface(p, d).surface;
 }
 
-/** World-space point on the surface along direction `dir` (waiting for elevation data). */
+/** World-space point on the surface along direction `dir`, from whatever elevation is loaded now
+ * (never waits on the network: coarser data stands in until the real tiles stream in). */
 export function surfacePoint(p: PlanetDef, dir: Vec3): Vec3 {
     const d = normalize(dir);
-    return addScaled(p.center, d, p.radius + sampleSurface(p, d, true).surface);
+    return addScaled(p.center, d, p.radius + sampleSurface(p, d).surface);
 }
 
 /** Height of `pos` above the ground directly beneath it. */

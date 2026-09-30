@@ -118,7 +118,7 @@ export function siteNear(p: PlanetDef, dir: Vec3): Vec3 {
     const d = normalize(dir);
     const site = findLandingSite(p, d);
     const off = Math.acos(Math.max(-1, Math.min(1, dot(site, d)))) * p.radius;
-    return off <= NEAR_SITE || sampleSurface(p, d, true).sea ? site : d;
+    return off <= NEAR_SITE || sampleSurface(p, d).sea ? site : d;
 }
 
 /**
@@ -129,7 +129,7 @@ export function siteNear(p: PlanetDef, dir: Vec3): Vec3 {
 export function arriveAt(s: GameState, index: number, preferred: Vec3, planets: PlanetDef[] = PLANETS, exact = false): void {
     const home = planets[index];
     const want = normalize(preferred);
-    const dry = (d: Vec3) => home.frozenSea || !sampleSurface(home, d, true).sea;
+    const dry = (d: Vec3) => home.frozenSea || !sampleSurface(home, d).sea;
     let shipDir: Vec3;
     let dir: Vec3;
     if (exact && dry(want)) {

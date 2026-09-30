@@ -476,8 +476,14 @@ impl Planet {
     /// around `preferred` (deterministic for a planet) and takes the first good one, or failing
     /// that the flattest dry spot it saw. On Earth the spiral is kilometers, not radians, wide,
     /// and is searched on coarse data first so it touches a handful of tiles, not thousands.
+    ///
+    /// Runs on the caller's thread (the render/main thread for a "Fly to" click), so it must never
+    /// wait on the network: elevation lookups use [`Access::Fallback`], answering instantly from
+    /// whatever tiles are cached (down to the built-in zoom-0 tile) while the real ones stream in
+    /// on background workers. The chosen site can be coarser than the ground the ship actually
+    /// lands on, which refines under it the same way any other chunk does.
     pub fn find_landing_site(&self, preferred: V3) -> V3 {
-        let mut lk = Lookup::new(Access::Block);
+        let mut lk = Lookup::new(Access::Fallback);
         let up = normalize(preferred);
         let t1 = any_perpendicular(up);
         let finest = self.finest;

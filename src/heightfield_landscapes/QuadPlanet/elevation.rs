@@ -75,9 +75,12 @@ pub enum Access {
     /// Request it and use coarser data meanwhile, flagging the lookup `missing` (chunk building:
     /// the result is thrown away and the chunk retried once the tile lands).
     Gate,
-    /// Request it and use coarser data meanwhile (the walker's footing, LOD distances).
+    /// Request it and use coarser data meanwhile (the walker's footing, LOD distances, landing
+    /// site search - anything on the render/main thread, which must never block on the network).
     Fallback,
-    /// Load it now, waiting on the network if need be (one-off queries like landing sites).
+    /// Load it now, waiting on the network if need be. Only for callers that are themselves off
+    /// the main thread or explicitly want to pay for it (tests; the low-level `sample` op's
+    /// opt-in `wait`) - never call this from the per-frame game loop.
     Block,
 }
 
