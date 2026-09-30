@@ -95,6 +95,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "node-graph",
     "quadplanet",
     "sheet",
+    "special-bundle",
     "stylus-drawing",
     "theme-gallery",
     "video-export-demo",

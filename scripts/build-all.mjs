@@ -36,6 +36,7 @@ const bundles = [
   ["node-graph", "src/apps/node_graph_addon.ts", "node_graph.js"],
   ["quadplanet", "src/apps/quadplanet/quadplanet_addon.ts", "quadplanet.js"],
   ["sheet", "src/apps/sheet/sheet_addon.ts", "sheet.js"],
+  ["special-bundle", "src/special_bundle.ts", "special_bundle.js"],
   ["stylus-drawing", "src/apps/stylus_drawing_addon.ts", "stylus_drawing.js"],
   ["theme-gallery", "src/apps/theme_gallery_addon.ts", "theme_gallery.js"],
   ["video-export-demo", "src/apps/video_export_demo_addon.ts", "video_export_demo.js"],

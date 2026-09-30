@@ -148,6 +148,14 @@ async fn main() {
                 // has nowhere for Entropy.IO.save/load to go without one, so the sheet (see
                 // sheet_addon.ts's saveSheet/loadSheet) would silently never persist.
                 .with_data_dir(env::var("ENTROPY_SHEET_BDD_DATA").unwrap_or_else(|_| "../sheet-data".to_string())),
+            Some("special-bundle") | Some("studio-bundle") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/special_bundle.js")
+                .with_hot_reload(true)
+                .with_title("Entropy Studio Suite")
+                .with_window_size(1800.0, 1020.0)
+                // Unified bundle includes CC Manager, DAW, and Guitar Tabs. Points data dir
+                // to ../cc-manager so tasks.json loads predictably from repo root.
+                .with_data_dir(env::var("ENTROPY_BUNDLE_BDD_DATA").unwrap_or_else(|_| "../cc-manager".to_string())),
             Some("stylus-drawing") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/stylus_drawing.js")
                 .with_title("Stylus Drawing")

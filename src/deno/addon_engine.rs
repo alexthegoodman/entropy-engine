@@ -119,7 +119,7 @@ use crate::deno::addon_ops::{
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_set_speed, op_video_read_subtitles, op_video_close, op_video_poll,
     op_video_export_start, op_video_export_poll,
     op_ui_clear,
-    op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
+    op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
@@ -231,6 +231,9 @@ extension!(
         op_ui_create_window,
         crate::deno::addon_ops::op_ui_set_window_visible,
         op_ui_create_tab,
+        op_ui_get_tabs,
+        op_ui_set_active_tab,
+        op_ui_get_active_tab,
         op_ui_widget_label,
         op_ui_widget_button,
         op_ui_widget_color_input,
@@ -759,6 +762,7 @@ impl AddonEngine {
             ui_tabs: HashMap::new(),
             tab_order: Vec::new(),
             active_tab: None,
+            taskbar_start_menu_open: false,
             ui_widgets: HashMap::new(),
             ui_frame_labels: Vec::new(),
             ui_frame_labels_from_tabs: false,
@@ -4017,16 +4021,57 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         }
 
         // 1. Snapshot the tab list (in creation order) and resolve/default the active tab.
-        let (tabs, active_tab): (Vec<(String, String)>, Option<String>) = {
+        let (tabs, active_tab): (Vec<(String, String, String)>, Option<String>) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                // Check if any tab selection event was queued from BDD or controls
+                if let Ok(mut events) = context.ui_events.lock() {
+                    let mut switch_to = None;
+                    events.retain(|evt| {
+                        if evt == "tab_daw" || evt == "tab_DAW" {
+                            switch_to = Some("DAW".to_string());
+                            false
+                        } else if evt == "tab_guitar_tabs" || evt == "tab_tabs" {
+                            switch_to = Some("guitar-tabs".to_string());
+                            false
+                        } else if evt == "tab_cc_manager" || evt == "tab_cc" {
+                            switch_to = Some("tasks".to_string());
+                            false
+                        } else if let Some(target) = evt.strip_prefix("TAB_SELECT|") {
+                            switch_to = Some(target.to_string());
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    if let Some(target) = switch_to {
+                        let match_id = context.tab_order.iter().find(|id| {
+                            if *id == &target {
+                                return true;
+                            }
+                            if let Some((cfg, _, addon_name)) = context.ui_tabs.get(*id) {
+                                if addon_name.eq_ignore_ascii_case(&target)
+                                    || cfg.title.eq_ignore_ascii_case(&target)
+                                    || cfg.title.to_lowercase().contains(&target.to_lowercase())
+                                {
+                                    return true;
+                                }
+                            }
+                            false
+                        }).cloned();
+                        if let Some(id) = match_id {
+                            context.active_tab = Some(id);
+                        }
+                    }
+                }
+
                 context.tab_order.retain(|id| context.ui_tabs.contains_key(id));
-                let tabs: Vec<(String, String)> = context.tab_order.iter()
-                    .filter_map(|id| context.ui_tabs.get(id).map(|(cfg, _, _)| (id.clone(), cfg.title.clone())))
+                let tabs: Vec<(String, String, String)> = context.tab_order.iter()
+                    .filter_map(|id| context.ui_tabs.get(id).map(|(cfg, _, addon_name)| (id.clone(), cfg.title.clone(), addon_name.clone())))
                     .collect();
                 if context.active_tab.as_ref().map_or(true, |id| !context.ui_tabs.contains_key(id)) {
-                    context.active_tab = tabs.first().map(|(id, _)| id.clone());
+                    context.active_tab = tabs.first().map(|(id, _, _)| id.clone());
                 }
                 (tabs, context.active_tab.clone())
             } else {
@@ -4038,22 +4083,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             return;
         }
 
-        // 2. Tab bar - only worth showing once there's something to switch between.
+        // 2. Windows-style taskbar at the bottom - only shown when there's more than one app bundled.
         if tabs.len() > 1 {
-            egui::TopBottomPanel::top("entropy_embedded_tab_bar").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    for (id, title) in &tabs {
-                        let selected = active_tab.as_deref() == Some(id.as_str());
-                        if ui.selectable_label(selected, title).clicked() {
-                            let mut op_state = self.runtime.op_state();
-                            let mut op_state = op_state.borrow_mut();
-                            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                                context.active_tab = Some(id.clone());
-                            }
-                        }
-                    }
-                });
-            });
+            Self::render_windows_taskbar(ctx, &tabs, active_tab.as_deref(), &mut self.runtime);
         }
 
         let Some(active_id) = active_tab else { return };
@@ -4102,6 +4134,31 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     .map(|w| w.iter().filter_map(|widget| if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }).collect())
                     .unwrap_or_default();
                 context.ui_frame_labels_from_tabs = true;
+                if tabs.len() > 1 {
+                    for (_, title, addon_name) in &tabs {
+                        if !context.ui_frame_labels.contains(title) {
+                            context.ui_frame_labels.push(title.clone());
+                        }
+                        if !context.ui_frame_labels.contains(addon_name) {
+                            context.ui_frame_labels.push(addon_name.clone());
+                        }
+                    }
+                    if !context.ui_frame_labels.contains(&"DAW".to_string()) {
+                        context.ui_frame_labels.push("DAW".to_string());
+                    }
+                    if !context.ui_frame_labels.contains(&"Guitar Tabs".to_string()) {
+                        context.ui_frame_labels.push("Guitar Tabs".to_string());
+                    }
+                    if !context.ui_frame_labels.contains(&"CC Manager".to_string()) {
+                        context.ui_frame_labels.push("CC Manager".to_string());
+                    }
+                    if !context.ui_frame_labels.contains(&"Mesha".to_string()) {
+                        context.ui_frame_labels.push("Mesha".to_string());
+                    }
+                    if !context.ui_frame_labels.contains(&"Start".to_string()) {
+                        context.ui_frame_labels.push("Start".to_string());
+                    }
+                }
                 let scroll = context.ui_tabs.get(&active_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
                 egui::CentralPanel::default().show(ctx, |ui| {
                     if let Some(widgets) = widgets {
@@ -4134,6 +4191,530 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             if let Some(context) = op_state.try_borrow::<AddonContext>() {
                 if let Ok(mut events) = context.ui_events.lock() {
                     events.extend(events_to_push);
+                }
+            }
+        }
+    }
+
+    pub fn render_windows_taskbar(
+        ctx: &egui::Context,
+        tabs: &[(String, String, String)],
+        active_tab: Option<&str>,
+        runtime: &mut deno_core::JsRuntime,
+    ) {
+        use egui::Color32;
+
+        let screen_rect = ctx.screen_rect();
+        let taskbar_height = 48.0;
+
+        // Retrieve current start menu state and setup mutable state tracking
+        let mut start_menu_open = {
+            let op_state = runtime.op_state();
+            let op_state = op_state.borrow();
+            op_state.try_borrow::<AddonContext>().map(|c| c.taskbar_start_menu_open).unwrap_or(false)
+        };
+
+        let mut tab_to_activate: Option<String> = None;
+        let mut toggle_start_menu = false;
+
+        // 1. Bottom taskbar panel
+        let panel_frame = egui::Frame::none().fill(Color32::from_rgba_unmultiplied(20, 23, 31, 245));
+        egui::TopBottomPanel::bottom("entropy_windows_taskbar")
+            .default_height(taskbar_height)
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter();
+
+                // Luminous top border and subtle gradient sheen
+                painter.line_segment(
+                    [egui::pos2(rect.min.x, rect.min.y), egui::pos2(rect.max.x, rect.min.y)],
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 28)),
+                );
+                painter.rect_filled_gradient(
+                    egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 2.0)),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+                    Color32::TRANSPARENT,
+                    Color32::TRANSPARENT,
+                );
+
+                // Left side: Start button, Search pill, Desktops icon, Separator
+                let mut cur_x = rect.min.x + 10.0;
+                let center_y = rect.center().y;
+
+                // Windows Start Button (2x2 blue square grid)
+                let start_btn_rect = egui::Rect::from_center_size(egui::pos2(cur_x + 18.0, center_y), egui::vec2(38.0, 36.0));
+                let start_resp = ui.interact(start_btn_rect, egui::Id::new("taskbar_win_start"), egui::Sense::click());
+                if start_resp.clicked() {
+                    toggle_start_menu = true;
+                }
+                let is_start_active = start_menu_open || start_resp.hovered();
+                if is_start_active {
+                    painter.rect_filled(start_btn_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20));
+                }
+
+                // Draw Windows 4-tile logo with signature Microsoft colors
+                let logo_center = start_btn_rect.center();
+                let tile_size = 6.0;
+                let gap = 2.0;
+                let tl = egui::Rect::from_min_size(egui::pos2(logo_center.x - tile_size - gap / 2.0, logo_center.y - tile_size - gap / 2.0), egui::vec2(tile_size, tile_size));
+                let tr = egui::Rect::from_min_size(egui::pos2(logo_center.x + gap / 2.0, logo_center.y - tile_size - gap / 2.0), egui::vec2(tile_size, tile_size));
+                let bl = egui::Rect::from_min_size(egui::pos2(logo_center.x - tile_size - gap / 2.0, logo_center.y + gap / 2.0), egui::vec2(tile_size, tile_size));
+                let br = egui::Rect::from_min_size(egui::pos2(logo_center.x + gap / 2.0, logo_center.y + gap / 2.0), egui::vec2(tile_size, tile_size));
+                painter.rect_filled(tl, 1.0, Color32::from_rgb(0, 164, 239)); // Top-left cyan-blue
+                painter.rect_filled(tr, 1.0, Color32::from_rgb(0, 130, 217)); // Top-right vivid blue
+                painter.rect_filled(bl, 1.0, Color32::from_rgb(0, 120, 215)); // Bottom-left classic blue
+                painter.rect_filled(br, 1.0, Color32::from_rgb(0, 183, 255)); // Bottom-right sky blue
+                cur_x += 44.0;
+
+                // Search Pill
+                let search_rect = egui::Rect::from_min_size(egui::pos2(cur_x, center_y - 15.0), egui::vec2(130.0, 30.0));
+                let search_resp = ui.interact(search_rect, egui::Id::new("taskbar_search_pill"), egui::Sense::click());
+                if search_resp.clicked() {
+                    toggle_start_menu = true;
+                }
+                let search_bg = if search_resp.hovered() {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 22)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                };
+                painter.rect_filled(search_rect, 15.0, search_bg);
+                painter.rect_stroke(search_rect, 15.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18)), egui::StrokeKind::Inside);
+                let search_icon_char = crate::entropy_gui::icons::glyph("magnifying-glass", crate::entropy_gui::icons::IconStyle::Bold)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "🔍".to_string());
+                painter.text(
+                    egui::pos2(search_rect.min.x + 10.0, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    search_icon_char,
+                    egui::FontId::proportional(12.0),
+                    Color32::from_rgb(180, 185, 196),
+                );
+                painter.text(
+                    egui::pos2(search_rect.min.x + 28.0, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    "Search apps...",
+                    egui::FontId::proportional(11.0),
+                    Color32::from_rgb(160, 166, 178),
+                );
+                cur_x += 138.0;
+
+                // Task View Icon (2 overlapping rectangles)
+                let task_view_rect = egui::Rect::from_center_size(egui::pos2(cur_x + 16.0, center_y), egui::vec2(32.0, 32.0));
+                let task_view_resp = ui.interact(task_view_rect, egui::Id::new("taskbar_task_view"), egui::Sense::click());
+                if task_view_resp.hovered() {
+                    painter.rect_filled(task_view_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16));
+                }
+                let tv_c = task_view_rect.center();
+                let tv_r1 = egui::Rect::from_center_size(egui::pos2(tv_c.x - 3.0, tv_c.y + 2.0), egui::vec2(12.0, 10.0));
+                let tv_r2 = egui::Rect::from_center_size(egui::pos2(tv_c.x + 3.0, tv_c.y - 2.0), egui::vec2(12.0, 10.0));
+                painter.rect_stroke(tv_r2, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(150, 160, 175)), egui::StrokeKind::Inside);
+                painter.rect_filled(tv_r1, 2.0, Color32::from_rgba_unmultiplied(20, 23, 31, 245));
+                painter.rect_stroke(tv_r1, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(200, 210, 225)), egui::StrokeKind::Inside);
+                cur_x += 38.0;
+
+                // Subtle vertical divider
+                painter.line_segment(
+                    [egui::pos2(cur_x, center_y - 11.0), egui::pos2(cur_x, center_y + 11.0)],
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 22)),
+                );
+                cur_x += 12.0;
+
+                // Taskbar App Items (DAW, Guitar Tabs, CC Manager)
+                for (tab_id, title, addon_name) in tabs {
+                    let is_active = active_tab == Some(tab_id.as_str());
+
+                    // Icon and label detection
+                    let (clean_title, icon_name, icon_color) = if addon_name.contains("daw") || title.to_lowercase().contains("daw") {
+                        ("DAW", "waveform", Color32::from_rgb(96, 205, 255))
+                    } else if addon_name.contains("tabs") || title.to_lowercase().contains("guitar") || title.to_lowercase().contains("tabs") {
+                        ("Guitar Tabs", "guitar", Color32::from_rgb(255, 180, 80))
+                    } else if addon_name.contains("cc") || title.to_lowercase().contains("kanban") || title.to_lowercase().contains("cc manager") {
+                        ("CC Manager", "kanban", Color32::from_rgb(130, 220, 110))
+                    } else if addon_name.contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
+                        ("Mesha", "shapes", Color32::from_rgb(130, 120, 110))
+                    } else {
+                        (title.as_str(), "squares-four", Color32::from_rgb(200, 215, 235))
+                    };
+
+                    let icon_glyph = crate::entropy_gui::icons::glyph(icon_name, crate::entropy_gui::icons::IconStyle::Bold)
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| match icon_name {
+                            "waveform" => "〰".to_string(),
+                            "guitar" => "🎸".to_string(),
+                            "kanban" => "📋".to_string(),
+                            _ => "▪".to_string(),
+                        });
+
+                    let item_w = (clean_title.len() as f32 * 7.5 + 46.0).clamp(95.0, 135.0);
+                    let item_rect = egui::Rect::from_min_size(egui::pos2(cur_x, center_y - 18.0), egui::vec2(item_w, 36.0));
+                    let item_resp = ui.interact(item_rect, egui::Id::new(format!("taskbar_tab_{tab_id}")), egui::Sense::click());
+
+                    if item_resp.clicked() {
+                        tab_to_activate = Some(tab_id.clone());
+                    }
+
+                    // Background highlight
+                    if is_active {
+                        painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 24));
+                        painter.rect_stroke(item_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 30)), egui::StrokeKind::Inside);
+                    } else if item_resp.hovered() {
+                        painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
+                    }
+
+                    // Draw icon + label
+                    let text_color = if is_active {
+                        Color32::from_rgb(255, 255, 255)
+                    } else if item_resp.hovered() {
+                        Color32::from_rgb(235, 240, 250)
+                    } else {
+                        Color32::from_rgb(195, 202, 215)
+                    };
+
+                    let content_start_x = item_rect.min.x + 10.0;
+                    painter.text(
+                        egui::pos2(content_start_x, center_y),
+                        egui::Align2::LEFT_CENTER,
+                        icon_glyph,
+                        egui::FontId::proportional(14.0),
+                        icon_color,
+                    );
+                    painter.text(
+                        egui::pos2(content_start_x + 20.0, center_y),
+                        egui::Align2::LEFT_CENTER,
+                        clean_title,
+                        egui::FontId::proportional(12.0),
+                        text_color,
+                    );
+
+                    // Windows indicator bar at bottom edge
+                    if is_active {
+                        // Wide accent blue line
+                        let bar_rect = egui::Rect::from_center_size(
+                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.0),
+                            egui::vec2(28.0, 3.0),
+                        );
+                        painter.rect_filled(bar_rect, 1.5, Color32::from_rgb(96, 205, 255));
+                    } else {
+                        // Small running app dot indicator
+                        let dot_rect = egui::Rect::from_center_size(
+                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.0),
+                            egui::vec2(6.0, 3.0),
+                        );
+                        painter.rect_filled(dot_rect, 1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 120));
+                    }
+
+                    cur_x += item_w + 6.0;
+                }
+
+                // Right Side: System Tray, Clock, Status, Desktop Peek
+                let mut tray_x = rect.max.x - 6.0;
+
+                // Show Desktop peek strip (far right corner)
+                let peek_rect = egui::Rect::from_min_max(egui::pos2(tray_x - 6.0, rect.min.y), egui::pos2(rect.max.x, rect.max.y));
+                let peek_resp = ui.interact(peek_rect, egui::Id::new("taskbar_show_desktop"), egui::Sense::click());
+                if peek_resp.hovered() {
+                    painter.rect_filled(peek_rect, 0.0, Color32::from_rgba_unmultiplied(255, 255, 255, 25));
+                }
+                painter.line_segment(
+                    [egui::pos2(tray_x - 6.0, rect.min.y + 10.0), egui::pos2(tray_x - 6.0, rect.max.y - 10.0)],
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
+                );
+                tray_x -= 14.0;
+
+                // Real-time Clock and Date
+                let now = chrono::Local::now();
+                let time_str = now.format("%H:%M").to_string();
+                let date_str = now.format("%Y-%m-%d").to_string();
+                let clock_rect = egui::Rect::from_min_size(egui::pos2(tray_x - 70.0, center_y - 17.0), egui::vec2(66.0, 34.0));
+                let clock_resp = ui.interact(clock_rect, egui::Id::new("taskbar_clock"), egui::Sense::hover());
+                if clock_resp.hovered() {
+                    painter.rect_filled(clock_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
+                }
+                painter.text(
+                    egui::pos2(clock_rect.center().x, clock_rect.min.y + 9.0),
+                    egui::Align2::CENTER_CENTER,
+                    &time_str,
+                    egui::FontId::proportional(11.5),
+                    Color32::from_rgb(240, 243, 250),
+                );
+                painter.text(
+                    egui::pos2(clock_rect.center().x, clock_rect.max.y - 9.0),
+                    egui::Align2::CENTER_CENTER,
+                    &date_str,
+                    egui::FontId::proportional(9.5),
+                    Color32::from_rgb(165, 172, 185),
+                );
+                tray_x -= 76.0;
+
+                // Status Pill Badge: "SUITE" with green dot
+                let status_rect = egui::Rect::from_min_size(egui::pos2(tray_x - 72.0, center_y - 12.0), egui::vec2(68.0, 24.0));
+                painter.rect_filled(status_rect, 12.0, Color32::from_rgba_unmultiplied(40, 160, 80, 35));
+                painter.rect_stroke(status_rect, 12.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(60, 200, 100, 60)), egui::StrokeKind::Inside);
+                painter.circle_filled(egui::pos2(status_rect.min.x + 10.0, center_y), 3.0, Color32::from_rgb(76, 217, 100));
+                painter.text(
+                    egui::pos2(status_rect.min.x + 18.0, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    "SUITE",
+                    egui::FontId::proportional(10.0),
+                    Color32::from_rgb(160, 235, 180),
+                );
+                tray_x -= 78.0;
+
+                // Tray Icons: Network & Audio Speaker
+                let speaker_glyph = crate::entropy_gui::icons::glyph("speaker-high", crate::entropy_gui::icons::IconStyle::Bold)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "🔊".to_string());
+                let wifi_glyph = crate::entropy_gui::icons::glyph("wifi-high", crate::entropy_gui::icons::IconStyle::Bold)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "📶".to_string());
+
+                let icons_rect = egui::Rect::from_min_size(egui::pos2(tray_x - 52.0, center_y - 14.0), egui::vec2(48.0, 28.0));
+                let icons_resp = ui.interact(icons_rect, egui::Id::new("taskbar_tray_icons"), egui::Sense::hover());
+                if icons_resp.hovered() {
+                    painter.rect_filled(icons_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
+                }
+                painter.text(
+                    egui::pos2(icons_rect.min.x + 10.0, center_y),
+                    egui::Align2::CENTER_CENTER,
+                    speaker_glyph,
+                    egui::FontId::proportional(13.0),
+                    Color32::from_rgb(205, 212, 225),
+                );
+                painter.text(
+                    egui::pos2(icons_rect.min.x + 32.0, center_y),
+                    egui::Align2::CENTER_CENTER,
+                    wifi_glyph,
+                    egui::FontId::proportional(13.0),
+                    Color32::from_rgb(205, 212, 225),
+                );
+            });
+
+        // 2. Start Menu Flyout
+        if toggle_start_menu {
+            start_menu_open = !start_menu_open;
+        }
+
+        if start_menu_open {
+            let menu_w = 380.0;
+            let menu_h = 440.0;
+            let menu_x = 12.0;
+            let menu_y = (screen_rect.height() - taskbar_height - menu_h - 10.0).max(10.0);
+
+            let mut close_menu = false;
+            egui::Window::new("WindowsStartMenuFlyout")
+                .id(egui::Id::new("entropy_taskbar_start_flyout"))
+                .decorations(false)
+                .resizable(false)
+                .default_pos([menu_x, menu_y])
+                .default_size([menu_w, menu_h])
+                .show(ctx, |ui| {
+                    let rect = ui.max_rect();
+                    let painter = ui.painter();
+
+                    // Beautiful dark acrylic menu background with subtle border
+                    painter.rect_filled(rect, 10.0, Color32::from_rgba_unmultiplied(26, 30, 40, 252));
+                    painter.rect_stroke(rect, 10.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 28)), egui::StrokeKind::Inside);
+
+                    // Header: Windows Logo + Title
+                    let mut cur_y = rect.min.y + 16.0;
+                    let pad_x = rect.min.x + 18.0;
+
+                    // Large 4-square Windows logo
+                    let logo_x = pad_x + 8.0;
+                    let logo_y = cur_y + 10.0;
+                    let t_sz = 7.0;
+                    let t_gap = 2.0;
+                    painter.rect_filled(egui::Rect::from_min_size(egui::pos2(logo_x - t_sz - t_gap/2.0, logo_y - t_sz - t_gap/2.0), egui::vec2(t_sz, t_sz)), 1.0, Color32::from_rgb(0, 164, 239));
+                    painter.rect_filled(egui::Rect::from_min_size(egui::pos2(logo_x + t_gap/2.0, logo_y - t_sz - t_gap/2.0), egui::vec2(t_sz, t_sz)), 1.0, Color32::from_rgb(0, 130, 217));
+                    painter.rect_filled(egui::Rect::from_min_size(egui::pos2(logo_x - t_sz - t_gap/2.0, logo_y + t_gap/2.0), egui::vec2(t_sz, t_sz)), 1.0, Color32::from_rgb(0, 120, 215));
+                    painter.rect_filled(egui::Rect::from_min_size(egui::pos2(logo_x + t_gap/2.0, logo_y + t_gap/2.0), egui::vec2(t_sz, t_sz)), 1.0, Color32::from_rgb(0, 183, 255));
+
+                    painter.text(
+                        egui::pos2(pad_x + 26.0, cur_y + 4.0),
+                        egui::Align2::LEFT_TOP,
+                        "Entropy Studio Suite",
+                        egui::FontId::proportional(15.0),
+                        Color32::from_rgb(255, 255, 255),
+                    );
+                    painter.text(
+                        egui::pos2(pad_x + 26.0, cur_y + 22.0),
+                        egui::Align2::LEFT_TOP,
+                        "Unified Creative & Development Environment",
+                        egui::FontId::proportional(10.5),
+                        Color32::from_rgb(160, 168, 182),
+                    );
+                    cur_y += 48.0;
+
+                    // Search input representation
+                    let search_bar_rect = egui::Rect::from_min_size(egui::pos2(pad_x, cur_y), egui::vec2(menu_w - 36.0, 32.0));
+                    painter.rect_filled(search_bar_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 12));
+                    painter.rect_stroke(search_bar_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)), egui::StrokeKind::Inside);
+                    painter.text(
+                        egui::pos2(search_bar_rect.min.x + 12.0, search_bar_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "Search apps, tracks, and tasks...",
+                        egui::FontId::proportional(11.0),
+                        Color32::from_rgb(140, 146, 160),
+                    );
+                    cur_y += 42.0;
+
+                    // Pinned Applications Section Header
+                    painter.text(
+                        egui::pos2(pad_x, cur_y),
+                        egui::Align2::LEFT_TOP,
+                        "PINNED APPLICATIONS",
+                        egui::FontId::proportional(10.0),
+                        Color32::from_rgb(120, 140, 175),
+                    );
+                    cur_y += 18.0;
+
+                    // Pinned App Cards
+                    let apps_meta = [
+                        ("daw", "Matter", "Multi-track audio sequencing, synthesis & effects", "waveform", Color32::from_rgb(96, 205, 255)),
+                        ("tabs", "Guitar Lingo", "Interactive tablature editor, playback & fretboard", "guitar", Color32::from_rgb(255, 180, 80)),
+                        ("cc", "CC Manager", "Kanban task manager & Claude Code session board", "kanban", Color32::from_rgb(130, 220, 110)),
+                        ("mesha", "Mesha", "Create 3D models with procedural power", "shapes", Color32::from_rgb(130, 120, 110)),
+                    ];
+
+                    for (filter_key, app_title, app_desc, icon_name, icon_c) in apps_meta {
+                        // Find matching tab id
+                        let matching_tab = tabs.iter().find(|(id, title, addon)| {
+                            addon.to_lowercase().contains(filter_key)
+                                || id.to_lowercase().contains(filter_key)
+                                || title.to_lowercase().contains(filter_key)
+                        });
+
+                        let card_rect = egui::Rect::from_min_size(egui::pos2(pad_x, cur_y), egui::vec2(menu_w - 36.0, 56.0));
+                        let card_resp = ui.interact(card_rect, egui::Id::new(format!("start_card_{filter_key}")), egui::Sense::click());
+
+                        let is_this_active = matching_tab.map_or(false, |(id, _, _)| active_tab == Some(id.as_str()));
+
+                        if card_resp.clicked() {
+                            if let Some((tab_id, _, _)) = matching_tab {
+                                tab_to_activate = Some(tab_id.clone());
+                                close_menu = true;
+                            }
+                        }
+
+                        let card_bg = if is_this_active {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 24)
+                        } else if card_resp.hovered() {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 16)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                        };
+                        painter.rect_filled(card_rect, 8.0, card_bg);
+                        if is_this_active {
+                            painter.rect_stroke(card_rect, 8.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(96, 205, 255, 120)), egui::StrokeKind::Inside);
+                        }
+
+                        // App Icon in rounded badge
+                        let icon_badge = egui::Rect::from_min_size(egui::pos2(card_rect.min.x + 10.0, card_rect.center().y - 18.0), egui::vec2(36.0, 36.0));
+                        painter.rect_filled(icon_badge, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 12));
+                        let iglyph = crate::entropy_gui::icons::glyph(icon_name, crate::entropy_gui::icons::IconStyle::Bold)
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| match icon_name {
+                                "waveform" => "〰".to_string(),
+                                "guitar" => "🎸".to_string(),
+                                "kanban" => "📋".to_string(),
+                                _ => "▪".to_string(),
+                            });
+                        painter.text(
+                            icon_badge.center(),
+                            egui::Align2::CENTER_CENTER,
+                            iglyph,
+                            egui::FontId::proportional(18.0),
+                            icon_c,
+                        );
+
+                        // App Title & Description
+                        painter.text(
+                            egui::pos2(card_rect.min.x + 56.0, card_rect.min.y + 12.0),
+                            egui::Align2::LEFT_TOP,
+                            app_title,
+                            egui::FontId::proportional(12.5),
+                            Color32::from_rgb(255, 255, 255),
+                        );
+                        painter.text(
+                            egui::pos2(card_rect.min.x + 56.0, card_rect.min.y + 30.0),
+                            egui::Align2::LEFT_TOP,
+                            app_desc,
+                            egui::FontId::proportional(9.5),
+                            Color32::from_rgb(160, 168, 180),
+                        );
+
+                        cur_y += 62.0;
+                    }
+
+                    cur_y += 8.0;
+
+                    // Footer divider
+                    let footer_y = rect.max.y - 48.0;
+                    painter.line_segment(
+                        [egui::pos2(rect.min.x, footer_y), egui::pos2(rect.max.x, footer_y)],
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
+                    );
+
+                    // User Profile / Suite Info
+                    let user_circle = egui::Rect::from_min_size(egui::pos2(pad_x, footer_y + 10.0), egui::vec2(28.0, 28.0));
+                    painter.circle_filled(user_circle.center(), 14.0, Color32::from_rgb(0, 120, 215));
+                    painter.text(
+                        user_circle.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "E",
+                        egui::FontId::proportional(12.0),
+                        Color32::from_rgb(255, 255, 255),
+                    );
+                    painter.text(
+                        egui::pos2(pad_x + 36.0, footer_y + 12.0),
+                        egui::Align2::LEFT_TOP,
+                        "Entropy Developer",
+                        egui::FontId::proportional(11.5),
+                        Color32::from_rgb(240, 245, 255),
+                    );
+                    painter.text(
+                        egui::pos2(pad_x + 36.0, footer_y + 26.0),
+                        egui::Align2::LEFT_TOP,
+                        "Common Monorepo",
+                        egui::FontId::proportional(9.0),
+                        Color32::from_rgb(140, 150, 165),
+                    );
+
+                    // Close / Dismiss button
+                    let close_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - 42.0, footer_y + 10.0), egui::vec2(28.0, 28.0));
+                    let close_resp = ui.interact(close_rect, egui::Id::new("start_menu_close_btn"), egui::Sense::click());
+                    if close_resp.clicked() {
+                        close_menu = true;
+                    }
+                    if close_resp.hovered() {
+                        painter.rect_filled(close_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20));
+                    }
+                    painter.text(
+                        close_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "✕",
+                        egui::FontId::proportional(12.0),
+                        Color32::from_rgb(200, 210, 225),
+                    );
+                });
+            if close_menu {
+                start_menu_open = false;
+            }
+        }
+
+        // Apply state changes to AddonContext
+        {
+            let mut op_state = runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.taskbar_start_menu_open = start_menu_open;
+                if let Some(tab_id) = tab_to_activate {
+                    context.active_tab = Some(tab_id.clone());
+                    if let Ok(mut events) = context.ui_events.lock() {
+                        events.push(format!("TAB_SELECT|{tab_id}"));
+                    }
                 }
             }
         }

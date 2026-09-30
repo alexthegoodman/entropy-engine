@@ -62,6 +62,7 @@ const CATALOG: CatalogEntry[] = [
     { name: "node-graph", title: "Nocode Calculator", icon: "graph" },
     { name: "stylus-drawing", title: "Stylus Drawing", icon: "pen-nib" },
     { name: "theme-gallery", title: "Theme Gallery", icon: "palette" },
+    { name: "special-bundle", title: "Studio Suite", icon: "grid-four" },
     { name: "video-export-demo", title: "Video Export", icon: "film-strip" },
 ];
 

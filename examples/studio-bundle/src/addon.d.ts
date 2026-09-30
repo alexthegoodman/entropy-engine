@@ -552,6 +552,9 @@ export interface ScopedAPI {
   };
   UI: {
     createTab: (config: TabConfig) => string;
+    getTabs: () => UITabInfo[];
+    setActiveTab: (tabIdOrName: string) => boolean;
+    getActiveTab: () => string | null;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;
     clear: () => void;
@@ -918,6 +921,13 @@ export interface TabConfig {
    * an app that fills the window itself (a `bar`, a `split`, a status `bar`). Default true. */
   scroll?: boolean;
   [key: string]: unknown;
+}
+
+export interface UITabInfo {
+  id: string;
+  title: string;
+  addonName: string;
+  isActive: boolean;
 }
 
 export interface LabelConfig {
@@ -3271,6 +3281,9 @@ export interface EntropyAPI {
     createWindow: (config: WindowConfig) => string;
     setWindowVisible: (id: string, visible: boolean) => void;
     createTab: (config: TabConfig) => string;
+    getTabs: () => UITabInfo[];
+    setActiveTab: (tabIdOrName: string) => boolean;
+    getActiveTab: () => string | null;
     miniMap: (windowId: string, config: MiniMapConfig) => void;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;

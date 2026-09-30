@@ -1479,6 +1479,8 @@ pub struct AddonContext {
     pub tab_order: Vec<String>,
     /// Currently selected tab in that same generic tab bar.
     pub active_tab: Option<String>,
+    /// Whether the Windows-style Start Menu flyout is open in the taskbar.
+    pub taskbar_start_menu_open: bool,
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
     /// Dev-controlled save directory for an embedded (non-Studio) app. When set, it takes
@@ -4188,6 +4190,69 @@ pub fn op_ui_create_tab(state: &mut OpState, #[string] addon_name: String, #[ser
         ctx.new_tabs.push((id.clone(), title, addon_name));
     }
     id
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct UiTabInfoJs {
+    pub id: String,
+    pub title: String,
+    pub addon_name: String,
+    pub is_active: bool,
+}
+
+#[op2]
+#[serde]
+pub fn op_ui_get_tabs(state: &mut OpState) -> Vec<UiTabInfoJs> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let active = ctx.active_tab.as_deref();
+        ctx.tab_order.iter()
+            .filter_map(|id| ctx.ui_tabs.get(id).map(|(cfg, _, addon_name)| UiTabInfoJs {
+                id: id.clone(),
+                title: cfg.title.clone(),
+                addon_name: addon_name.clone(),
+                is_active: active == Some(id.as_str()),
+            }))
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_set_active_tab(state: &mut OpState, #[string] tab_id_or_name: String) -> bool {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let found_id = ctx.tab_order.iter().find(|id| {
+            if *id == &tab_id_or_name {
+                return true;
+            }
+            if let Some((cfg, _, addon_name)) = ctx.ui_tabs.get(*id) {
+                if addon_name.eq_ignore_ascii_case(&tab_id_or_name) {
+                    return true;
+                }
+                if cfg.title.eq_ignore_ascii_case(&tab_id_or_name)
+                    || cfg.title.to_lowercase().contains(&tab_id_or_name.to_lowercase())
+                {
+                    return true;
+                }
+            }
+            false
+        }).cloned();
+
+        if let Some(id) = found_id {
+            ctx.active_tab = Some(id);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[op2]
+#[string]
+pub fn op_ui_get_active_tab(state: &mut OpState) -> Option<String> {
+    state.try_borrow::<AddonContext>().and_then(|ctx| ctx.active_tab.clone())
 }
 
 #[op2(fast)]

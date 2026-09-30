@@ -917,6 +917,9 @@ globalThis.Entropy = {
                         const tabId = ops.op_ui_create_tab(metadata.name, config, config.onRender);
                         return tabId;
                     },
+                    getTabs: () => ops.op_ui_get_tabs(),
+                    setActiveTab: (tabIdOrName) => ops.op_ui_set_active_tab(String(tabIdOrName)),
+                    getActiveTab: () => ops.op_ui_get_active_tab(),
                     drawRect: (config) => {
                         ops.op_ui_rect_create(metadata.name, {
                             position: config.position || [0, 0],
@@ -1346,6 +1349,9 @@ globalThis.Entropy = {
             const tabId = ops.op_ui_create_tab("Global", config, config.onRender);
             return tabId;
         },
+        getTabs: () => ops.op_ui_get_tabs(),
+        setActiveTab: (tabIdOrName) => ops.op_ui_set_active_tab(String(tabIdOrName)),
+        getActiveTab: () => ops.op_ui_get_active_tab(),
         miniMap: (windowId, config) => {
             globalThis.Entropy.UI.Widget.miniMap(windowId, config);
         },
