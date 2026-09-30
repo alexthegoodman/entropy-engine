@@ -38,6 +38,7 @@ struct LayerWorld {
     rack: WindowSpec,
     rack_open: bool,
     analyzer: Option<WindowSpec>,
+    window_order: Vec<String>,
     pointer: Pos2,
     // Accumulated over the scenario.
     pad_events: Vec<String>,
@@ -65,6 +66,7 @@ impl Default for LayerWorld {
             rack: WindowSpec::default(),
             rack_open: true,
             analyzer: None,
+            window_order: vec!["rack".into()],
             pointer: pos2(0.0, 0.0),
             pad_events: Vec::new(),
             rack_button: 0,
@@ -121,6 +123,13 @@ impl LayerWorld {
         let (mut rack_button, mut rack_overlap, mut analyzer_button) = (0u32, 0u32, 0u32);
         let mut rack_drag = Vec2::ZERO;
 
+        if let Some(pressed) = self.ctx.pressed_layer() {
+            if let Some(pos) = self.window_order.iter().position(|id| Id::new(id) == pressed) {
+                let id = self.window_order.remove(pos);
+                self.window_order.push(id);
+            }
+        }
+
         ctx.run(raw, |ctx| {
             CentralPanel::default().show(ctx, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
@@ -136,25 +145,29 @@ impl LayerWorld {
                 panel_pointer = ui.input(|i| (i.pointer.pos, i.pointer.primary_down));
             });
 
-            Window::new("Rack").id(Id::new("rack")).default_pos(rack_pos).default_size(rack_size).open(&mut open).show(ctx, |ui| {
-                if ui.interact(rect(180.0, 56.0, 260.0, 84.0), Id::new("rack-button"), Sense::click()).clicked() {
-                    rack_button += 1;
-                }
-                let handle = ui.interact(rect(200.0, 150.0, 280.0, 190.0), Id::new("rack-handle"), Sense::drag());
-                if handle.dragged() {
-                    rack_drag += handle.drag_delta();
-                }
-                if ui.interact(rect(300.0, 190.0, 350.0, 230.0), Id::new("rack-overlap"), Sense::click()).clicked() {
-                    rack_overlap += 1;
-                }
-            });
-
-            if let Some((pos, size)) = analyzer {
-                Window::new("Analyzer").id(Id::new("analyzer")).default_pos(pos).default_size(size).show(ctx, |ui| {
-                    if ui.interact(rect(310.0, 200.0, 340.0, 220.0), Id::new("analyzer-button"), Sense::click()).clicked() {
-                        analyzer_button += 1;
+            for w in &self.window_order {
+                if w == "rack" {
+                    Window::new("Rack").id(Id::new("rack")).default_pos(rack_pos).default_size(rack_size).open(&mut open).show(ctx, |ui| {
+                        if ui.interact(rect(180.0, 56.0, 260.0, 84.0), Id::new("rack-button"), Sense::click()).clicked() {
+                            rack_button += 1;
+                        }
+                        let handle = ui.interact(rect(200.0, 150.0, 280.0, 190.0), Id::new("rack-handle"), Sense::drag());
+                        if handle.dragged() {
+                            rack_drag += handle.drag_delta();
+                        }
+                        if ui.interact(rect(300.0, 190.0, 350.0, 230.0), Id::new("rack-overlap"), Sense::click()).clicked() {
+                            rack_overlap += 1;
+                        }
+                    });
+                } else if w == "analyzer" {
+                    if let Some((pos, size)) = analyzer {
+                        Window::new("Analyzer").id(Id::new("analyzer")).default_pos(pos).default_size(size).show(ctx, |ui| {
+                            if ui.interact(rect(310.0, 200.0, 340.0, 220.0), Id::new("analyzer-button"), Sense::click()).clicked() {
+                                analyzer_button += 1;
+                            }
+                        });
                     }
-                });
+                }
             }
         });
 
@@ -237,6 +250,9 @@ fn grid_and_window(world: &mut LayerWorld, _name: String, x: i32, y: i32, w: i32
 #[given(expr = "a second window {string} at {int},{int} sized {int} by {int}")]
 fn second_window(world: &mut LayerWorld, _name: String, x: i32, y: i32, w: i32, h: i32) {
     world.analyzer = Some(WindowSpec { pos: [x as f32, y as f32], size: [w as f32, h as f32] });
+    if !world.window_order.contains(&"analyzer".to_string()) {
+        world.window_order.push("analyzer".into());
+    }
     world.settle();
 }
 
@@ -302,6 +318,11 @@ fn rack_button_not_clicked(world: &mut LayerWorld) {
     assert_eq!(world.rack_button, 0);
 }
 
+#[then("the Rack overlap button was clicked")]
+fn rack_overlap_clicked(world: &mut LayerWorld) {
+    assert_eq!(world.rack_overlap, 1);
+}
+
 #[then("the Rack overlap button was not clicked")]
 fn rack_overlap_not_clicked(world: &mut LayerWorld) {
     assert_eq!(world.rack_overlap, 0);
@@ -310,6 +331,11 @@ fn rack_overlap_not_clicked(world: &mut LayerWorld) {
 #[then("the Analyzer button was clicked")]
 fn analyzer_clicked(world: &mut LayerWorld) {
     assert_eq!(world.analyzer_button, 1);
+}
+
+#[then("the Analyzer button was not clicked")]
+fn analyzer_not_clicked(world: &mut LayerWorld) {
+    assert_eq!(world.analyzer_button, 0);
 }
 
 #[then("the pointer is over the UI")]

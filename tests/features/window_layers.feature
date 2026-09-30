@@ -68,6 +68,14 @@ Feature: A floating window takes the pointer from everything underneath it
     When I click at 200,70
     Then the Rack button was clicked
 
+  Scenario: Clicking the lower window raises it above the upper window
+    Given a second window "Analyzer" at 200,120 sized 300 by 200
+    When I click at 200,70
+    Then the Rack button was clicked
+    When I click at 320,210
+    Then the Rack overlap button was clicked
+    And the Analyzer button was not clicked
+
   Scenario: Closing the window uncovers the pads beneath it
     When I click the close button of the window
     And the pointer hovers at 200,70

@@ -462,6 +462,23 @@ impl Context {
         self.0.borrow().pointer_over_ui
     }
 
+    /// The topmost window under `pos` (from previous frame's footprints), or `None` for the base layer.
+    pub fn top_layer_at(&self, pos: Pos2) -> Option<Id> {
+        self.0.borrow().top_layer_at(pos)
+    }
+
+    /// The layer (window or popup) the pointer pressed in this frame (from previous frame's
+    /// footprints), or `None` if the press landed outside any window or no press occurred.
+    pub fn pressed_layer(&self) -> Option<Id> {
+        let inner = self.0.borrow();
+        let p = inner.input.pointer;
+        if p.primary_pressed || p.secondary_pressed {
+            p.pos.and_then(|pos| inner.top_layer_at(pos))
+        } else {
+            None
+        }
+    }
+
     fn end_frame(&self) -> FullOutput {
         crate::entropy_gui::toast::show_toasts(self);
         crate::entropy_gui::containers::tooltip::end_frame(self);

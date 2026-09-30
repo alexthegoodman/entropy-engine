@@ -761,6 +761,7 @@ impl AddonEngine {
             on_update_callbacks: Vec::new(),
             on_project_changed_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
+            window_order: Vec::new(),
             ui_tabs: HashMap::new(),
             tab_order: Vec::new(),
             active_tab: None,
@@ -3589,6 +3590,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 ctx.on_project_changed_callbacks.clear();
                 ctx.op_addon_on_all_projects_loaded_callbacks.clear();
                 ctx.tab_order.clear();
+                ctx.window_order.clear();
                 // Deliberately NOT cleared: resource maps (buffers, pipelines,
                 // compute_pipelines, textures, addon_meshes on RendererState, etc.) and
                 // HashMap-keyed registries (behaviors, ui_windows, ui_tabs, registered_tools)
@@ -3846,12 +3848,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         }
 
-        // 1. Prepare: Clear widgets
+        // 1. Prepare: Clear widgets and handle click-to-raise
         {
+            let pressed_layer = ctx.pressed_layer();
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                 context.ui_widgets.clear();
+                context.ui_widgets.clear();
+                if let Some(pressed) = pressed_layer {
+                    if let Some(pos) = context.window_order.iter().position(|id| egui::Id::new(id) == pressed) {
+                        let id = context.window_order.remove(pos);
+                        context.window_order.push(id);
+                    }
+                }
             }
         }
     
@@ -3861,10 +3870,17 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let mut op_state = self.runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                    context.window_order.retain(|id| context.ui_windows.contains_key(id));
+                    for id in context.ui_windows.keys() {
+                        if !context.window_order.contains(id) {
+                            context.window_order.push(id.clone());
+                        }
+                    }
+                    let order = &context.window_order;
                     let mut windows: Vec<_> = context.ui_windows.iter()
                         .filter(|(_, (config, _))| config.owner_tab_id.as_ref().map_or(true, |owner| context.active_tab.as_ref() == Some(owner)))
                         .map(|(id, (_, cb))| (id.clone(), cb.clone())).collect();
-                    windows.sort_by(|a, b| a.0.cmp(&b.0));
+                    windows.sort_by_key(|(id, _)| order.iter().position(|w| w == id).unwrap_or(usize::MAX));
                     windows
                 } else {
                     Vec::new()
@@ -3914,8 +3930,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                let order = &context.window_order;
                 let mut sorted_windows: Vec<_> = context.ui_windows.iter().map(|(id, (config, _))| (id.clone(), config.clone())).collect();
-                sorted_windows.sort_by(|a, b| a.0.cmp(&b.0));
+                sorted_windows.sort_by_key(|(id, _)| order.iter().position(|w| w == id).unwrap_or(usize::MAX));
 
                 // Only rewrite the list when there are windows to read it from: a tabbed addon has
                 // none, and `render_tabs` owns the list for it (clearing here every frame would wipe

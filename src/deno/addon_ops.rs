@@ -266,6 +266,10 @@ pub struct UiWindowConfig {
     #[serde(default = "default_resizable")]
     pub decorations: bool,
 
+    /// Creation order counter for stable stacking order across launches.
+    #[serde(default)]
+    pub creation_order: u64,
+
 }
 
 
@@ -1485,6 +1489,10 @@ pub struct AddonContext {
     /// rendered by `AddonEngine::render_tabs` for embedded apps - HashMap iteration order isn't
     /// stable, and a tab bar's ordering should match the order the addon created them in.
     pub tab_order: Vec<String>,
+    /// Stable creation-order and click-to-raise z-order list of window ids rendered by
+    /// `AddonEngine::render_ui`. Created in order of registration; clicking a window moves
+    /// it to the top.
+    pub window_order: Vec<String>,
     /// Currently selected tab in that same generic tab bar.
     pub active_tab: Option<String>,
     /// Whether the Windows-style Start Menu flyout is open in the taskbar.
@@ -4174,9 +4182,11 @@ pub fn op_addon_on_action(state: &mut OpState, #[string] addon_name: String, #[g
 
 #[op2]
 #[string]
-pub fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
+pub fn op_ui_create_window(state: &mut OpState, #[serde] mut config: UiWindowConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        config.creation_order = ctx.window_order.len() as u64;
+        ctx.window_order.push(id.clone());
         ctx.ui_windows.insert(id.clone(), (config, on_render));
     }
     id
@@ -4186,6 +4196,12 @@ pub fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig,
 pub fn op_ui_set_window_visible(state: &mut OpState, #[string] id: &str, visible: bool) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if let Some((config, _)) = ctx.ui_windows.get_mut(id) { config.visible = visible; }
+        if visible {
+            if let Some(pos) = ctx.window_order.iter().position(|w| w == id) {
+                let w = ctx.window_order.remove(pos);
+                ctx.window_order.push(w);
+            }
+        }
     }
 }
 
