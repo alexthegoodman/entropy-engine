@@ -20,9 +20,7 @@ pub fn run(cfg: &GuitarConfig, samples: &[f32], block: usize) -> Replay {
     for chunk in samples.chunks(block.max(1)) {
         engine.process(chunk, &mut events);
     }
-    let sounding_at_end = engine.diagnostics().note.is_some();
     engine.release_all(&mut events);
-    let _ = sounding_at_end;
     Replay { diagnostics: engine.diagnostics(), samples: samples.len() as u64, events }
 }
 
@@ -117,6 +115,63 @@ pub fn check_well_formed(events: &[GuitarEvent]) -> Result<(), String> {
         return Err(format!("stream ends with the bend at {bend}"));
     }
     Ok(())
+}
+
+/// The event-stream invariants for the polyphonic engine: several notes may be on, but never the same
+/// one twice; a Note Off only ends a note that is on; no pitch bend is sent; everything is off at the end.
+pub fn check_well_formed_poly(events: &[GuitarEvent]) -> Result<(), String> {
+    let mut on = [false; 128];
+    let mut last_sample = 0u64;
+    for (i, e) in events.iter().enumerate() {
+        if e.sample < last_sample {
+            return Err(format!("event {i} goes back in time: {} after {}", e.sample, last_sample));
+        }
+        last_sample = e.sample;
+        if e.source_sample > e.sample {
+            return Err(format!("event {i} describes the future: source {} after emit {}", e.source_sample, e.sample));
+        }
+        match e.kind {
+            GuitarEventKind::NoteOn { note, velocity } => {
+                if on[note as usize & 127] {
+                    return Err(format!("event {i}: Note On {note} while it is already on"));
+                }
+                if !(1..=127).contains(&velocity) {
+                    return Err(format!("event {i}: velocity {velocity}"));
+                }
+                on[note as usize & 127] = true;
+            }
+            GuitarEventKind::NoteOff { note } => {
+                if !on[note as usize & 127] {
+                    return Err(format!("event {i}: Note Off {note} with it not on"));
+                }
+                on[note as usize & 127] = false;
+            }
+            GuitarEventKind::PitchBend { value } => return Err(format!("event {i}: pitch bend {value} from the polyphonic engine")),
+        }
+    }
+    if let Some(n) = on.iter().position(|&o| o) {
+        return Err(format!("note {n} never got a Note Off"));
+    }
+    Ok(())
+}
+
+/// Notes as the events describe them, when several can sound at once: each Note Off closes the open
+/// span of its own note.
+pub fn poly_spans(events: &[GuitarEvent]) -> Vec<NoteSpan> {
+    let mut out: Vec<NoteSpan> = Vec::new();
+    for e in events {
+        match e.kind {
+            GuitarEventKind::NoteOn { note, velocity } => out.push(NoteSpan { note, velocity, on: e.sample, on_source: e.source_sample, off: None, off_source: None, bends: Vec::new() }),
+            GuitarEventKind::NoteOff { note } => {
+                if let Some(s) = out.iter_mut().rev().find(|s| s.note == note && s.off.is_none()) {
+                    s.off = Some(e.sample);
+                    s.off_source = Some(e.source_sample);
+                }
+            }
+            GuitarEventKind::PitchBend { .. } => {}
+        }
+    }
+    out
 }
 
 /// Outcome of playing one plucked note through a fresh engine.

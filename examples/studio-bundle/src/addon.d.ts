@@ -1277,6 +1277,10 @@ interface GuitarInputDevice {
 
 /** Settings that can change while the guitar input is running. Anything left out keeps its value. */
 interface GuitarSettings {
+  /** "mono" is pick mode: one note at a time, lowest latency, with pitch bend. "poly" is chord mode:
+   * several strings at once (chords, arpeggios left to ring), about 60-90 ms to name a chord, no bend.
+   * Switching while playing is immediate and releases whatever sounds. */
+  polyphony?: "mono" | "poly";
   /** How much latency to trade for stability. */
   mode?: "fast" | "balanced" | "accurate";
   /** 0..1, 0.5 neutral. Higher accepts less certain pitches and smaller picks. */
@@ -1339,8 +1343,13 @@ interface GuitarDiagnostics {
   clipped: boolean;
   freqHz: number;
   confidence: number;
-  /** MIDI note number while a note sounds. */
+  /** MIDI note number while a note sounds (in chord mode, the loudest). */
   note: number | null;
+  /** Every note sounding, lowest first. One at most in pick mode. */
+  notesSounding: number[];
+  /** The most compact way to fret `notesSounding`, lowest string first (null: string not played), or
+   * null when no hand could. A guess, for display. */
+  fingering: (number | null)[] | null;
   /** Cents from the note's center, or from the nearest note when none sounds. */
   cents: number;
   state: "silent" | "attack" | "playing" | "release";
@@ -1380,7 +1389,7 @@ interface GuitarStatus {
    * on its own 10 ms period whatever the request says). */
   bufferNote?: string | null;
   calibration?: { state: string; busy: boolean; finished: "room" | "playing" | "failed" | null };
-  settings?: Required<Pick<GuitarSettings, "mode" | "sensitivity" | "gateOpenDb" | "gateCloseDb" | "bendRange" | "referencePitch" | "inputGainDb" | "velocityFloorDb" | "velocityCeilDb">>;
+  settings?: Required<Pick<GuitarSettings, "polyphony" | "mode" | "sensitivity" | "gateOpenDb" | "gateCloseDb" | "bendRange" | "referencePitch" | "inputGainDb" | "velocityFloorDb" | "velocityCeilDb">>;
   diagnostics?: GuitarDiagnostics;
 }
 
@@ -1394,7 +1403,8 @@ interface GuitarRecordedNote {
   bends: [number, number][];
 }
 
-/** Guitar-to-MIDI: a real-time monophonic pitch tracker on an audio input (see GUITAR_TO_MIDI.md).
+/** Guitar-to-MIDI on an audio input (see GUITAR_TO_MIDI.md): a monophonic pitch tracker (pick mode) or
+ * a chord detector (chord mode). Recorded notes may overlap in chord mode.
  * Notes play the built-in voice on a track and/or a hosted VST3 instrument. Calls report failure as
  * `{ ok: false, error }` rather than throwing. */
 interface GuitarAPI {

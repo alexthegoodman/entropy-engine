@@ -4,7 +4,7 @@
 //! the wait-free write.
 
 use crate::guitar::tracker::TrackerStats;
-use crate::guitar::{Diagnostics, TrackerState};
+use crate::guitar::{Diagnostics, NoteSet, TrackerState};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 pub struct AtomicF32(AtomicU32);
@@ -48,6 +48,10 @@ pub struct Shared {
     pub cents: AtomicF32,
     pub tier: AtomicU32,
     pub note: AtomicU32,
+    /// Every note sounding, as a 128-bit set split in two.
+    pub notes_lo: AtomicU64,
+    pub notes_hi: AtomicU64,
+    pub polyphonic: AtomicBool,
     pub state: AtomicU32,
     pub velocity: AtomicU32,
     pub bend: AtomicU32,
@@ -130,6 +134,9 @@ impl Shared {
             cents: AtomicF32::new(0.0),
             tier: AtomicU32::new(0),
             note: AtomicU32::new(NO_NOTE),
+            notes_lo: AtomicU64::new(0),
+            notes_hi: AtomicU64::new(0),
+            polyphonic: AtomicBool::new(false),
             state: AtomicU32::new(0),
             velocity: AtomicU32::new(0),
             bend: AtomicU32::new(8192),
@@ -169,6 +176,9 @@ impl Shared {
         self.cents.store(d.cents);
         self.tier.store(d.tier as u32, r);
         self.note.store(d.note.map_or(NO_NOTE, |n| n as u32), r);
+        self.notes_lo.store(d.notes.0 as u64, r);
+        self.notes_hi.store((d.notes.0 >> 64) as u64, r);
+        self.polyphonic.store(d.polyphonic, r);
         self.state.store(d.state as u32, r);
         self.velocity.store(d.velocity as u32, r);
         self.bend.store(d.bend as u32, r);
@@ -194,6 +204,8 @@ impl Shared {
             confidence: self.confidence.load(),
             tier: self.tier.load(r) as u8,
             note: (note != NO_NOTE).then_some(note as u8),
+            notes: NoteSet(self.notes_lo.load(r) as u128 | (self.notes_hi.load(r) as u128) << 64),
+            polyphonic: self.polyphonic.load(r),
             cents: self.cents.load(),
             state: match self.state.load(r) {
                 1 => TrackerState::Attack,
@@ -239,6 +251,10 @@ pub struct LiveDiagnostics {
     pub confidence: f32,
     pub tier: u8,
     pub note: Option<u8>,
+    /// Every note sounding (the chord detector can hold several).
+    pub notes: NoteSet,
+    /// The chord detector is running, not the pitch tracker.
+    pub polyphonic: bool,
     pub cents: f32,
     pub state: TrackerState,
     pub velocity: u8,

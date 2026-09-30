@@ -58,3 +58,26 @@ Feature: The DAW's guitar input, the parts that need no device
     Given a reading of A3 sharp by 12 cents at 220 Hz with the bend at 9000 on a 2 semitone range
     When the diagnostics are formatted
     Then the readout mentions "A3", "+12 cents", "220.0 Hz", "velocity", "overruns" and "frames"
+
+  Scenario: A chord-mode take keeps a chord's notes on one step
+    Given a chord-mode take at 120 BPM with 4 steps per beat: "C3 0.0-1.0, E3 0.0-1.0, G3 0.01-1.0"
+    When the take is turned into a pattern
+    Then the pattern has these cells: "0:0:8, 4:0:8, 7:0:8"
+
+  Scenario: In a chord-mode take a ringing note is only cut by its own string's next note
+    Given a chord-mode take at 120 BPM with 4 steps per beat: "C3 0.0-2.0, E3 0.5-1.0, C3 1.0-1.5"
+    When the take is turned into a pattern
+    Then the pattern has these cells: "0:0:8, 4:4:4, 0:8:4"
+
+  Scenario: Saved preferences keep chord mode, and a mistyped one falls back to single notes
+    Given saved guitar preferences '{"polyphony":"poly"}'
+    When the preferences are read
+    Then the polyphony is "poly"
+    Given saved guitar preferences '{"polyphony":"banjo"}'
+    When the preferences are read
+    Then the polyphony is "mono"
+
+  Scenario: The readout names every note of a chord and where it is fretted
+    Given a chord reading of C3 E3 G3 C4 E4 fretted "x32010"
+    When the diagnostics are formatted
+    Then the readout mentions "C3 E3 G3 C4 E4" and "x32010"

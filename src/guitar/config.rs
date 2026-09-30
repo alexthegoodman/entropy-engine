@@ -33,7 +33,7 @@ impl Mode {
     pub fn params(self) -> ModeParams {
         match self {
             Mode::Fast => ModeParams { stability_ms: 1.0, min_confidence: 0.80, release_ms: 25.0, refractory_ms: 30.0, chord_wait_ms: 30.0 },
-            Mode::Balanced => ModeParams { stability_ms: 2.7, min_confidence: 0.85, release_ms: 40.0, refractory_ms: 45.0, chord_wait_ms: 45.0 },
+            Mode::Balanced => ModeParams { stability_ms: 2.7, min_confidence: 0.85, release_ms: 40.0, refractory_ms: 45.0, chord_wait_ms: 60.0 },
             Mode::Accurate => ModeParams { stability_ms: 8.0, min_confidence: 0.90, release_ms: 50.0, refractory_ms: 60.0, chord_wait_ms: 70.0 },
         }
     }

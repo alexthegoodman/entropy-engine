@@ -4,7 +4,7 @@
 
 use super::shared::{CalState, Shared};
 use crate::guitar::events::{EventSink, GuitarEvent, GuitarEventKind, BEND_CENTER};
-use crate::guitar::{gate_from_levels, velocity_range_from_levels, GuitarConfig, GuitarEngine, Tunables};
+use crate::guitar::{gate_from_levels, velocity_range_from_levels, GuitarConfig, GuitarEngine, Polyphony, Tunables};
 use rtrb::{Consumer, Producer};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -24,6 +24,8 @@ const CLIP_LEVEL: f32 = 0.891;
 pub enum Control {
     Tunables(Tunables),
     ReleaseAll,
+    /// Switch between the pitch tracker and the chord detector, releasing what sounds.
+    Polyphony(Polyphony),
     /// Listen for `seconds` and measure, either the room (silence) or playing.
     Calibrate { playing: bool, seconds: f32 },
 }
@@ -46,10 +48,14 @@ struct QueueSink<'a> {
     producer: &'a mut Producer<GuitarEvent>,
     shared: &'a Shared,
     pushed: bool,
+    /// Added to every event's times: see `GuitarPipeline::offset`.
+    offset: u64,
 }
 
 impl EventSink for QueueSink<'_> {
-    fn push(&mut self, e: GuitarEvent) {
+    fn push(&mut self, mut e: GuitarEvent) {
+        e.sample += self.offset;
+        e.source_sample += self.offset;
         let droppable = matches!(e.kind, GuitarEventKind::PitchBend { value } if value != BEND_CENTER);
         if droppable && self.producer.slots() < EVENT_QUEUE / 4 {
             self.shared.dropped_bends.fetch_add(1, Ordering::Relaxed);
@@ -84,7 +90,12 @@ impl PipelineParts {
 }
 
 pub struct GuitarPipeline {
+    /// The engine in use, and the other one, built up front so switching never allocates.
     engine: GuitarEngine,
+    standby: GuitarEngine,
+    /// Input samples before the engine in use started counting: events and positions are on the
+    /// input's clock, whichever engine is running.
+    offset: u64,
     events: Producer<GuitarEvent>,
     controls: Consumer<Control>,
     shared: Arc<Shared>,
@@ -102,7 +113,12 @@ impl GuitarPipeline {
         shared.sample_rate.store(cfg.sample_rate as u32, Ordering::Relaxed);
         GuitarPipeline {
             period_us_per_frame: 1e6 / cfg.sample_rate,
+            standby: GuitarEngine::new(cfg.clone().with_polyphony(match cfg.polyphony {
+                Polyphony::Mono => Polyphony::Poly,
+                Polyphony::Poly => Polyphony::Mono,
+            })),
             engine: GuitarEngine::new(cfg),
+            offset: 0,
             events,
             controls,
             shared,
@@ -119,6 +135,11 @@ impl GuitarPipeline {
         &self.engine
     }
 
+    /// Input samples processed, on the input's clock.
+    pub fn position(&self) -> u64 {
+        self.engine.position() + self.offset
+    }
+
     /// One device buffer of interleaved samples of any type the backend delivers.
     pub fn process_interleaved<T>(&mut self, data: &[T], channels: usize)
     where
@@ -132,7 +153,25 @@ impl GuitarPipeline {
 
         while let Ok(c) = self.controls.pop() {
             match c {
-                Control::Tunables(t) => self.engine.set_tunables(&t),
+                Control::Tunables(t) => {
+                    self.engine.set_tunables(&t);
+                    self.standby.set_tunables(&t);
+                }
+                Control::Polyphony(p) => {
+                    if (p == Polyphony::Poly) != self.engine.is_polyphonic() {
+                        let mut sink = QueueSink { producer: &mut self.events, shared: &self.shared, pushed: false, offset: self.offset };
+                        self.engine.release_all(&mut sink);
+                        if sink.pushed {
+                            self.wake.unpark();
+                        }
+                        // The other engine has heard nothing since it was last used: start it clean, and
+                        // count its samples on from where this one stopped.
+                        let at = self.position();
+                        self.standby.reset(&mut |_e: GuitarEvent| {});
+                        std::mem::swap(&mut self.engine, &mut self.standby);
+                        self.offset = at - self.engine.position();
+                    }
+                }
                 Control::Calibrate { playing, seconds } => {
                     self.cal_levels.clear();
                     let frames = (seconds.clamp(0.5, 60.0) * self.engine.config().sample_rate) as u64;
@@ -141,7 +180,7 @@ impl GuitarPipeline {
                     self.shared.cal_state.store(state as u32, Ordering::Release);
                 }
                 Control::ReleaseAll => {
-                    let mut sink = QueueSink { producer: &mut self.events, shared: &self.shared, pushed: false };
+                    let mut sink = QueueSink { producer: &mut self.events, shared: &self.shared, pushed: false, offset: self.offset };
                     self.engine.release_all(&mut sink);
                     if sink.pushed {
                         self.wake.unpark();
@@ -157,7 +196,7 @@ impl GuitarPipeline {
             for i in 0..n {
                 self.mono[i] = <f32 as cpal::FromSample<T>>::from_sample_(data[(done + i) * channels + channel]);
             }
-            let mut sink = QueueSink { producer: &mut self.events, shared: &self.shared, pushed: false };
+            let mut sink = QueueSink { producer: &mut self.events, shared: &self.shared, pushed: false, offset: self.offset };
             self.engine.process(&self.mono[..n], &mut sink);
             pushed |= sink.pushed;
             done += n;
@@ -170,7 +209,7 @@ impl GuitarPipeline {
         if peak >= CLIP_LEVEL {
             self.shared.clipped.store(true, Ordering::Relaxed);
         }
-        self.shared.publish(&self.engine.diagnostics(), self.engine.position());
+        self.shared.publish(&self.engine.diagnostics(), self.position());
         self.shared.buffer_frames.store(frames as u32, Ordering::Relaxed);
 
         if pushed {

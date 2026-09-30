@@ -212,3 +212,66 @@ Feature: Guitar to MIDI, replayed offline
     And 3 handling thumps at -20 dBFS
     When the recording is replayed
     Then the first Note On is for E4
+
+  # --- Chord mode (the polyphonic engine) ---------------------------------------------------------
+  # Strums are rendered string by string, lowest first, 25 ms from the first to the last, each string
+  # with its own level, seed and pluck position. A note an octave above another string can hide
+  # entirely in that string's partials and may be missed; a note that was not played never may be.
+
+  Scenario Outline: A strummed chord plays its notes and nothing else
+    Given chord detection is on
+    And a "<shape>" chord strummed at -18 dBFS
+    When the recording is replayed for 1.2 seconds
+    Then every note played was in the chord
+    And every pitch class of the chord is played
+    And the lowest string's note is played
+    And every note of the chord comes within 150 ms of the strum
+    And the event stream is well formed
+
+    Examples:
+      | shape  |
+      | x32010 |
+      | 022000 |
+      | x02210 |
+      | xx0232 |
+      | 133211 |
+      | 022xxx |
+      | x24432 |
+
+  Scenario: A single note in chord mode is one note
+    Given chord detection is on
+    And a string tuned to A3 is picked at -14 dBFS
+    When the recording is replayed
+    Then exactly 1 Note On is emitted
+    And the first Note On is for A3
+    And the event stream is well formed
+
+  Scenario: Strings left to ring overlap
+    Given chord detection is on
+    And a string tuned to C3 is picked at -18 dBFS at 0.2 seconds
+    And a string tuned to E3 is picked at -18 dBFS at 0.45 seconds
+    And a string tuned to G3 is picked at -18 dBFS at 0.7 seconds
+    When the recording is replayed for 1.5 seconds
+    Then the notes played are "C3 E3 G3"
+    And all three notes are sounding at 1.0 seconds
+    And the event stream is well formed
+
+  # Live, the old chord can overlap the new one by up to about 200 ms: the first string of a strum over
+  # strings being muted is a weak onset, and the new chord's short first windows cannot yet prove the
+  # old strings gone. What a recording keeps is where the old notes ended: at the strum.
+  Scenario: Changing chords ends the old notes and starts the new
+    Given chord detection is on
+    And a "320003" chord strummed at -18 dBFS, muted after 0.595 seconds
+    And a "x32010" chord strummed at -18 dBFS at 0.8 seconds
+    When the recording is replayed for 1.6 seconds
+    Then no note of the first chord that is not in the second is still sounding 200 ms into the second
+    And every note of the first chord that is not in the second ends within 40 ms of the second strum, as recorded
+    And every pitch class of the second chord is sounding 200 ms into it
+    And the event stream is well formed
+
+  Scenario: Room noise and handling noise play no notes in chord mode either
+    Given chord detection is on
+    And 30 seconds of room noise: hum at -52 dBFS and hiss at -60 dBFS
+    And 10 handling thumps at -22 dBFS
+    When the recording is replayed
+    Then no note is emitted

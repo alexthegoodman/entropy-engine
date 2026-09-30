@@ -18,13 +18,13 @@ pub mod wavetable_voice;
 
 pub use input::{list_input_devices, InputDevice, InputRequest, OpenedInput};
 pub use pipeline::{Control, GuitarPipeline, PipelineParts};
-pub use router::{RecordedNote, Recorder, Router, Targets};
+pub use router::{RecordedNote, Recorder, Router, Targets, POOL};
 pub use shared::{CalState, LiveDiagnostics, Shared};
 pub use voice::{GuitarVoice, VoiceControl, Waveform};
 pub use wavetable_voice::WavetableGuitarVoice;
 
 use crate::audio::AudioEngine;
-use crate::guitar::{GuitarConfig, GuitarEvent, Tunables};
+use crate::guitar::{GuitarConfig, GuitarEvent, Polyphony, Tunables};
 use router::RouterStats;
 use rtrb::RingBuffer;
 use std::sync::atomic::Ordering;
@@ -39,7 +39,7 @@ pub struct GuitarSession {
     stats: Arc<RouterStats>,
     input: Option<input::InputHandle>,
     cfg: GuitarConfig,
-    voice: Option<Arc<VoiceControl>>,
+    voices: Vec<Arc<VoiceControl>>,
 }
 
 /// Feeds a session from code instead of a device: a test, or a "play this file through it" tool.
@@ -68,7 +68,7 @@ impl GuitarSession {
         let router = Router::spawn(event_rx, targets.clone(), recorder.clone(), shared.clone(), stats.clone());
         let parts = PipelineParts { cfg: cfg.clone(), channel, events: event_tx, controls: control_rx, shared: shared.clone(), wake: router.wake_handle() };
         (
-            GuitarSession { shared, targets, recorder, controls: Mutex::new(control_tx), router, stats, input: None, cfg, voice: None },
+            GuitarSession { shared, targets, recorder, controls: Mutex::new(control_tx), router, stats, input: None, cfg, voices: Vec::new() },
             parts,
         )
     }
@@ -122,49 +122,76 @@ impl GuitarSession {
         targets.reference_pitch = self.cfg.reference_pitch;
     }
 
-    /// Plays notes on a built-in voice added to `track_id`'s bus (which must already exist).
+    /// Plays notes on built-in voices added to `track_id`'s bus (which must already exist): one per
+    /// string, so a chord sounds as a chord.
     pub fn play_built_in(&mut self, audio: &AudioEngine, track_id: &str, waveform: Waveform) -> Result<(), String> {
-        if let Some(old) = self.voice.take() {
-            old.stop();
-        }
-        let ctl = VoiceControl::new();
-        ctl.set_waveform(waveform);
-        if !audio.add_track_source(track_id, GuitarVoice::new(ctl.clone())) {
-            return Err(format!("track '{track_id}' has no audio bus to play on"));
-        }
-        self.targets.lock().unwrap().voice = Some(ctl.clone());
-        self.voice = Some(ctl);
-        Ok(())
+        self.install_voices(|ctl| {
+            ctl.set_waveform(waveform);
+            audio.add_track_source(track_id, GuitarVoice::new(ctl.clone()))
+        })
+        .map_err(|_| format!("track '{track_id}' has no audio bus to play on"))
     }
 
-    /// Plays notes on a wavetable voice added to `track_id`'s bus. It reads the table called
+    /// Plays notes on wavetable voices added to `track_id`'s bus. They read the table called
     /// `table_id` live, so the table can be sculpted while it plays. `params` is the sound; the
     /// pick decides pitch and velocity.
     pub fn play_wavetable(&mut self, audio: &AudioEngine, track_id: &str, table_id: &str, params: crate::audio::wavetable::WavetableParams) -> Result<(), String> {
         let table = crate::audio::wavetable::shared_for(table_id).ok_or_else(|| format!("no wavetable called {table_id}"))?;
-        if let Some(old) = self.voice.take() {
+        self.install_voices(|ctl| audio.add_track_source(track_id, WavetableGuitarVoice::new(ctl.clone(), table.clone(), params)))
+            .map_err(|_| format!("track '{track_id}' has no audio bus to play on"))
+    }
+
+    /// Replaces the built-in voices with a fresh pool, each added by `add` (false: no bus to add to).
+    fn install_voices(&mut self, mut add: impl FnMut(&Arc<VoiceControl>) -> bool) -> Result<(), ()> {
+        for old in self.voices.drain(..) {
             old.stop();
         }
-        let ctl = VoiceControl::new();
-        if !audio.add_track_source(track_id, WavetableGuitarVoice::new(ctl.clone(), table, params)) {
-            return Err(format!("track '{track_id}' has no audio bus to play on"));
+        let mut voices = Vec::with_capacity(router::POOL);
+        for _ in 0..router::POOL {
+            let ctl = VoiceControl::new();
+            if !add(&ctl) {
+                voices.iter().for_each(|v: &Arc<VoiceControl>| v.stop());
+                self.targets.lock().unwrap().set_voices(Vec::new());
+                return Err(());
+            }
+            voices.push(ctl);
         }
-        self.targets.lock().unwrap().voice = Some(ctl.clone());
-        self.voice = Some(ctl);
+        self.voices = voices.clone();
+        self.apply_voice_gain();
+        self.targets.lock().unwrap().set_voices(voices);
         Ok(())
     }
 
-    pub fn set_waveform(&self, w: Waveform) {
-        if let Some(v) = &self.voice {
-            v.set_waveform(w);
-        }
+    /// One note plays at full level; a chord's six share the headroom.
+    fn apply_voice_gain(&self) {
+        let gain = match self.cfg.polyphony {
+            Polyphony::Mono => 0.3,
+            Polyphony::Poly => 0.18,
+        };
+        self.voices.iter().for_each(|v| v.set_gain(gain));
     }
 
-    /// Moves a wavetable voice through its table (0..1), including a note that is sounding.
+    pub fn set_waveform(&self, w: Waveform) {
+        self.voices.iter().for_each(|v| v.set_waveform(w));
+    }
+
+    /// Moves the wavetable voices through their table (0..1), including notes that are sounding.
     pub fn set_position(&self, position: f32) {
-        if let Some(v) = &self.voice {
-            v.set_position(position);
+        self.voices.iter().for_each(|v| v.set_position(position));
+    }
+
+    /// Switches between the pitch tracker (one note, with bend) and the chord detector while playing.
+    /// Both engines are built when the input opens, so the switch is immediate: whatever sounds is
+    /// released, and the next pick is read by the other engine.
+    pub fn set_polyphony(&mut self, polyphony: Polyphony) {
+        if self.cfg.polyphony == polyphony {
+            return;
         }
+        self.cfg.polyphony = polyphony;
+        if let Ok(mut c) = self.controls.lock() {
+            let _ = c.push(Control::Polyphony(polyphony));
+        }
+        self.apply_voice_gain();
     }
 
     /// Plays notes on the VST3 instrument hosted on `track_id`, as well as (or instead of) the
@@ -188,10 +215,10 @@ impl GuitarSession {
 
     /// Stops playing on the built-in voice, releasing whatever it holds.
     pub fn silence_built_in(&mut self) {
-        if let Some(v) = self.voice.take() {
+        for v in self.voices.drain(..) {
             v.stop();
         }
-        self.targets.lock().unwrap().voice = None;
+        self.targets.lock().unwrap().set_voices(Vec::new());
     }
 
     pub fn arm_recording(&self) {
@@ -275,7 +302,7 @@ impl GuitarSession {
             input.stop();
         }
         self.router.stop();
-        if let Some(v) = self.voice.take() {
+        for v in self.voices.drain(..) {
             v.stop();
         }
         self.shared.running.store(false, Ordering::Release);

@@ -13,6 +13,9 @@ export function noteName(midi: number): string {
 
 export type GuitarMode = "fast" | "balanced" | "accurate";
 export const GUITAR_MODES: GuitarMode[] = ["fast", "balanced", "accurate"];
+/** "mono" is pick mode (one note, bends, lowest latency); "poly" is chord mode (several strings). */
+export type GuitarPolyphony = "mono" | "poly";
+export const GUITAR_POLYPHONY: GuitarPolyphony[] = ["mono", "poly"];
 export const GUITAR_WAVEFORMS = ["wavetable", "sine", "triangle", "saw", "square"] as const;
 
 /** What is saved with the project (spec CFG-1). Unknown fields in a saved file are ignored and
@@ -26,6 +29,7 @@ export interface GuitarPrefs {
     channel: number;
     sampleRate: number;
     bufferFrames: number;
+    polyphony: GuitarPolyphony;
     mode: GuitarMode;
     sensitivity: number;
     bendRange: number;
@@ -47,6 +51,7 @@ export function defaultGuitarPrefs(): GuitarPrefs {
         channel: 0,
         sampleRate: 48000,
         bufferFrames: 128,
+        polyphony: "mono",
         mode: "balanced",
         sensitivity: 0.5,
         bendRange: 2,
@@ -69,6 +74,7 @@ export function readGuitarPrefs(saved: unknown): GuitarPrefs {
         channel: Math.round(num(s.channel, 0, 63, d.channel)),
         sampleRate: num(s.sampleRate, 8000, 192000, d.sampleRate),
         bufferFrames: Math.round(num(s.bufferFrames, 16, 8192, d.bufferFrames)),
+        polyphony: GUITAR_POLYPHONY.includes(s.polyphony) ? s.polyphony : d.polyphony,
         mode: GUITAR_MODES.includes(s.mode) ? s.mode : d.mode,
         sensitivity: num(s.sensitivity, 0, 1, d.sensitivity),
         bendRange: Math.round(num(s.bendRange, 1, 12, d.bendRange)),
@@ -88,7 +94,7 @@ export function readGuitarPrefs(saved: unknown): GuitarPrefs {
 export function startConfig(p: GuitarPrefs): Record<string, unknown> {
     const c: Record<string, unknown> = {
         channel: p.channel, sampleRate: p.sampleRate, bufferFrames: p.bufferFrames,
-        mode: p.mode, sensitivity: p.sensitivity, bendRange: p.bendRange, referencePitch: p.referencePitch,
+        polyphony: p.polyphony, mode: p.mode, sensitivity: p.sensitivity, bendRange: p.bendRange, referencePitch: p.referencePitch,
     };
     if (p.host) c.host = p.host;
     if (p.device) c.device = p.device;
@@ -121,9 +127,12 @@ export interface TakePattern {
 }
 
 /** Quantizes a take to the step grid. `startS` is already corrected for detection latency, so a note
- * lands on the step it was played on, not the one after. A note is trimmed at the next note's start
- * (the input is monophonic), and the pattern is a whole number of bars. */
-export function takeToPattern(notes: TakeNote[], bpm: number, stepsPerBeat: number, maxRows = 48): TakePattern | null {
+ * lands on the step it was played on, not the one after. The pattern is a whole number of bars.
+ *
+ * A monophonic take (the default) is one line: a note is trimmed at the next note's start, and two
+ * notes landing on one step keep the later. A polyphonic take (chord mode) keeps notes that overlap:
+ * a note is only trimmed by the next note on its own row, and a chord's notes share a step. */
+export function takeToPattern(notes: TakeNote[], bpm: number, stepsPerBeat: number, maxRows = 48, polyphonic = false): TakePattern | null {
     const played = notes.filter(n => Number.isFinite(n.startS) && Number.isFinite(n.endS)).sort((a, b) => a.startS - b.startS);
     if (played.length === 0 || !(bpm > 0)) return null;
 
@@ -142,10 +151,11 @@ export function takeToPattern(notes: TakeNote[], bpm: number, stepsPerBeat: numb
         if (row >= rows) { dropped++; return; }
         const start = starts[i];
         let length = Math.max(1, Math.round((n.endS - n.startS) / stepSeconds));
-        const next = starts.slice(i + 1).find(s => s > start);
+        const next = starts.slice(i + 1).find((s, j) => s > start && (!polyphonic || played[i + 1 + j].note === n.note));
         if (next !== undefined) length = Math.min(length, next - start);
-        // Two notes that quantize to the same step: the later one wins the step, as it was played later.
-        const clash = cells.findIndex(c => c.step === start);
+        // Two notes that quantize to the same step (on the same row, for a polyphonic take): the later
+        // one wins the step, as it was played later.
+        const clash = cells.findIndex(c => c.step === start && (!polyphonic || c.row === row));
         if (clash >= 0) cells.splice(clash, 1);
         cells.push({ row, step: start, length, velocity: Math.min(1, Math.max(1 / 127, n.velocity / 127)) });
         lastEnd = Math.max(lastEnd, start + length);
@@ -161,7 +171,7 @@ export function takeToPattern(notes: TakeNote[], bpm: number, stepsPerBeat: numb
 
 export interface GuitarDiag {
     levelDb: number; inputPeakDb: number; clipped: boolean; freqHz: number; confidence: number;
-    note: number | null; cents: number; state: string; velocity: number; bend: number;
+    note: number | null; notesSounding?: number[]; fingering?: (number | null)[] | null; cents: number; state: string; velocity: number; bend: number;
     pipelineLatencyMs: number; bufferMs: number; bufferFrames: number; sampleRate: number;
     callbacks: number; overruns: number; streamErrors: number; maxCallbackUs: number; meanCallbackUs: number;
     droppedBends: number; droppedEvents: number; notes: number; noiseRejects: number;
@@ -177,7 +187,10 @@ const fixed = (v: number, digits: number) => (Number.isFinite(v) ? v.toFixed(dig
 
 /** The lines of the diagnostics readout (spec DIA-1). */
 export function diagnosticsLines(d: GuitarDiag, rangeSemitones: number): string[] {
-    const heard = d.note === null ? "no note" : `${noteName(d.note)}  (${d.cents >= 0 ? "+" : ""}${fixed(d.cents, 0)} cents)`;
+    const sounding = d.notesSounding ?? [];
+    const heard = sounding.length > 1
+        ? `${sounding.map(noteName).join(" ")}${d.fingering ? `  (${fingeringText(d.fingering)})` : ""}`
+        : d.note === null ? "no note" : `${noteName(d.note)}  (${d.cents >= 0 ? "+" : ""}${fixed(d.cents, 0)} cents)`;
     return [
         `Note: ${heard}   state: ${d.state}   velocity: ${d.velocity}`,
         `Detected: ${d.freqHz > 0 ? fixed(d.freqHz, 1) + " Hz" : "-"}   confidence: ${fixed(d.confidence * 100, 0)}%   bend: ${fixed(bendCents(d.bend, rangeSemitones), 0)} cents`,
@@ -186,6 +199,12 @@ export function diagnosticsLines(d: GuitarDiag, rangeSemitones: number): string[
         `Callbacks: ${d.callbacks}   mean ${fixed(d.meanCallbackUs, 0)} us   max ${d.maxCallbackUs} us   overruns: ${d.overruns}   stream errors: ${d.streamErrors}`,
         `Notes: ${d.notes}   noise rejected: ${d.noiseRejects}   octave rejected/corrected: ${d.octaveRejects}/${d.octaveCorrections}   slides: ${d.slides}   re-picks: ${d.repicks}   dropped: ${d.droppedBends} bends, ${d.droppedEvents} notes`,
     ];
+}
+
+/** A fingering as a chord chart writes it, lowest string first: "x32010". Frets over 9 are spaced. */
+export function fingeringText(f: (number | null)[]): string {
+    const wide = f.some(v => v !== null && v > 9);
+    return f.map(v => (v === null ? "x" : String(v))).join(wide ? " " : "");
 }
 
 /** A text meter: `-60..0 dBFS` across `width` cells. */

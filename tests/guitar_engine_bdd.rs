@@ -8,9 +8,9 @@
 
 use cucumber::{given, then, when, World as _};
 use entropy_engine::guitar::calibrate::gate_from_noise;
-use entropy_engine::guitar::replay::{check_well_formed, spans};
+use entropy_engine::guitar::replay::{check_well_formed, check_well_formed_poly, poly_spans, spans};
 use entropy_engine::guitar::testsig::{self, Motion, Pluck, Truth};
-use entropy_engine::guitar::{bend_cents, GuitarConfig, GuitarEngine, GuitarEvent, GuitarEventKind, Mode, BEND_CENTER};
+use entropy_engine::guitar::{bend_cents, GuitarConfig, GuitarEngine, GuitarEvent, GuitarEventKind, Mode, Polyphony, BEND_CENTER, STANDARD_TUNING};
 
 const FS: f32 = 48_000.0;
 const BLOCK: usize = 128;
@@ -33,11 +33,13 @@ struct GuitarWorld {
     events: Vec<GuitarEvent>,
     truth: Vec<Truth>,
     samples: Vec<f32>,
+    /// Strummed chords: when, and the notes.
+    chords: Vec<(f32, Vec<u8>)>,
 }
 
 impl Default for GuitarWorld {
     fn default() -> Self {
-        GuitarWorld { cfg: GuitarConfig::default(), plucks: Vec::new(), room: None, thumps: None, slaps: Vec::new(), seconds: None, events: Vec::new(), truth: Vec::new(), samples: Vec::new() }
+        GuitarWorld { cfg: GuitarConfig::default(), plucks: Vec::new(), room: None, thumps: None, slaps: Vec::new(), seconds: None, events: Vec::new(), truth: Vec::new(), samples: Vec::new(), chords: Vec::new() }
     }
 }
 
@@ -217,6 +219,39 @@ fn thumps(w: &mut GuitarWorld, n: u32, db: i32) {
     w.thumps = Some((n as usize, db as f32));
 }
 
+#[given("chord detection is on")]
+fn chord_mode(w: &mut GuitarWorld) {
+    w.cfg.polyphony = Polyphony::Poly;
+}
+
+fn strum_shape(w: &mut GuitarWorld, shape: &str, db: i32, at: f32, ring: Option<f32>) {
+    let notes = testsig::shape_notes(shape, &STANDARD_TUNING);
+    let mut plucks = testsig::strum(&notes, at, 25.0, db as f32, true, 7 + w.chords.len() as u32);
+    if let Some(r) = ring {
+        for p in plucks.iter_mut() {
+            p.ring_s = r - (p.start_s - at);
+            p.mute_ms = 8.0;
+        }
+    }
+    w.plucks.extend(plucks);
+    w.chords.push((at, notes));
+}
+
+#[given(expr = "a {string} chord strummed at {int} dBFS")]
+fn strummed(w: &mut GuitarWorld, shape: String, db: i32) {
+    strum_shape(w, &shape, db, 0.2, None);
+}
+
+#[given(expr = "a {string} chord strummed at {int} dBFS, muted after {float} seconds")]
+fn strummed_muted(w: &mut GuitarWorld, shape: String, db: i32, ring: f32) {
+    strum_shape(w, &shape, db, 0.2, Some(ring));
+}
+
+#[given(expr = "a {string} chord strummed at {int} dBFS at {float} seconds")]
+fn strummed_at(w: &mut GuitarWorld, shape: String, db: i32, at: f32) {
+    strum_shape(w, &shape, db, at, None);
+}
+
 // --- When ----------------------------------------------------------------------------------------
 
 #[when("the recording is replayed")]
@@ -308,7 +343,8 @@ fn notes_played(w: &mut GuitarWorld, names: String) {
 
 #[then("the event stream is well formed")]
 fn well_formed(w: &mut GuitarWorld) {
-    if let Err(e) = check_well_formed(&w.events) {
+    let check = if w.cfg.polyphony == Polyphony::Poly { check_well_formed_poly } else { check_well_formed };
+    if let Err(e) = check(&w.events) {
         panic!("{e}");
     }
 }
@@ -417,6 +453,75 @@ fn final_pitch(w: &mut GuitarWorld, note: String, tol: u32) {
     let heard = (center as f32 - midi_of(&note) as f32) * 100.0 + bend;
     println!("    last Note On {center}, bend {bend:.1} cents: {heard:+.1} cents from {note}");
     assert!(heard.abs() <= tol as f32, "{heard:.1} cents from {note}");
+}
+
+#[then("every note played was in the chord")]
+fn only_chord_notes(w: &mut GuitarWorld) {
+    let chord = &w.chords[0].1;
+    let start = (w.chords[0].0 * FS) as u64;
+    let extra: Vec<(u8, f32)> = w.note_ons().iter().filter(|o| !chord.contains(&o.1)).map(|o| (o.1, w.ms(o.0 as f32 - start as f32))).collect();
+    assert!(extra.is_empty(), "played {extra:?} (note, ms after the strum), not in {chord:?}");
+}
+
+#[then("every pitch class of the chord is played")]
+fn chord_pitch_classes(w: &mut GuitarWorld) {
+    let pc = |v: &mut dyn Iterator<Item = u8>| v.fold(0u16, |m, n| m | 1 << (n % 12));
+    let (want, got) = (pc(&mut w.chords[0].1.iter().copied()), pc(&mut w.note_ons().iter().map(|o| o.1)));
+    let played: Vec<u8> = w.note_ons().iter().map(|o| o.1).collect();
+    assert_eq!(got, want, "chord {:?}, played {played:?}", w.chords[0].1);
+}
+
+#[then("the lowest string's note is played")]
+fn chord_bass(w: &mut GuitarWorld) {
+    let bass = w.chords[0].1[0];
+    assert!(w.note_ons().iter().any(|o| o.1 == bass), "no {bass} in {:?}", w.note_ons());
+}
+
+#[then(expr = "every note of the chord comes within {int} ms of the strum")]
+fn chord_latency(w: &mut GuitarWorld, ms: u32) {
+    let start = (w.chords[0].0 * FS) as u64;
+    let last = w.note_ons().iter().map(|o| o.0).max().expect("a Note On");
+    let took = w.ms(last as f32 - start as f32);
+    println!("    last Note On {took:.1} ms after the first string");
+    assert!(took <= ms as f32, "{took:.1} ms");
+}
+
+#[then(expr = "all three notes are sounding at {float} seconds")]
+fn sounding_at(w: &mut GuitarWorld, t: f32) {
+    let at = (t * FS) as u64;
+    let spans = poly_spans(&w.events);
+    let sounding: Vec<u8> = spans.iter().filter(|s| s.on <= at && s.off.map_or(true, |o| o > at)).map(|s| s.note).collect();
+    assert_eq!(sounding.len(), 3, "sounding at {t} s: {sounding:?}");
+}
+
+#[then(expr = "no note of the first chord that is not in the second is still sounding {int} ms into the second")]
+fn old_chord_ended(w: &mut GuitarWorld, ms: u32) {
+    let (first, second) = (w.chords[0].1.clone(), w.chords[1].1.clone());
+    let at = ((w.chords[1].0 + ms as f32 / 1000.0) * FS) as u64;
+    let hanging: Vec<(u8, Option<f32>)> = poly_spans(&w.events).iter().filter(|s| first.contains(&s.note) && !second.contains(&s.note) && s.on <= at && s.off.map_or(true, |o| o > at)).map(|s| (s.note, s.off.map(|o| o as f32 / FS))).collect();
+    assert!(hanging.is_empty(), "still sounding (note, ended at s): {hanging:?}");
+}
+
+#[then(expr = "every note of the first chord that is not in the second ends within {int} ms of the second strum, as recorded")]
+fn old_chord_recorded_end(w: &mut GuitarWorld, ms: u32) {
+    let (first, second) = (w.chords[0].1.clone(), w.chords[1].1.clone());
+    let at = w.chords[1].0;
+    for s in poly_spans(&w.events).iter().filter(|s| first.contains(&s.note) && !second.contains(&s.note) && (s.on_source as f32) < at * FS) {
+        let end = s.off_source.expect("released") as f32 / FS;
+        println!("    note {} recorded as ending {:.1} ms after the second strum", s.note, (end - at) * 1000.0);
+        assert!((end - at).abs() * 1000.0 <= ms as f32, "note {} ends at {end:.3} s", s.note);
+    }
+}
+
+#[then(expr = "every pitch class of the second chord is sounding {int} ms into it")]
+fn second_chord_classes(w: &mut GuitarWorld, ms: u32) {
+    // Sounding, not necessarily started again: a string in both chords, strummed again, can carry on.
+    let at = ((w.chords[1].0 + ms as f32 / 1000.0) * FS) as u64;
+    let pc = |v: &mut dyn Iterator<Item = u8>| v.fold(0u16, |m, n| m | 1 << (n % 12));
+    let want = pc(&mut w.chords[1].1.iter().copied());
+    let played: Vec<u8> = poly_spans(&w.events).iter().filter(|s| s.on <= at && s.off.map_or(true, |o| o > at)).map(|s| s.note).collect();
+    let got = pc(&mut played.iter().copied());
+    assert_eq!(got & want, want, "chord {:?}, played {played:?}", w.chords[1].1);
 }
 
 #[then(expr = "the first Note On has a velocity of at least {int} and at most {int}")]
