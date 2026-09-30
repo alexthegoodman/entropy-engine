@@ -1,6 +1,80 @@
 // Type definitions for Entropy API
 
 declare global {
+  /** One planet as `Entropy.QuadPlanet` takes it (see apps/quadplanet/qp_planet.ts PlanetDef). */
+  interface QuadPlanetDef {
+    id: string;
+    name: string;
+    center: [number, number, number];
+    radius: number;
+    seed: number;
+    continentHeight: number; mountainHeight: number; hillHeight: number; rockHeight: number; detailHeight: number;
+    terraceStep: number; continentFrequency: number;
+    hasSea: boolean; frozenSea: boolean;
+    palette: Record<"deepWater" | "shallowWater" | "beach" | "lowland" | "highland" | "rock" | "snow", [number, number, number]>;
+    atmosphereColor: [number, number, number]; atmosphereHeight: number; gravity: number; polarCaps: number;
+    chunkDetail?: QuadPlanetChunkDetail;
+    terrain?: { kind: "procedural" } | { kind: "earth"; maxZoom?: number; offline?: boolean; tileUrl?: string; srtmDir?: string };
+  }
+
+  type QuadPlanetChunkDetail = { mode: "half"; leafVertices: number; levels: number } | { mode: "explicit"; verticesPerLevel: readonly number[] };
+
+  interface QuadPlanetStreamStats {
+    live: number; wanted: number; pending: number;
+    /** Wanted chunks waiting on elevation tiles still downloading. */
+    waitingForData: number;
+    hidden: number; balanced: number; stitched: number; built: number; destroyed: number;
+    deepest: number[]; perPlanet: number[]; triangles: number;
+    /** The split factor the triangle budget left. */
+    splitFactor: number;
+    buildMs: number;
+  }
+
+  interface QuadPlanetInfo {
+    planets: Array<{
+      id: string; name: string; terrain: "procedural" | "earth"; maxLevel: number; verticesPerLevel: number[];
+      maxRelief: number; finestSpacing: number;
+      elevation: { resident: number; pending: number; loaded: number; failed: number; maxZoom: number } | null;
+    }>;
+    splitFactor: number; minLevel: number; triangleBudget: number; stats: QuadPlanetStreamStats;
+  }
+
+  interface QuadPlanetSample {
+    terrain: number; surface: number; sea: boolean; rock: number; patch: number;
+    /** Distance from the planet's center to the drawn surface. */
+    radius: number;
+    lat: number; lon: number;
+  }
+
+  /**
+   * Planet terrain streamed on the Rust side (src/heightfield_landscapes/QuadPlanet/): six
+   * cube-face quadtrees per planet, procedural or real Earth elevation, meshed straight into the
+   * addon's pipeline. `planet` arguments take a planet's id or name.
+   */
+  interface QuadPlanetAPI {
+    /** Returns the system id. Each chunk binds `worldBufferId` at group 2 binding 0 and a uniform of
+     * its own (model matrix, tint, texture origin: 24 floats) at binding 1. */
+    create: (config: {
+      id?: string; planets: QuadPlanetDef[]; defaultChunkDetail?: QuadPlanetChunkDetail;
+      pipelineId: string; worldBufferId: string;
+      splitFactor?: number; minLevel?: number; triangleBudget?: number; cacheDir?: string; geocoderUrl?: string;
+    }) => string;
+    /** Streams around `viewer`; chunks are placed relative to `renderOrigin`. */
+    update: (id: string, viewer: [number, number, number], options?: { renderOrigin?: [number, number, number]; maxBuilds?: number; maxMs?: number }) => QuadPlanetStreamStats;
+    sample: (id: string, planet: string, direction: [number, number, number], options?: { wait?: boolean; spacing?: number }) => QuadPlanetSample;
+    normal: (id: string, planet: string, direction: [number, number, number], step?: number) => [number, number, number];
+    findLandingSite: (id: string, planet: string, preferred: [number, number, number]) => [number, number, number];
+    info: (id: string) => QuadPlanetInfo;
+    configure: (id: string, options: { planet?: string; chunkDetail?: QuadPlanetChunkDetail | null; splitFactor?: number; minLevel?: number; triangleBudget?: number }) => void;
+    clear: (id: string) => void;
+    destroy: (id: string) => void;
+    /** OpenStreetMap (Nominatim) place search; blocks for the request. */
+    geocode: (id: string, query: string) => Array<{ name: string; lat: number; lon: number; kind: string }>;
+    /** The OSM name of the place at a coordinate once looked up (in the background), else null. */
+    placeName: (id: string, lat: number, lon: number) => string | null;
+  }
+
+
   var lastPBRDesignerTextures: {
     [key: string]: {
     diffId: string;
@@ -296,6 +370,7 @@ export interface ScopedAPI {
   Quadscape: {
     create: (config: LandscapeConfig) => void;
   };
+  QuadPlanet: QuadPlanetAPI;
   Landscape3D: {
     create: (config: {
       id?: string | null;
@@ -3435,6 +3510,7 @@ export interface EntropyAPI {
       renderRole?: string | null;
     }) => void;
   };
+  QuadPlanet: QuadPlanetAPI;
   Noise: {
     create: (config: NoiseConfig) => string;
   };

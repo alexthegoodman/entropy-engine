@@ -327,7 +327,12 @@ impl BrowserBddDriver {
         let source = if mesha {
             include_str!("../tests/features/mesha_live.feature")
         } else if quadplanet {
-            include_str!("../tests/features/quadplanet_live.feature")
+            // ENTROPY_QUADPLANET_BDD_FEATURE plays another feature file (ad-hoc captures, e.g. of
+            // a place on Earth) without rebuilding.
+            match std::env::var("ENTROPY_QUADPLANET_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/quadplanet_live.feature"),
+            }
         } else if launcher {
             include_str!("../tests/features/app_launcher_live.feature")
         } else if sheet {
@@ -439,7 +444,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 600 } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 900 } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

@@ -680,6 +680,27 @@ const computeAPI = {
 // while the global API resolves it from the current override (or "Global").
 function createAddonContextualAPI(resolveTarget) {
     return {
+        // Planet terrain streamed on the Rust side (src/deno/quadplanet_ops.rs): six cube-face
+        // quadtrees per planet, procedural or real Earth elevation, meshes queued straight into
+        // the engine. `id` everywhere is what `create` returned.
+        QuadPlanet: {
+            create: (config) => ops.op_quadplanet_create(resolveTarget(), config),
+            update: (id, viewer, options) => ops.op_quadplanet_update(id, {
+                viewer,
+                renderOrigin: options?.renderOrigin ?? null,
+                maxBuilds: options?.maxBuilds ?? null,
+                maxMs: options?.maxMs ?? null,
+            }),
+            sample: (id, planet, direction, options) => ops.op_quadplanet_sample(id, planet, direction, options?.wait ? "block" : "fallback", options?.spacing ?? 0),
+            normal: (id, planet, direction, step) => ops.op_quadplanet_normal(id, planet, direction, step ?? 0.8),
+            findLandingSite: (id, planet, preferred) => ops.op_quadplanet_landing_site(id, planet, preferred),
+            info: (id) => ops.op_quadplanet_info(id),
+            configure: (id, options) => ops.op_quadplanet_configure(id, options || {}),
+            clear: (id) => ops.op_quadplanet_clear(id),
+            destroy: (id) => ops.op_quadplanet_destroy(id),
+            geocode: (id, query) => ops.op_quadplanet_geocode(id, query),
+            placeName: (id, lat, lon) => ops.op_quadplanet_place_name(id, lat, lon).name ?? null,
+        },
         Landscape: {
             create: (config) => ops.op_landscape_create(resolveTarget(), {
                 id: config.id || null,
@@ -1054,6 +1075,7 @@ globalThis.Entropy = {
                     },
                 },
                 Landscape3D: contextualAPI.Landscape3D,
+                QuadPlanet: contextualAPI.QuadPlanet,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -2232,6 +2254,7 @@ globalThis.Entropy = {
     // rest of globalContextualAPI's exports.
     Landscape: globalContextualAPI.Landscape,
     Landscape3D: globalContextualAPI.Landscape3D,
+    QuadPlanet: globalContextualAPI.QuadPlanet,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
     Texture: textureAPI,

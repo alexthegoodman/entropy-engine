@@ -47,8 +47,8 @@ fn quadplanet_live_feature() {
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
         // Kilometer-scale planets are ~2M triangles of textured terrain: several minutes under
-        // a software Vulkan driver (the in-app budget is 600 s, startup.rs).
-        if started.elapsed() > std::time::Duration::from_secs(660) {
+        // a software Vulkan driver (the in-app budget is 900 s, startup.rs).
+        if started.elapsed() > std::time::Duration::from_secs(960) {
             let _ = child.kill(); let _ = child.wait();
             panic!("QuadPlanet live BDD timed out");
         }
@@ -65,7 +65,7 @@ fn quadplanet_live_feature() {
     let find = |name: &str| artifacts.iter().find(|a| a.ends_with(&format!("{name}.png"))).unwrap_or_else(|| panic!("no {name} capture")).clone();
     let states: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter()
         .filter(|t| t["tool"] == "quadplanet_state").map(|t| &t["result"]).collect();
-    assert_eq!(states.len(), 12, "one state reply per checkpoint");
+    assert_eq!(states.len(), 14, "one state reply per checkpoint");
     let f = |v: &serde_json::Value| v.as_f64().unwrap();
     let planet_chunks = |s: &serde_json::Value, name: &str| -> (u64, u64, u64) {
         let p = s["chunks"]["planets"].as_array().unwrap().iter().find(|p| p["name"] == name).unwrap();
@@ -218,5 +218,40 @@ fn quadplanet_live_feature() {
     let (space_share, ocean, land) = (share(&orbit, SCENE, &dark), share(&orbit, SCENE, &|p| p[2] as i32 > p[0] as i32 + 40 && p[2] as i32 > p[1] as i32), share(&orbit, SCENE, &green));
     println!("08 dark {space_share:.3}, ocean {ocean:.3}, land {land:.3}");
     assert!(space_share > 0.1 && ocean > 0.08 && land > 0.08, "Verdant from orbit: space, oceans and continents");
+    // Earth from orbit: its real continents on a blue ocean, streamed down to a few levels.
+    let earth_orbit = states[12];
+    let (earth_chunks, _, _) = planet_chunks(earth_orbit, "Earth");
+    assert!(earth_chunks >= 12, "{earth_orbit:#}");
+    assert_eq!(earth_orbit["chunks"]["pending"], 0, "settled: {earth_orbit:#}");
+    let globe = find("12-earth-from-orbit");
+    let (sea, land) = (
+        share(&globe, SCENE, &|p| p[2] as i32 > p[0] as i32 + 40 && p[2] as i32 > p[1] as i32),
+        share(&globe, SCENE, &|p| p[1] as i32 > p[2] as i32 + 10 || (p[0] as i32 > p[2] as i32 + 30 && p[1] as i32 > p[2] as i32 + 10)),
+    );
+    println!("12 ocean {sea:.3}, land {land:.3}");
+    assert!(sea > 0.1 && land > 0.03, "Earth from orbit: oceans and continents ({sea:.3}, {land:.3})");
+
+    // On the Matterhorn: exactly where we asked, on the ground, the quadtree at its finest, and -
+    // with the network to stream elevation tiles - the real altitude (4,478 m at the summit; the
+    // ~19 m data pixels round the tip). Offline, only the built-in world tile is there.
+    let peak = states[13];
+    assert_eq!(peak["planet"], "Earth");
+    assert_eq!(peak["mode"], "walk");
+    assert!((f(&peak["geo"]["lat"]) - 45.9763).abs() < 1e-3 && (f(&peak["geo"]["lon"]) - 7.6586).abs() < 1e-3, "{peak:#}");
+    assert!(f(&peak["altitude"]).abs() < 0.1);
+    let (_, earth_deepest, earth_max) = planet_chunks(peak, "Earth");
+    assert_eq!(earth_deepest, earth_max, "{peak:#}");
+    assert!(f(&peak["chunks"]["triangles"]) <= 2_000_000.0, "within the triangle budget: {peak:#}");
+    let earth_info = peak["chunks"]["planets"].as_array().unwrap().iter().find(|p| p["name"] == "Earth").unwrap();
+    let online = earth_info["elevation"]["loaded"].as_u64().unwrap_or(0) > 0;
+    println!("13 elevation {} m ({})", peak["geo"]["elevation"], if online { "streamed tiles" } else { "offline: built-in tile only" });
+    if online { assert!(f(&peak["geo"]["elevation"]) > 3800.0, "{peak:#}"); }
+    // From the summit ridge the camera looks down into the valleys: snow on the high ground.
+    if online {
+        let summit = find("13-on-the-matterhorn");
+        let snow = share(&summit, SCENE, &|p| p.iter().all(|&c| c > 185) && p[2] >= p[0]);
+        println!("13 snow {snow:.3}");
+        assert!(snow > 0.03, "snow on the Alps ({snow:.3})");
+    }
     println!("QuadPlanet live BDD: {}", root.display());
 }
