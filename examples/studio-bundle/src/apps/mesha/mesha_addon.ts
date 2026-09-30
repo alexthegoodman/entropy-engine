@@ -19,7 +19,7 @@ import { contactShadowMap } from "./mesha_raster";
 import { MESHA_SHADER, STUDIO_PRESETS, STUDIO_FLOATS, ITEM_FLOATS, packStudio } from "./mesha_shader";
 import type { IconName } from "../../icon_names";
 
-const addon = Entropy.AddonAtom.register({
+const addon = Entropy.Addon.register({
     name: "Mesha",
     version: "0.1.0",
     description: "Procedural objects you shape with meaningful controls, vary, compose and export",
@@ -171,7 +171,7 @@ function saveUserPreset(inst: Instance): string {
 function removeLive(id: string): void {
     const l = live.get(id);
     if (!l) return;
-    for (const m of l.meshIds) Entropy.Model.clearMesh(m);
+    for (const m of l.meshIds) addon.Model.clearMesh(m);
     live.delete(id);
 }
 
@@ -189,17 +189,14 @@ function rebuildInstance(inst: Instance): void {
     const geometryKey = JSON.stringify([inst.objectId, inst.values]);
     if (previous?.geometryKey === geometryKey) { updateTransform(inst); return; }
     const local = bakeInstance({ ...inst, position: [0, 0, 0], rotationY: 0, rotation: undefined, scale: 1 }, evaluation);
-    if (previous) for (const m of previous.meshIds) Entropy.Model.clearMesh(m);
+    if (previous) for (const m of previous.meshIds) addon.Model.clearMesh(m);
     const itemBuffer = previous?.itemBuffer ?? Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
     Entropy.Buffer.write(itemBuffer, new Float32Array([...itemHighlight(inst.id), ...instanceMatrix(inst)]));
     const meshIds: string[] = [];
     for (const rm of local.meshes) {
         const { vertexData, indexData } = packVertices(rm);
         const id = Entropy.generateUUID();
-        addon.Model.createMesh({ 
-            // NOTE: creates Mesh for this addon only, not in "Global" which is why Mesha screen is currently black in the special-bundle app. see pipeline.rs. 
-            // TODO: make sure the new taskbar selection reflects in the legacy active addon field used by render_addon_frame.rs to determine what gets rendered when
-            // NOTE: also ensure that the standalone apps like Mesha from example bin can still run on their own successfully and pass tests
+        addon.Model.createMesh({
             id, position: [0, 0, 0], vertexData, indexData, pipelineId,
             bindings: [
                 { group: 2, binding: 0, resource: { type: "Buffer", value: { id: studioBuffer } } },
@@ -269,7 +266,7 @@ function rebuildGround(): void {
         const a = j * (RES + 1) + i, b = a + 1, c = a + RES + 1, d = c + 1;
         indexData.push(a, c, b, b, c, d);
     }
-    Entropy.Model.clearMesh(GROUND_MESH_ID);
+    addon.Model.clearMesh(GROUND_MESH_ID);
     addon.Model.createMesh({
         id: GROUND_MESH_ID, position: [0, 0, 0], vertexData, indexData, pipelineId,
         bindings: [
@@ -313,7 +310,7 @@ function applyStudio(): void {
 let orbitTarget: Vec3 = [0, 0.45, 0];
 
 function enableOrbit(target: Vec3): void {
-    Entropy.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: baseZoomSpeed * zoomStrength, invertX: true });
+    addon.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: baseZoomSpeed * zoomStrength, invertX: true });
 }
 
 function sceneBounds(onlySelected: boolean): Bounds | null {
@@ -436,15 +433,15 @@ function select(id: string | null): void {
 let downAt: [number, number] | null = null;
 let mouse: [number, number] = [0, 0];
 
-Entropy.Input.onMouseDown((button, x, y) => {
+addon.Input.onMouseDown((button, x, y) => {
     mouse = [x, y];
     if (button !== 0) return;
     pointerHeld = true;
-    downAt = Entropy.Input.isPointerOverUI() ? null : [x, y];
+    downAt = addon.Input.isPointerOverUI() ? null : [x, y];
     gizmoWasActive = false;
 });
-Entropy.Input.onMouseMove((x, y) => { mouse = [x, y]; });
-Entropy.Input.onMouseUp(button => {
+addon.Input.onMouseMove((x, y) => { mouse = [x, y]; });
+addon.Input.onMouseUp(button => {
     if (button !== 0) return;
     pointerHeld = false;
     const start = downAt;
@@ -458,7 +455,7 @@ Entropy.Input.onMouseUp(button => {
     commitEdit();
 });
 
-Entropy.Input.onKeyDown((key, ctrl, shift) => {
+addon.Input.onKeyDown((key, ctrl, shift) => {
     if (Entropy.UI.keyboardState().typing) return;
     const k = key.toLowerCase();
     if (ctrl && k === "z") { if (shift) redo(); else undo(); return; }

@@ -289,10 +289,12 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Input.onStylusDown/Move/Up` | Subscribes to real pressure and tilt pen/stylus input. Windows only; it never fires for mouse or finger touch. |
 | `Input.isKeyPressed` / `isCtrlPressed` / `isShiftPressed` / `isAltPressed` | One-shot polling checks instead of subscribing to events. |
 | `Input.isPointerOverUI()` | True if the cursor is over an Entropy UI window/widget. Check this before treating a click as a world or game interaction, since UI and world input are not otherwise mutually exclusive. |
+| `addon.Input` | Input listeners and `isPointerOverUI()` scoped to the addon returned by `Addon.register()`. In a multi-app bundle, its listeners run only while that app is selected. |
 | `Camera.getTransform` / `setTransform(position, target, up?)` | Reads or sets the camera's position and look-at target directly. The optional `up` vector (world +Y by default, kept until changed) lets a camera stand anywhere on a sphere. |
 | `Camera.setOrthographic(enabled, viewHeight)` | Switches between perspective and true orthographic projection, with constant apparent size regardless of depth, for 2D-style or isometric views. |
 | `Camera.screenToWorldRay(x, y)` | Converts a screen pixel coordinate into a world-space ray, for click-to-pick logic. |
 | `Controls.enable("orbit" \| "pan", options)` | Turns on a ready-made camera control scheme (shift-drag-to-orbit, drag-to-pan, configurable trigger/buttons/speed/pitch limits) instead of wiring `Input` events and spherical math yourself. |
+| `addon.Controls.enable("orbit" \| "pan", options)` | The same camera controls, active only while the addon's app is selected. |
 | `Controls.disable` / `isEnabled` / `getFormat` | Turns controls off, or checks what's currently active. |
 
 </details>

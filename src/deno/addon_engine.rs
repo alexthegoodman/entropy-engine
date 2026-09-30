@@ -509,6 +509,8 @@ extension!(
 
 pub struct AddonEngine {
     pub runtime: JsRuntime,
+    /// Selected addon from the last tab UI pass, cached for scene rendering.
+    pub selected_addon_name: Option<String>,
     pub project_id: Option<String>,
     /// Overrides art-asset path resolution (`Entropy.Model.load`/`Entropy.Texture.load`) to read
     /// straight from this directory instead of Studio's `project_id`-keyed MidPoint convention -
@@ -849,6 +851,7 @@ impl AddonEngine {
 
         AddonEngine {
             runtime,
+            selected_addon_name: None,
             project_id,
             art_assets_dir,
             dummy_views: Vec::new(),
@@ -4083,6 +4086,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         };
 
         if tabs.is_empty() {
+            self.selected_addon_name = None;
             return;
         }
 
@@ -4091,6 +4095,16 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             Self::render_windows_taskbar(ctx, &tabs, active_tab.as_deref(), &mut self.runtime);
         }
 
+        // The taskbar can change the selection during this UI pass. Cache the resolved
+        // addon once here so scene rendering never needs to borrow the JS op state.
+        let active_tab = {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            op_state.try_borrow::<AddonContext>().and_then(|context| context.active_tab.clone())
+        };
+        self.selected_addon_name = tabs.iter()
+            .find(|(id, _, _)| active_tab.as_ref() == Some(id))
+            .map(|(_, _, addon_name)| addon_name.clone());
         let Some(active_id) = active_tab else { return };
 
         // 3. Run the active tab's JS onRender callback to (re)populate its widgets.

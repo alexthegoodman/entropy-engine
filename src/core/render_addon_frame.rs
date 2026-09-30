@@ -128,10 +128,15 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
         let time = pipeline.start_time.elapsed().as_secs_f32();
 
-        let mut addon_name = "Global";
-        if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-            addon_name = active_name;
-        }
+        // Studio selects an addon through its workspace. EntropyApp uses the name cached
+        // by the preceding tab UI pass.
+        let active_addon_name = if let Workspace::Addon(name) = &pipeline.current_workspace {
+            name.clone()
+        } else {
+            editor.addon_engine.selected_addon_name.clone()
+                .unwrap_or_else(|| "Global".to_string())
+        };
+        let show_all_addons = matches!(&pipeline.current_workspace, Workspace::Addon(name) if name == "Game Composer");
 
         // Sync enemy health to UI
         // if let Some(target_id) = &editor.current_enemy_target {
@@ -209,7 +214,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 camera_binding,
                 current_time, 
                 gpu_resources, 
-                addon_name.to_string(),
+                active_addon_name.clone(),
                 pipeline.alpha_renderer.as_mut()
             );
             crate::core::frame_profile::record("  addon update (js)", _update_started.elapsed());
@@ -224,10 +229,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         // and leave `view` exactly as egui left it. addon_engine.update() above still ran (it
         // drives addon onUpdate callbacks, e.g. the DAW's sequencer), so nothing else is lost.
         let needs_viewport = {
-            let mut active_addon_name = "Global".to_string();
-            if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                active_addon_name = active_name.clone();
-            }
             editor.addon_engine.get_registered_addons()
                 .iter()
                 .find(|a| a.name == active_addon_name)
@@ -431,11 +432,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -461,11 +458,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -491,11 +484,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -521,11 +510,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -551,11 +536,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -577,11 +558,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -611,11 +588,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if !show_all_addons && addon_name != &active_addon_name && addon_name != "Global" {
                         continue;
                     }
 
@@ -1067,11 +1040,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             };
 
             for (addon_name, lights) in &renderer_state.addon_point_lights {
-                if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                    if addon_name == active_name || addon_name == "Global" {
-                        collected_lights.extend(lights.iter().map(|(_, l)| l.clone()));
-                    }
-                } else if addon_name == "Global" {
+                if addon_name == &active_addon_name || addon_name == "Global" {
                     collected_lights.extend(lights.iter().map(|(_, l)| l.clone()));
                 }
             }

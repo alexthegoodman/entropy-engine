@@ -3790,6 +3790,7 @@ pub fn op_input_get_state(state: &mut OpState) -> Result<AddonInputState, deno_e
             pressed_keys: ctx.pressed_keys.iter().cloned().collect(),
             mouse_position: ctx.mouse_position,
             pointer_over_ui: ctx.pointer_over_ui,
+            active_addon_name: ctx.active_tab.as_ref().and_then(|id| ctx.ui_tabs.get(id)).map(|(_, _, name)| name.clone()),
             modifiers: ctx.modifiers.clone(),
         })
     } else {
@@ -3803,6 +3804,7 @@ pub struct AddonInputState {
     pub pressed_keys: Vec<String>,
     pub mouse_position: [f32; 2],
     pub pointer_over_ui: bool,
+    pub active_addon_name: Option<String>,
     pub modifiers: Modifiers,
 }
 

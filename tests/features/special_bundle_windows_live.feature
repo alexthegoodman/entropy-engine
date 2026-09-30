@@ -31,3 +31,8 @@ Feature: Floating windows follow the selected taskbar app
     Then I see the label "Analyzer"
     And I do not see the label "Library"
     And I capture "04-daw-restored"
+
+    When I send the widget event "TAB_SELECT|Mesha"
+    And I advance 3 frames
+    Then I see the label "Library"
+    And I capture "05-mesha-restored"

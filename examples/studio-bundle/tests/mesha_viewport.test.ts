@@ -1,13 +1,83 @@
 import { it, expect, vi } from "vitest";
 
+it("routes addon input and UI hover through the selected app", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("../../src/deno/addon_setup.js", "utf8");
+    const helperStart = source.indexOf("function inputForAddon(");
+    const helperEnd = source.indexOf("// ---------------------------------------------------------------------------", helperStart);
+    const inputStart = source.indexOf("    Input: {", source.indexOf("globalThis.Entropy = {"));
+    const inputEnd = source.indexOf("    Selection: {", inputStart);
+    const dispatchStart = source.indexOf("    _process_input_events: (events) => {");
+    const dispatchEnd = source.indexOf("    _reset_widget_counter:", dispatchStart);
+    let activeAddonName = "CC Manager", pointerOverUi = true;
+    const ops = { op_input_get_state: () => ({ activeAddonName, pointerOverUi }) };
+    const api: any = { println: vi.fn() };
+    vi.stubGlobal("Entropy", api);
+    try {
+        api.Input = new Function("ops", `return ({${source.slice(inputStart, inputEnd)}}).Input`)(ops);
+        const inputForAddon = new Function("ops", `${source.slice(helperStart, helperEnd)}; return inputForAddon`)(ops);
+        api._process_input_events = new Function("ops", `return ({${source.slice(dispatchStart, dispatchEnd)}})._process_input_events`)(ops);
+        const mesha = inputForAddon("Mesha");
+        const cc = inputForAddon("CC Manager");
+        const meshaDown = vi.fn(), ccDown = vi.fn();
+        mesha.onMouseDown(meshaDown);
+        cc.onMouseDown(ccDown);
+
+        api._process_input_events([{ type: "MouseDown", button: 0, x: 5, y: 6 }]);
+        expect(ccDown).toHaveBeenCalledOnce();
+        expect(meshaDown).not.toHaveBeenCalled();
+        expect(cc.isPointerOverUI()).toBe(true);
+        expect(mesha.isPointerOverUI()).toBe(false);
+
+        activeAddonName = "Mesha";
+        api._process_input_events([{ type: "MouseDown", button: 0, x: 7, y: 8 }]);
+        expect(meshaDown).toHaveBeenCalledOnce();
+        expect(ccDown).toHaveBeenCalledOnce();
+        expect(mesha.isPointerOverUI()).toBe(true);
+        expect(cc.isPointerOverUI()).toBe(false);
+        pointerOverUi = false;
+        expect(mesha.isPointerOverUI()).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
+});
+
+it("updates Mesha orbit only while Mesha is selected", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("../../src/deno/addon_setup.js", "utf8");
+    const start = source.indexOf("\n    Controls: {", source.indexOf("globalThis.Entropy = {")) + 1;
+    const end = source.indexOf("    Gizmo: {", start);
+    const events: Record<string, any> = {};
+    let activeAddonName = "Mesha", mousePosition = [0, 0], tick: any;
+    const camera = vi.fn();
+    const ops = {
+        op_camera_get_transform: () => [[0, 0, 5], [0, 0, 0]],
+        op_camera_set_transform: camera,
+        op_input_get_state: () => ({ activeAddonName, mousePosition }),
+        op_addon_on_update: (name: string, callback: any) => { expect(name).toBe("Mesha"); tick = callback; },
+    };
+    const api: any = { println: vi.fn(), Input: Object.fromEntries(["onMouseDown", "onMouseUp", "onMouseWheel"].map(name => [name, (fn: any) => { events[name] = fn; return () => {}; }])) };
+    api.Input.isPointerOverUI = () => false;
+    vi.stubGlobal("Entropy", api);
+    try {
+        api.Controls = new Function("ops", "inputForAddon", `return ({${source.slice(start, end)}}).Controls`)(ops, () => api.Input);
+        api.Controls.enable("orbit", { trigger: "always", button: 1 }, "Mesha");
+        events.onMouseDown(1, 0, 0);
+        mousePosition = [20, 0]; tick();
+        expect(camera).toHaveBeenCalledOnce();
+        activeAddonName = "CC Manager";
+        mousePosition = [40, 0]; tick();
+        expect(camera).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+});
+
 it("keeps meshes resident during move and rotation and restores the gesture with undo", async () => {
     let init: any, update: any, gizmo: any, serial = 0;
     let renderToolbar: any, zoomKnob: any;
     const listeners: Record<string, any> = {}, tools: Record<string, any> = {}, saved = new Map();
     const api: any = {
         generateUUID: () => String(++serial), println: vi.fn(), setGameMode: vi.fn(),
-        AddonAtom: { register: () => ({ onInit: (f: any) => init = f, onUpdatePlus: (_: any, f: any) => update = f,
+        Addon: { register: () => ({ onInit: (f: any) => init = f, onUpdate: (f: any) => update = f,
             registerTool: (t: any, run: any) => tools[t.name] = run,
+            Model: api.Model, Input: api.Input, Controls: api.Controls, UI: { createTab: () => "mesha-tab" },
             IO: { store: { read: (p: string) => saved.get(p), write: (p: string, s: string) => saved.set(p, s) } } }) },
         Input: { ...Object.fromEntries(["onMouseDown", "onMouseMove", "onMouseUp", "onKeyDown"].map(n => [n, (f: any) => listeners[n] = f])), isPointerOverUI: () => false },
         Model: { createMesh: vi.fn(), clearMesh: vi.fn() },
@@ -74,7 +144,7 @@ it("keeps meshes resident during move and rotation and restores the gesture with
 it("pans camera and target together, then orbits without snapping back", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync("../../src/deno/addon_setup.js", "utf8");
-    const start = source.indexOf("    Controls: {");
+    const start = source.indexOf("\n    Controls: {", source.indexOf("globalThis.Entropy = {")) + 1;
     const end = source.indexOf("    Gizmo: {", start);
     const body = source.slice(start, end).replace(/\/\/[^\n]*$/g, "");
     const events: Record<string, any> = {};

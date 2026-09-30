@@ -797,6 +797,18 @@ function createAddonContextualAPI(resolveTarget) {
 
 const globalContextualAPI = createAddonContextualAPI(() => globalThis.__entropy_current_addon_context_override || "Global");
 
+function inputForAddon(addonName) {
+    const scoped = {};
+    for (const name of ["onMouseDown", "onMouseMove", "onMouseUp", "onMouseWheel", "onKeyDown", "onKeyUp", "onGamepadButton", "onGamepadAxis", "onStylusDown", "onStylusMove", "onStylusUp"]) {
+        scoped[name] = (callback) => globalThis.Entropy.Input._on(name, callback, addonName);
+    }
+    scoped.isPointerOverUI = () => {
+        const state = ops.op_input_get_state();
+        return state.activeAddonName === addonName && state.pointerOverUi;
+    };
+    return scoped;
+}
+
 // ---------------------------------------------------------------------------
 // UI widget helpers.
 //
@@ -857,6 +869,13 @@ globalThis.Entropy = {
 
             // Return scoped API
             return {
+                Input: inputForAddon(metadata.name),
+                Controls: {
+                    enable: (format, options) => globalThis.Entropy.Controls.enable(format, options, metadata.name),
+                    disable: () => globalThis.Entropy.Controls.disable(),
+                    isEnabled: () => globalThis.Entropy.Controls.isEnabled(),
+                    getFormat: () => globalThis.Entropy.Controls.getFormat(),
+                },
                 onInit: (callback) => {
                     ops.op_addon_on_init(metadata.name, callback);
                 },
@@ -2207,8 +2226,10 @@ globalThis.Entropy = {
         const fireAll = (name, ...args) => {
             const fns = listeners[name];
             if (!fns || fns.length === 0) return;
-            for (const fn of fns.slice()) {
-                try { fn(...args); } catch (e) { globalThis.Entropy.println(`Error in ${name} callback: ` + e); }
+            const activeAddon = ops.op_input_get_state().activeAddonName;
+            for (const listener of fns.slice()) {
+                if (listener.owner && activeAddon && listener.owner !== activeAddon) continue;
+                try { listener.callback(...args); } catch (e) { globalThis.Entropy.println(`Error in ${name} callback: ` + e); }
             }
         };
 
@@ -2455,7 +2476,7 @@ globalThis.Entropy = {
     Controls: {
         _state: null,
         _unsubs: [],
-        _tickRegistered: false,
+        _tickRegisteredFor: new Set(),
 
         // format: "orbit" (drag to rotate the camera around a target, optional
         //   drag-to-dolly zoom) | "pan" (drag to slide the target sideways) |
@@ -2476,7 +2497,7 @@ globalThis.Entropy = {
         //   invertX: flip horizontal drag direction (orbit's yaw only).
         //   target: world-space point to orbit/pan around (defaults to the
         //     camera's current look-at target from Camera.getTransform()).
-        enable(format, options = {}) {
+        enable(format, options = {}, addonName = null) {
             globalThis.Entropy.Controls.disable();
 
             if (!format || format === "none") return;
@@ -2493,11 +2514,13 @@ globalThis.Entropy = {
                 dragging: false,
                 zooming: false,
                 panning: false,
+                updateTarget: addonName || globalThis.__entropy_current_addon_context_override || "Global",
                 lastX: 0,
                 lastY: 0,
                 position: [pos[0], pos[1], pos[2]],
                 target: [target[0], target[1], target[2]],
                 options: {
+                    addonName,
                     trigger: options.trigger || "shift",
                     button: options.button ?? 0,
                     zoomButton: options.zoomButton ?? 2,
@@ -2518,6 +2541,11 @@ globalThis.Entropy = {
             state.pitch = Math.asin(Math.max(-1, Math.min(1, dy0 / state.distance)));
 
             globalThis.Entropy.Controls._state = state;
+
+            const isActive = () => !state.options.addonName || ops.op_input_get_state().activeAddonName === state.options.addonName;
+            const input = state.options.addonName
+                ? inputForAddon(state.options.addonName)
+                : globalThis.Entropy.Input;
 
             const isTriggerActive = () => {
                 switch (state.options.trigger) {
@@ -2583,6 +2611,7 @@ globalThis.Entropy = {
             state.lastY = my0;
 
             const onDown = (button, x, y) => {
+                if (!isActive()) return;
                 // globalThis.Entropy.println(`[Controls DEBUG] onDown button=${button} trigger=${isTriggerActive()} x=${x} y=${y}`);
                 if (!isTriggerActive()) return;
                 if (format === "orbit" && button === state.options.panButton) {
@@ -2610,6 +2639,7 @@ globalThis.Entropy = {
             // "orbit" has a distance/target model to zoom along; "pan" has no forward-dolly
             // concept established here, so wheel ticks are a no-op for it.
             const onWheel = (_deltaX, deltaY) => {
+                if (!isActive()) return;
                 if (format !== "orbit" || deltaY === 0) return;
                 // GUI panels and popups own their wheel input, even at a scroll boundary.
                 if (globalThis.Entropy.Input.isPointerOverUI()) return;
@@ -2618,20 +2648,27 @@ globalThis.Entropy = {
             };
 
             globalThis.Entropy.Controls._unsubs = [
-                globalThis.Entropy.Input.onMouseDown(onDown),
-                globalThis.Entropy.Input.onMouseUp(onUp),
-                globalThis.Entropy.Input.onMouseWheel(onWheel),
+                input.onMouseDown(onDown),
+                input.onMouseUp(onUp),
+                input.onMouseWheel(onWheel),
             ];
 
-            // The tick reads Controls._state fresh every call, so it's safe to
-            // register once ever (op_addon_on_update has no unregister) and let
-            // later enable()/disable() calls just swap what _state points to.
-            if (!globalThis.Entropy.Controls._tickRegistered) {
-                globalThis.Entropy.Controls._tickRegistered = true;
-                const target = globalThis.__entropy_current_addon_context_override || "Global";
-                ops.op_addon_on_update(target, () => {
+            // The update hook cannot be removed, so keep one per addon owner. A controller
+            // enabled later for another app must not reuse a hook that only runs for the
+            // previous app's name.
+            const updateTarget = state.updateTarget;
+            if (!globalThis.Entropy.Controls._tickRegisteredFor.has(updateTarget)) {
+                globalThis.Entropy.Controls._tickRegisteredFor.add(updateTarget);
+                ops.op_addon_on_update(updateTarget, () => {
                     const s = globalThis.Entropy.Controls._state;
-                    if (!s) return;
+                    if (!s || s.updateTarget !== updateTarget) return;
+
+                    if (s.options.addonName && ops.op_input_get_state().activeAddonName !== s.options.addonName) {
+                        s.dragging = false;
+                        s.zooming = false;
+                        s.panning = false;
+                        return;
+                    }
 
                     const [mx, my] = ops.op_input_get_state().mousePosition;
                     const dxp = mx - s.lastX;
@@ -2734,13 +2771,14 @@ globalThis.Entropy = {
         // list instead (see _process_input_events / fireAll above) and
         // returns an unsubscribe function so long-lived subsystems like
         // Controls can clean up after themselves on disable().
-        _on: (name, callback) => {
+        _on: (name, callback, owner = null) => {
             globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
             const listeners = globalThis._entropy_input_listeners;
             listeners[name] = listeners[name] || [];
-            listeners[name].push(callback);
+            const listener = { callback, owner };
+            listeners[name].push(listener);
             return () => {
-                const idx = listeners[name].indexOf(callback);
+                const idx = listeners[name].indexOf(listener);
                 if (idx !== -1) listeners[name].splice(idx, 1);
             };
         },

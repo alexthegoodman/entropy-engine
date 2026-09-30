@@ -238,6 +238,9 @@ export interface AttackStats {
 }
 
 export interface ScopedAPI {
+  /** Input listeners and hover state bound to this registered addon. */
+  Input: Pick<EntropyAPI["Input"], "onMouseDown" | "onMouseMove" | "onMouseUp" | "onMouseWheel" | "onKeyDown" | "onKeyUp" | "onGamepadButton" | "onGamepadAxis" | "onStylusDown" | "onStylusMove" | "onStylusUp" | "isPointerOverUI">;
+  Controls: EntropyAPI["Controls"];
   onInit: (callback: InitCallback) => void;
   onAllAddonsInitialized: (callback: InitCallback) => void;
   onUpdate: (callback: UpdateCallback) => void;
