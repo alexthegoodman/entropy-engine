@@ -1,5 +1,6 @@
 //! `text_edit_singleline`/`text_edit_multiline` — a functional v1: click-to-focus, typed
-//! character insertion, backspace/delete/arrow-nav/home/end, Enter for newline (multiline),
+//! character insertion, backspace/delete/arrow-nav/home/end, Enter for newline (multiline), Ctrl+V
+//! paste from the OS clipboard,
 //! a blinking caret. Deliberately NOT yet implemented: precise click-to-place-cursor (a click
 //! always focuses and moves the caret to the end of the text), drag-to-select, and real IME
 //! composition — those are a documented follow-up (see the plan's "text-edit" risk note).
@@ -37,7 +38,7 @@ fn last_line(s: &str) -> &str {
     s.rsplit('\n').next().unwrap_or(s)
 }
 
-fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option<(f32, crate::entropy_gui::id::Id)>) -> Response {
+fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option<(f32, crate::entropy_gui::id::Id)>, mono: bool) -> Response {
     // A fixed width keeps a field compact inside a row (the default fills the whole row), and a
     // caller-supplied id keeps focus attached to this field even when widgets before it come and
     // go - the auto id below is derived from how many widgets were drawn first.
@@ -45,7 +46,7 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
         Some((_, id)) => id,
         None => ui.next_auto_id("text_edit"),
     };
-    let font = FontId::proportional(DEFAULT_FONT_SIZE);
+    let font = if mono { FontId::monospace(DEFAULT_FONT_SIZE) } else { FontId::proportional(DEFAULT_FONT_SIZE) };
     let padding = vec2(6.0, 4.0);
     let width = match fixed {
         Some((w, _)) => w,
@@ -88,7 +89,7 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
             state.cursor += 4;
             changed = true;
         }
-        for key in [Key::Enter, Key::Space, Key::ArrowLeft, Key::ArrowRight, Key::ArrowUp, Key::ArrowDown, Key::Home, Key::End, Key::Backspace, Key::Delete, Key::PageUp, Key::PageDown] {
+        for key in [Key::V, Key::Enter, Key::Space, Key::ArrowLeft, Key::ArrowRight, Key::ArrowUp, Key::ArrowDown, Key::Home, Key::End, Key::Backspace, Key::Delete, Key::PageUp, Key::PageDown] {
             // Typing belongs to the field: a button elsewhere must not also see Enter or Space.
             ui.ctx().consume_key(key);
         }
@@ -116,6 +117,17 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
                 Key::ArrowRight => state.cursor = next_char_boundary(text, state.cursor),
                 Key::Home => state.cursor = 0,
                 Key::End => state.cursor = text.len(),
+                // Ctrl+V (Cmd+V) pastes the OS clipboard at the caret; a single-line field keeps
+                // the pasted lines joined by spaces.
+                Key::V if ev.modifiers.ctrl || ev.modifiers.command => {
+                    if let Some(pasted) = crate::entropy_gui::clipboard::read_text() {
+                        let pasted = if multiline { pasted } else { crate::entropy_gui::clipboard::single_line(&pasted) };
+                        state.cursor = state.cursor.min(text.len());
+                        text.insert_str(state.cursor, &pasted);
+                        state.cursor += pasted.len();
+                        changed |= !pasted.is_empty();
+                    }
+                }
                 Key::Enter => {
                     if multiline {
                         text.insert(state.cursor, '\n');
@@ -176,13 +188,17 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option
 
 impl Ui {
     pub fn text_edit_singleline(&mut self, text: &mut String) -> Response {
-        text_edit_impl(self, text, false, None)
+        text_edit_impl(self, text, false, None, false)
     }
     /// A single-line field of exactly `width` px whose focus is keyed by `id`.
     pub fn text_edit_singleline_sized(&mut self, text: &mut String, width: f32, id: crate::entropy_gui::id::Id) -> Response {
-        text_edit_impl(self, text, false, Some((width, id)))
+        text_edit_impl(self, text, false, Some((width, id)), false)
     }
     pub fn text_edit_multiline(&mut self, text: &mut String) -> Response {
-        text_edit_impl(self, text, true, None)
+        text_edit_impl(self, text, true, None, false)
+    }
+    /// A multiline field in the monospace font, so columns line up (code, ASCII tab).
+    pub fn text_edit_multiline_mono(&mut self, text: &mut String) -> Response {
+        text_edit_impl(self, text, true, None, true)
     }
 }

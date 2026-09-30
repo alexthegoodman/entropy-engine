@@ -83,6 +83,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "fft-river",
     "fft-water",
     "game2d",
+    "guitar-tabs",
     "html-ui-demo",
     "keyframe-tracks-demo",
     "level-editor-2d",

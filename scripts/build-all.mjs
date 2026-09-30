@@ -24,6 +24,7 @@ const bundles = [
   ["fft-river", "src/apps/fft_river_water_addon.ts", "fft_river.js"],
   ["fft-water", "src/apps/fft_water_addon.ts", "fft_water.js"],
   ["game2d", "src/games/game2d/index.ts", "game2d.js"],
+  ["guitar-tabs", "src/apps/tabs/tabs_addon.ts", "guitar_tabs.js"],
   ["html-ui-demo", "src/apps/html_ui_demo_addon.ts", "html_ui_demo.js"],
   ["keyframe-tracks-demo", "src/apps/keyframe_tracks_demo_addon.ts", "keyframe_tracks_demo.js"],
   ["level-editor-2d", "src/games/level_editor_2d/index.ts", "level_editor_2d.js"],

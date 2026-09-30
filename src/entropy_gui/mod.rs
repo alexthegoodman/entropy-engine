@@ -6,6 +6,7 @@
 
 pub mod atlas;
 pub mod backend;
+pub mod clipboard;
 pub mod color;
 pub mod containers;
 pub mod context;
@@ -30,6 +31,7 @@ pub mod widgets_analysis;
 pub mod widgets_code_editor;
 pub mod widgets_color_picker;
 pub mod widgets_doc_editor;
+pub mod widgets_fretboard;
 pub mod widgets_kanban;
 pub mod widgets_brass;
 pub mod widgets_matter;
@@ -88,6 +90,7 @@ pub use widgets_matter::{Camera as MatterCamera, MatterView, MatterViewEvent, Ma
 pub use widgets_water::{WaterView, WaterViewEvent, WaterViewOptions, WaterViewResponse};
 pub use widgets_reverb_eq::{Camera as ReverbEqCamera, ReverbEqEvent, ReverbEqOptions, ReverbEqResponse, ReverbEqView, ReverbSettings, SpaceView};
 pub use widgets_physmod::{Camera as PhysModCamera, PhysModEvent, PhysModOptions, PhysModResponse, PhysModView};
+pub use widgets_fretboard::{FretMark, FretboardEvent, FretboardOptions, FretboardResponse, FretboardView, HighwayItem, HighwayState};
 pub use widgets_piano::{PianoCamera, PianoEvent, PianoOptions, PianoResponse, PianoView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support

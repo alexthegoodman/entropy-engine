@@ -30,7 +30,7 @@
 ## Building Entropy and all example addons
 
 From this directory, run `node scripts/build-all.mjs`. It builds the default Studio bundle first
-(which Cargo embeds), then runs `cargo build` alongside all 22 standalone example addon bundles.
+(which Cargo embeds), then runs `cargo build` alongside all 23 standalone example addon bundles.
 Extra arguments go to Cargo, for example `node scripts/build-all.mjs --release --locked`.
 Set `ENTROPY_BUNDLE_JOBS` to change the number of simultaneous Deno bundle processes (default 3).
 You can also run `npm run build:all -- --release` from `examples/studio-bundle`.
@@ -64,6 +64,8 @@ No project picker, no forced data model. Your addons persist their own data unde
 Entropy is developed on Windows and now also builds and runs on Linux (tested on Ubuntu 24.04, X11) - see [Linux](#linux) for setup and for which features are still Windows-only. Mac support coming soon.
 
 The [ML Graph demo](docs/ML_GRAPH_ARCHITECTURES.md) edits and trains Burn models through a node graph. Its architecture view includes executable LSTM, sparse MoE, and conditioned U-Net nodes, with small deterministic CPU training tasks for the Yumon NPC, Yumon Pet, and Mini-Pic presets. Run it with `cargo run --bin example -- ml-graph-demo`; use **Tiny Config** before training a reference preset.
+
+[Guitar Tabs](docs/GUITAR_TABS.md) teaches a tab by playing it: paste an ASCII tab, check it in a spreadsheet, then play along while a neon fretboard shows where the fingers go and [Guitar-to-MIDI](docs/GUITAR_TO_MIDI.md) checks every note, at your own pace or in real time, switching between pick and chord detection as the song goes. Run it with `cargo run --bin example -- guitar-tabs`; no guitar needed to try it (click the neck).
 
 Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://indie-machine.com), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://indie-machine.com/posts/fft-ocean-water), [replacing egui with an in-house immediate-mode GUI kit](https://indie-machine.com/posts/replacing-egui-with-entropy-gui), and [building a Media Foundation-backed media player addon](https://indie-machine.com/posts/entropy-media-player).
 
@@ -261,6 +263,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.tabBar` | A non-fullscreen tab strip inside a window (`Entropy.UI.createTab` tabs own the whole work area). Tabs stretch to fill one line, or wrap at natural width when they do not fit; `stretch: false` packs them at natural width from the left (a view switcher in a header). The underline glides to a newly picked tab. Your addon owns `selected`, updates it in `onSelect(id)`, and draws only the selected tab's widgets after the bar. |
 | `Widget.wavetable` | A wavetable as sculptable 3D terrain (phase across, frame into the screen, level up) with a single-cycle pen strip, the selected frame's harmonics and a keyboard. Mouse and pen both work: a pen presses with its own pressure, leans the brush with its tilt, and its eraser end lowers; the pen's side button, the right mouse button and Alt orbit. Config: `table`, `tool` (`raise`/`lower`/`smooth`/`level`/`orbit`), `radius`, `strength`, `frame`, `height`, `width`, `keyboard`, `held`. Callbacks: `onEdit` (save now), `onStrokeStart`/`onStrokeEnd`, `onFrame`, `onTool`, `onKeyDown`/`onKeyUp`. |
 | `Widget.reverbEq` | A track's reverb and EQ as one neon picture. Top: a 3D room the size of the reverb's room, with a source, a listener and the first reflections off every wall pulsing along their paths; its floor is a waterfall (frequency across, time toward you, level up). The **Decay** view draws the reverb's tail as it will sound, shaped by the EQ; **Live** draws what the track is playing. Drag orbits, the wheel zooms. Bottom: a six-band EQ over the track's live spectrum: drag a node for frequency and gain, the wheel over it for Q, right-click or double-click to switch it. Config: `source` (track id), `reverb` (`roomSize`, `time`, `damping`, `mix`), `eq` (`bands`, `output`), `selectedBand`, `view`, `caption`, `height`, `width`. Callbacks: `onBand(index, band)` on every step of a drag, `onEditEnd` (save now), `onSelect`, `onView`. |
+| `Widget.fretboard` | A guitar neck for learning tabs, in the same neon style: a tab highway scrolling toward a "now" line (steps coloured waiting, current, hit, partly played or missed, with chord names and bar lines), and the neck with frets spaced as on a guitar, where the fingers go (`targets`, with the suggested finger), the next notes (`upcoming`), and what the guitar is heard playing (`heard`, right or wrong, their strings vibrating). Config: `tuning`, `firstFret`/`lastFret`, `muted`, `highway`, `highwayBars`, `highwaySpan`, `caption`, `status`, `flash`, `lowOnTop`. Callback: `onPick(string, fret)` when the neck is clicked. See `FretboardConfig`. |
 | `Widget.physModString` | A physically modeled bowed string, drawn the same neon-terrain style as `Widget.wavetable`: up to four strings side by side, nut to bridge, the sounding one glowing with its live cycle shape. Dragging inside the bowing zone (the bridge half of the active string) moves the bow; the right mouse button, Alt or a pen's barrel button orbit. Config: `instrument`, `bowPosition`, `bowForce`, `bodySize`, `activeString`, `height`, `width`, `keyboard`, `held`. Callbacks: `onBowDrag(position, force)`, `onKeyDown`/`onKeyUp`. |
 | `Widget.padGrid` | A drum-machine pad bank: rounded pads with a name, waveform thumbnail (trim range dimmed), colour accent, selection ring, and a `glow` you drive to pulse a pad when it is hit. Kinds: `empty`, `synth`, `sample`, `missing`. Callbacks: `onPadClick`, `onPadClear` (right-click), `onAdd`. |
 | `Widget.docEditor` + `docEditorToggleBold/Italic`, `docEditorSetFontFamily/Size/Color`, `docEditorSetPaginated`, `docEditorLoadSample`, `docEditorFontNames` | A multi-page word processor that can be paginated or continuous, with mixed bold, italic, font, size, and color per run. The document text stays on the Rust side; build the toolbar from ordinary widgets and drive formatting with the `docEditor*` calls. |
@@ -452,6 +455,7 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 | `println(msg)` | Logs a message from your addon's JS runtime out to the Rust console. |
 | `generateUUID()` | Generates a UUID required for id fields that must be UUID-parseable, such as `Model.load`'s `id`. |
 | `Window.getSize()` | Returns the current window's pixel dimensions. |
+| `Clipboard.readText()` / `writeText(text)` | The OS clipboard as plain text (line endings as `\n`; `""` when it holds none). Text fields paste with Ctrl+V on their own. |
 | `System.launchExample(name)` | Starts one of this build's own example apps as a separate process (this same executable, `name` as its only argument). `name` must be in `entropy_engine::LAUNCHABLE_EXAMPLES` or the call throws. Fire-and-forget: no handle is kept. |
 | `setGameMode(enabled)` | Toggles whether the app is in "playing" mode vs. editing/authoring mode. |
 | `onGameStarted(fn)` / `onGameStopped(fn)` | Fires when a named game (registered via `Composer.registerGame`) starts or stops. |
@@ -635,6 +639,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Entropy Engine / Keyframe Tracks](public/entropy-keyframe-tracks-clip-drag.png "Entropy Engine / Keyframe Tracks") | ![Entropy Drawing Example](public/entropy-stylus-drawing-tilt-hello.png "Entropy Drawing Example") |
 | ![Entropy Engine](public/water1.png "Entropy Engine") | ![Entropy Engine](public/image-3.png "Entropy Engine") |
 | ![Entropy Multi-Page Documents](public/entropy-doc-editor-pagination.png "Entropy Multi-Page Documents") | ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") |
+| ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
 
 ## MCP

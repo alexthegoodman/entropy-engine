@@ -515,12 +515,12 @@ mode for chords. Fast gives up a fifth of its precision for 37 ms and is not rec
 - Hammer-ons and pull-offs start a note only after 50 ms, and bends past a semitone become a new note
   (there is no bend in chord mode).
 
-**For the teaching app** (not built yet): the app knows the notes the tab expects. Checking "is each of
-these notes there?" is much more reliable than open transcription, especially for doubled octaves and
-close voicings, and the detector already has what it needs (per-note salience, `fundamental_db`, the
-string assignment). That score-informed check is the natural next step, together with an onset event of
-its own so strumming rhythm can be graded even when the chord does not change. `tab::fingering`
-already turns a set of notes into a fret per string.
+**The teaching app** is built: [Guitar Tabs](GUITAR_TABS.md). It does the score-informed check on the
+app side, from `Guitar.status()`: the notes a step expects are looked for among the notes sounding
+(a chord by its bass note and pitch classes when played leniently), and it switches pick and chord mode
+as the tab goes. A check inside the detector itself (per-note salience against the expected notes,
+`fundamental_db`, the string assignment) and an onset event of its own, so strumming rhythm can be
+graded even when the chord does not change, are still the natural next steps.
 
 **Pick-mode fidelity re-checked.** The synthetic benchmark reproduces section 11 exactly after the
 refactor (same correct rates and latencies in all three modes), and the monophonic BDD scenarios all

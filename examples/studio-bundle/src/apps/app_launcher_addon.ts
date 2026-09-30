@@ -50,6 +50,7 @@ const CATALOG: CatalogEntry[] = [
     { name: "fft-water", title: "FFT Water", icon: "waves" },
     { name: "fft-river", title: "FFT River", icon: "wave-sine" },
     { name: "game2d", title: "2D Arena", icon: "game-controller" },
+    { name: "guitar-tabs", title: "Guitar Tabs", icon: "guitar" },
     { name: "level-editor-2d", title: "2D Level Editor", icon: "grid-four" },
     { name: "light-hive", title: "Light Hive", icon: "lightbulb" },
     { name: "html-ui-demo", title: "HTML UI", icon: "browser" },
