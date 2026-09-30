@@ -78,6 +78,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "app-launcher",
     "canvas-surface-demo",
     "cc-manager",
+    "creative-suite",
     "daw",
     "doc-editor-demo",
     "fft-river",

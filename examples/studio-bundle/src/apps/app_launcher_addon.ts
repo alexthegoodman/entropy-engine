@@ -62,7 +62,7 @@ const CATALOG: CatalogEntry[] = [
     { name: "node-graph", title: "Nocode Calculator", icon: "graph" },
     { name: "stylus-drawing", title: "Stylus Drawing", icon: "pen-nib" },
     { name: "theme-gallery", title: "Theme Gallery", icon: "palette" },
-    { name: "special-bundle", title: "Studio Suite", icon: "grid-four" },
+    { name: "creative-suite", title: "Creative Suite", icon: "grid-four" },
     { name: "video-export-demo", title: "Video Export", icon: "film-strip" },
 ];
 
@@ -126,7 +126,8 @@ function viewFade(): number {
 }
 
 function catalogFor(name: string): CatalogEntry {
-    return CATALOG.find((entry) => entry.name === name) ?? { name, title: name, icon: FALLBACK_ICON };
+    const resolvedName = name === "special-bundle" ? "creative-suite" : name;
+    return CATALOG.find((entry) => entry.name === resolvedName) ?? { name, title: name, icon: FALLBACK_ICON };
 }
 
 function launchable(): string[] {

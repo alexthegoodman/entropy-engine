@@ -4259,12 +4259,63 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     Color32::TRANSPARENT,
                 );
 
-                // Left side: Start button, Search pill, Desktops icon, Separator
-                let mut cur_x = rect.min.x + 10.0;
                 let center_y = rect.center().y;
 
-                // Windows Start Button (2x2 blue square grid)
-                let start_btn_rect = egui::Rect::from_center_size(egui::pos2(cur_x + 18.0, center_y), egui::vec2(38.0, 36.0));
+                // Left side: Windows 11 Widgets pill
+                let widget_pill_rect = egui::Rect::from_min_size(egui::pos2(rect.min.x + 12.0, center_y - 14.0), egui::vec2(120.0, 28.0));
+                let widget_resp = ui.interact(widget_pill_rect, egui::Id::new("taskbar_widgets_pill"), egui::Sense::click());
+                let widget_bg = if widget_resp.hovered() {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 18)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                };
+                painter.rect_filled(widget_pill_rect, 14.0, widget_bg);
+                painter.rect_stroke(widget_pill_rect, 14.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16)), egui::StrokeKind::Inside);
+                let widget_glyph = crate::entropy_gui::icons::glyph("squares-four", crate::entropy_gui::icons::IconStyle::Bold)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "❖".to_string());
+                painter.text(
+                    egui::pos2(widget_pill_rect.min.x + 10.0, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    widget_glyph,
+                    egui::FontId::proportional(13.0),
+                    Color32::from_rgb(130, 200, 255),
+                );
+                painter.text(
+                    egui::pos2(widget_pill_rect.min.x + 28.0, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    "Creative Suite",
+                    egui::FontId::proportional(11.0),
+                    Color32::from_rgb(220, 226, 238),
+                );
+
+                // Center cluster: Windows 11 Centered Dock (Start, Search, Task View, and App Icons without labels)
+                let btn_size = 40.0;
+                let btn_gap = 4.0;
+                let sep_gap = 8.0;
+                let sep_line_w = 1.0;
+
+                let sys_count = 3; // Start, Search, Task View
+                let sys_total_w = sys_count as f32 * btn_size + (sys_count - 1) as f32 * btn_gap;
+                let sep_total_w = sep_gap * 2.0 + sep_line_w;
+                let apps_count = tabs.len();
+                let apps_total_w = if apps_count > 0 {
+                    apps_count as f32 * btn_size + (apps_count - 1) as f32 * btn_gap
+                } else {
+                    0.0
+                };
+                let center_total_w = sys_total_w + sep_total_w + apps_total_w;
+
+                // Center horizontally on the screen
+                let mut cur_x = (rect.min.x + (rect.width() - center_total_w) / 2.0).round();
+                // Ensure room on the left for the widget pill
+                let min_left_x = rect.min.x + 144.0;
+                if cur_x < min_left_x {
+                    cur_x = min_left_x;
+                }
+
+                // 1. Windows Start Button (2x2 blue square grid, centered)
+                let start_btn_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
                 let start_resp = ui.interact(start_btn_rect, egui::Id::new("taskbar_win_start"), egui::Sense::click());
                 if start_resp.clicked() {
                     toggle_start_menu = true;
@@ -4286,66 +4337,58 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 painter.rect_filled(tr, 1.0, Color32::from_rgb(0, 130, 217)); // Top-right vivid blue
                 painter.rect_filled(bl, 1.0, Color32::from_rgb(0, 120, 215)); // Bottom-left classic blue
                 painter.rect_filled(br, 1.0, Color32::from_rgb(0, 183, 255)); // Bottom-right sky blue
-                cur_x += 44.0;
+                start_resp.on_hover_text("Start");
+                cur_x += btn_size + btn_gap;
 
-                // Search Pill
-                let search_rect = egui::Rect::from_min_size(egui::pos2(cur_x, center_y - 15.0), egui::vec2(130.0, 30.0));
+                // 2. Search Button (icon button)
+                let search_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
                 let search_resp = ui.interact(search_rect, egui::Id::new("taskbar_search_pill"), egui::Sense::click());
                 if search_resp.clicked() {
                     toggle_start_menu = true;
                 }
-                let search_bg = if search_resp.hovered() {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 22)
-                } else {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 12)
-                };
-                painter.rect_filled(search_rect, 15.0, search_bg);
-                painter.rect_stroke(search_rect, 15.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18)), egui::StrokeKind::Inside);
+                if search_resp.hovered() {
+                    painter.rect_filled(search_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18));
+                }
                 let search_icon_char = crate::entropy_gui::icons::glyph("magnifying-glass", crate::entropy_gui::icons::IconStyle::Bold)
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| "🔍".to_string());
                 painter.text(
-                    egui::pos2(search_rect.min.x + 10.0, center_y),
-                    egui::Align2::LEFT_CENTER,
+                    search_rect.center(),
+                    egui::Align2::CENTER_CENTER,
                     search_icon_char,
-                    egui::FontId::proportional(12.0),
-                    Color32::from_rgb(180, 185, 196),
+                    egui::FontId::proportional(16.0),
+                    Color32::from_rgb(215, 222, 235),
                 );
-                painter.text(
-                    egui::pos2(search_rect.min.x + 28.0, center_y),
-                    egui::Align2::LEFT_CENTER,
-                    "Search apps...",
-                    egui::FontId::proportional(11.0),
-                    Color32::from_rgb(160, 166, 178),
-                );
-                cur_x += 138.0;
+                search_resp.on_hover_text("Search");
+                cur_x += btn_size + btn_gap;
 
-                // Task View Icon (2 overlapping rectangles)
-                let task_view_rect = egui::Rect::from_center_size(egui::pos2(cur_x + 16.0, center_y), egui::vec2(32.0, 32.0));
+                // 3. Task View Icon (2 overlapping rectangles)
+                let task_view_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
                 let task_view_resp = ui.interact(task_view_rect, egui::Id::new("taskbar_task_view"), egui::Sense::click());
                 if task_view_resp.hovered() {
-                    painter.rect_filled(task_view_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16));
+                    painter.rect_filled(task_view_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18));
                 }
                 let tv_c = task_view_rect.center();
-                let tv_r1 = egui::Rect::from_center_size(egui::pos2(tv_c.x - 3.0, tv_c.y + 2.0), egui::vec2(12.0, 10.0));
-                let tv_r2 = egui::Rect::from_center_size(egui::pos2(tv_c.x + 3.0, tv_c.y - 2.0), egui::vec2(12.0, 10.0));
+                let tv_r1 = egui::Rect::from_center_size(egui::pos2(tv_c.x - 3.0, tv_c.y + 2.0), egui::vec2(13.0, 11.0));
+                let tv_r2 = egui::Rect::from_center_size(egui::pos2(tv_c.x + 3.0, tv_c.y - 2.0), egui::vec2(13.0, 11.0));
                 painter.rect_stroke(tv_r2, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(150, 160, 175)), egui::StrokeKind::Inside);
                 painter.rect_filled(tv_r1, 2.0, Color32::from_rgba_unmultiplied(20, 23, 31, 245));
-                painter.rect_stroke(tv_r1, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(200, 210, 225)), egui::StrokeKind::Inside);
-                cur_x += 38.0;
+                painter.rect_stroke(tv_r1, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(205, 215, 230)), egui::StrokeKind::Inside);
+                task_view_resp.on_hover_text("Task view");
+                cur_x += btn_size + sep_gap;
 
                 // Subtle vertical divider
                 painter.line_segment(
-                    [egui::pos2(cur_x, center_y - 11.0), egui::pos2(cur_x, center_y + 11.0)],
+                    [egui::pos2(cur_x, center_y - 10.0), egui::pos2(cur_x, center_y + 10.0)],
                     egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 22)),
                 );
-                cur_x += 12.0;
+                cur_x += sep_line_w + sep_gap;
 
-                // Taskbar App Items (DAW, Guitar Tabs, CC Manager)
+                // Taskbar App Items (DAW, Guitar Tabs, Mesha, CC Manager, etc.) - Windows 11 style (centered, icon-only, no labels)
                 for (tab_id, title, addon_name) in tabs {
                     let is_active = active_tab == Some(tab_id.as_str());
 
-                    // Icon and label detection
+                    // Icon and clean title detection
                     let (clean_title, icon_name, icon_color) = if addon_name.contains("daw") || title.to_lowercase().contains("daw") {
                         ("DAW", "waveform", Color32::from_rgb(96, 205, 255))
                     } else if addon_name.contains("tabs") || title.to_lowercase().contains("guitar") || title.to_lowercase().contains("tabs") {
@@ -4353,7 +4396,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     } else if addon_name.contains("cc") || title.to_lowercase().contains("kanban") || title.to_lowercase().contains("cc manager") {
                         ("CC Manager", "kanban", Color32::from_rgb(130, 220, 110))
                     } else if addon_name.contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
-                        ("Mesha", "shapes", Color32::from_rgb(130, 120, 110))
+                        ("Mesha", "shapes", Color32::from_rgb(175, 150, 255))
                     } else {
                         (title.as_str(), "squares-four", Color32::from_rgb(200, 215, 235))
                     };
@@ -4364,18 +4407,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             "waveform" => "〰".to_string(),
                             "guitar" => "🎸".to_string(),
                             "kanban" => "📋".to_string(),
+                            "shapes" => "❖".to_string(),
                             _ => "▪".to_string(),
                         });
 
-                    let item_w = (clean_title.len() as f32 * 7.5 + 46.0).clamp(95.0, 135.0);
-                    let item_rect = egui::Rect::from_min_size(egui::pos2(cur_x, center_y - 18.0), egui::vec2(item_w, 36.0));
+                    let item_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
                     let item_resp = ui.interact(item_rect, egui::Id::new(format!("taskbar_tab_{tab_id}")), egui::Sense::click());
 
                     if item_resp.clicked() {
                         tab_to_activate = Some(tab_id.clone());
                     }
 
-                    // Background highlight
+                    // Windows 11 style button highlight
                     if is_active {
                         painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 24));
                         painter.rect_stroke(item_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 30)), egui::StrokeKind::Inside);
@@ -4383,49 +4426,35 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
                     }
 
-                    // Draw icon + label
-                    let text_color = if is_active {
-                        Color32::from_rgb(255, 255, 255)
-                    } else if item_resp.hovered() {
-                        Color32::from_rgb(235, 240, 250)
-                    } else {
-                        Color32::from_rgb(195, 202, 215)
-                    };
-
-                    let content_start_x = item_rect.min.x + 10.0;
+                    // Centered App Icon (no label)
                     painter.text(
-                        egui::pos2(content_start_x, center_y),
-                        egui::Align2::LEFT_CENTER,
+                        item_rect.center(),
+                        egui::Align2::CENTER_CENTER,
                         icon_glyph,
-                        egui::FontId::proportional(14.0),
+                        egui::FontId::proportional(18.0),
                         icon_color,
                     );
-                    painter.text(
-                        egui::pos2(content_start_x + 20.0, center_y),
-                        egui::Align2::LEFT_CENTER,
-                        clean_title,
-                        egui::FontId::proportional(12.0),
-                        text_color,
-                    );
 
-                    // Windows indicator bar at bottom edge
+                    // Windows 11 indicator bar at bottom edge
                     if is_active {
                         // Wide accent blue line
                         let bar_rect = egui::Rect::from_center_size(
-                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.0),
-                            egui::vec2(28.0, 3.0),
+                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.5),
+                            egui::vec2(16.0, 3.0),
                         );
                         painter.rect_filled(bar_rect, 1.5, Color32::from_rgb(96, 205, 255));
                     } else {
-                        // Small running app dot indicator
+                        // Small running app dot indicator, slightly wider on hover
+                        let dot_w = if item_resp.hovered() { 10.0 } else { 6.0 };
                         let dot_rect = egui::Rect::from_center_size(
-                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.0),
-                            egui::vec2(6.0, 3.0),
+                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.5),
+                            egui::vec2(dot_w, 3.0),
                         );
                         painter.rect_filled(dot_rect, 1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 120));
                     }
 
-                    cur_x += item_w + 6.0;
+                    item_resp.on_hover_text(clean_title);
+                    cur_x += btn_size + btn_gap;
                 }
 
                 // Right Side: System Tray, Clock, Status, Desktop Peek
@@ -4468,19 +4497,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 );
                 tray_x -= 76.0;
 
-                // Status Pill Badge: "SUITE" with green dot
-                let status_rect = egui::Rect::from_min_size(egui::pos2(tray_x - 72.0, center_y - 12.0), egui::vec2(68.0, 24.0));
+                // Status Pill Badge: "CREATIVE" with green dot
+                let status_rect = egui::Rect::from_min_size(egui::pos2(tray_x - 82.0, center_y - 12.0), egui::vec2(78.0, 24.0));
                 painter.rect_filled(status_rect, 12.0, Color32::from_rgba_unmultiplied(40, 160, 80, 35));
                 painter.rect_stroke(status_rect, 12.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(60, 200, 100, 60)), egui::StrokeKind::Inside);
                 painter.circle_filled(egui::pos2(status_rect.min.x + 10.0, center_y), 3.0, Color32::from_rgb(76, 217, 100));
                 painter.text(
                     egui::pos2(status_rect.min.x + 18.0, center_y),
                     egui::Align2::LEFT_CENTER,
-                    "SUITE",
+                    "CREATIVE",
                     egui::FontId::proportional(10.0),
                     Color32::from_rgb(160, 235, 180),
                 );
-                tray_x -= 78.0;
+                tray_x -= 88.0;
 
                 // Tray Icons: Network & Audio Speaker
                 let speaker_glyph = crate::entropy_gui::icons::glyph("speaker-high", crate::entropy_gui::icons::IconStyle::Bold)
@@ -4519,8 +4548,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         if start_menu_open {
             let menu_w = 380.0;
             let menu_h = 440.0;
-            let menu_x = 12.0;
-            let menu_y = (screen_rect.height() - taskbar_height - menu_h - 10.0).max(10.0);
+            let menu_x = ((screen_rect.width() - menu_w) / 2.0).round().max(12.0);
+            let menu_y = (screen_rect.height() - taskbar_height - menu_h - 12.0).max(10.0);
 
             let mut close_menu = false;
             egui::Window::new("WindowsStartMenuFlyout")
@@ -4554,7 +4583,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     painter.text(
                         egui::pos2(pad_x + 26.0, cur_y + 4.0),
                         egui::Align2::LEFT_TOP,
-                        "Entropy Studio Suite",
+                        "Entropy Creative Suite",
                         egui::FontId::proportional(15.0),
                         Color32::from_rgb(255, 255, 255),
                     );
