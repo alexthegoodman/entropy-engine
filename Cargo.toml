@@ -48,6 +48,10 @@ name = "sheet_live"
 harness = false
 
 [[test]]
+name = "guitar_tabs_live"
+harness = false
+
+[[test]]
 name = "ml_graph_live"
 harness = false
 

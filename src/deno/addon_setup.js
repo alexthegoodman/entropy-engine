@@ -310,6 +310,13 @@ const iconsAPI = {
     names: () => Array.from(_loadIcons().byName.keys()),
 };
 
+// The OS clipboard as plain text (see entropy_gui::clipboard). readText() is "" when the clipboard
+// holds no text or cannot be reached; writeText returns false when it could not be set.
+const clipboardAPI = {
+    readText: () => ops.op_clipboard_read_text(),
+    writeText: (text) => ops.op_clipboard_write_text(String(text ?? "")),
+};
+
 const systemAPI = {
     // Starts one of this build's own example apps as a separate process and returns its pid.
     // `name` must be one of Entropy's LAUNCHABLE_EXAMPLES (src/lib.rs); anything else throws.
@@ -1154,6 +1161,7 @@ globalThis.Entropy = {
                 Water: waterAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
+                Clipboard: clipboardAPI,
                 Guitar: guitarAPI,
                 IO: {
                     // Pretty-printing is opt-in: large saved states (for example canvas artwork)
@@ -1710,6 +1718,21 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A guitar neck for learning tabs, in the same neon style (see entropy_gui::FretboardView):
+            // a tab highway scrolling toward a "now" line, and the neck with where the fingers go
+            // (targets), the next notes (upcoming), and what the guitar is heard playing (heard).
+            // Strings are numbered 0 = lowest. The caller passes everything each frame; clicking the
+            // neck calls onPick(string, fret).
+            fretboard: (windowId, config) => {
+                const id = nextWidgetId(windowId, "fretboard", config?.id);
+                ops.op_ui_widget_fretboard(windowId, { ...(config || {}) }, id);
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        if (parts[0] === "FRETBOARD_PICK" && config.onPick) config.onPick(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                    });
+                }
+            },
             // A physically modeled brass instrument, drawn from its bore in the same neon way (see
             // Entropy.Brass and entropy_gui::BrassView). The widget reads the engine's BrassShared
             // directly. config: {instrument, height, width, breath, lipTension, keyboard, firstKey,
@@ -2078,7 +2101,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PIANO_") || event.startsWith("PHYSMOD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PIANO_") || event.startsWith("PHYSMOD_") || event.startsWith("FRETBOARD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
@@ -2364,6 +2387,7 @@ globalThis.Entropy = {
     Water: waterAPI,
     Icons: iconsAPI,
     System: systemAPI,
+    Clipboard: clipboardAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

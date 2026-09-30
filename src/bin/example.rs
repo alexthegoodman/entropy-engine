@@ -88,6 +88,15 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/mcp_demo.js")
                 .with_title("MCP Tools Demo")
                 .with_window_size(1000.0, 700.0),
+            Some("guitar-tabs") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/guitar_tabs.js")
+                .with_hot_reload(true)
+                .with_title("Guitar Tabs")
+                .with_window_size(1440.0, 980.0)
+                // The pasted tab, the reviewed song and the guitar settings persist through
+                // Entropy.IO.save/load, which needs a data dir on a standalone EntropyApp.
+                // ENTROPY_TABS_BDD_DATA lets tests/guitar_tabs_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_TABS_BDD_DATA").unwrap_or_else(|_| "../guitar-tabs-data".to_string())),
             Some("html-ui-demo") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/html_ui_demo.js")
                 .with_hot_reload(true)

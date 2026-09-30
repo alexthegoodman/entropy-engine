@@ -553,6 +553,69 @@ pub struct PhysModViewConfig {
     pub exaggeration: Option<f32>,
 }
 
+/// One note on `Widget.fretboard`: a string (0 = lowest) and fret, with what kind of mark it is
+/// depending on the list it is in (see `FretboardViewConfig`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FretMarkConfig {
+    pub string: u32,
+    pub fret: u32,
+    /// Suggested finger 1-4, shown in a target's dot.
+    pub finger: Option<u32>,
+    /// Steps ahead, for an upcoming note.
+    pub ahead: Option<u32>,
+    /// For a heard note: is it one the lesson wants?
+    pub correct: Option<bool>,
+}
+
+/// One step on the fretboard's tab highway.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HighwayItemConfig {
+    /// Beats from now; negative once passed.
+    pub ahead: f32,
+    #[serde(default)]
+    pub notes: Vec<FretMarkConfig>,
+    #[serde(default)]
+    pub muted: Vec<u32>,
+    /// "waiting" (default), "current", "hit", "partial" or "miss".
+    pub state: Option<String>,
+    pub label: Option<String>,
+}
+
+/// `Widget.fretboard` - see `entropy_gui::FretboardView`. Everything shown is passed in each frame.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FretboardViewConfig {
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// MIDI note of each open string, lowest first. Default standard tuning.
+    pub tuning: Option<Vec<u32>>,
+    pub first_fret: Option<u32>,
+    pub last_fret: Option<u32>,
+    #[serde(default)]
+    pub targets: Vec<FretMarkConfig>,
+    #[serde(default)]
+    pub upcoming: Vec<FretMarkConfig>,
+    #[serde(default)]
+    pub heard: Vec<FretMarkConfig>,
+    #[serde(default)]
+    pub muted: Vec<u32>,
+    pub show_highway: Option<bool>,
+    #[serde(default)]
+    pub highway: Vec<HighwayItemConfig>,
+    #[serde(default)]
+    pub highway_bars: Vec<f32>,
+    pub highway_span: Option<f32>,
+    pub caption: Option<String>,
+    pub status: Option<String>,
+    pub flash: Option<f32>,
+    /// "hit" (default) or "miss".
+    pub flash_kind: Option<String>,
+    pub low_on_top: Option<bool>,
+    pub interactive: Option<bool>,
+}
+
 /// `Widget.piano` - see `entropy_gui::PianoView`. `instrument` names a piano in the piano registry.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -932,6 +995,8 @@ pub enum UiWidget {
     ReverbEqView { id: String, config: ReverbEqViewConfig },
     /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
     PhysModView { id: String, config: PhysModViewConfig },
+    /// A guitar neck with a tab highway, for learning tabs - see `entropy_gui::widgets_fretboard`.
+    FretboardView { id: String, config: FretboardViewConfig },
     PianoView { id: String, config: PianoViewConfig },
     BrassView { id: String, config: BrassViewConfig },
     MatterView { id: String, config: MatterViewConfig },
@@ -3535,6 +3600,19 @@ pub fn op_icon_table(_state: &mut OpState) -> IconTableJs {
     IconTableJs { styles, icons }
 }
 
+/// `Entropy.Clipboard.readText` - the OS clipboard's text, or "" when it holds none.
+#[op2]
+#[string]
+pub fn op_clipboard_read_text(_state: &mut OpState) -> String {
+    crate::entropy_gui::clipboard::read_text().unwrap_or_default()
+}
+
+/// `Entropy.Clipboard.writeText` - false when the clipboard could not be set.
+#[op2(fast)]
+pub fn op_clipboard_write_text(_state: &mut OpState, #[string] text: String) -> bool {
+    crate::entropy_gui::clipboard::write_text(&text)
+}
+
 /// The user's Music folder (also made readable by `listDir`), or "" if the OS has none.
 #[op2]
 #[string]
@@ -4527,6 +4605,18 @@ pub fn op_ui_widget_physmod(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PhysModView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_fretboard(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: FretboardViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::FretboardView { id, config });
     }
 }
 

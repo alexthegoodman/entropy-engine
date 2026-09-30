@@ -35,7 +35,8 @@ pub fn code_editor(ui: &mut Ui, content: &mut String) -> Response {
 
     let body_rect = Rect::from_min_max(pos2(gutter_rect.max.x + 4.0, region.min.y), region.max);
     let mut body = ui.child_ui_at(body_rect, Layout::top_down(Align::Min), "code_editor_body");
-    let response = body.text_edit_multiline(content);
+    // Monospace, like the gutter, so indentation and aligned columns read as written.
+    let response = body.text_edit_multiline_mono(content);
     ui.advance_after_child(region);
     response
 }

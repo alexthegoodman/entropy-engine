@@ -103,7 +103,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -274,6 +274,7 @@ extension!(
         op_audio_wavetable_note_off,
         op_audio_wavetable_set_position,
         op_ui_widget_physmod,
+        op_ui_widget_fretboard,
         op_ui_widget_piano,
         op_ui_widget_brass,
         op_physmod_info,
@@ -394,6 +395,8 @@ extension!(
         op_audio_stop_preview,
         op_icon_table,
         op_io_music_dir,
+        op_clipboard_read_text,
+        op_clipboard_write_text,
         op_io_pick_sample_folder,
         op_io_list_dir,
         op_audio_effect_create_delay,
@@ -4962,6 +4965,62 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             PhysModEvent::KeyDown { midi, velocity } => format!("PHYSMOD_KEY_DOWN|{}|{}|{:.3}", pm_id, midi, velocity),
                             PhysModEvent::KeyUp { midi } => format!("PHYSMOD_KEY_UP|{}|{}", pm_id, midi),
                             PhysModEvent::PhysicsView(on) => format!("PHYSMOD_PHYSICS_VIEW|{}|{}", pm_id, on as u8),
+                        });
+                    }
+                }
+                UiWidget::FretboardView { id: fb_id, config } => {
+                    use crate::entropy_gui::{FretMark, FretboardEvent, FretboardOptions, FretboardView, HighwayItem, HighwayState};
+                    let d = FretboardOptions::default();
+                    let clamp_string = |s: u32| s.min(5) as u8;
+                    let clamp_fret = |f: u32| f.min(crate::entropy_gui::widgets_fretboard::MAX_FRET as u32) as u8;
+                    let mark = |m: &crate::deno::addon_ops::FretMarkConfig| FretMark {
+                        string: clamp_string(m.string),
+                        fret: clamp_fret(m.fret),
+                        finger: m.finger.map(|f| f.clamp(1, 4) as u8),
+                        ahead: m.ahead.unwrap_or(0).min(255) as u8,
+                        correct: m.correct.unwrap_or(true),
+                    };
+                    let mut tuning = d.tuning;
+                    if let Some(t) = config.tuning.as_ref().filter(|t| t.len() == 6) {
+                        for (slot, v) in tuning.iter_mut().zip(t) {
+                            *slot = (*v).min(100) as u8;
+                        }
+                    }
+                    let opts = FretboardOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        tuning,
+                        first_fret: config.first_fret.map(clamp_fret).unwrap_or(d.first_fret),
+                        last_fret: config.last_fret.map(clamp_fret).unwrap_or(d.last_fret),
+                        targets: config.targets.iter().map(mark).collect(),
+                        upcoming: config.upcoming.iter().map(mark).collect(),
+                        heard: config.heard.iter().map(mark).collect(),
+                        muted: config.muted.iter().map(|s| clamp_string(*s)).collect(),
+                        show_highway: config.show_highway.unwrap_or(d.show_highway),
+                        highway: config
+                            .highway
+                            .iter()
+                            .map(|h| HighwayItem {
+                                ahead: if h.ahead.is_finite() { h.ahead } else { 0.0 },
+                                notes: h.notes.iter().map(|n| (clamp_string(n.string), clamp_fret(n.fret))).collect(),
+                                muted: h.muted.iter().map(|s| clamp_string(*s)).collect(),
+                                state: h.state.as_deref().map(HighwayState::from_name).unwrap_or_default(),
+                                label: h.label.clone(),
+                            })
+                            .collect(),
+                        highway_bars: config.highway_bars.iter().copied().filter(|b| b.is_finite()).collect(),
+                        highway_span: config.highway_span.filter(|s| s.is_finite()).unwrap_or(d.highway_span).clamp(1.0, 64.0),
+                        caption: config.caption.clone().unwrap_or_default(),
+                        status: config.status.clone().unwrap_or_default(),
+                        flash: config.flash.unwrap_or(0.0).clamp(0.0, 1.0),
+                        flash_miss: config.flash_kind.as_deref() == Some("miss"),
+                        low_on_top: config.low_on_top.unwrap_or(d.low_on_top),
+                        interactive: config.interactive.unwrap_or(d.interactive),
+                    };
+                    let resp = FretboardView::new(fb_id.as_str()).show(ui, &opts);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            FretboardEvent::Pick { string, fret } => format!("FRETBOARD_PICK|{}|{}|{}", fb_id, string, fret),
                         });
                     }
                 }

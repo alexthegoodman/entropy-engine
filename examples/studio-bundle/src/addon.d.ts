@@ -527,6 +527,7 @@ export interface ScopedAPI {
   Water: WaterAPI;
   Icons: IconsAPI;
   System: SystemAPI;
+  Clipboard: ClipboardAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -618,6 +619,10 @@ export interface ScopedAPI {
       reverbEq: (windowId: string, config: ReverbEqViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
+      /** A guitar neck for learning tabs, in the same neon style: a tab highway scrolling toward a
+       *  "now" line, and the neck with where the fingers go, the next notes, and what the guitar is
+       *  heard playing. See `FretboardConfig`. */
+      fretboard: (windowId: string, config: FretboardConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
       brass: (windowId: string, config: BrassViewConfig) => void;
       /** A physically modeled drum kit, drawn from the modes it rings with in the same neon style. */
@@ -1341,8 +1346,81 @@ interface Vst3API {
   stats: () => Vst3Stats[];
 }
 
+/** A note on `Widget.fretboard`: a string (0 = lowest) and a fret (0 = open). */
+export interface FretMarkConfig {
+  string: number;
+  fret: number;
+  /** Suggested finger, 1 (index) to 4 (little), shown in a target's dot; otherwise the fret is. */
+  finger?: number;
+  /** For `upcoming`: steps ahead, 1 = next. Fades with distance. */
+  ahead?: number;
+  /** For `heard`: whether the lesson wants this note (teal) or not (rose). Default true. */
+  correct?: boolean;
+}
+
+/** One step on the fretboard's tab highway. */
+export interface FretboardHighwayItem {
+  /** Beats from now; negative once passed (it slides behind the now line and fades). */
+  ahead: number;
+  notes: { string: number; fret: number }[];
+  /** Strings struck muted, shown as x. */
+  muted?: number[];
+  state?: "waiting" | "current" | "hit" | "partial" | "miss";
+  /** A chord name or the like, over the column. */
+  label?: string;
+}
+
+export interface FretboardConfig {
+  id?: string;
+  /** Default 420. */
+  height?: number;
+  width?: number;
+  /** MIDI note of each open string, lowest first. Default standard tuning. */
+  tuning?: number[];
+  /** Frets after `firstFret`'s wire through `lastFret` are drawn; 0 draws the nut. Default 0..12. */
+  firstFret?: number;
+  lastFret?: number;
+  /** Where the fingers go now: amber dots with the finger in them (open strings as rings). */
+  targets?: FretMarkConfig[];
+  /** The next notes, as numbered ghost rings. */
+  upcoming?: FretMarkConfig[];
+  /** What the guitar is heard playing: their strings vibrate. */
+  heard?: FretMarkConfig[];
+  /** Strings the current step mutes, marked X at the nut. */
+  muted?: number[];
+  /** Default true. */
+  showHighway?: boolean;
+  highway?: FretboardHighwayItem[];
+  /** Bar lines on the highway, in beats from now. */
+  highwayBars?: number[];
+  /** Beats visible ahead of the now line. Default 8. */
+  highwaySpan?: number;
+  /** Top-left text (song, bar, step) and top-right text (score, hint). */
+  caption?: string;
+  status?: string;
+  /** 0..1, fading: a ring flashing out of the targets after a hit (or a miss, with flashKind). */
+  flash?: number;
+  flashKind?: "hit" | "miss";
+  /** Draw the low string on top, as the player looks down at the neck. Default: high string on top,
+   *  as a tab is written. */
+  lowOnTop?: boolean;
+  /** Report clicks on the neck (default true). */
+  interactive?: boolean;
+  /** The neck was clicked at this string and fret (0 = the open string, in the gutter). */
+  onPick?: (string: number, fret: number) => void;
+}
+
+/** The OS clipboard as plain text. Text fields already paste with Ctrl+V; this is for a "Paste"
+ * button, or copying something out. */
+interface ClipboardAPI {
+  /** Line endings come back as "\n". "" when the clipboard holds no text or can't be reached. */
+  readText: () => string;
+  /** False when the clipboard could not be set. */
+  writeText: (text: string) => boolean;
+}
+
 /** One audio input device, from `Guitar.listInputs`. */
-interface GuitarInputDevice {
+export interface GuitarInputDevice {
   host: string;
   name: string;
   channels: number;
@@ -1377,7 +1455,7 @@ interface GuitarSettings {
 /** "wavetable" plays a table (see `Wavetable`) that can be sculpted while it sounds. */
 type GuitarWaveform = "sine" | "triangle" | "saw" | "square" | "wavetable";
 
-interface GuitarStartConfig extends GuitarSettings {
+export interface GuitarStartConfig extends GuitarSettings {
   /** Host name from `listInputs` (WASAPI by default on Windows; ASIO with the `asio` cargo feature). */
   host?: string;
   device?: string;
@@ -3260,6 +3338,10 @@ export interface EntropyAPI {
       reverbEq: (windowId: string, config: ReverbEqViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
+      /** A guitar neck for learning tabs, in the same neon style: a tab highway scrolling toward a
+       *  "now" line, and the neck with where the fingers go, the next notes, and what the guitar is
+       *  heard playing. See `FretboardConfig`. */
+      fretboard: (windowId: string, config: FretboardConfig) => void;
       /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
       brass: (windowId: string, config: BrassViewConfig) => void;
       /** A physically modeled grand piano instrument with 88-key action, cast iron plate, and physics view. */
@@ -3671,6 +3753,7 @@ export interface EntropyAPI {
   Matter: MatterAPI;
   Icons: IconsAPI;
   System: SystemAPI;
+  Clipboard: ClipboardAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

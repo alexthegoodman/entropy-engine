@@ -125,6 +125,8 @@ struct BrowserBddDriver {
     /// QuadPlanet's run (`ENTROPY_QUADPLANET_BDD_RESULT`): keys and MCP tools, and a longer time
     /// budget since it renders whole planets (a software renderer on a headless box is slow).
     quadplanet: bool,
+    /// The Guitar Tabs app's run (`ENTROPY_TABS_BDD_RESULT`): widget events and MCP tools.
+    tabs: bool,
     wait_until: Option<Instant>,
     editor_captures: Vec<serde_json::Value>,
     /// What the audio engine's own analysis taps reported when a `I record the analysis` step ran,
@@ -185,6 +187,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_MEDIA_BDD_RESULT",
     "ENTROPY_MESHA_BDD_RESULT",
     "ENTROPY_QUADPLANET_BDD_RESULT",
+    "ENTROPY_TABS_BDD_RESULT",
 ];
 
 /// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
@@ -204,6 +207,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real video export demo is running in test mode"
         || text == "the real Mesha app is running in test mode"
         || text == "the real QuadPlanet app is running in test mode"
+        || text == "the real Guitar Tabs app is running in test mode"
     {
         return None;
     }
@@ -304,6 +308,7 @@ impl BrowserBddDriver {
         let media = !daw && !canvas && !launcher && !sheet && !ml && std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some();
         let mesha = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some();
         let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some();
+        let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
@@ -320,6 +325,8 @@ impl BrowserBddDriver {
             "ENTROPY_MESHA_BDD_RESULT"
         } else if quadplanet {
             "ENTROPY_QUADPLANET_BDD_RESULT"
+        } else if tabs {
+            "ENTROPY_TABS_BDD_RESULT"
         } else {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
@@ -333,6 +340,8 @@ impl BrowserBddDriver {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/quadplanet_live.feature"),
             }
+        } else if tabs {
+            include_str!("../tests/features/guitar_tabs_live.feature")
         } else if launcher {
             include_str!("../tests/features/app_launcher_live.feature")
         } else if sheet {
@@ -381,6 +390,7 @@ impl BrowserBddDriver {
             ml,
             mesha,
             quadplanet,
+            tabs,
             wait_until: None,
             editor_captures: Vec::new(),
             analyses: serde_json::Map::new(),
@@ -420,11 +430,11 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas || self.daw || self.launcher || self.sheet || self.ml || self.mesha || self.quadplanet || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
+        if self.canvas || self.daw || self.launcher || self.sheet || self.ml || self.mesha || self.quadplanet || self.tabs || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
         // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
-        if self.canvas || self.daw || self.mesha || self.quadplanet {
+        if self.canvas || self.daw || self.mesha || self.quadplanet || self.tabs {
             result["tools"] = serde_json::json!(self.tool_results);
         }
         if self.daw {
@@ -444,7 +454,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 900 } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 900 } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher || self.tabs { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;
