@@ -1984,7 +1984,7 @@ function setRackVisible(visible: boolean) {
 // The Analyzer floats bottom-right and starts open; the transport bar's toggle (or its own close
 // button) puts it away when the arrangement needs the room.
 let analyzerWindowId: string | null = null;
-let analyzerVisible = true;
+let analyzerVisible = false;
 
 function setAnalyzerVisible(visible: boolean) {
     analyzerVisible = visible;
