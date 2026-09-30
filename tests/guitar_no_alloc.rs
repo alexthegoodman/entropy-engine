@@ -6,19 +6,24 @@
 //! thread would count its own allocations here.
 
 use entropy_engine::guitar::testsig::{self, Motion, Pluck};
-use entropy_engine::guitar::{GuitarConfig, GuitarEngine, GuitarEvent, Mode};
+use entropy_engine::guitar::{GuitarConfig, GuitarEngine, GuitarEvent, Mode, Polyphony, STANDARD_TUNING};
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Counting;
 
-static WATCHING: AtomicBool = AtomicBool::new(false);
+// Only the thread running the engine is watched: the test harness allocates on its own threads (its
+// "running for over 60 seconds" notice, for one), and that is not the audio path.
+thread_local! {
+    static WATCHING: Cell<bool> = const { Cell::new(false) };
+}
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static BYTES: AtomicUsize = AtomicUsize::new(0);
 
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if WATCHING.load(Ordering::Relaxed) {
+        if WATCHING.with(|w| w.get()) {
             ALLOCS.fetch_add(1, Ordering::Relaxed);
             BYTES.fetch_add(layout.size(), Ordering::Relaxed);
         }
@@ -30,7 +35,7 @@ unsafe impl GlobalAlloc for Counting {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if WATCHING.load(Ordering::Relaxed) {
+        if WATCHING.with(|w| w.get()) {
             ALLOCS.fetch_add(1, Ordering::Relaxed);
             BYTES.fetch_add(new_size, Ordering::Relaxed);
         }
@@ -43,9 +48,9 @@ static A: Counting = Counting;
 
 #[test]
 fn process_allocates_nothing() {
-    for mode in Mode::ALL {
-        let cfg = GuitarConfig::default().with_mode(mode);
-        let plucks: Vec<Pluck> = (0..30)
+    for (mode, polyphony) in Mode::ALL.into_iter().flat_map(|m| [(m, Polyphony::Mono), (m, Polyphony::Poly)]) {
+        let cfg = GuitarConfig::default().with_mode(mode).with_polyphony(polyphony);
+        let mut plucks: Vec<Pluck> = (0..30)
             .map(|i| {
                 let p = Pluck::note(40 + (i * 5) % 44).starting(0.2 + i as f32 * 0.3).loud(-16.0).seeded(i as u32 + 1);
                 match i % 4 {
@@ -56,6 +61,10 @@ fn process_allocates_nothing() {
                 }
             })
             .collect();
+        // Chords, for the polyphonic engine's worst case: six strings to find at once.
+        for (i, (_, shape)) in testsig::CHORD_SHAPES.iter().take(8).enumerate() {
+            plucks.extend(testsig::strum(&testsig::shape_notes(shape, &STANDARD_TUNING), 0.35 + i as f32 * 1.2, 25.0, -18.0, true, i as u32 + 1));
+        }
         let (mut x, _) = testsig::mix(cfg.sample_rate, 10.0, &plucks);
         testsig::add_hum(&mut x, cfg.sample_rate, 60.0, -50.0);
         testsig::add_noise(&mut x, -60.0, 3);
@@ -67,16 +76,16 @@ fn process_allocates_nothing() {
 
         ALLOCS.store(0, Ordering::SeqCst);
         BYTES.store(0, Ordering::SeqCst);
-        WATCHING.store(true, Ordering::SeqCst);
+        WATCHING.with(|w| w.set(true));
         for chunk in x.chunks(128) {
             engine.process(chunk, &mut events);
         }
         engine.release_all(&mut events);
-        WATCHING.store(false, Ordering::SeqCst);
+        WATCHING.with(|w| w.set(false));
 
         let (allocs, bytes) = (ALLOCS.load(Ordering::SeqCst), BYTES.load(Ordering::SeqCst));
-        println!("{}: {} events, {allocs} allocations ({bytes} bytes) in process", mode.name(), events.len());
+        println!("{} {}: {} events, {allocs} allocations ({bytes} bytes) in process", mode.name(), polyphony.name(), events.len());
         assert!(events.len() > 20, "the engine produced almost nothing, so the check proves little");
-        assert_eq!(allocs, 0, "{allocs} allocations ({bytes} bytes) on the audio path in {} mode", mode.name());
+        assert_eq!(allocs, 0, "{allocs} allocations ({bytes} bytes) on the audio path in {} {} mode", mode.name(), polyphony.name());
     }
 }

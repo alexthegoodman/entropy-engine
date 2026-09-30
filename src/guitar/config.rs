@@ -32,9 +32,9 @@ impl Mode {
 
     pub fn params(self) -> ModeParams {
         match self {
-            Mode::Fast => ModeParams { stability_ms: 1.0, min_confidence: 0.80, release_ms: 25.0, refractory_ms: 30.0 },
-            Mode::Balanced => ModeParams { stability_ms: 2.7, min_confidence: 0.85, release_ms: 40.0, refractory_ms: 45.0 },
-            Mode::Accurate => ModeParams { stability_ms: 8.0, min_confidence: 0.90, release_ms: 50.0, refractory_ms: 60.0 },
+            Mode::Fast => ModeParams { stability_ms: 1.0, min_confidence: 0.80, release_ms: 25.0, refractory_ms: 30.0, chord_wait_ms: 30.0 },
+            Mode::Balanced => ModeParams { stability_ms: 2.7, min_confidence: 0.85, release_ms: 40.0, refractory_ms: 45.0, chord_wait_ms: 60.0 },
+            Mode::Accurate => ModeParams { stability_ms: 8.0, min_confidence: 0.90, release_ms: 50.0, refractory_ms: 60.0, chord_wait_ms: 70.0 },
         }
     }
 }
@@ -50,7 +50,39 @@ pub struct ModeParams {
     pub release_ms: f32,
     /// Minimum time between two onsets.
     pub refractory_ms: f32,
+    /// Polyphonic mode only: how much signal after a pick the chord detector reads before it names the
+    /// notes. Every string needs a few periods and the low ones need the most, so this is the
+    /// polyphonic mode's latency floor.
+    pub chord_wait_ms: f32,
 }
+
+/// One note at a time (the pitch tracker with pitch bend) or several (the chord detector, no bend).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Polyphony {
+    #[default]
+    Mono,
+    Poly,
+}
+
+impl Polyphony {
+    pub fn name(self) -> &'static str {
+        match self {
+            Polyphony::Mono => "mono",
+            Polyphony::Poly => "poly",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Polyphony> {
+        match name.to_ascii_lowercase().as_str() {
+            "mono" | "monophonic" => Some(Polyphony::Mono),
+            "poly" | "polyphonic" | "chords" => Some(Polyphony::Poly),
+            _ => None,
+        }
+    }
+}
+
+/// Standard tuning, low E to high E, as MIDI notes.
+pub const STANDARD_TUNING: [u8; 6] = [40, 45, 50, 55, 59, 64];
 
 /// Which detector core to run. Both share the same FFT autocorrelation front end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -64,6 +96,13 @@ pub enum Algorithm {
 pub struct GuitarConfig {
     pub sample_rate: f32,
     pub mode: Mode,
+    /// Monophonic tracker or chord detector. Needs the engine rebuilt to change.
+    pub polyphony: Polyphony,
+    /// Open strings, lowest first, as MIDI notes. The chord detector uses it to rule out note sets no
+    /// hand could play: two notes that only one string can reach, or more notes than strings.
+    pub tuning: [u8; 6],
+    /// Highest fret on the neck.
+    pub frets: u8,
     pub algorithm: Algorithm,
     /// A4 in Hz (EVT-1).
     pub reference_pitch: f32,
@@ -119,6 +158,9 @@ impl Default for GuitarConfig {
         GuitarConfig {
             sample_rate: 48_000.0,
             mode: Mode::Balanced,
+            polyphony: Polyphony::Mono,
+            tuning: STANDARD_TUNING,
+            frets: 24,
             algorithm: Algorithm::Yin,
             reference_pitch: 440.0,
             bend_range: 2.0,
@@ -149,6 +191,11 @@ impl Default for GuitarConfig {
 impl GuitarConfig {
     pub fn with_mode(mut self, mode: Mode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    pub fn with_polyphony(mut self, polyphony: Polyphony) -> Self {
+        self.polyphony = polyphony;
         self
     }
 

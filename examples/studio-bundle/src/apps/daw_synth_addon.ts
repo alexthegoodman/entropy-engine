@@ -226,6 +226,7 @@ import {
 } from "./daw_templates";
 import {
     GUITAR_MODES,
+    GUITAR_POLYPHONY,
     GUITAR_WAVEFORMS,
     SignalHints,
     defaultGuitarPrefs,
@@ -2489,7 +2490,7 @@ function finishGuitarTake() {
     guitarRecording = false;
     const r = addon.Guitar.record("stop");
     const notes = r.notes ?? [];
-    const take = takeToPattern(notes, project.bpm, project.stepsPerBeat);
+    const take = takeToPattern(notes, project.bpm, project.stepsPerBeat, 48, guitarPrefs().polyphony === "poly");
     if (!take) {
         guitarMessage = "Nothing was played, so there is no take to keep.";
         return;
@@ -2633,6 +2634,17 @@ function renderGuitarWindow(win: string) {
         if (d.overruns > 0) W.label(win, { text: `The audio callback ran long ${d.overruns} times. Try the Accurate mode or a larger buffer.` });
         if (guitarStatus.calibration?.busy) W.label(win, { text: `Calibrating: ${guitarStatus.calibration.state}...`, bold: true });
     }
+
+    // Pick mode or chord mode
+    W.horizontal(win, (tid: string) => {
+        W.label(tid, { text: "Play:", bold: true });
+        GUITAR_POLYPHONY.forEach(p => {
+            W.button(tid, {
+                text: radio(prefs.polyphony === p) + (p === "mono" ? "Single notes (bends)" : "Chords"), id: "guitar_poly_" + p,
+                onClick: () => { prefs.polyphony = p; pushGuitarSettings({ polyphony: p }); }
+            });
+        });
+    });
 
     // Response
     W.horizontal(win, (tid: string) => {

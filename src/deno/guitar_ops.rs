@@ -7,7 +7,7 @@
 
 use crate::deno::addon_ops::AddonContext;
 use crate::deno::wavetable_ops::WavetableNoteConfig;
-use crate::guitar::{GuitarConfig, Mode, Tunables};
+use crate::guitar::{GuitarConfig, Mode, Polyphony, Tunables};
 use crate::guitar_live::{list_input_devices, CalState, GuitarSession, InputRequest, OpenedInput, Waveform};
 use deno_core::{op2, OpState};
 use serde::Deserialize;
@@ -45,6 +45,8 @@ pub fn op_guitar_list_inputs() -> Json {
 #[serde(rename_all = "camelCase")]
 pub struct GuitarTunables {
     pub mode: Option<String>,
+    /// `"mono"` (pick mode: one note, with bend) or `"poly"` (chord mode: several notes, no bend).
+    pub polyphony: Option<String>,
     pub sensitivity: Option<f32>,
     pub gate_open_db: Option<f32>,
     pub gate_close_db: Option<f32>,
@@ -58,6 +60,13 @@ pub struct GuitarTunables {
 }
 
 impl GuitarTunables {
+    fn polyphony(&self) -> Result<Option<Polyphony>, String> {
+        match &self.polyphony {
+            None => Ok(None),
+            Some(name) => Polyphony::from_name(name).map(Some).ok_or_else(|| format!("no polyphony '{name}' (mono, poly)")),
+        }
+    }
+
     fn apply_to(&self, base: Tunables) -> Result<Tunables, String> {
         let mut t = base;
         if let Some(name) = &self.mode {
@@ -153,6 +162,10 @@ pub fn op_guitar_start(state: &mut OpState, #[serde] config: GuitarStartConfig) 
         Ok(t) => cfg.apply_tunables(&t),
         Err(e) => return err(e),
     }
+    match config.tunables.polyphony() {
+        Ok(p) => cfg.polyphony = p.unwrap_or_default(),
+        Err(e) => return err(e),
+    }
     let req = InputRequest {
         host: config.host.clone().filter(|h| !h.is_empty()),
         device: config.device.clone().filter(|d| !d.is_empty()),
@@ -192,16 +205,24 @@ pub fn op_guitar_stop() -> Json {
     json!({ "ok": true })
 }
 
-/// Changes a setting while playing: mode, gate, sensitivity, bend range, reference pitch, gain.
+/// Changes a setting while playing: mode, gate, sensitivity, bend range, reference pitch, gain, and
+/// `polyphony` (pick mode or chord mode; the switch is immediate and releases whatever sounds).
 #[op2]
 #[serde]
 pub fn op_guitar_set(#[serde] config: GuitarTunables) -> Json {
     LIVE.with(|cell| {
         let mut guard = cell.borrow_mut();
         let Some(live) = guard.as_mut() else { return err("the guitar input is not running") };
+        let polyphony = match config.polyphony() {
+            Ok(p) => p,
+            Err(e) => return err(e),
+        };
         match config.apply_to(live.session.config().tunables()) {
             Ok(t) => {
                 live.session.set_tunables(t);
+                if let Some(p) = polyphony {
+                    live.session.set_polyphony(p);
+                }
                 json!({ "ok": true })
             }
             Err(e) => err(e),
@@ -249,6 +270,8 @@ pub fn op_guitar_status() -> Json {
         let d = live.session.diagnostics();
         let (cal, _, _) = live.session.calibration();
         let c = live.session.config();
+        let sounding: Vec<u8> = d.notes.iter().collect();
+        let fingering = crate::guitar::tab::fingering(&sounding, &c.tuning, c.frets);
         // What the driver really delivers can differ from what it accepted: WASAPI shared mode takes any
         // fixed buffer size and then runs on its own 10 ms period. Only a measured callback shows it.
         let buffer_note = match live.opened.buffer_frames {
@@ -270,6 +293,7 @@ pub fn op_guitar_status() -> Json {
                 "finished": finished.map(|f| match f { CalState::SilenceDone => "room", CalState::PlayingDone => "playing", _ => "failed" }),
             },
             "settings": {
+                "polyphony": c.polyphony.name(),
                 "mode": c.mode.name(), "sensitivity": c.sensitivity, "gateOpenDb": c.gate_open_db, "gateCloseDb": c.gate_close_db,
                 "bendRange": c.bend_range, "referencePitch": c.reference_pitch, "inputGainDb": c.input_gain_db,
                 "velocityFloorDb": c.velocity_floor_db, "velocityCeilDb": c.velocity_ceil_db,
@@ -281,6 +305,10 @@ pub fn op_guitar_status() -> Json {
                 "freqHz": d.freq_hz,
                 "confidence": d.confidence,
                 "note": d.note,
+                "notesSounding": sounding,
+                // Where on the neck those notes are most likely fretted, lowest string first; null for a
+                // string not played. A guess (the most compact shape), for display.
+                "fingering": fingering,
                 "cents": d.cents,
                 "state": d.state.name(),
                 "velocity": d.velocity,

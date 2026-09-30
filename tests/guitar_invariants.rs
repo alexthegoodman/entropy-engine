@@ -4,9 +4,17 @@
 //!
 //! Seeded, so a failure names the seed that reproduces it.
 
-use entropy_engine::guitar::replay::{check_well_formed, run};
+use entropy_engine::guitar::replay::{check_well_formed, check_well_formed_poly, run};
 use entropy_engine::guitar::testsig::{self, Motion, Pluck, Rng};
-use entropy_engine::guitar::{Algorithm, GuitarConfig, GuitarEngine, GuitarEventKind, Mode};
+use entropy_engine::guitar::{Algorithm, GuitarConfig, GuitarEngine, GuitarEvent, GuitarEventKind, Mode, Polyphony};
+
+/// The invariants for whichever engine the config runs.
+fn well_formed(cfg: &GuitarConfig, events: &[GuitarEvent]) -> Result<(), String> {
+    match cfg.polyphony {
+        Polyphony::Mono => check_well_formed(events),
+        Polyphony::Poly => check_well_formed_poly(events),
+    }
+}
 
 fn random_config(rng: &mut Rng) -> GuitarConfig {
     let rates = [44_100.0f32, 48_000.0, 96_000.0];
@@ -17,6 +25,7 @@ fn random_config(rng: &mut Rng) -> GuitarConfig {
         bend_range: 1.0 + (rng.next_u32() % 12) as f32,
         guard: rng.next_u32() % 2 == 0,
         sensitivity: rng.unit(),
+        polyphony: if rng.next_u32() % 2 == 0 { Polyphony::Mono } else { Polyphony::Poly },
         ..GuitarConfig::default()
     }
 }
@@ -61,8 +70,8 @@ fn random_recordings_always_produce_well_formed_events() {
         let x = random_recording(&mut rng, cfg.sample_rate);
         let block = [16usize, 32, 64, 100, 128, 256, 512, 1024][(rng.next_u32() % 8) as usize];
         let r = run(&cfg, &x, block);
-        if let Err(e) = check_well_formed(&r.events) {
-            panic!("seed {seed} ({:?} {:?} fs {} block {block} bend {}): {e}", cfg.mode, cfg.algorithm, cfg.sample_rate, cfg.bend_range);
+        if let Err(e) = well_formed(&cfg, &r.events) {
+            panic!("seed {seed} ({:?} {:?} {:?} fs {} block {block} bend {}): {e}", cfg.mode, cfg.polyphony, cfg.algorithm, cfg.sample_rate, cfg.bend_range);
         }
         events_seen += r.events.len();
         assert!(r.diagnostics.freq_hz.is_finite() && r.diagnostics.level_db.is_finite(), "seed {seed}: non-finite diagnostics");
@@ -105,10 +114,12 @@ fn hostile_input_neither_panics_nor_breaks_the_stream() {
     ];
     for (name, x) in cases {
         for mode in Mode::ALL {
-            let cfg = GuitarConfig::default().with_mode(mode);
-            let r = run(&cfg, &x, 128);
-            if let Err(e) = check_well_formed(&r.events) {
-                panic!("{name} ({}): {e}", mode.name());
+            for polyphony in [Polyphony::Mono, Polyphony::Poly] {
+                let cfg = GuitarConfig::default().with_mode(mode).with_polyphony(polyphony);
+                let r = run(&cfg, &x, 128);
+                if let Err(e) = well_formed(&cfg, &r.events) {
+                    panic!("{name} ({} {}): {e}", mode.name(), polyphony.name());
+                }
             }
         }
     }

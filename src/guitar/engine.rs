@@ -2,10 +2,12 @@
 //! the note tracker, driven one buffer at a time. No audio device, no UI, no allocation after
 //! `new` (spec 4.12), so the same code runs on the audio thread and in an offline replay.
 
-use super::config::GuitarConfig;
+use super::config::{GuitarConfig, Polyphony};
 use super::dsp::{amp_to_db, BandGuard, Biquad, DcBlocker, Ring};
 use super::events::EventSink;
 use super::pitch::{PitchDetector, PitchEstimate, TierDetector};
+use super::poly::NoteSet;
+use super::poly_engine::PolyEngine;
 use super::tracker::{HopInput, Tracker, TrackerState, TrackerStats, Want};
 use realfft::RealFftPlanner;
 
@@ -53,9 +55,38 @@ pub struct Diagnostics {
     /// The analysis hop ran long enough to matter for the real-time budget: hops that took longer
     /// than one hop of audio is worth. Filled in by the live wrapper, which owns a clock.
     pub overruns: u64,
+    /// Every note sounding. In the monophonic engine, at most `note`.
+    pub notes: NoteSet,
+    /// Which engine produced this.
+    pub polyphonic: bool,
 }
 
-pub struct GuitarEngine {
+impl Diagnostics {
+    /// Nothing heard yet.
+    pub fn silent() -> Self {
+        Diagnostics {
+            level_db: -120.0,
+            input_peak: 0.0,
+            clipping: false,
+            freq_hz: 0.0,
+            confidence: 0.0,
+            tier: 0,
+            note: None,
+            cents: 0.0,
+            state: TrackerState::Silent,
+            velocity: 0,
+            bend: 8192,
+            last_latency_samples: 0,
+            stats: TrackerStats::default(),
+            overruns: 0,
+            notes: NoteSet::default(),
+            polyphonic: false,
+        }
+    }
+}
+
+/// The monophonic engine: one note at a time, with pitch bend.
+pub struct MonoEngine {
     cfg: GuitarConfig,
     input_gain: f32,
     dc: DcBlocker,
@@ -77,7 +108,7 @@ pub struct GuitarEngine {
     diag: Diagnostics,
 }
 
-impl GuitarEngine {
+impl MonoEngine {
     pub fn new(cfg: GuitarConfig) -> Self {
         let fs = cfg.sample_rate;
         let hop = cfg.hop.max(16);
@@ -106,23 +137,8 @@ impl GuitarEngine {
         let level_window = ((LEVEL_WINDOW_MS * fs / 1000.0) as usize).max(hop);
 
         let tracker = Tracker::new(&cfg);
-        let diag = Diagnostics {
-            level_db: -120.0,
-            input_peak: 0.0,
-            clipping: false,
-            freq_hz: 0.0,
-            confidence: 0.0,
-            tier: 0,
-            note: None,
-            cents: 0.0,
-            state: TrackerState::Silent,
-            velocity: 0,
-            bend: 8192,
-            last_latency_samples: 0,
-            stats: TrackerStats::default(),
-            overruns: 0,
-        };
-        GuitarEngine {
+        let diag = Diagnostics::silent();
+        MonoEngine {
             input_gain: 10f32.powf(cfg.input_gain_db / 20.0),
             dc: DcBlocker::new(fs, DC_CORNER_HZ),
             lowpass: (cfg.lowpass_hz > 0.0).then(|| Biquad::lowpass(fs, cfg.lowpass_hz, 0.7071)),
@@ -279,6 +295,10 @@ impl GuitarEngine {
         self.diag.clipping = self.diag.input_peak >= db_to_clip();
         self.diag.state = self.tracker.state();
         self.diag.note = self.tracker.active_note();
+        self.diag.notes = NoteSet::default();
+        if let Some(n) = self.diag.note {
+            self.diag.notes.insert(n);
+        }
         self.diag.cents = self.tracker.cents();
         self.diag.velocity = self.tracker.velocity();
         self.diag.bend = self.tracker.bend();
@@ -357,6 +377,104 @@ impl GuitarEngine {
         let mut e = self.tiers[k].estimate(&self.seg[..len])?;
         e.sample_pos = now;
         Some(e)
+    }
+}
+
+/// The guitar-to-MIDI engine: samples in, note events out. Runs the monophonic tracker or the chord
+/// detector, as the config's `polyphony` says; everything that drives it (the live pipeline, the replay
+/// harness, the benchmarks) works the same with either.
+pub enum GuitarEngine {
+    Mono(MonoEngine),
+    Poly(Box<PolyEngine>),
+}
+
+impl GuitarEngine {
+    pub fn new(cfg: GuitarConfig) -> Self {
+        match cfg.polyphony {
+            Polyphony::Mono => GuitarEngine::Mono(MonoEngine::new(cfg)),
+            Polyphony::Poly => GuitarEngine::Poly(Box::new(PolyEngine::new(cfg))),
+        }
+    }
+
+    pub fn config(&self) -> &GuitarConfig {
+        match self {
+            GuitarEngine::Mono(e) => e.config(),
+            GuitarEngine::Poly(e) => e.config(),
+        }
+    }
+
+    /// Applies runtime-changeable settings. Allocation free, so it is safe on the audio thread.
+    pub fn set_tunables(&mut self, t: &super::config::Tunables) {
+        match self {
+            GuitarEngine::Mono(e) => e.set_tunables(t),
+            GuitarEngine::Poly(e) => e.set_tunables(t),
+        }
+    }
+
+    /// Window lengths in samples, shortest first (monophonic engine; empty for the chord detector).
+    pub fn tier_lengths(&self) -> Vec<usize> {
+        match self {
+            GuitarEngine::Mono(e) => e.tier_lengths(),
+            GuitarEngine::Poly(_) => Vec::new(),
+        }
+    }
+
+    pub fn tier_ranges_hz(&self) -> Vec<(f32, f32)> {
+        match self {
+            GuitarEngine::Mono(e) => e.tier_ranges_hz(),
+            GuitarEngine::Poly(_) => Vec::new(),
+        }
+    }
+
+    /// Total samples processed.
+    pub fn position(&self) -> u64 {
+        match self {
+            GuitarEngine::Mono(e) => e.position(),
+            GuitarEngine::Poly(e) => e.position(),
+        }
+    }
+
+    pub fn diagnostics(&self) -> Diagnostics {
+        match self {
+            GuitarEngine::Mono(e) => e.diagnostics(),
+            GuitarEngine::Poly(e) => e.diagnostics(),
+        }
+    }
+
+    /// Largest absolute input sample since the previous call, for the level meter and clip light.
+    pub fn take_peak(&mut self) -> f32 {
+        match self {
+            GuitarEngine::Mono(e) => e.take_peak(),
+            GuitarEngine::Poly(e) => e.take_peak(),
+        }
+    }
+
+    /// Releases every note and centers the bend (EVT-6). Call on stop, device change and exit.
+    pub fn release_all(&mut self, sink: &mut impl EventSink) {
+        match self {
+            GuitarEngine::Mono(e) => e.release_all(sink),
+            GuitarEngine::Poly(e) => e.release_all(sink),
+        }
+    }
+
+    /// Clears every filter and the tracker, releasing notes first.
+    pub fn reset(&mut self, sink: &mut impl EventSink) {
+        match self {
+            GuitarEngine::Mono(e) => e.reset(sink),
+            GuitarEngine::Poly(e) => e.reset(sink),
+        }
+    }
+
+    /// Feeds mono samples in `[-1, 1]`. Events go to `sink` as they are decided.
+    pub fn process(&mut self, block: &[f32], sink: &mut impl EventSink) {
+        match self {
+            GuitarEngine::Mono(e) => e.process(block, sink),
+            GuitarEngine::Poly(e) => e.process(block, sink),
+        }
+    }
+
+    pub fn is_polyphonic(&self) -> bool {
+        matches!(self, GuitarEngine::Poly(_))
     }
 }
 

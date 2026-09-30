@@ -1,8 +1,8 @@
 # Guitar-to-MIDI for Entropy DAW
 
-**Status:** Draft v2 · **Scope:** v1 (monophonic) · **Platform:** Windows first (Entropy is currently only tested on Windows)
+**Status:** Draft v3 · **Scope:** v1 (monophonic) plus chord mode ([Section 12](#12-chord-mode-polyphonic-2026-09-30)) · **Platform:** Windows first (Entropy is currently only tested on Windows)
 
-> **Benchmarking reminder:** every timing, CPU, latency, and accuracy number in this document must be measured with a **release build** (`cargo run --release`, `cargo bench`, `cargo test --release`). Debug builds of DSP code are often an order of magnitude or more slower and will not meet any target here. Never report or compare numbers from a debug build.
+> **Build reminder:** use **release builds for anything that measures time**: CPU per callback, wall-clock latency on hardware, soak tests and `guitar_bench cpu`. Debug DSP code can be an order of magnitude slower, so never report or compare timing from a debug build. Everything else (everyday builds, the unit tests, the BDD scenarios, the accuracy and invariant suites) is fine in a **debug build**, which is much faster to compile. The engine is deterministic and its latencies are counted in input samples, not wall time, so debug and release give the same events. The accuracy tables below come from `guitar_bench`, which is simply run in release because it replays thousands of recordings.
 
 ---
 
@@ -207,7 +207,7 @@ Errors are reported outside the real-time path and must never destabilize the au
 
 ## 5. Benchmarks and acceptance targets
 
-> **Run everything with the release flag.** Use `cargo run --release` (for example `cargo run --bin example_daw --release`, or whichever binary hosts the feature), `cargo bench`, and `cargo test --release` for timing-sensitive tests. Results from debug builds are invalid for this section.
+> **Timing needs the release flag.** CPU and wall-clock numbers in this section need `cargo run --release` (for example `cargo run --release --bin guitar_bench -- cpu`) or `cargo bench`. Pick-to-Note-On latencies are counted in input samples, so they are the same in any build; the benchmark runs in release only because it replays thousands of recordings.
 
 These are **starting targets**, chosen to be plausible for a well-built YIN/MPM-class detector. Revise them once the first real measurements exist, and record the actual results in the repo.
 
@@ -268,7 +268,7 @@ Measured from the input buffer containing the attack onset to the emitted Note O
 6. **Benchmarks.** `cargo bench` for per-stage and per-callback timings. **Release builds only.**
 7. **Soak test.** At least 2 hours of continuous processing with a representative Entropy project, checking xruns, memory, and stuck notes.
 8. **Loopback measurement.** External measurement of end-to-end latency for the informational target.
-9. **CI.** Run the replay-accuracy suite in release mode on each pull request and fail on regressions beyond a set threshold.
+9. **CI.** Run the replay-accuracy suite on each pull request and fail on regressions beyond a set threshold (debug is fine for accuracy; release for any timing check).
 
 ---
 
@@ -344,7 +344,7 @@ Monophonic guitar detection, real-time audio capture, signal conditioning, pitch
 - Harmonics and tapping
 
 **Phase 3: broader capabilities**
-- Polyphonic / chord detection and per-string detection (hexaphonic pickups)
+- ~~Polyphonic / chord detection~~ (chord mode, [Section 12](#12-chord-mode-polyphonic-2026-09-30)); per-string detection (hexaphonic pickups)
 - MPE and MIDI 2.0
 - External MIDI hardware output and virtual MIDI ports
 - Machine-learning pitch detection
@@ -420,3 +420,109 @@ Fast mode: 6.7 ms high, 12 / 28 ms mid, 28 ms low, but 93.3% correct on low note
 **Live checks still to do by hand, with a guitar.** Play single notes across the neck and watch the diagnostics; hold and mute a note; vibrato and a whole-tone bend; a slide; play Vital or Massive and check the bend range; record a take; unplug the cable mid-note; run Calibrate room then Calibrate playing; note the pick-to-sound feel in each mode. Report anything that reads wrong with the note, the mode and the diagnostics line.
 
 **By-hand report (2026-09-21).** Alex played it on a real guitar and reported that it feels real-time. No measurements, mode, device or notes were recorded, so every number above is still from the synthetic corpus and the checklist above is still open.
+
+---
+
+## 12. Chord mode (polyphonic), 2026-09-30
+
+Added for chords, arpeggios left to ring, and the planned tab-learning companion app. Everything below
+is from the synthetic corpus: no real guitar has been played through chord mode yet.
+
+**Two modes, chosen per song section.** Pick mode (`polyphony: "mono"`, the default) is the engine above:
+one note at a time, 7 to 36 ms, with pitch bend. Chord mode (`"poly"`) hears several strings at once but
+needs about 60 to 90 ms to separate them, and sends no pitch bend (one MIDI bend cannot follow six
+strings; per-string bend needs MPE, still Phase 3). A single "auto" mode would make lead lines slower
+and chords less reliable, so both exist and the app switches between them. `Guitar.set({ polyphony })`
+switches instantly while playing: the pipeline builds both engines when the input opens, so the switch
+allocates nothing on the audio thread, releases whatever sounds, and keeps event times on the input's
+clock. The teaching app knows from the tab which sections are single-note lines and which are chords,
+so it can switch as the song goes.
+
+**Where it lives.** `src/guitar/poly.rs` (the multi-pitch detector), `src/guitar/poly_engine.rs`
+(spectral-flux onsets, the chord tracker, the engine), `src/guitar/tab.rs` (which string can play which
+note). `GuitarEngine` is now a wrapper over `MonoEngine` and `PolyEngine`, so the live pipeline, the
+replay harness and the benchmarks run either one. The router plays the built-in voice as a pool of six
+voices, one per string, and the recorder keeps overlapping notes. The DAW panel has a "Play: Single notes
+(bends) / Chords" switch, and a chord-mode take keeps a chord's notes on one step. `Guitar.status()`
+reports every note sounding (`notesSounding`) and the most compact way to fret them (`fingering`, e.g.
+`x32010`).
+
+**How it works.**
+- *Onsets* are spectral flux: the summed rise in dB, bin by bin, over the louder of the two previous
+  frames with each bin allowed its neighbours' level (so vibrato is not new energy). A string picked
+  while louder ones ring barely moves the overall level but lights up bins that were quiet, which the
+  level-based onset of pick mode cannot hear.
+- *Detection* is Klapuri-style iterative estimation and cancellation on a Hann-windowed, zero-padded FFT
+  of the signal since the pick (up to 85 ms): score every candidate note by the weighted amplitudes at
+  its partials (followed up a stretched series, for stiff strings), take the best, subtract its
+  partials after smoothing them against their neighbours, repeat. Guitar knowledge narrows it: only
+  notes the tuning reaches are candidates, a set needing two notes on one string is refused (a bipartite
+  matching over six strings), and a new note more than 20 dB under the loudest is not believed.
+- *Octave doublings* (E2 with E3, E4) hide entirely in the lower string's partials. Before an upper note
+  is taken, the octave, twelfth and two octaves below are tried and preferred if they have partials of
+  their own; after a note is found, its octave above is added if the lower note's even partials come
+  out stronger than their odd neighbours predict (alone a string measured 6 to 12% over, with its
+  octave 36 to 69%).
+- *Tracking*: after a pick the detector reads only the signal since it, once the mode's
+  `chord_wait_ms` has passed (Fast 30, Balanced 60, Accurate 70 ms). A new note must be found in several
+  frames running (2, 3, 4) and within 90 ms of the strum to belong to it; a note with no pick of its own
+  (a hammer-on) must hold 50 ms, next to a sounding note and within 6 dB of it. Picks within 35 ms are one
+  strum. Short windows (under 62 ms) are read more sceptically and look for no doublings. A string held
+  over a strum loses the benefit of the doubt until it shows it is still ringing: found 12 dB under its
+  pre-strum level, or missing from the first window with nothing left at its fundamental, it was muted
+  and ends at the strum. A sounding note's own partials rising 4 dB at a pick is a re-pick.
+
+**Measured** (`cargo run --release --bin guitar_bench -- poly`; 40 chord shapes from open chords to
+barre chords up the neck, power chords, triads and intervals, 3 seeds, each strummed low to high over
+25 ms with its own level, seed and pluck position per string; 49 single notes E2 to E6; notes counted
+by pitch):
+
+| | Fast | Balanced | Accurate |
+| --- | --- | --- | --- |
+| Chord notes: precision / recall | 73 / 91% | 91 / 87% | 92 / 86% |
+| Chords with every pitch class right | 56% | 88% | 88% |
+| Chords exactly right, octave doublings included | 26% | 50% | 50% |
+| Single notes correct, and never more than one Note On | 100% | 100% | 100% |
+| First note of a chord / last correct note, p50 (from the first string) | 40 / 77 ms | 77 / 83 ms | 93 / 93 ms |
+| Last correct note, p95 | 173 ms | 131 ms | 131 ms |
+| Progression of 8 chords, precision; notes left hanging into the next chord | 77%; 0 | 97%; 0 | 100%; 0 |
+| 30 s of room noise and 20 handling thumps | 0 notes | 0 notes | 0 notes |
+
+Every event stream in the corpus, the 80 random recordings and the hostile inputs of
+`tests/guitar_invariants.rs` is well formed; the audio path allocates nothing in any mode
+(`tests/guitar_no_alloc.rs`). CPU per 128-sample callback on this cloud machine: pick mode mean 1.2%,
+p99.9 3.0%; chord mode mean 9.6%, p99.9 45% (the analysis runs every 256 samples, so every other
+callback carries it). That is inside the budget of section 5.2, with little headroom. Balanced is the
+mode for chords. Fast gives up a fifth of its precision for 37 ms and is not recommended for chords.
+
+**The detector alone** (`guitar_bench chords`, one window read 100 ms from the first string): precision
+92%, recall 82%, every pitch class right in 86% of chords, single notes 100%. Most misses are doubled octaves
+(the fifth or root repeated an octave up); most false notes sit an octave or a twelfth above a real one.
+
+**Known limits** (each is in the benchmark or a scenario):
+- Octave doublings are best effort: a note that sits entirely on another string's partials can be
+  missed (in the G barre shape, D3, G3, D4 and G4 all sit on G2's partials). The chord's pitch classes and
+  bass note are the reliable part.
+- Two notes a semitone apart around 250 Hz (B3 with C4) merge into one peak in an 85 ms window; one is
+  reported, sometimes with a ghost an octave up. Close-voiced major sevenths are affected.
+- A light re-strum of a chord that is still ringing is not heard as new notes: a sounding note is only
+  re-picked when its partials rise 4 dB. *To do later*, for strumming patterns in the teaching app.
+- Live, the old chord can overlap the new one by up to about 200 ms on a chord change (the first string
+  over strings being muted is a weak onset, and the first short windows cannot yet prove the old strings
+  gone). A recording keeps the right end: at the strum.
+- Let-ring arpeggios in Balanced sometimes restart a ringing string when the next is picked (Off/On,
+  no wrong notes); Accurate keeps them ringing.
+- Hammer-ons and pull-offs start a note only after 50 ms, and bends past a semitone become a new note
+  (there is no bend in chord mode).
+
+**For the teaching app** (not built yet): the app knows the notes the tab expects. Checking "is each of
+these notes there?" is much more reliable than open transcription, especially for doubled octaves and
+close voicings, and the detector already has what it needs (per-note salience, `fundamental_db`, the
+string assignment). That score-informed check is the natural next step, together with an onset event of
+its own so strumming rhythm can be graded even when the chord does not change. `tab::fingering`
+already turns a set of notes into a fret per string.
+
+**Pick-mode fidelity re-checked.** The synthetic benchmark reproduces section 11 exactly after the
+refactor (same correct rates and latencies in all three modes), and the monophonic BDD scenarios all
+pass. The checks with a real guitar listed in section 11 are still open, and now include chord mode:
+open chords, a barre chord, a progression, an arpeggio left to ring, and switching modes mid-song.

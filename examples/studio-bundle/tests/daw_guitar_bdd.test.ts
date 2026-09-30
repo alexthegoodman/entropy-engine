@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-    SignalHints, bendCents, diagnosticsLines, noteName, readGuitarPrefs, takeToPattern,
+    SignalHints, bendCents, diagnosticsLines, noteName, readGuitarPrefs, startConfig, takeToPattern,
     type GuitarDiag, type TakeNote, type TakePattern,
 } from "../src/apps/daw_guitar";
 import { parseFeature } from "./daw_test_world";
@@ -29,6 +29,7 @@ describe("The DAW's guitar input logic (production module)", () => {
             let take: TakeNote[] = [];
             let bpm = 120, spb = 4;
             let pattern: TakePattern | null = null;
+            let polyphonic = false;
             let prefsJson = "";
             let prefs: ReturnType<typeof readGuitarPrefs> | null = null;
             const hints = new SignalHints();
@@ -37,10 +38,10 @@ describe("The DAW's guitar input logic (production module)", () => {
 
             for (const step of scenario.steps) {
                 let m: RegExpExecArray | null;
-                if ((m = /^a take at (\d+) BPM with (\d+) steps per beat: "(.*)"$/.exec(step))) {
-                    bpm = +m[1]; spb = +m[2]; take = parseTake(m[3]);
+                if ((m = /^a (chord-mode )?take at (\d+) BPM with (\d+) steps per beat: "(.*)"$/.exec(step))) {
+                    polyphonic = !!m[1]; bpm = +m[2]; spb = +m[3]; take = parseTake(m[4]);
                 } else if (step === "the take is turned into a pattern") {
-                    pattern = takeToPattern(take, bpm, spb);
+                    pattern = takeToPattern(take, bpm, spb, 48, polyphonic);
                 } else if ((m = /^the pattern is rooted on note (\d+) with (\d+) rows$/.exec(step))) {
                     expect(pattern!.rootNote).toBe(+m[1]);
                     expect(pattern!.rows).toBe(+m[2]);
@@ -61,6 +62,19 @@ describe("The DAW's guitar input logic (production module)", () => {
                     prefs = readGuitarPrefs(JSON.parse(prefsJson));
                 } else if (step === "the mode is accurate and the bend range is 12 and the channel is 0") {
                     expect([prefs!.mode, prefs!.bendRange, prefs!.channel]).toEqual(["accurate", 12, 0]);
+                } else if ((m = /^the polyphony is "(.*)"$/.exec(step))) {
+                    expect(prefs!.polyphony).toBe(m[1]);
+                    expect(startConfig(prefs!).polyphony).toBe(m[1]);
+                } else if ((m = /^a chord reading of (.*) fretted "(.*)"$/.exec(step))) {
+                    const notes = m[1].split(" ").map(midiOf);
+                    const fingering = [...m[2]].map(c => (c === "x" ? null : +c));
+                    diag = {
+                        levelDb: -20, inputPeakDb: -12, clipped: false, freqHz: 130.8, confidence: 1, note: notes[0], notesSounding: notes, fingering,
+                        cents: 0, state: "playing", velocity: 90, bend: 8192, pipelineLatencyMs: 61, bufferMs: 2.7, bufferFrames: 128, sampleRate: 48000,
+                        callbacks: 100, overruns: 0, streamErrors: 0, maxCallbackUs: 90, meanCallbackUs: 15, droppedBends: 0, droppedEvents: 0,
+                        notes: 5, noiseRejects: 0, octaveRejects: 0, octaveCorrections: 0, slides: 0, repicks: 0,
+                    };
+                    bpm = 2;
                 } else if (step === "the waveform is the default") {
                     expect(prefs!.waveform).toBe("saw");
                 } else if ((m = /^the device is "(.*)" on "(.*)"$/.exec(step))) {
