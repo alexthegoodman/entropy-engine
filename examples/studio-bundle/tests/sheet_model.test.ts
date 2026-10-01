@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { a1, cellKey, colLetters, defaultSheet, deleteColumn, deleteRow, evaluateSheet, insertColumn, insertRow, parseA1 } from "../src/apps/sheet/sheet_model";
 import type { SheetDoc } from "../src/apps/sheet/sheet_model";
+import {
+    a1,
+    adjustFormulaForPaste,
+    cellKey,
+    colLetters,
+    defaultSheet,
+    deleteColumn,
+    deleteRow,
+    evaluateSheet,
+    formatRef,
+    insertColumn,
+    insertRow,
+    parseA1,
+    parseA1Detailed,
+} from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
     const doc = defaultSheet(rows, cols);
@@ -220,5 +234,186 @@ describe("row and column insert/delete", () => {
         doc.cells[cellKey(2, 0)].border = [1, 0, 0, 1];
         const next = insertRow(doc, 1);
         expect(next.cells[cellKey(3, 0)].border).toEqual([1, 0, 0, 1]);
+    });
+});
+
+describe("formula reference adjustment on row/column insert and delete", () => {
+    it("shifts cell references down when a row is inserted above or at them", () => {
+        const doc = withCells({ A1: "10", A2: "=A1*2", A3: "=A1+A2" });
+        // Insert empty row at index 1 (between A1 and A2)
+        const next = insertRow(doc, 1);
+        expect(next.rows).toBe(11);
+        // A1 stayed at A1 (row 0 < 1)
+        expect(next.cells[cellKey(0, 0)].raw).toBe("10");
+        // Row 1 is new empty row
+        expect(next.cells[cellKey(1, 0)]).toBeUndefined();
+        // A2 moved to A3 (row 2); its reference to A1 stayed A1 (row 0 < 1)
+        expect(next.cells[cellKey(2, 0)].raw).toBe("=A1*2");
+        // A3 moved to A4 (row 3); references A1 (unchanged) and old A2 (now A3)
+        expect(next.cells[cellKey(3, 0)].raw).toBe("=A1+A3");
+    });
+
+    it("shifts cell references at or below the inserted row", () => {
+        const doc = withCells({ A2: "5", B1: "=A2+1" });
+        // Insert row at 0 (above everything)
+        const next = insertRow(doc, 0);
+        // B1 moved to B2 (row 1, col 1); old A2 moved to A3, formula adjusted from A2 to A3
+        expect(next.cells[cellKey(1, 1)].raw).toBe("=A3+1");
+    });
+
+    it("expands a formula range when a row is inserted inside the range", () => {
+        const doc = withCells({ A1: "1", A2: "2", A3: "3", B1: "=SUM(A1:A3)" });
+        // Insert row at index 2 (between A2 and A3)
+        const next = insertRow(doc, 2);
+        // Range A1:A3 expands to A1:A4
+        expect(next.cells[cellKey(0, 1)].raw).toBe("=SUM(A1:A4)");
+    });
+
+    it("shifts an entire formula range when a row is inserted above it", () => {
+        const doc = withCells({ A3: "1", A4: "2", B1: "=SUM(A3:A4)" });
+        // Insert row at index 0 (above A3:A4)
+        const next = insertRow(doc, 0);
+        expect(next.cells[cellKey(1, 1)].raw).toBe("=SUM(A4:A5)");
+    });
+
+    it("leaves formula references untouched when a row is inserted below them", () => {
+        const doc = withCells({ A1: "10", B1: "=A1+5" });
+        const next = insertRow(doc, 5);
+        expect(next.cells[cellKey(0, 1)].raw).toBe("=A1+5");
+    });
+
+    it("replaces reference with #REF! when referenced row is deleted", () => {
+        const doc = withCells({ A1: "10", A2: "20", A3: "=A1+A2" });
+        // Delete row 1 (A2)
+        const next = deleteRow(doc, 1);
+        expect(next.rows).toBe(9);
+        // A3 shifted up to row 1 (now A2), formula had A1 and A2; A2 was deleted -> #REF!
+        expect(next.cells[cellKey(1, 0)].raw).toBe("=A1+#REF!");
+    });
+
+    it("shifts references up when a row above them is deleted", () => {
+        const doc = withCells({ A1: "10", A2: "20", A3: "30", B1: "=A3*2" });
+        // Delete row 1 (A2)
+        const next = deleteRow(doc, 1);
+        // A3 shifted to A2; B1 formula adjusts from A3 to A2
+        expect(next.cells[cellKey(0, 1)].raw).toBe("=A2*2");
+    });
+
+    it("shrinks a formula range when an interior row is deleted", () => {
+        const doc = withCells({ A1: "1", A2: "2", A3: "3", A4: "4", B1: "=SUM(A1:A4)" });
+        // Delete row 2 (A3, inside the range)
+        const next = deleteRow(doc, 2);
+        expect(next.cells[cellKey(0, 1)].raw).toBe("=SUM(A1:A3)");
+    });
+
+    it("replaces range with #REF! when an endpoint row is deleted", () => {
+        const doc = withCells({ A1: "1", A2: "2", A3: "3", B2: "=SUM(A1:A3)" });
+        // Delete row 0 (A1, the range start)
+        const next = deleteRow(doc, 0);
+        // B2 shifted to B1 (row 0, col 1)
+        expect(next.cells[cellKey(0, 1)].raw).toBe("=SUM(#REF!)");
+    });
+
+    it("adjusts formula references on column insert", () => {
+        const doc = withCells({ A1: "10", B1: "20", C1: "=A1+B1", D1: "=SUM(A1:B1)" });
+        // Insert column at index 1 (between A and B)
+        const next = insertColumn(doc, 1);
+        expect(next.cols).toBe(11);
+        // C1 moved to D1; A1 stays A1 (col 0 < 1), B1 moved to C1
+        expect(next.cells[cellKey(0, 3)].raw).toBe("=A1+C1");
+        // D1 moved to E1; range A1:B1 expanded to A1:C1
+        expect(next.cells[cellKey(0, 4)].raw).toBe("=SUM(A1:C1)");
+    });
+
+    it("adjusts formula references on column delete", () => {
+        const doc = withCells({ A1: "10", B1: "20", C1: "30", D1: "=A1+B1+C1" });
+        // Delete column 1 (B)
+        const next = deleteColumn(doc, 1);
+        expect(next.cols).toBe(9);
+        // D1 moved to C1; B1 was deleted -> #REF!, C1 moved to B1
+        expect(next.cells[cellKey(0, 2)].raw).toBe("=A1+#REF!+B1");
+    });
+});
+
+describe("formula reference adjustment on paste", () => {
+    it("shifts relative references by row and column delta", () => {
+        // Copy from A1 (0, 0) to B2 (1, 1): delta row = +1, delta col = +1
+        const raw = "=C1 + D2";
+        const adjusted = adjustFormulaForPaste(raw, { row: 0, col: 0 }, { row: 1, col: 1 });
+        expect(adjusted).toBe("=D2 + E3");
+    });
+
+    it("preserves absolute row references when shifting rows", () => {
+        const raw = "=A$1 + B2";
+        // Paste 2 rows down
+        const adjusted = adjustFormulaForPaste(raw, { row: 0, col: 0 }, { row: 2, col: 0 });
+        expect(adjusted).toBe("=A$1 + B4");
+    });
+
+    it("preserves absolute column references when shifting columns", () => {
+        const raw = "=$A1 + B2";
+        // Paste 3 columns right
+        const adjusted = adjustFormulaForPaste(raw, { row: 0, col: 0 }, { row: 0, col: 3 });
+        expect(adjusted).toBe("=$A1 + E2");
+    });
+
+    it("preserves fully absolute references across any shift", () => {
+        const raw = "=$A$1 + 5";
+        const adjusted = adjustFormulaForPaste(raw, { row: 0, col: 0 }, { row: 5, col: 5 });
+        expect(adjusted).toBe("=$A$1 + 5");
+    });
+
+    it("shifts ranges relatively on paste", () => {
+        const raw = "=SUM(A1:B3)";
+        const adjusted = adjustFormulaForPaste(raw, { row: 0, col: 0 }, { row: 2, col: 1 });
+        expect(adjusted).toBe("=SUM(B3:C5)");
+    });
+
+    it("turns reference into #REF! when shifted off the top or left of the sheet", () => {
+        // Reference A1 in cell B2 (1, 1), paste into A1 (0, 0): delta = (-1, -1)
+        const raw = "=A1 + 1";
+        const adjusted = adjustFormulaForPaste(raw, { row: 1, col: 1 }, { row: 0, col: 0 });
+        expect(adjusted).toBe("=#REF! + 1");
+    });
+
+    it("returns non-formula strings verbatim", () => {
+        expect(adjustFormulaForPaste("42", { row: 0, col: 0 }, { row: 1, col: 1 })).toBe("42");
+        expect(adjustFormulaForPaste("hello", { row: 0, col: 0 }, { row: 1, col: 1 })).toBe("hello");
+    });
+
+    it("returns unchanged formula if pasted to the same cell", () => {
+        expect(adjustFormulaForPaste("=A1+B1", { row: 0, col: 0 }, { row: 0, col: 0 })).toBe("=A1+B1");
+    });
+});
+
+describe("recomputation and error handling after reference adjustments", () => {
+    it("evaluates correctly after row insertion moves data and formulas", () => {
+        const doc = withCells({ A1: "10", A2: "20", A3: "=A1+A2" });
+        expect(textOf(doc, "A3")).toBe("30");
+
+        // Insert row at 1 (between A1 and A2)
+        const next = insertRow(doc, 1);
+        // A3 became A4; should still evaluate to 30 because A1 is 10 and A3 is 20
+        expect(textOf(next, "A4")).toBe("30");
+    });
+
+    it("reports #REF! error when evaluating a formula whose reference was deleted", () => {
+        const doc = withCells({ A1: "10", A2: "20", A3: "=A1+A2" });
+        const next = deleteRow(doc, 1); // delete A2
+        // A3 moved to A2; formula is =A1+#REF!
+        const result = evaluateSheet(next).get(cellKey(1, 0));
+        expect(result?.error).toBe(true);
+        expect(result?.text).toBe("#REF!");
+    });
+
+    it("evaluates pasted formula against its new relative target cells", () => {
+        const doc = withCells({ A1: "10", B1: "=A1*2", A2: "50" });
+        expect(textOf(doc, "B1")).toBe("20");
+
+        // Simulate pasting B1's formula into B2 (row 0 -> row 1)
+        const rawPasted = adjustFormulaForPaste(doc.cells[cellKey(0, 1)].raw, { row: 0, col: 1 }, { row: 1, col: 1 });
+        expect(rawPasted).toBe("=A2*2");
+        doc.cells[cellKey(1, 1)] = { raw: rawPasted };
+        expect(textOf(doc, "B2")).toBe("100");
     });
 });

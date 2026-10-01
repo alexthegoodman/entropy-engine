@@ -15,7 +15,7 @@
 // in sheet_model.ts so it can be unit-tested with no window at all.
 
 import type { CellAddr, SheetDoc } from "./sheet_model";
-import { a1, cellKey, defaultSheet, deleteColumn, deleteRow, evaluateSheet, insertColumn, insertRow } from "./sheet_model";
+import { a1, adjustFormulaForPaste, cellKey, defaultSheet, deleteColumn, deleteRow, evaluateSheet, insertColumn, insertRow } from "./sheet_model";
 
 const addonInfo = {
     name: "sheet",
@@ -37,7 +37,7 @@ let selected: CellAddr = { row: 0, col: 0 };
 /** The cell currently being edited and its live draft text - shared between the formula bar and
  * SheetGrid's own inline box, however the edit started. `null` means nothing is being edited. */
 let editing: { row: number; col: number; value: string } | null = null;
-let clipboard: { raw: string; border?: [number, number, number, number] } | null = null;
+let clipboard: { raw: string; border?: [number, number, number, number]; source?: CellAddr; isCut?: boolean } | null = null;
 let undoStack: SheetDoc[] = [];
 let redoStack: SheetDoc[] = [];
 
@@ -128,10 +128,14 @@ function setupUI() {
         const cellKeyStr = cellKey(selected.row, selected.col);
         if (k === "c") {
             const existing = doc.cells[cellKeyStr];
-            clipboard = existing ? { raw: existing.raw, border: existing.border } : { raw: "" };
+            clipboard = existing
+                ? { raw: existing.raw, border: existing.border, source: { ...selected }, isCut: false }
+                : { raw: "", source: { ...selected }, isCut: false };
         } else if (k === "x") {
             const existing = doc.cells[cellKeyStr];
-            clipboard = existing ? { raw: existing.raw, border: existing.border } : { raw: "" };
+            clipboard = existing
+                ? { raw: existing.raw, border: existing.border, source: { ...selected }, isCut: true }
+                : { raw: "", source: { ...selected }, isCut: true };
             commit(() => {
                 mutateRaw(selected, "");
                 mutateBorder(selected, undefined);
@@ -140,7 +144,10 @@ function setupUI() {
             if (clipboard) {
                 const paste = clipboard;
                 commit(() => {
-                    mutateRaw(selected, paste.raw);
+                    const raw = (!paste.isCut && paste.source)
+                        ? adjustFormulaForPaste(paste.raw, paste.source, selected)
+                        : paste.raw;
+                    mutateRaw(selected, raw);
                     mutateBorder(selected, paste.border);
                 });
             }
