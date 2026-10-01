@@ -23,6 +23,7 @@ import {
     setRangeBorder,
     setRangeFormat,
     formatCellValue,
+    setColumnWidth,
 } from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
@@ -826,3 +827,64 @@ describe("number formatting", () => {
         expect(textOf(filled, "B3")).toBe("$50.00");
     });
 });
+
+describe("column widths", () => {
+    it("setColumnWidth sets and updates custom column widths", () => {
+        let doc = defaultSheet(10, 10);
+        expect(doc.colWidths).toBeUndefined();
+
+        doc = setColumnWidth(doc, 1, 140);
+        expect(doc.colWidths?.[1]).toBe(140);
+
+        doc = setColumnWidth(doc, 3, 200);
+        expect(doc.colWidths?.[1]).toBe(140);
+        expect(doc.colWidths?.[3]).toBe(200);
+
+        // Update existing width
+        doc = setColumnWidth(doc, 1, 160);
+        expect(doc.colWidths?.[1]).toBe(160);
+    });
+
+    it("insertColumn shifts custom column widths at and after insertion point", () => {
+        let doc = defaultSheet(10, 10);
+        doc = setColumnWidth(doc, 1, 120);
+        doc = setColumnWidth(doc, 3, 180);
+
+        // Insert column at index 2 (between col 1 and col 3)
+        const next = insertColumn(doc, 2);
+        expect(next.colWidths?.[1]).toBe(120);
+        expect(next.colWidths?.[2]).toBeUndefined();
+        expect(next.colWidths?.[4]).toBe(180);
+
+        // Insert column at index 0 (shifts all right)
+        const shifted = insertColumn(next, 0);
+        expect(shifted.colWidths?.[0]).toBeUndefined();
+        expect(shifted.colWidths?.[2]).toBe(120);
+        expect(shifted.colWidths?.[5]).toBe(180);
+    });
+
+    it("deleteColumn removes deleted column width and shifts subsequent widths left", () => {
+        let doc = defaultSheet(10, 10);
+        doc = setColumnWidth(doc, 1, 120);
+        doc = setColumnWidth(doc, 2, 150);
+        doc = setColumnWidth(doc, 4, 200);
+
+        // Delete column 2
+        const next = deleteColumn(doc, 2);
+        expect(next.colWidths?.[1]).toBe(120);
+        expect(next.colWidths?.[2]).toBeUndefined();
+        expect(next.colWidths?.[3]).toBe(200);
+    });
+
+    it("insertRow and deleteRow preserve column widths intact", () => {
+        let doc = defaultSheet(10, 10);
+        doc = setColumnWidth(doc, 2, 175);
+
+        const withRow = insertRow(doc, 1);
+        expect(withRow.colWidths?.[2]).toBe(175);
+
+        const withoutRow = deleteRow(withRow, 1);
+        expect(withoutRow.colWidths?.[2]).toBe(175);
+    });
+});
+

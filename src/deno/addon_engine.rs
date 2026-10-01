@@ -5384,6 +5384,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         col_width: options.col_width.unwrap_or(92.0),
                         row_height: options.row_height.unwrap_or(22.0),
                         max_height: options.max_height,
+                        col_widths: options.col_widths.as_ref().map(|map| {
+                            map.iter().filter_map(|(k, v)| k.parse::<u32>().ok().map(|col| (col, *v))).collect()
+                        }),
                     };
                     let edit_arg = editing.as_ref().map(|(row, col, value)| crate::entropy_gui::SheetEdit { row: *row, col: *col, value: value.as_str() });
 
@@ -5432,6 +5435,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             crate::entropy_gui::SheetEvent::DeleteColumnRequested { col } => {
                                 events_to_push.push(format!("SHEET_DELETE_COL|{}|{}", sheet_id, col));
+                            }
+                            crate::entropy_gui::SheetEvent::ColumnResized { col, width } => {
+                                events_to_push.push(format!("SHEET_COLUMN_RESIZED|{}|{}|{}", sheet_id, col, width));
                             }
                         }
                     }

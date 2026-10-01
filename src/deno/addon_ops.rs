@@ -468,6 +468,7 @@ pub struct SheetGridOptionsConfig {
     pub row_height: Option<f32>,
     /// Caps the grid at this height and scrolls the rows inside it.
     pub max_height: Option<f32>,
+    pub col_widths: Option<HashMap<String, f32>>,
 }
 
 /// One tab of `Widget.tabBar` - see `entropy_gui::TabBar`.

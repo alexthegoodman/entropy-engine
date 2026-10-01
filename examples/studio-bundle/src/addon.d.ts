@@ -1850,6 +1850,8 @@ export interface SheetGridOptions {
   /** Caps the grid at this height and scrolls the rows inside it; the column header row stays
    * fixed above the scroll region. Omit to size the grid to fit every row. */
   maxHeight?: number;
+  /** Optional custom widths per column (0-based column index to width in pixels). */
+  colWidths?: Record<number, number>;
 }
 
 export interface SheetGridConfig {
@@ -1890,6 +1892,8 @@ export interface SheetGridConfig {
    * columns at and after it should shift right by one). */
   onInsertColumn?: (col: number) => void;
   onDeleteColumn?: (col: number) => void;
+  /** Fired when a column header's divider is dragged to resize it. */
+  onColumnResized?: (col: number, width: number) => void;
 }
 
 /** One row of a `Widget.treeView` - already depth-computed; the widget does not derive

@@ -32,12 +32,13 @@ import {
     rangeA1,
     setRangeBorder,
     setRangeFormat,
+    setColumnWidth,
 } from "./sheet_model";
 
 const addonInfo = {
     name: "sheet",
-    version: "1.3.0",
-    description: "A spreadsheet grid with formulas, inline editing, multi-cell range selection, copy/cut/paste, fill-down, undo/redo, row/column insert-delete, number formatting (currency, percent, decimal, integer) and extended formula functions (IF, logic, text, math).",
+    version: "1.4.0",
+    description: "A spreadsheet grid with formulas, inline editing, multi-cell range selection, per-column width resize, copy/cut/paste, fill-down, undo/redo, row/column insert-delete, number formatting (currency, percent, decimal, integer) and extended formula functions (IF, logic, text, math).",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true },
 };
@@ -321,7 +322,7 @@ function renderUI(win: string) {
             endCol: selected.endCol,
         },
         editing: editing ? { row: editing.row, col: editing.col, value: editing.value } : undefined,
-        options: { rows: doc.rows, cols: doc.cols, maxHeight: GRID_MAX_HEIGHT },
+        options: { rows: doc.rows, cols: doc.cols, maxHeight: GRID_MAX_HEIGHT, colWidths: doc.colWidths },
         onCellSelected: (row, col) => {
             selected = { row, col };
         },
@@ -386,6 +387,10 @@ function renderUI(win: string) {
                     selected.endCol = Math.max(0, selected.endCol - 1);
                 }
             }),
+        onColumnResized: (col, width) => {
+            doc = setColumnWidth(doc, col, width);
+            saveSheet();
+        },
     });
 }
 

@@ -56,6 +56,8 @@ export interface SheetDoc {
     rows: number;
     cols: number;
     cells: Record<string, SheetCellData>;
+    /** Custom column widths in pixels (0-based column index to width). */
+    colWidths?: Record<number, number>;
 }
 
 export function defaultSheet(rows = 30, cols = 12): SheetDoc {
@@ -65,6 +67,13 @@ export function defaultSheet(rows = 30, cols = 12): SheetDoc {
 function splitKey(key: string): [number, number] {
     const [rowStr, colStr] = key.split(":");
     return [parseInt(rowStr, 10), parseInt(colStr, 10)];
+}
+
+/** Sets the width in pixels for column `col` (0-based index). */
+export function setColumnWidth(doc: SheetDoc, col: number, width: number): SheetDoc {
+    const colWidths = { ...(doc.colWidths ?? {}) };
+    colWidths[col] = width;
+    return { ...doc, colWidths };
 }
 
 /** Inserts a new, empty row at `at` (0-based) - every cell at row >= at shifts down by one,
@@ -77,7 +86,7 @@ export function insertRow(doc: SheetDoc, at: number): SheetDoc {
         const raw = adjustForInsertRow(data.raw, at);
         cells[cellKey(newRow, col)] = { ...data, raw };
     }
-    return { rows: doc.rows + 1, cols: doc.cols, cells };
+    return { rows: doc.rows + 1, cols: doc.cols, cells, colWidths: doc.colWidths };
 }
 
 /** Deletes row `at`, dropping whatever was in it; rows after it shift up by one,
@@ -93,7 +102,7 @@ export function deleteRow(doc: SheetDoc, at: number): SheetDoc {
         const raw = adjustForDeleteRow(data.raw, at);
         cells[cellKey(newRow, col)] = { ...data, raw };
     }
-    return { rows: doc.rows - 1, cols: doc.cols, cells };
+    return { rows: doc.rows - 1, cols: doc.cols, cells, colWidths: doc.colWidths };
 }
 
 /** Inserts a new, empty column at `at` (0-based) - every cell at col >= at shifts right by one,
@@ -106,7 +115,16 @@ export function insertColumn(doc: SheetDoc, at: number): SheetDoc {
         const raw = adjustForInsertCol(data.raw, at);
         cells[cellKey(row, newCol)] = { ...data, raw };
     }
-    return { rows: doc.rows, cols: doc.cols + 1, cells };
+    let colWidths: Record<number, number> | undefined;
+    if (doc.colWidths) {
+        colWidths = {};
+        for (const [colStr, w] of Object.entries(doc.colWidths)) {
+            const col = parseInt(colStr, 10);
+            const newCol = col >= at ? col + 1 : col;
+            colWidths[newCol] = w;
+        }
+    }
+    return { rows: doc.rows, cols: doc.cols + 1, cells, colWidths };
 }
 
 /** Deletes column `at`, dropping whatever was in it; columns after it shift left by one,
@@ -122,7 +140,17 @@ export function deleteColumn(doc: SheetDoc, at: number): SheetDoc {
         const raw = adjustForDeleteCol(data.raw, at);
         cells[cellKey(row, newCol)] = { ...data, raw };
     }
-    return { rows: doc.rows, cols: doc.cols - 1, cells };
+    let colWidths: Record<number, number> | undefined;
+    if (doc.colWidths) {
+        colWidths = {};
+        for (const [colStr, w] of Object.entries(doc.colWidths)) {
+            const col = parseInt(colStr, 10);
+            if (col === at) continue;
+            const newCol = col > at ? col - 1 : col;
+            colWidths[newCol] = w;
+        }
+    }
+    return { rows: doc.rows, cols: doc.cols - 1, cells, colWidths };
 }
 
 export function cellKey(row: number, col: number): string {

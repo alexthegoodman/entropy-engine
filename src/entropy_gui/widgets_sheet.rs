@@ -37,10 +37,6 @@
 //!
 //! ## Known v1 simplifications (documented, not accidental)
 //!
-//! - One selected cell, not a range - no shift-click or drag-select, so no multi-cell copy/fill
-//!   yet either. Single-cell copy/cut/paste and undo/redo are handled entirely by the caller
-//!   (see `sheet_addon.ts`'s `Entropy.Input.onKeyDown` handler) since they need no widget state.
-//! - Uniform column width and row height - no per-column resize.
 //! - A double-click's cursor lands at the start of the existing text, not wherever was clicked -
 //!   good enough to start editing, not a precise click-to-place-cursor.
 
@@ -48,7 +44,7 @@ use std::collections::HashMap;
 
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::context::{Key, KeyEvent};
-use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, FontId, Layout, Pos2, Rect, StrokeKind};
+use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, CursorIcon, FontId, Layout, Pos2, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::response::Sense;
 use crate::entropy_gui::ui::{interact, Ui};
@@ -56,6 +52,7 @@ use crate::entropy_gui::widgets::ScrollArea;
 
 pub const ROW_HEADER_W: f32 = 42.0;
 pub const HEADER_H: f32 = 22.0;
+pub const MIN_COL_WIDTH: f32 = 32.0;
 /// A second click on the same cell within this many seconds of the first counts as a
 /// double-click (edit existing content) rather than two independent single clicks.
 const DOUBLE_CLICK_WINDOW: f32 = 0.4;
@@ -94,7 +91,7 @@ impl SheetCell {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct SheetGridOptions {
     pub rows: u32,
     pub cols: u32,
@@ -103,11 +100,36 @@ pub struct SheetGridOptions {
     /// Caps the grid at this height and scrolls the rows inside it, same convention as
     /// `TreeView::max_height`. The column header row stays fixed above the scroll region.
     pub max_height: Option<f32>,
+    /// Optional custom widths per column (0-based column index). If omitted or <= 0.0,
+    /// falls back to `col_width`. Clamped to at least `MIN_COL_WIDTH`.
+    pub col_widths: Option<HashMap<u32, f32>>,
+}
+
+impl SheetGridOptions {
+    pub fn new(rows: u32, cols: u32) -> Self {
+        Self { rows, cols, ..Default::default() }
+    }
+
+    pub fn col_width(&self, col: u32) -> f32 {
+        self.col_widths
+            .as_ref()
+            .and_then(|w| w.get(&col).copied())
+            .unwrap_or(self.col_width)
+            .max(MIN_COL_WIDTH)
+    }
+
+    pub fn col_x(&self, col: u32) -> f32 {
+        (0..col).map(|c| self.col_width(c)).sum()
+    }
+
+    pub fn total_cols_width(&self) -> f32 {
+        (0..self.cols).map(|c| self.col_width(c)).sum()
+    }
 }
 
 impl Default for SheetGridOptions {
     fn default() -> Self {
-        Self { rows: 20, cols: 10, col_width: 92.0, row_height: 22.0, max_height: None }
+        Self { rows: 20, cols: 10, col_width: 92.0, row_height: 22.0, max_height: None, col_widths: None }
     }
 }
 
@@ -164,7 +186,7 @@ impl SheetRange {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SheetEvent {
     /// A cell was clicked, or navigated to with the arrow keys/Tab/Enter while another cell was
     /// already selected. Use it both for selection and for advancing a formula bar's target.
@@ -188,6 +210,8 @@ pub enum SheetEvent {
     /// columns at and after it shift right by one).
     InsertColumnRequested { col: u32 },
     DeleteColumnRequested { col: u32 },
+    /// A column header divider was dragged to resize it.
+    ColumnResized { col: u32, width: f32 },
 }
 
 pub struct SheetResponse {
@@ -213,6 +237,11 @@ impl SheetGrid {
         self
     }
 
+    pub fn col_widths(mut self, widths: HashMap<u32, f32>) -> Self {
+        self.options.col_widths = Some(widths);
+        self
+    }
+
     pub fn range(mut self, range: SheetRange) -> Self {
         self.range = Some(range);
         self
@@ -225,16 +254,24 @@ impl SheetGrid {
 
     pub fn show(self, ui: &mut Ui, cells: &[SheetCell], selected: Option<(u32, u32)>, editing: Option<SheetEdit>) -> SheetResponse {
         let grid_id = self.id;
-        let opts = self.options;
+        let mut opts = self.options;
         let ctx = ui.ctx().clone();
         let visuals = ui.visuals();
         let header_font = FontId::proportional(12.0);
         let cell_font = FontId::proportional(12.5);
 
+        // Apply active column resize override from memory so preview is lag-free
+        if let Some((drag_id, drag_col, live_w)) = ctx.memory(|m| m.sheet_col_resize) {
+            if drag_id == grid_id {
+                let widths = opts.col_widths.get_or_insert_with(HashMap::new);
+                widths.insert(drag_col, live_w);
+            }
+        }
+
         let active_range = self.range.or_else(|| selected.map(|(r, c)| SheetRange::single_cell(r, c)));
         let primary_cell = selected.or_else(|| active_range.map(|rng| (rng.start_row, rng.start_col)));
 
-        let body_w = ROW_HEADER_W + opts.cols as f32 * opts.col_width;
+        let body_w = ROW_HEADER_W + opts.total_cols_width();
 
         let cell_map: HashMap<(u32, u32), &SheetCell> = cells.iter().map(|c| ((c.row, c.col), c)).collect();
 
@@ -247,8 +284,11 @@ impl SheetGrid {
         header_painter.rect_stroke(corner_rect, 0u8, Stroke::new(1.0, Color32::from_gray(55)), StrokeKind::Middle);
         let mut events = Vec::new();
         for c in 0..opts.cols {
-            let x = header_rect.min.x + ROW_HEADER_W + c as f32 * opts.col_width;
-            let r = Rect::from_min_size(pos2(x, header_rect.min.y), vec2(opts.col_width, HEADER_H));
+            let col_w = opts.col_width(c);
+            let col_x = opts.col_x(c);
+            let x = header_rect.min.x + ROW_HEADER_W + col_x;
+            let right_edge_x = x + col_w;
+            let r = Rect::from_min_size(pos2(x, header_rect.min.y), vec2(col_w, HEADER_H));
             let is_in_col = active_range.map_or(false, |rng| c >= rng.min_col() && c <= rng.max_col())
                 || selected.is_some_and(|(_, sc)| sc == c);
             if is_in_col {
@@ -257,7 +297,12 @@ impl SheetGrid {
             header_painter.text(r.center(), Align2::CENTER_CENTER, col_letters(c), header_font, Color32::from_gray(190));
             header_painter.rect_stroke(r, 0u8, Stroke::new(1.0, Color32::from_gray(45)), StrokeKind::Middle);
 
-            let head_resp = interact(&ctx, r, grid_id.with(("col_head", c)), Sense::click());
+            let head_resp = interact(
+                &ctx,
+                Rect::from_min_max(pos2(x, header_rect.min.y), pos2((right_edge_x - 4.0).max(x), header_rect.max.y)),
+                grid_id.with(("col_head", c)),
+                Sense::click(),
+            );
             let mut insert_left = false;
             let mut insert_right = false;
             let mut delete = false;
@@ -283,6 +328,59 @@ impl SheetGrid {
             }
             if delete {
                 events.push(SheetEvent::DeleteColumnRequested { col: c });
+            }
+
+            // Drag handle for column resize on the right edge of column c
+            let handle_rect = Rect::from_min_max(pos2(right_edge_x - 4.0, header_rect.min.y), pos2(right_edge_x + 4.0, header_rect.max.y));
+            let resize_resp = interact(&ctx, handle_rect, grid_id.with(("col_resize", c)), Sense::click_and_drag());
+            if resize_resp.hovered() || resize_resp.dragged() {
+                ctx.request_cursor_icon(CursorIcon::ResizeHorizontal);
+                header_painter.rect_filled(
+                    Rect::from_min_size(pos2(right_edge_x - 1.0, header_rect.min.y), vec2(2.0, HEADER_H)),
+                    0u8,
+                    visuals.selection.stroke.color,
+                );
+            }
+            if resize_resp.drag_started() {
+                ctx.memory_mut(|m| m.sheet_col_resize = Some((grid_id, c, col_w)));
+            }
+            if resize_resp.dragged() && resize_resp.drag_delta().x != 0.0 {
+                let delta = resize_resp.drag_delta().x;
+                let current_w = ctx
+                    .memory(|m| m.sheet_col_resize.and_then(|(id, col, w)| if id == grid_id && col == c { Some(w) } else { None }))
+                    .unwrap_or(col_w);
+                let new_w = (current_w + delta).max(MIN_COL_WIDTH);
+                if (new_w - current_w).abs() > 0.001 {
+                    ctx.memory_mut(|m| m.sheet_col_resize = Some((grid_id, c, new_w)));
+                    events.push(SheetEvent::ColumnResized { col: c, width: new_w });
+                }
+            }
+            if resize_resp.drag_stopped() {
+                ctx.memory_mut(|m| {
+                    if let Some((id, col, _)) = m.sheet_col_resize {
+                        if id == grid_id && col == c {
+                            m.sheet_col_resize = None;
+                        }
+                    }
+                });
+            }
+            if resize_resp.clicked() {
+                let double = ctx.memory(|m| {
+                    matches!(m.sheet_last_click, Some((id, cell, age)) if id == grid_id.with(("col_resize", c)) && cell == (0, c) && age < DOUBLE_CLICK_WINDOW)
+                });
+                if double {
+                    events.push(SheetEvent::ColumnResized { col: c, width: opts.col_width });
+                    ctx.memory_mut(|m| {
+                        m.sheet_last_click = None;
+                        if let Some((id, col, _)) = m.sheet_col_resize {
+                            if id == grid_id && col == c {
+                                m.sheet_col_resize = None;
+                            }
+                        }
+                    });
+                } else {
+                    ctx.memory_mut(|m| m.sheet_last_click = Some((grid_id.with(("col_resize", c)), (0, c), 0.0)));
+                }
             }
         }
 
@@ -499,8 +597,10 @@ impl SheetGrid {
             }
 
             for c in 0..opts.cols {
-                let x = origin.x + ROW_HEADER_W + c as f32 * opts.col_width;
-                let cell_rect = Rect::from_min_size(pos2(x, y), vec2(opts.col_width, opts.row_height));
+                let col_w = opts.col_width(c);
+                let col_x = opts.col_x(c);
+                let x = origin.x + ROW_HEADER_W + col_x;
+                let cell_rect = Rect::from_min_size(pos2(x, y), vec2(col_w, opts.row_height));
                 let is_primary = primary_cell == Some((r, c));
                 let is_in_range = active_range.map_or(false, |rng| rng.contains(r, c));
                 let is_editing = editing.is_some_and(|e| e.row == r && e.col == c);
@@ -513,7 +613,7 @@ impl SheetGrid {
                     let mut child = ui.child_ui_at(cell_rect.shrink(1.0), Layout::top_down(Align::Min), grid_id.with(("edit_ui", r, c)));
                     let mut draft = edit.value.to_string();
                     let edit_id = grid_id.with(("edit", r, c));
-                    let resp = child.text_edit_singleline_sized(&mut draft, opts.col_width - 2.0, edit_id);
+                    let resp = child.text_edit_singleline_sized(&mut draft, col_w - 2.0, edit_id);
                     if resp.changed() {
                         events.push(SheetEvent::CellEditChanged { row: r, col: c, text: draft });
                     }
@@ -598,8 +698,8 @@ impl SheetGrid {
 
         if let Some(rng) = active_range {
             if !rng.is_single_cell() {
-                let min_x = origin.x + ROW_HEADER_W + rng.min_col() as f32 * opts.col_width;
-                let max_x = origin.x + ROW_HEADER_W + (rng.max_col() + 1) as f32 * opts.col_width;
+                let min_x = origin.x + ROW_HEADER_W + opts.col_x(rng.min_col());
+                let max_x = origin.x + ROW_HEADER_W + opts.col_x(rng.max_col()) + opts.col_width(rng.max_col());
                 let min_y = origin.y + rng.min_row() as f32 * opts.row_height;
                 let max_y = origin.y + (rng.max_row() + 1) as f32 * opts.row_height;
                 let range_rect = Rect::from_min_max(pos2(min_x, min_y), pos2(max_x, max_y));

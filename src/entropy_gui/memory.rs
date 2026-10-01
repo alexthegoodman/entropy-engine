@@ -115,6 +115,9 @@ pub struct Memory {
     pub sheet_last_click: Option<(Id, (u32, u32), f32)>,
     /// (grid id, anchor cell) - tracks ongoing drag-selection across cells in `SheetGrid`.
     pub sheet_drag_select: Option<(Id, (u32, u32))>,
+    /// Live (grid id, col, width) override while a column divider in `SheetGrid` is being dragged,
+    /// providing lag-free preview before the caller's next event tick updates `col_widths`.
+    pub sheet_col_resize: Option<(Id, u32, f32)>,
     /// One `DocEditor` instance's whole document (paragraphs, per-paragraph layout cache,
     /// cursor/selection) - keyed by the widget's id like everything else here, but stored in
     /// its own map rather than the small `WidgetState` enum: that enum's `get`/`set` clone the

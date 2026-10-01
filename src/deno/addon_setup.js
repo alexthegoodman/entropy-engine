@@ -1613,7 +1613,7 @@ globalThis.Entropy = {
 
                 ops.op_ui_widget_sheet_grid(windowId, cells, selected, range, editing, config?.options ?? {}, id);
 
-                if (config?.onCellSelected || config?.onRangeSelected || config?.onCellClear || config?.onRangeClear || config?.onEditStarted || config?.onEditChanged || config?.onEditCommitted || config?.onEditCancelled || config?.onInsertRow || config?.onDeleteRow || config?.onInsertColumn || config?.onDeleteColumn) {
+                if (config?.onCellSelected || config?.onRangeSelected || config?.onCellClear || config?.onRangeClear || config?.onEditStarted || config?.onEditChanged || config?.onEditCommitted || config?.onEditCancelled || config?.onInsertRow || config?.onDeleteRow || config?.onInsertColumn || config?.onDeleteColumn || config?.onColumnResized) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -1638,6 +1638,7 @@ globalThis.Entropy = {
                         else if (type === "SHEET_DELETE_ROW" && config.onDeleteRow) config.onDeleteRow(parseInt(parts[2], 10));
                         else if (type === "SHEET_INSERT_COL" && config.onInsertColumn) config.onInsertColumn(parseInt(parts[2], 10));
                         else if (type === "SHEET_DELETE_COL" && config.onDeleteColumn) config.onDeleteColumn(parseInt(parts[2], 10));
+                        else if (type === "SHEET_COLUMN_RESIZED" && config.onColumnResized) config.onColumnResized(parseInt(parts[2], 10), parseFloat(parts[3]));
                     });
                 }
             },

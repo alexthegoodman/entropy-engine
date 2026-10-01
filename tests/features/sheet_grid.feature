@@ -175,3 +175,32 @@ Feature: The sheet grid lays out cells, tracks selection, and navigates like a s
     And inner boundary between cell 1,1 and 2,1 has no white line
     And I save the picture "sheet-grid-range-selected"
 
+  Scenario: Dragging a column header divider resizes the column and shifts subsequent columns
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    When I drag column 1 divider by 30 pixels
+    Then the events are "ColumnResized(1,120)"
+    And cell 0,1 has width 120 pixels
+    And cell 0,2 is 120 pixels right of cell 0,1
+    And cell 0,3 is 90 pixels right of cell 0,2
+
+  Scenario: Custom column widths adjust cell layout across all rows
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And column 0 has width 140 pixels
+    When a frame is drawn
+    Then cell 0,0 has width 140 pixels
+    And cell 1,0 has width 140 pixels
+    And cell 0,1 is 140 pixels right of cell 0,0
+
+  Scenario: Dragging a column divider to shrink below minimum width clamps at 32 pixels
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    When I drag column 1 divider by -80 pixels
+    Then the events are "ColumnResized(1,32)"
+    And cell 0,1 has width 32 pixels
+
+  Scenario: Double-clicking a column divider resets it to default width
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And column 1 has width 140 pixels
+    When I double-click column 1 divider
+    Then the events are "ColumnResized(1,90)"
+    And cell 0,1 has width 90 pixels
+

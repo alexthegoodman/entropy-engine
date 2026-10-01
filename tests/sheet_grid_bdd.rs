@@ -179,7 +179,7 @@ impl Default for SheetWorld {
         Self {
             h: Harness::new(900, 560),
             cells: Vec::new(),
-            opts: SheetGridOptions { rows: 5, cols: 4, col_width: 90.0, row_height: 22.0, max_height: None },
+            opts: SheetGridOptions { rows: 5, cols: 4, col_width: 90.0, row_height: 22.0, max_height: None, col_widths: None },
             selected: None,
             range: None,
             editing: None,
@@ -205,6 +205,7 @@ fn sheet_event(e: SheetEvent) -> String {
         SheetEvent::DeleteRowRequested { row } => format!("DeleteRowRequested({row})"),
         SheetEvent::InsertColumnRequested { col } => format!("InsertColumnRequested({col})"),
         SheetEvent::DeleteColumnRequested { col } => format!("DeleteColumnRequested({col})"),
+        SheetEvent::ColumnResized { col, width } => format!("ColumnResized({col},{width})"),
     }
 }
 
@@ -218,7 +219,7 @@ impl SheetWorld {
     }
 
     fn frame_with_mods(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, modifiers: Modifiers, text_input: String) {
-        let (cells, opts, selected, range, editing) = (self.cells.clone(), self.opts, self.selected, self.range, self.editing.clone());
+        let (cells, opts, selected, range, editing) = (self.cells.clone(), self.opts.clone(), self.selected, self.range, self.editing.clone());
         let mut out = None;
         let mut active_mods = modifiers;
         for k in &keys {
@@ -252,6 +253,9 @@ impl SheetWorld {
                 }
                 SheetEvent::CellEditChanged { row, col, text } => self.editing = Some((*row, *col, text.clone())),
                 SheetEvent::CellEditCommitted { .. } | SheetEvent::CellEditCancelled { .. } => self.editing = None,
+                SheetEvent::ColumnResized { col, width } => {
+                    self.opts.col_widths.get_or_insert_with(std::collections::HashMap::new).insert(*col, *width);
+                }
                 _ => {}
             }
         }
@@ -348,8 +352,8 @@ impl SheetWorld {
     fn cell_rect(&self, row: u32, col: u32) -> Rect {
         use entropy_engine::entropy_gui::widgets_sheet::ROW_HEADER_W;
         Rect::from_min_size(
-            pos2(self.origin.x + ROW_HEADER_W + col as f32 * self.opts.col_width, self.origin.y + row as f32 * self.opts.row_height),
-            vec2(self.opts.col_width, self.opts.row_height),
+            pos2(self.origin.x + ROW_HEADER_W + self.opts.col_x(col), self.origin.y + row as f32 * self.opts.row_height),
+            vec2(self.opts.col_width(col), self.opts.row_height),
         )
     }
 
@@ -362,7 +366,13 @@ impl SheetWorld {
     /// Center of column `col`'s own header cell, in the fixed row above the scrolling body.
     fn col_header_center(&self, col: u32) -> Pos2 {
         use entropy_engine::entropy_gui::widgets_sheet::{HEADER_H, ROW_HEADER_W};
-        pos2(self.origin.x + ROW_HEADER_W + col as f32 * self.opts.col_width + self.opts.col_width / 2.0, self.origin.y - HEADER_H / 2.0)
+        pos2(self.origin.x + ROW_HEADER_W + self.opts.col_x(col) + self.opts.col_width(col) / 2.0, self.origin.y - HEADER_H / 2.0)
+    }
+
+    /// Center of the resize divider handle at the right edge of column `col`'s header cell.
+    fn col_header_divider(&self, col: u32) -> Pos2 {
+        use entropy_engine::entropy_gui::widgets_sheet::{HEADER_H, ROW_HEADER_W};
+        pos2(self.origin.x + ROW_HEADER_W + self.opts.col_x(col) + self.opts.col_width(col), self.origin.y - HEADER_H / 2.0)
     }
 
     fn ensure_frame(&mut self) {
@@ -396,10 +406,15 @@ fn artifacts_dir() -> std::path::PathBuf {
 
 #[given(expr = "a sheet grid of {int} rows and {int} columns at {int} by {int} cells")]
 fn grid(world: &mut SheetWorld, rows: u32, cols: u32, w: f32, h: f32) {
-    world.opts = SheetGridOptions { rows, cols, col_width: w, row_height: h, max_height: None };
+    world.opts = SheetGridOptions { rows, cols, col_width: w, row_height: h, max_height: None, col_widths: None };
     world.cells = Vec::new();
     world.selected = None;
     world.editing = None;
+}
+
+#[given(expr = "column {int} has width {int} pixels")]
+fn col_has_width(world: &mut SheetWorld, col: u32, width: f32) {
+    world.opts.col_widths.get_or_insert_with(std::collections::HashMap::new).insert(col, width);
 }
 
 #[given(expr = "cell {int},{int} contains {string}")]
@@ -520,6 +535,21 @@ fn col_header_menu(world: &mut SheetWorld, col: u32, item: String) {
     world.right_click_menu_item(p, pos2(20.0, idx as f32 * 32.0 + 11.0));
 }
 
+#[when(expr = "I drag column {int} divider by {int} pixels")]
+fn drag_col_divider(world: &mut SheetWorld, col: u32, dx: f32) {
+    world.ensure_frame();
+    let from = world.col_header_divider(col);
+    let to = pos2(from.x + dx, from.y);
+    world.drag(from, to);
+}
+
+#[when(expr = "I double-click column {int} divider")]
+fn double_click_col_divider(world: &mut SheetWorld, col: u32) {
+    world.ensure_frame();
+    let p = world.col_header_divider(col);
+    world.double_click(p);
+}
+
 #[then(expr = "the events are {string}")]
 fn events_are(world: &mut SheetWorld, text: String) {
     assert_eq!(world.events.join(", "), text);
@@ -550,6 +580,17 @@ fn right_of(world: &mut SheetWorld, br: u32, bc: u32, dx: f32, ar: u32, ac: u32)
 fn below(world: &mut SheetWorld, br: u32, bc: u32, dy: f32, ar: u32, ac: u32) {
     let (ra, rb) = (world.cell_rect(ar, ac), world.cell_rect(br, bc));
     assert!((rb.min.y - ra.min.y - dy).abs() < 0.01 && (rb.min.x - ra.min.x).abs() < 0.01, "{ra:?} {rb:?}");
+}
+
+#[then(expr = "cell {int},{int} has width {int} pixels")]
+fn cell_width_is(world: &mut SheetWorld, row: u32, col: u32, width: f32) {
+    let r = world.cell_rect(row, col);
+    assert!((r.width() - width).abs() < 0.01, "cell {row},{col} width is {}, expected {width}", r.width());
+}
+
+#[then(expr = "column {int} has width {int} pixels")]
+fn col_width_is(world: &mut SheetWorld, col: u32, width: f32) {
+    assert!((world.opts.col_width(col) - width).abs() < 0.01, "column {col} width is {}, expected {width}", world.opts.col_width(col));
 }
 
 fn ring_white(world: &mut SheetWorld, row: u32, col: u32) -> bool {
@@ -600,8 +641,8 @@ fn range_perimeter_white(world: &mut SheetWorld, r1: u32, r2: u32, c1: u32, c2: 
     let img = world.picture();
     let top_y = world.origin.y + min_r as f32 * world.opts.row_height;
     let bottom_y = world.origin.y + (max_r + 1) as f32 * world.opts.row_height;
-    let left_x = world.origin.x + ROW_HEADER_W + min_c as f32 * world.opts.col_width;
-    let right_x = world.origin.x + ROW_HEADER_W + (max_c + 1) as f32 * world.opts.col_width;
+    let left_x = world.origin.x + ROW_HEADER_W + world.opts.col_x(min_c);
+    let right_x = world.origin.x + ROW_HEADER_W + world.opts.col_x(max_c) + world.opts.col_width(max_c);
 
     let mid_x = (left_x + right_x) / 2.0;
     let has_top = (-1..=1).any(|dy| {
