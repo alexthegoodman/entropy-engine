@@ -21,6 +21,8 @@ import {
     pasteRange,
     rangeA1,
     setRangeBorder,
+    setRangeFormat,
+    formatCellValue,
 } from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
@@ -535,5 +537,292 @@ describe("range copy, cut, paste, and fill-down", () => {
         expect(next.cells[cellKey(0, 1)].border).toEqual(red);
         expect(next.cells[cellKey(1, 0)].border).toEqual(red);
         expect(next.cells[cellKey(1, 1)].border).toEqual(red);
+    });
+});
+
+describe("comparison operators", () => {
+    it("evaluates numeric equality and inequality", () => {
+        const doc = withCells({
+            A1: "=5=5",
+            A2: "=5=6",
+            A3: "=5<>6",
+            A4: "=5<>5",
+        });
+        expect(textOf(doc, "A1")).toBe("TRUE");
+        expect(textOf(doc, "A2")).toBe("FALSE");
+        expect(textOf(doc, "A3")).toBe("TRUE");
+        expect(textOf(doc, "A4")).toBe("FALSE");
+    });
+
+    it("evaluates relational comparisons", () => {
+        const doc = withCells({
+            A1: "=10>5",
+            A2: "=10<5",
+            A3: "=10>=10",
+            A4: "=10<=9",
+        });
+        expect(textOf(doc, "A1")).toBe("TRUE");
+        expect(textOf(doc, "A2")).toBe("FALSE");
+        expect(textOf(doc, "A3")).toBe("TRUE");
+        expect(textOf(doc, "A4")).toBe("FALSE");
+    });
+
+    it("evaluates string equality case-insensitively", () => {
+        const doc = withCells({
+            A1: '="apple"="apple"',
+            A2: '="apple"="Apple"',
+            A3: '="apple"="banana"',
+            A4: '="apple"<"banana"',
+        });
+        expect(textOf(doc, "A1")).toBe("TRUE");
+        expect(textOf(doc, "A2")).toBe("TRUE");
+        expect(textOf(doc, "A3")).toBe("FALSE");
+        expect(textOf(doc, "A4")).toBe("TRUE");
+    });
+
+    it("respects operator precedence between arithmetic and comparison", () => {
+        const doc = withCells({
+            A1: "=1+2 > 2*1",
+            A2: "=10 - 5 = 2 + 3",
+        });
+        expect(textOf(doc, "A1")).toBe("TRUE");
+        expect(textOf(doc, "A2")).toBe("TRUE");
+    });
+});
+
+describe("string literals, concatenation, and text functions", () => {
+    it("supports string literals and concatenation via & operator", () => {
+        const doc = withCells({
+            A1: '="Hello"',
+            A2: '="Hello " & "World"',
+            A3: '="Quotes: ""hello"""',
+        });
+        expect(textOf(doc, "A1")).toBe("Hello");
+        expect(textOf(doc, "A2")).toBe("Hello World");
+        expect(textOf(doc, "A3")).toBe('Quotes: "hello"');
+    });
+
+    it("concatenates cell references and mixed types", () => {
+        const doc = withCells({
+            A1: "Entropy",
+            A2: "100",
+            B1: '=A1 & " score: " & A2',
+        });
+        expect(textOf(doc, "B1")).toBe("Entropy score: 100");
+    });
+
+    it("supports CONCAT across arguments and ranges", () => {
+        const doc = withCells({
+            A1: "A",
+            A2: "B",
+            A3: "C",
+            B1: '=CONCAT("X", "Y", "Z")',
+            B2: "=CONCAT(A1:A3)",
+        });
+        expect(textOf(doc, "B1")).toBe("XYZ");
+        expect(textOf(doc, "B2")).toBe("ABC");
+    });
+
+    it("evaluates LEN, UPPER, LOWER, and TRIM", () => {
+        const doc = withCells({
+            A1: "  Spreadsheet  ",
+            B1: "=LEN(A1)",
+            B2: "=LEN(TRIM(A1))",
+            B3: '=UPPER("rust")',
+            B4: '=LOWER("WGPU")',
+        });
+        expect(textOf(doc, "B1")).toBe("15");
+        expect(textOf(doc, "B2")).toBe("11");
+        expect(textOf(doc, "B3")).toBe("RUST");
+        expect(textOf(doc, "B4")).toBe("wgpu");
+    });
+
+    it("evaluates LEFT, RIGHT, and MID substrings", () => {
+        const doc = withCells({
+            A1: "EntropyEngine",
+            B1: "=LEFT(A1, 7)",
+            B2: "=LEFT(A1)",
+            B3: "=RIGHT(A1, 6)",
+            B4: "=MID(A1, 8, 3)",
+        });
+        expect(textOf(doc, "B1")).toBe("Entropy");
+        expect(textOf(doc, "B2")).toBe("E");
+        expect(textOf(doc, "B3")).toBe("Engine");
+        expect(textOf(doc, "B4")).toBe("Eng");
+    });
+});
+
+describe("conditional and logical functions", () => {
+    it("evaluates IF branches correctly", () => {
+        const doc = withCells({
+            A1: "15",
+            B1: '=IF(A1 > 10, "High", "Low")',
+            B2: '=IF(A1 < 10, "High", "Low")',
+            B3: "=IF(A1 > 10, A1 * 2, A1 / 2)",
+        });
+        expect(textOf(doc, "B1")).toBe("High");
+        expect(textOf(doc, "B2")).toBe("Low");
+        expect(textOf(doc, "B3")).toBe("30");
+    });
+
+    it("lazily evaluates IF branches to avoid unnecessary error evaluation", () => {
+        const doc = withCells({
+            A1: "0",
+            B1: '=IF(A1 = 0, "Zero", 100 / A1)',
+            B2: '=IF(A1 <> 0, 100 / A1, "Safe")',
+        });
+        expect(textOf(doc, "B1")).toBe("Zero");
+        expect(textOf(doc, "B2")).toBe("Safe");
+    });
+
+    it("evaluates nested IF expressions", () => {
+        const doc = withCells({
+            A1: "85",
+            B1: '=IF(A1 >= 90, "A", IF(A1 >= 80, "B", "C"))',
+            A2: "70",
+            B2: '=IF(A2 >= 90, "A", IF(A2 >= 80, "B", "C"))',
+        });
+        expect(textOf(doc, "B1")).toBe("B");
+        expect(textOf(doc, "B2")).toBe("C");
+    });
+
+    it("evaluates AND, OR, and NOT logical functions", () => {
+        const doc = withCells({
+            A1: "=AND(1=1, 2=2, 3=3)",
+            A2: "=AND(1=1, 2=3)",
+            A3: "=OR(1=2, 2=3, 4=4)",
+            A4: "=OR(1=2, 2=3)",
+            A5: "=NOT(1=1)",
+            A6: "=NOT(1=2)",
+            A7: "=TRUE()",
+            A8: "=FALSE()",
+        });
+        expect(textOf(doc, "A1")).toBe("TRUE");
+        expect(textOf(doc, "A2")).toBe("FALSE");
+        expect(textOf(doc, "A3")).toBe("TRUE");
+        expect(textOf(doc, "A4")).toBe("FALSE");
+        expect(textOf(doc, "A5")).toBe("FALSE");
+        expect(textOf(doc, "A6")).toBe("TRUE");
+        expect(textOf(doc, "A7")).toBe("TRUE");
+        expect(textOf(doc, "A8")).toBe("FALSE");
+    });
+});
+
+describe("extended math functions", () => {
+    it("evaluates ROUND with positive, zero, and negative decimal digits", () => {
+        const doc = withCells({
+            A1: "=ROUND(3.14159, 2)",
+            A2: "=ROUND(3.14159, 4)",
+            A3: "=ROUND(1234.56, 0)",
+            A4: "=ROUND(1234.56)",
+            A5: "=ROUND(1250, -2)",
+        });
+        expect(textOf(doc, "A1")).toBe("3.14");
+        expect(textOf(doc, "A2")).toBe("3.1416");
+        expect(textOf(doc, "A3")).toBe("1235");
+        expect(textOf(doc, "A4")).toBe("1235");
+        expect(textOf(doc, "A5")).toBe("1300");
+    });
+
+    it("evaluates ABS, SQRT, MOD, and POWER", () => {
+        const doc = withCells({
+            A1: "=ABS(-42)",
+            A2: "=SQRT(144)",
+            A3: "=SQRT(-4)",
+            A4: "=MOD(10, 3)",
+            A5: "=POWER(2, 8)",
+        });
+        expect(textOf(doc, "A1")).toBe("42");
+        expect(textOf(doc, "A2")).toBe("12");
+        expect(textOf(doc, "A3")).toBe("#NUM!");
+        expect(textOf(doc, "A4")).toBe("1");
+        expect(textOf(doc, "A5")).toBe("256");
+    });
+
+    it("evaluates COUNTA to count non-empty cells", () => {
+        const doc = withCells({
+            A1: "Alpha",
+            A2: "",
+            A3: "42",
+            B1: "=COUNTA(A1:A3)",
+        });
+        expect(textOf(doc, "B1")).toBe("2");
+    });
+});
+
+describe("number formatting", () => {
+    it("formats numbers via formatCellValue directly", () => {
+        expect(formatCellValue(1234.56, { type: "currency" })).toBe("$1,234.56");
+        expect(formatCellValue(-1234.56, { type: "currency" })).toBe("-$1,234.56");
+        expect(formatCellValue(0, { type: "currency" })).toBe("$0.00");
+        expect(formatCellValue(1234.56, { type: "currency", symbol: "€" })).toBe("€1,234.56");
+
+        expect(formatCellValue(0.155, { type: "percent" })).toBe("15.50%");
+        expect(formatCellValue(0.155, { type: "percent", decimals: 1 })).toBe("15.5%");
+        expect(formatCellValue(-0.05, { type: "percent", decimals: 0 })).toBe("-5%");
+
+        expect(formatCellValue(1234.5, { type: "decimal" })).toBe("1,234.50");
+        expect(formatCellValue(42, { type: "decimal", decimals: 2 })).toBe("42.00");
+        expect(formatCellValue(1234.5678, { type: "decimal", decimals: 3 })).toBe("1,234.568");
+
+        expect(formatCellValue(1234.56, { type: "integer" })).toBe("1,235");
+        expect(formatCellValue(1000000, { type: "integer" })).toBe("1,000,000");
+        expect(formatCellValue(-500, { type: "integer" })).toBe("-500");
+    });
+
+    it("formats numbers via TEXT formula function", () => {
+        const doc = withCells({
+            A1: "1234.5",
+            B1: '=TEXT(A1, "currency")',
+            B2: '=TEXT(0.155, "percent")',
+            B3: '=TEXT(A1, "decimal")',
+            B4: '=TEXT(A1, "integer")',
+        });
+        expect(textOf(doc, "B1")).toBe("$1,234.50");
+        expect(textOf(doc, "B2")).toBe("15.50%");
+        expect(textOf(doc, "B3")).toBe("1,234.50");
+        expect(textOf(doc, "B4")).toBe("1,235");
+    });
+
+    it("applies cell formatting in evaluateSheet", () => {
+        const doc = withCells({
+            A1: "1234.5",
+            A2: "=A1*2",
+        });
+        doc.cells[cellKey(0, 0)].format = { type: "currency", decimals: 2 };
+        doc.cells[cellKey(1, 0)].format = { type: "percent", decimals: 1 };
+
+        const results = evaluateSheet(doc);
+        expect(results.get(cellKey(0, 0))?.text).toBe("$1,234.50");
+        expect(results.get(cellKey(1, 0))?.text).toBe("246,900.0%");
+    });
+
+    it("setRangeFormat applies format across range", () => {
+        const doc = withCells({ A1: "100", A2: "200" });
+        const formatted = setRangeFormat(doc, { start: { row: 0, col: 0 }, end: { row: 1, col: 0 } }, { type: "currency" });
+        expect(formatted.cells[cellKey(0, 0)].format).toEqual({ type: "currency" });
+        expect(formatted.cells[cellKey(1, 0)].format).toEqual({ type: "currency" });
+        expect(textOf(formatted, "A1")).toBe("$100.00");
+        expect(textOf(formatted, "A2")).toBe("$200.00");
+    });
+
+    it("copies, pastes, and fills down cell formatting", () => {
+        const doc = withCells({ A1: "50" });
+        doc.cells[cellKey(0, 0)].format = { type: "currency", decimals: 2 };
+
+        // Copy A1 and paste to B1
+        const clipboard = copyRange(doc, { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } });
+        expect(clipboard.cells[0].format).toEqual({ type: "currency", decimals: 2 });
+
+        const pasted = pasteRange(doc, clipboard, { start: { row: 0, col: 1 }, end: { row: 0, col: 1 } });
+        expect(pasted.cells[cellKey(0, 1)].format).toEqual({ type: "currency", decimals: 2 });
+        expect(textOf(pasted, "B1")).toBe("$50.00");
+
+        // Fill down B1:B3
+        const filled = fillDown(pasted, { start: { row: 0, col: 1 }, end: { row: 2, col: 1 } });
+        expect(filled.cells[cellKey(1, 1)].format).toEqual({ type: "currency", decimals: 2 });
+        expect(filled.cells[cellKey(2, 1)].format).toEqual({ type: "currency", decimals: 2 });
+        expect(textOf(filled, "B2")).toBe("$50.00");
+        expect(textOf(filled, "B3")).toBe("$50.00");
     });
 });

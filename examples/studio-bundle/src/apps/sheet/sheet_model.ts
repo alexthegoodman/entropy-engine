@@ -16,11 +16,22 @@ export interface SheetRange {
     end: CellAddr;
 }
 
+export type NumberFormatType = "general" | "currency" | "percent" | "decimal" | "integer";
+
+export interface CellFormat {
+    type: NumberFormatType;
+    /** Number of decimal places (default 2 for currency, percent, decimal; 0 for integer). */
+    decimals?: number;
+    /** Currency symbol prefix (default "$"). */
+    symbol?: string;
+}
+
 export interface ClipboardCell {
     dRow: number;
     dCol: number;
     raw: string;
     border?: [number, number, number, number];
+    format?: CellFormat;
     source: CellAddr;
 }
 
@@ -37,6 +48,8 @@ export interface SheetCellData {
     raw: string;
     /** [r, g, b, a] in 0-1, or undefined for no border. */
     border?: [number, number, number, number];
+    /** Formatting for numeric values. */
+    format?: CellFormat;
 }
 
 export interface SheetDoc {
@@ -168,11 +181,33 @@ export function formatRef(ref: ParsedRef): string {
 
 export class FormulaError extends Error {}
 
-type TokenType = "num" | "ident" | "lparen" | "rparen" | "comma" | "colon" | "plus" | "minus" | "star" | "slash" | "error" | "eof";
+type TokenType =
+    | "num"
+    | "str"
+    | "ident"
+    | "lparen"
+    | "rparen"
+    | "comma"
+    | "colon"
+    | "plus"
+    | "minus"
+    | "star"
+    | "slash"
+    | "concat"
+    | "eq"
+    | "neq"
+    | "lt"
+    | "lte"
+    | "gt"
+    | "gte"
+    | "error"
+    | "eof";
+
 interface Token {
     type: TokenType;
     text: string;
     value?: number;
+    strValue?: string;
     start: number;
     end: number;
 }
@@ -182,7 +217,7 @@ function tokenize(src: string): Token[] {
     let i = 0;
     while (i < src.length) {
         const c = src[i];
-        if (c === " " || c === "\t") {
+        if (c === " " || c === "\t" || c === "\r" || c === "\n") {
             i++;
             continue;
         }
@@ -191,6 +226,34 @@ function tokenize(src: string): Token[] {
             while (j < src.length && ((src[j] >= "0" && src[j] <= "9") || src[j] === ".")) j++;
             const text = src.slice(i, j);
             tokens.push({ type: "num", text, value: parseFloat(text), start: i, end: j });
+            i = j;
+            continue;
+        }
+        if (c === '"') {
+            let j = i + 1;
+            let s = "";
+            let closed = false;
+            while (j < src.length) {
+                if (src[j] === '"') {
+                    if (j + 1 < src.length && src[j + 1] === '"') {
+                        s += '"';
+                        j += 2;
+                        continue;
+                    }
+                    closed = true;
+                    j++;
+                    break;
+                }
+                if (src[j] === "\\" && j + 1 < src.length) {
+                    s += src[j + 1];
+                    j += 2;
+                    continue;
+                }
+                s += src[j];
+                j++;
+            }
+            if (!closed) throw new FormulaError("#ERROR! unclosed string literal");
+            tokens.push({ type: "str", text: src.slice(i, j), strValue: s, start: i, end: j });
             i = j;
             continue;
         }
@@ -208,7 +271,51 @@ function tokenize(src: string): Token[] {
             i = j;
             continue;
         }
-        const single: Partial<Record<string, TokenType>> = { "(": "lparen", ")": "rparen", ",": "comma", ":": "colon", "+": "plus", "-": "minus", "*": "star", "/": "slash" };
+        if (c === "<") {
+            if (src[i + 1] === ">") {
+                tokens.push({ type: "neq", text: "<>", start: i, end: i + 2 });
+                i += 2;
+                continue;
+            }
+            if (src[i + 1] === "=") {
+                tokens.push({ type: "lte", text: "<=", start: i, end: i + 2 });
+                i += 2;
+                continue;
+            }
+            tokens.push({ type: "lt", text: "<", start: i, end: i + 1 });
+            i++;
+            continue;
+        }
+        if (c === ">") {
+            if (src[i + 1] === "=") {
+                tokens.push({ type: "gte", text: ">=", start: i, end: i + 2 });
+                i += 2;
+                continue;
+            }
+            tokens.push({ type: "gt", text: ">", start: i, end: i + 1 });
+            i++;
+            continue;
+        }
+        if (c === "=") {
+            tokens.push({ type: "eq", text: "=", start: i, end: i + 1 });
+            i++;
+            continue;
+        }
+        if (c === "&") {
+            tokens.push({ type: "concat", text: "&", start: i, end: i + 1 });
+            i++;
+            continue;
+        }
+        const single: Partial<Record<string, TokenType>> = {
+            "(": "lparen",
+            ")": "rparen",
+            ",": "comma",
+            ":": "colon",
+            "+": "plus",
+            "-": "minus",
+            "*": "star",
+            "/": "slash",
+        };
         const kind = single[c];
         if (kind) {
             tokens.push({ type: kind, text: c, start: i, end: i + 1 });
@@ -221,13 +328,93 @@ function tokenize(src: string): Token[] {
     return tokens;
 }
 
-const FUNCTIONS = new Set(["SUM", "AVERAGE", "MIN", "MAX", "COUNT"]);
+export const EMPTY_CELL = Symbol("empty");
+export type FormulaValue = number | string | boolean | typeof EMPTY_CELL;
+
+export function toNumber(v: FormulaValue): number {
+    if (v === EMPTY_CELL) return 0;
+    if (typeof v === "number") return v;
+    if (typeof v === "boolean") return v ? 1 : 0;
+    if (typeof v === "string") {
+        const trimmed = v.trim();
+        if (trimmed === "") return 0;
+        const n = Number(trimmed);
+        if (Number.isNaN(n)) throw new FormulaError("#VALUE!");
+        return n;
+    }
+    throw new FormulaError("#VALUE!");
+}
+
+export function toBoolean(v: FormulaValue): boolean {
+    if (v === EMPTY_CELL) return false;
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+    if (typeof v === "string") {
+        const upper = v.trim().toUpperCase();
+        if (upper === "TRUE") return true;
+        if (upper === "FALSE" || upper === "") return false;
+        const n = Number(v);
+        if (!Number.isNaN(n)) return n !== 0;
+        throw new FormulaError("#VALUE!");
+    }
+    return false;
+}
+
+export function toStringVal(v: FormulaValue): string {
+    if (v === EMPTY_CELL) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+    if (typeof v === "number") return formatNumber(v);
+    return "";
+}
+
+function areEqual(a: FormulaValue, b: FormulaValue): boolean {
+    if (a === EMPTY_CELL && b === EMPTY_CELL) return true;
+    if (a === EMPTY_CELL) return typeof b === "string" ? b === "" : typeof b === "number" ? b === 0 : false;
+    if (b === EMPTY_CELL) return typeof a === "string" ? a === "" : typeof a === "number" ? a === 0 : false;
+    if (typeof a === "string" && typeof b === "string") {
+        return a.toLowerCase() === b.toLowerCase();
+    }
+    return a === b;
+}
+
+function compareValues(a: FormulaValue, b: FormulaValue): number {
+    const valA = a === EMPTY_CELL ? (typeof b === "string" ? "" : 0) : a;
+    const valB = b === EMPTY_CELL ? (typeof a === "string" ? "" : 0) : b;
+    if (typeof valA === "number" && typeof valB === "number") {
+        return valA === valB ? 0 : valA < valB ? -1 : 1;
+    }
+    if (typeof valA === "string" && typeof valB === "string") {
+        const la = valA.toLowerCase();
+        const lb = valB.toLowerCase();
+        return la === lb ? 0 : la < lb ? -1 : 1;
+    }
+    if (typeof valA === "boolean" && typeof valB === "boolean") {
+        return valA === valB ? 0 : !valA && valB ? -1 : 1;
+    }
+    const typeRank = (x: FormulaValue) => (typeof x === "number" ? 1 : typeof x === "string" ? 2 : 3);
+    return typeRank(valA) < typeRank(valB) ? -1 : 1;
+}
+
+const FUNCTIONS = new Set([
+    "SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA",
+    "IF", "AND", "OR", "NOT", "TRUE", "FALSE",
+    "CONCAT", "CONCATENATE", "LEN", "UPPER", "LOWER", "TRIM", "LEFT", "RIGHT", "MID",
+    "ROUND", "ABS", "SQRT", "MOD", "POWER",
+    "TEXT"
+]);
+
 /** Functions that must error rather than silently return a meaningless value on an empty arg list. */
-const NEEDS_ARGS = new Set(["AVERAGE", "MIN", "MAX"]);
+const NEEDS_ARGS = new Set([
+    "AVERAGE", "MIN", "MAX", "LEN", "UPPER", "LOWER", "TRIM", "LEFT", "RIGHT", "MID",
+    "ROUND", "ABS", "SQRT", "MOD", "POWER", "AND", "OR", "NOT", "TEXT"
+]);
 
 class Parser {
     private pos = 0;
-    constructor(private tokens: Token[], private getCell: (addr: CellAddr) => number) {}
+    private evaluating = true;
+
+    constructor(private tokens: Token[], private getCell: (addr: CellAddr) => FormulaValue) {}
 
     private peek(): Token {
         return this.tokens[this.pos];
@@ -241,55 +428,108 @@ class Parser {
         return t;
     }
 
-    parse(): number {
-        const v = this.expr();
+    parse(): FormulaValue {
+        const v = this.comparison();
         this.expect("eof");
         return v;
     }
 
-    private expr(): number {
-        let v = this.term();
+    private comparison(): FormulaValue {
+        let v = this.concat();
         for (;;) {
-            if (this.peek().type === "plus") {
+            const t = this.peek();
+            if (t.type === "eq") {
                 this.next();
-                v += this.term();
-            } else if (this.peek().type === "minus") {
+                const rhs = this.concat();
+                if (this.evaluating) v = areEqual(v, rhs);
+            } else if (t.type === "neq") {
                 this.next();
-                v -= this.term();
+                const rhs = this.concat();
+                if (this.evaluating) v = !areEqual(v, rhs);
+            } else if (t.type === "lt") {
+                this.next();
+                const rhs = this.concat();
+                if (this.evaluating) v = compareValues(v, rhs) < 0;
+            } else if (t.type === "lte") {
+                this.next();
+                const rhs = this.concat();
+                if (this.evaluating) v = compareValues(v, rhs) <= 0;
+            } else if (t.type === "gt") {
+                this.next();
+                const rhs = this.concat();
+                if (this.evaluating) v = compareValues(v, rhs) > 0;
+            } else if (t.type === "gte") {
+                this.next();
+                const rhs = this.concat();
+                if (this.evaluating) v = compareValues(v, rhs) >= 0;
             } else break;
         }
         return v;
     }
 
-    private term(): number {
+    private concat(): FormulaValue {
+        let v = this.additive();
+        while (this.peek().type === "concat") {
+            this.next();
+            const rhs = this.additive();
+            if (this.evaluating) {
+                v = toStringVal(v) + toStringVal(rhs);
+            }
+        }
+        return v;
+    }
+
+    private additive(): FormulaValue {
+        let v = this.multiplicative();
+        for (;;) {
+            if (this.peek().type === "plus") {
+                this.next();
+                const rhs = this.multiplicative();
+                if (this.evaluating) v = toNumber(v) + toNumber(rhs);
+            } else if (this.peek().type === "minus") {
+                this.next();
+                const rhs = this.multiplicative();
+                if (this.evaluating) v = toNumber(v) - toNumber(rhs);
+            } else break;
+        }
+        return v;
+    }
+
+    private multiplicative(): FormulaValue {
         let v = this.factor();
         for (;;) {
             if (this.peek().type === "star") {
                 this.next();
-                v *= this.factor();
+                const rhs = this.factor();
+                if (this.evaluating) v = toNumber(v) * toNumber(rhs);
             } else if (this.peek().type === "slash") {
                 this.next();
                 const rhs = this.factor();
-                if (rhs === 0) throw new FormulaError("#DIV/0!");
-                v /= rhs;
+                if (this.evaluating) {
+                    const r = toNumber(rhs);
+                    if (r === 0) throw new FormulaError("#DIV/0!");
+                    v = toNumber(v) / r;
+                }
             } else break;
         }
         return v;
     }
 
-    private factor(): number {
+    private factor(): FormulaValue {
         const t = this.peek();
         if (t.type === "minus") {
             this.next();
-            return -this.factor();
+            const f = this.factor();
+            return this.evaluating ? -toNumber(f) : 0;
         }
         if (t.type === "plus") {
             this.next();
-            return this.factor();
+            const f = this.factor();
+            return this.evaluating ? toNumber(f) : 0;
         }
         if (t.type === "lparen") {
             this.next();
-            const v = this.expr();
+            const v = this.comparison();
             this.expect("rparen");
             return v;
         }
@@ -297,32 +537,91 @@ class Parser {
             this.next();
             return t.value!;
         }
+        if (t.type === "str") {
+            this.next();
+            return t.strValue!;
+        }
         if (t.type === "error") {
             this.next();
-            throw new FormulaError(t.text);
+            if (this.evaluating) throw new FormulaError(t.text);
+            return 0;
         }
         if (t.type === "ident") return this.identifier();
         throw new FormulaError(`#ERROR! unexpected "${t.text || "end"}"`);
     }
 
-    private identifier(): number {
+    private identifier(): FormulaValue {
         const name = this.next().text;
         const upper = name.toUpperCase();
-        if (this.peek().type === "lparen" && FUNCTIONS.has(upper)) {
+        if (upper === "TRUE" && this.peek().type !== "lparen") return true;
+        if (upper === "FALSE" && this.peek().type !== "lparen") return false;
+
+        if (this.peek().type === "lparen") {
             this.next();
-            const values = this.args();
-            this.expect("rparen");
-            return this.applyFn(upper, values);
+            return this.callFunction(upper);
         }
         const addr = parseA1(name);
         if (!addr) throw new FormulaError(`#REF! bad reference "${name}"`);
+        if (!this.evaluating) return 0;
         return this.getCell(addr);
+    }
+
+    private callFunction(name: string): FormulaValue {
+        if (name === "IF") {
+            return this.callIf();
+        }
+
+        const values = this.args();
+        this.expect("rparen");
+        if (!this.evaluating) return 0;
+        return this.applyFn(name, values);
+    }
+
+    private callIf(): FormulaValue {
+        const cond = this.comparison();
+        this.expect("comma");
+
+        let result: FormulaValue = false;
+        const wasEvaluating = this.evaluating;
+
+        if (!wasEvaluating) {
+            this.comparison();
+            if (this.peek().type === "comma") {
+                this.next();
+                this.comparison();
+            }
+            this.expect("rparen");
+            return 0;
+        }
+
+        const isTrue = toBoolean(cond);
+        if (isTrue) {
+            result = this.comparison();
+            if (this.peek().type === "comma") {
+                this.next();
+                this.evaluating = false;
+                this.comparison();
+                this.evaluating = true;
+            }
+        } else {
+            this.evaluating = false;
+            this.comparison();
+            this.evaluating = true;
+            if (this.peek().type === "comma") {
+                this.next();
+                result = this.comparison();
+            } else {
+                result = false;
+            }
+        }
+        this.expect("rparen");
+        return result;
     }
 
     /** A comma-separated argument list; each argument is a range (expanded to every cell's
      * value) or a plain expression. */
-    private args(): number[] {
-        const values: number[] = [];
+    private args(): FormulaValue[] {
+        const values: FormulaValue[] = [];
         if (this.peek().type === "rparen") return values;
         for (;;) {
             values.push(...this.arg());
@@ -335,7 +634,7 @@ class Parser {
         return values;
     }
 
-    private arg(): number[] {
+    private arg(): FormulaValue[] {
         if (this.peek().type === "ident") {
             const save = this.pos;
             const name = this.next().text;
@@ -353,26 +652,159 @@ class Parser {
             }
             this.pos = save;
         }
-        return [this.expr()];
+        return [this.comparison()];
     }
 
-    private expandRange(a: CellAddr, b: CellAddr): number[] {
+    private expandRange(a: CellAddr, b: CellAddr): FormulaValue[] {
+        if (!this.evaluating) return [];
         return expandRange(a, b).map((c) => this.getCell(c));
     }
 
-    private applyFn(name: string, values: number[]): number {
-        if (values.length === 0 && NEEDS_ARGS.has(name)) throw new FormulaError(`#ERROR! ${name}() needs a value`);
+    private applyFn(name: string, values: FormulaValue[]): FormulaValue {
+        if (values.length === 0 && NEEDS_ARGS.has(name)) {
+            throw new FormulaError(`#ERROR! ${name}() needs a value`);
+        }
         switch (name) {
-            case "SUM":
-                return values.reduce((a, b) => a + b, 0);
-            case "AVERAGE":
-                return values.reduce((a, b) => a + b, 0) / values.length;
-            case "MIN":
-                return Math.min(...values);
-            case "MAX":
-                return Math.max(...values);
-            case "COUNT":
+            case "SUM": {
+                let sum = 0;
+                for (const v of values) {
+                    if (typeof v === "number") sum += v;
+                    else if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+                        sum += Number(v);
+                    }
+                }
+                return sum;
+            }
+            case "AVERAGE": {
+                let sum = 0;
+                let count = 0;
+                for (const v of values) {
+                    if (typeof v === "number") {
+                        sum += v;
+                        count++;
+                    } else if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+                        sum += Number(v);
+                        count++;
+                    }
+                }
+                if (count === 0) throw new FormulaError("#DIV/0!");
+                return sum / count;
+            }
+            case "MIN": {
+                const nums: number[] = [];
+                for (const v of values) {
+                    if (typeof v === "number") nums.push(v);
+                    else if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+                        nums.push(Number(v));
+                    }
+                }
+                if (nums.length === 0) throw new FormulaError("#ERROR! MIN() needs a value");
+                return Math.min(...nums);
+            }
+            case "MAX": {
+                const nums: number[] = [];
+                for (const v of values) {
+                    if (typeof v === "number") nums.push(v);
+                    else if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+                        nums.push(Number(v));
+                    }
+                }
+                if (nums.length === 0) throw new FormulaError("#ERROR! MAX() needs a value");
+                return Math.max(...nums);
+            }
+            case "COUNT": {
                 return values.length;
+            }
+            case "COUNTA": {
+                let count = 0;
+                for (const v of values) {
+                    if (v !== EMPTY_CELL && v !== "") count++;
+                }
+                return count;
+            }
+            case "ROUND": {
+                const n = toNumber(values[0]);
+                const d = values.length > 1 ? toNumber(values[1]) : 0;
+                const factor = Math.pow(10, d);
+                return Math.round(n * factor) / factor;
+            }
+            case "ABS": {
+                return Math.abs(toNumber(values[0]));
+            }
+            case "SQRT": {
+                const n = toNumber(values[0]);
+                if (n < 0) throw new FormulaError("#NUM!");
+                return Math.sqrt(n);
+            }
+            case "MOD": {
+                if (values.length < 2) throw new FormulaError("#ERROR! MOD() needs 2 arguments");
+                const n = toNumber(values[0]);
+                const d = toNumber(values[1]);
+                if (d === 0) throw new FormulaError("#DIV/0!");
+                return ((n % d) + d) % d;
+            }
+            case "POWER": {
+                if (values.length < 2) throw new FormulaError("#ERROR! POWER() needs 2 arguments");
+                return Math.pow(toNumber(values[0]), toNumber(values[1]));
+            }
+            case "CONCAT":
+            case "CONCATENATE": {
+                return values.map(toStringVal).join("");
+            }
+            case "LEN": {
+                return toStringVal(values[0]).length;
+            }
+            case "UPPER": {
+                return toStringVal(values[0]).toUpperCase();
+            }
+            case "LOWER": {
+                return toStringVal(values[0]).toLowerCase();
+            }
+            case "TRIM": {
+                return toStringVal(values[0]).trim();
+            }
+            case "LEFT": {
+                const s = toStringVal(values[0]);
+                const cnt = values.length > 1 ? Math.max(0, Math.floor(toNumber(values[1]))) : 1;
+                return s.slice(0, cnt);
+            }
+            case "RIGHT": {
+                const s = toStringVal(values[0]);
+                const cnt = values.length > 1 ? Math.max(0, Math.floor(toNumber(values[1]))) : 1;
+                return cnt === 0 ? "" : s.slice(-cnt);
+            }
+            case "MID": {
+                if (values.length < 3) throw new FormulaError("#ERROR! MID() needs 3 arguments");
+                const s = toStringVal(values[0]);
+                const start = Math.max(1, Math.floor(toNumber(values[1])));
+                const cnt = Math.max(0, Math.floor(toNumber(values[2])));
+                return s.slice(start - 1, start - 1 + cnt);
+            }
+            case "AND": {
+                for (const v of values) {
+                    if (!toBoolean(v)) return false;
+                }
+                return true;
+            }
+            case "OR": {
+                for (const v of values) {
+                    if (toBoolean(v)) return true;
+                }
+                return false;
+            }
+            case "NOT": {
+                return !toBoolean(values[0]);
+            }
+            case "TRUE": {
+                return true;
+            }
+            case "FALSE": {
+                return false;
+            }
+            case "TEXT": {
+                if (values.length < 2) throw new FormulaError("#ERROR! TEXT() needs value and format");
+                return formatCellValue(values[0], toStringVal(values[1]) as any);
+            }
             default:
                 throw new FormulaError(`#ERROR! unknown function ${name}`);
         }
@@ -635,6 +1067,7 @@ export function copyRange(doc: SheetDoc, range: SheetRange, isCut = false): Shee
                 dCol: c - minCol,
                 raw: data?.raw ?? "",
                 border: data?.border,
+                format: data?.format,
                 source: { row: r, col: c },
             });
         }
@@ -649,17 +1082,20 @@ export function copyRange(doc: SheetDoc, range: SheetRange, isCut = false): Shee
     };
 }
 
-/** Clears content (raw text) of all cells in `range`. If `clearBorders` is true, borders are also removed. */
-export function clearRange(doc: SheetDoc, range: SheetRange, clearBorders = false): SheetDoc {
+/** Clears content (raw text) of all cells in `range`. If `clearBorders` is true, borders are also removed.
+ * If `clearFormats` is true, formats are also removed. */
+export function clearRange(doc: SheetDoc, range: SheetRange, clearBorders = false, clearFormats = false): SheetDoc {
     const cells: Record<string, SheetCellData> = { ...doc.cells };
     for (const addr of expandRange(range.start, range.end)) {
         const key = cellKey(addr.row, addr.col);
         const existing = cells[key];
         if (existing) {
-            if (clearBorders || !existing.border) {
+            const border = clearBorders ? undefined : existing.border;
+            const format = clearFormats ? undefined : existing.format;
+            if (!border && !format) {
                 delete cells[key];
             } else {
-                cells[key] = { raw: "", border: existing.border };
+                cells[key] = { raw: "", border, format };
             }
         }
     }
@@ -672,10 +1108,25 @@ export function setRangeBorder(doc: SheetDoc, range: SheetRange, border?: [numbe
     for (const addr of expandRange(range.start, range.end)) {
         const key = cellKey(addr.row, addr.col);
         const existing = cells[key];
-        if (!border && (!existing || existing.raw.trim() === "")) {
+        if (!border && (!existing || (existing.raw.trim() === "" && !existing.format))) {
             delete cells[key];
         } else {
-            cells[key] = { raw: existing?.raw ?? "", border };
+            cells[key] = { raw: existing?.raw ?? "", border, format: existing?.format };
+        }
+    }
+    return { ...doc, cells };
+}
+
+/** Sets or clears number formatting across all cells in `range`. */
+export function setRangeFormat(doc: SheetDoc, range: SheetRange, format?: CellFormat): SheetDoc {
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+    for (const addr of expandRange(range.start, range.end)) {
+        const key = cellKey(addr.row, addr.col);
+        const existing = cells[key];
+        if (!format && (!existing || (existing.raw.trim() === "" && !existing.border))) {
+            delete cells[key];
+        } else {
+            cells[key] = { raw: existing?.raw ?? "", border: existing?.border, format };
         }
     }
     return { ...doc, cells };
@@ -706,10 +1157,10 @@ export function pasteRange(doc: SheetDoc, clipboard: SheetClipboard, dst: SheetR
                     ? adjustFormulaForPaste(srcCell.raw, srcCell.source, targetAddr)
                     : srcCell.raw;
                 const key = cellKey(r, c);
-                if (raw.trim() === "" && !srcCell.border) {
+                if (raw.trim() === "" && !srcCell.border && !srcCell.format) {
                     delete cells[key];
                 } else {
-                    cells[key] = { raw, border: srcCell.border };
+                    cells[key] = { raw, border: srcCell.border, format: srcCell.format };
                 }
             }
         }
@@ -725,10 +1176,10 @@ export function pasteRange(doc: SheetDoc, clipboard: SheetClipboard, dst: SheetR
                 ? adjustFormulaForPaste(item.raw, item.source, targetAddr)
                 : item.raw;
             const key = cellKey(targetRow, targetCol);
-            if (raw.trim() === "" && !item.border) {
+            if (raw.trim() === "" && !item.border && !item.format) {
                 delete cells[key];
             } else {
-                cells[key] = { raw, border: item.border };
+                cells[key] = { raw, border: item.border, format: item.format };
             }
         }
     }
@@ -754,15 +1205,16 @@ export function fillDown(doc: SheetDoc, range: SheetRange): SheetDoc {
         const srcData = doc.cells[srcKey];
         const srcRaw = srcData?.raw ?? "";
         const srcBorder = srcData?.border;
+        const srcFormat = srcData?.format;
 
         for (let r = minRow + 1; r <= maxRow; r++) {
             const targetAddr: CellAddr = { row: r, col: c };
             const raw = adjustFormulaForPaste(srcRaw, srcAddr, targetAddr);
             const targetKey = cellKey(r, c);
-            if (raw.trim() === "" && !srcBorder) {
+            if (raw.trim() === "" && !srcBorder && !srcFormat) {
                 delete cells[targetKey];
             } else {
-                cells[targetKey] = { raw, border: srcBorder };
+                cells[targetKey] = { raw, border: srcBorder, format: srcFormat };
             }
         }
     }
@@ -780,11 +1232,61 @@ export interface CellValue {
     error: boolean;
 }
 
-function formatNumber(n: number): string {
+export function formatNumber(n: number): string {
     if (!Number.isFinite(n)) return "#ERROR!";
     // Round away float noise (0.1 + 0.2) without truncating a deliberately precise value.
     const rounded = Math.round(n * 1e6) / 1e6;
     return String(rounded);
+}
+
+export function formatCellValue(value: FormulaValue, format?: CellFormat | NumberFormatType): string {
+    if (value === EMPTY_CELL) return "";
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (typeof value === "string") return value;
+
+    if (!Number.isFinite(value)) return "#ERROR!";
+
+    const fmt: CellFormat = typeof format === "string" ? { type: format } : format ?? { type: "general" };
+
+    switch (fmt.type) {
+        case "currency": {
+            const sym = fmt.symbol ?? "$";
+            const dec = fmt.decimals !== undefined ? fmt.decimals : 2;
+            const isNeg = value < 0;
+            const absVal = Math.abs(value);
+            const parts = absVal.toFixed(dec).split(".");
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            const formatted = sym + (dec > 0 ? parts.join(".") : parts[0]);
+            return isNeg ? `-${formatted}` : formatted;
+        }
+        case "percent": {
+            const dec = fmt.decimals !== undefined ? fmt.decimals : 2;
+            const isNeg = value < 0;
+            const absVal = Math.abs(value) * 100;
+            const parts = absVal.toFixed(dec).split(".");
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            const formatted = (dec > 0 ? parts.join(".") : parts[0]) + "%";
+            return isNeg ? `-${formatted}` : formatted;
+        }
+        case "decimal": {
+            const dec = fmt.decimals !== undefined ? fmt.decimals : 2;
+            const isNeg = value < 0;
+            const absVal = Math.abs(value);
+            const parts = absVal.toFixed(dec).split(".");
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            const formatted = dec > 0 ? parts.join(".") : parts[0];
+            return isNeg ? `-${formatted}` : formatted;
+        }
+        case "integer": {
+            const isNeg = value < 0;
+            const absVal = Math.round(Math.abs(value));
+            const formatted = String(absVal).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            return isNeg ? `-${formatted}` : formatted;
+        }
+        case "general":
+        default:
+            return formatNumber(value);
+    }
 }
 
 /** Recomputes every non-empty cell's display text, resolving formulas (with cycle detection)
@@ -793,33 +1295,37 @@ function formatNumber(n: number): string {
 export function evaluateSheet(doc: SheetDoc): Map<string, CellValue> {
     const results = new Map<string, CellValue>();
     const visiting = new Set<string>();
-    const numericCache = new Map<string, number>();
+    const cellCache = new Map<string, FormulaValue>();
 
-    const computeCellNumeric = (raw: string): number => {
+    const computeCell = (raw: string): FormulaValue => {
         const trimmed = raw.trim();
         if (trimmed.startsWith("=")) {
             const tokens = tokenize(trimmed.slice(1));
-            return new Parser(tokens, resolveNumeric).parse();
+            return new Parser(tokens, resolveCell).parse();
         }
+        if (trimmed === "") return EMPTY_CELL;
+        const upper = trimmed.toUpperCase();
+        if (upper === "TRUE") return true;
+        if (upper === "FALSE") return false;
         const n = Number(trimmed);
-        if (Number.isNaN(n)) throw new FormulaError("#VALUE!");
-        return n;
+        if (!Number.isNaN(n)) return n;
+        return raw;
     };
 
-    function resolveNumeric(addr: CellAddr): number {
+    function resolveCell(addr: CellAddr): FormulaValue {
         const key = cellKey(addr.row, addr.col);
-        const cached = numericCache.get(key);
+        const cached = cellCache.get(key);
         if (cached !== undefined) return cached;
         const data = doc.cells[key];
         if (!data || data.raw.trim() === "") {
-            numericCache.set(key, 0);
-            return 0;
+            cellCache.set(key, EMPTY_CELL);
+            return EMPTY_CELL;
         }
         if (visiting.has(key)) throw new FormulaError("#CYCLE!");
         visiting.add(key);
         try {
-            const value = computeCellNumeric(data.raw);
-            numericCache.set(key, value);
+            const value = computeCell(data.raw);
+            cellCache.set(key, value);
             return value;
         } finally {
             visiting.delete(key);
@@ -834,16 +1340,31 @@ export function evaluateSheet(doc: SheetDoc): Map<string, CellValue> {
             const raw = data.raw.trim();
             if (raw.startsWith("=")) {
                 try {
-                    const value = resolveNumeric({ row, col });
-                    results.set(key, { text: formatNumber(value), numeric: true, error: false });
+                    const value = resolveCell({ row, col });
+                    const isNum = typeof value === "number";
+                    const text = formatCellValue(value, data.format);
+                    results.set(key, { text, numeric: isNum, error: false });
                 } catch (e) {
                     const msg = e instanceof FormulaError ? e.message : "#ERROR!";
                     results.set(key, { text: msg, numeric: false, error: true });
                 }
             } else {
-                const n = Number(raw);
-                const isNumeric = !Number.isNaN(n);
-                results.set(key, { text: isNumeric ? formatNumber(n) : raw, numeric: isNumeric, error: false });
+                const upper = raw.toUpperCase();
+                if (upper === "TRUE" || upper === "FALSE") {
+                    results.set(key, { text: upper, numeric: false, error: false });
+                } else {
+                    const n = Number(raw);
+                    const isNumeric = !Number.isNaN(n);
+                    if (isNumeric) {
+                        results.set(key, {
+                            text: formatCellValue(n, data.format),
+                            numeric: true,
+                            error: false,
+                        });
+                    } else {
+                        results.set(key, { text: raw, numeric: false, error: false });
+                    }
+                }
             }
         }
     }

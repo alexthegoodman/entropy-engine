@@ -14,7 +14,7 @@
 // Everything else (the cell store, formula parsing/evaluation, row/column insert/delete) lives
 // in sheet_model.ts so it can be unit-tested with no window at all.
 
-import type { CellAddr, SheetClipboard, SheetDoc, SheetRange } from "./sheet_model";
+import type { CellAddr, CellFormat, SheetClipboard, SheetDoc, SheetRange } from "./sheet_model";
 import {
     a1,
     adjustFormulaForPaste,
@@ -31,12 +31,13 @@ import {
     pasteRange,
     rangeA1,
     setRangeBorder,
+    setRangeFormat,
 } from "./sheet_model";
 
 const addonInfo = {
     name: "sheet",
-    version: "1.2.0",
-    description: "A spreadsheet grid with formulas, inline editing, multi-cell range selection, copy/cut/paste, fill-down, undo/redo, and row/column insert-delete - the second pass of Alex's live-3D-chart spreadsheet idea.",
+    version: "1.3.0",
+    description: "A spreadsheet grid with formulas, inline editing, multi-cell range selection, copy/cut/paste, fill-down, undo/redo, row/column insert-delete, number formatting (currency, percent, decimal, integer) and extended formula functions (IF, logic, text, math).",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true },
 };
@@ -85,20 +86,20 @@ function getRaw(addr: CellAddr): string {
 function mutateRaw(addr: CellAddr, raw: string) {
     const key = cellKey(addr.row, addr.col);
     const existing = doc.cells[key];
-    if (raw.trim() === "" && !existing?.border) {
+    if (raw.trim() === "" && !existing?.border && !existing?.format) {
         delete doc.cells[key];
     } else {
-        doc.cells[key] = { raw, border: existing?.border };
+        doc.cells[key] = { raw, border: existing?.border, format: existing?.format };
     }
 }
 
 function mutateBorder(addr: CellAddr, border: [number, number, number, number] | undefined) {
     const key = cellKey(addr.row, addr.col);
     const existing = doc.cells[key];
-    if (!border && (!existing || existing.raw.trim() === "")) {
+    if (!border && (!existing || (existing.raw.trim() === "" && !existing?.format))) {
         delete doc.cells[key];
     } else {
-        doc.cells[key] = { raw: existing?.raw ?? "", border };
+        doc.cells[key] = { raw: existing?.raw ?? "", border, format: existing?.format };
     }
 }
 
@@ -251,6 +252,45 @@ function renderUI(win: string) {
         });
         Entropy.UI.Widget.button(row, { id: "undo_btn", text: "Undo", onClick: () => undo() });
         Entropy.UI.Widget.button(row, { id: "redo_btn", text: "Redo", onClick: () => redo() });
+    });
+
+    Entropy.UI.Widget.horizontal(win, (row) => {
+        Entropy.UI.Widget.label(row, { text: "Format:" });
+        Entropy.UI.Widget.button(row, {
+            id: "fmt_general",
+            text: "General",
+            onClick: () => commit(() => {
+                doc = setRangeFormat(doc, currentRange(), undefined);
+            }),
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "fmt_currency",
+            text: "Currency ($)",
+            onClick: () => commit(() => {
+                doc = setRangeFormat(doc, currentRange(), { type: "currency", decimals: 2 });
+            }),
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "fmt_percent",
+            text: "Percent (%)",
+            onClick: () => commit(() => {
+                doc = setRangeFormat(doc, currentRange(), { type: "percent", decimals: 2 });
+            }),
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "fmt_decimal",
+            text: "Decimal (.00)",
+            onClick: () => commit(() => {
+                doc = setRangeFormat(doc, currentRange(), { type: "decimal", decimals: 2 });
+            }),
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "fmt_integer",
+            text: "Integer (#)",
+            onClick: () => commit(() => {
+                doc = setRangeFormat(doc, currentRange(), { type: "integer" });
+            }),
+        });
     });
     
     Entropy.UI.Widget.separator(win);
