@@ -426,6 +426,17 @@ impl Context {
         let p = inner.input.pointer;
         if p.primary_pressed || p.secondary_pressed {
             inner.pointer_capture = Some(p.pos.and_then(|pos| inner.top_layer_at(pos)));
+            // A drag's widget may have disappeared while the button was held (for example when
+            // switching tiled apps). A new press is a new gesture, regardless of what remained
+            // in memory from that widget.
+            if p.primary_pressed {
+                if inner.memory.active_drag.take().is_some() {
+                    inner.memory.clip_drag = None;
+                    inner.memory.clip_drag_origin = None;
+                    inner.memory.lane_draw = None;
+                    inner.memory.kanban_drag = None;
+                }
+            }
         } else if !p.primary_down && !p.primary_released && !p.secondary_down {
             inner.pointer_capture = None;
         }
@@ -489,6 +500,16 @@ impl Context {
             crate::entropy_gui::focus::resolve(&mut inner.focus, &mut inner.memory.focused, &mut inner.memory.popup_open, &inner.input.key_events, pressed);
         }
         let mut inner = self.0.borrow_mut();
+        // Let the active widget observe the release during this frame. If its view was hidden or
+        // unmounted, clear the orphan here so it cannot claim future card/clip gestures.
+        if !inner.input.pointer.primary_down {
+            if inner.memory.active_drag.take().is_some() {
+                inner.memory.clip_drag = None;
+                inner.memory.clip_drag_origin = None;
+                inner.memory.lane_draw = None;
+                inner.memory.kanban_drag = None;
+            }
+        }
         let overlay = std::mem::take(&mut inner.overlay_draw_list);
         inner.draw_list.commands.extend(overlay.commands);
         let popup = std::mem::take(&mut inner.popup_draw_list);

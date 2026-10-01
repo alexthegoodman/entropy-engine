@@ -241,7 +241,11 @@ impl KanbanBoard {
                     + if col.cards.is_empty() { 40.0 } else { 0.0 }
             })
             .collect();
-        let board_h = ui.available_size().y.max(column_content_h.iter().cloned().fold(160.0_f32, f32::max));
+        // A vertical ScrollArea offers a very tall virtual canvas. Size the board to the
+        // visible remainder instead so controls placed after it remain reachable by scrolling.
+        let available_h = ui.available_size().y;
+        let visible_h = (ui.clip_rect.max.y - ui.available_rect_before_wrap().min.y).max(160.0);
+        let board_h = available_h.min(visible_h).max(column_content_h.iter().cloned().fold(160.0_f32, f32::max));
         let size = vec2(ui.available_size().x.max(total_w), board_h);
 
         let (bg_response, painter) = ui.allocate_painter(size, Sense::click());

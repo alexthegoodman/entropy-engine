@@ -135,6 +135,14 @@ impl State {
         self.pointer_cursors = Some(cursors);
     }
 
+    /// Feed the same pointer state as `CursorMoved`/left `MouseInput` into the next GUI frame.
+    /// The live BDD driver uses this to exercise hit-testing and addon event dispatch without
+    /// moving the operator's OS cursor.
+    pub fn inject_pointer_for_bdd(&mut self, x: f32, y: f32, down: bool) {
+        self.pointer_pos = Some(pos2(x, y));
+        self.primary_down = down;
+    }
+
     pub fn on_window_event(&mut self, _window: &Window, event: &WindowEvent) -> EventResponse {
         match event {
             WindowEvent::CursorMoved { position, .. } => {

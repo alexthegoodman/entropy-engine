@@ -186,56 +186,6 @@ function renderUI(win: string) {
         Entropy.UI.Widget.separator(win);
     }
 
-    // The kanban board below fills all remaining window height, so anything placed after it
-    // never shows without a scroll region this window doesn't have - the card editor goes
-    // above it instead, same as the add-card form.
-    if (selected) {
-        const found = findCard(selected.column, selected.card);
-        if (!found) {
-            selected = null;
-        } else {
-            Entropy.UI.Widget.label(win, { text: `Editing: ${found.card.title}`, bold: true });
-            Entropy.UI.Widget.textInput(win, {
-                id: "edit_card_title",
-                label: "Title:",
-                value: found.card.title,
-                onChange: (v) => {
-                    found.card.title = v;
-                    saveBoard();
-                },
-            });
-            Entropy.UI.Widget.textInput(win, {
-                id: "edit_card_description",
-                label: "Description:",
-                value: editDescription,
-                onChange: (v) => {
-                    editDescription = v;
-                    found.card.description = v;
-                    saveBoard();
-                },
-            });
-            Entropy.UI.Widget.textInput(win, {
-                id: "edit_card_tags",
-                label: "Tags (comma-separated):",
-                value: editTags,
-                onChange: (v) => {
-                    editTags = v;
-                    found.card.tags = v.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
-                    saveBoard();
-                },
-            });
-            // Standalone, not grouped - see the add-card form's comment above on why a
-            // `horizontal()` right after a `textInput` row doesn't render.
-            Entropy.UI.Widget.button(win, { text: "Close", onClick: () => { selected = null; } });
-            Entropy.UI.Widget.button(win, {
-                text: "Delete Card",
-                tooltip: "Remove this card (you can undo it)",
-                onClick: () => deleteCard(found.column.id, found.card.id),
-            });
-            Entropy.UI.Widget.separator(win);
-        }
-    }
-
     const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(640) : false;
     let visibleColumns = board.columns;
     if (isNarrow && board.columns.length > 1) {
@@ -294,6 +244,53 @@ function renderUI(win: string) {
             selected = null;
         },
     });
+
+    // Selection happens on pointer-down. Keep the board in the same place while a card is
+    // dragged; inserting this editor above it would move every drop target before release.
+    if (selected) {
+        const found = findCard(selected.column, selected.card);
+        if (!found) {
+            selected = null;
+        } else {
+            Entropy.UI.Widget.label(win, { text: `Editing: ${found.card.title}`, bold: true });
+            Entropy.UI.Widget.textInput(win, {
+                id: "edit_card_title",
+                label: "Title:",
+                value: found.card.title,
+                onChange: (v) => {
+                    found.card.title = v;
+                    saveBoard();
+                },
+            });
+            Entropy.UI.Widget.textInput(win, {
+                id: "edit_card_description",
+                label: "Description:",
+                value: editDescription,
+                onChange: (v) => {
+                    editDescription = v;
+                    found.card.description = v;
+                    saveBoard();
+                },
+            });
+            Entropy.UI.Widget.textInput(win, {
+                id: "edit_card_tags",
+                label: "Tags (comma-separated):",
+                value: editTags,
+                onChange: (v) => {
+                    editTags = v;
+                    found.card.tags = v.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+                    saveBoard();
+                },
+            });
+            Entropy.UI.Widget.button(win, { text: "Close", onClick: () => { selected = null; } });
+            Entropy.UI.Widget.button(win, {
+                text: "Delete Card",
+                tooltip: "Remove this card (you can undo it)",
+                onClick: () => deleteCard(found.column.id, found.card.id),
+            });
+            Entropy.UI.Widget.separator(win);
+        }
+    }
 }
 
 addon.onInit(async () => {

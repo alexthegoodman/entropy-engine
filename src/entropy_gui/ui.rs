@@ -452,4 +452,34 @@ mod tests {
             assert!(!resp.clicked(), "Pointer outside clip_rect must NOT be clicked");
         });
     }
+
+    #[test]
+    fn drag_from_hidden_tile_does_not_block_next_widget() {
+        let ctx = Context::default();
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0));
+        let press = RawInput {
+            pointer: PointerState { pos: Some(pos2(50.0, 50.0)), primary_down: true, primary_pressed: true, ..Default::default() },
+            ..Default::default()
+        };
+        ctx.run(press, |ctx| {
+            assert!(interact(ctx, rect, Id::new("old_tile_card"), Sense::click_and_drag()).drag_started());
+            ctx.memory_mut(|m| m.kanban_drag = Some((Id::new("board"), "todo".into(), "card".into())));
+        });
+
+        // The old tile is no longer rendered when the release arrives.
+        let release = RawInput {
+            pointer: PointerState { pos: Some(pos2(80.0, 50.0)), primary_released: true, ..Default::default() },
+            ..Default::default()
+        };
+        ctx.run(release, |_| {});
+        assert!(ctx.memory(|m| m.active_drag.is_none() && m.kanban_drag.is_none()));
+
+        let next_press = RawInput {
+            pointer: PointerState { pos: Some(pos2(50.0, 50.0)), primary_down: true, primary_pressed: true, ..Default::default() },
+            ..Default::default()
+        };
+        ctx.run(next_press, |ctx| {
+            assert!(interact(ctx, rect, Id::new("new_tile_clip"), Sense::click_and_drag()).drag_started());
+        });
+    }
 }

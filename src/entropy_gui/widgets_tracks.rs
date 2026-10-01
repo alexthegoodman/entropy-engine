@@ -599,6 +599,10 @@ impl TrackView {
                         m.clip_drag_origin = Some((clip_id, origin_x, clip.start_ms, clip.duration_ms));
                     });
                     events.push(TrackViewEvent::ClipSelected { track: track.id.clone(), clip: clip.id.clone() });
+                } else if resp.clicked() {
+                    // Selection belongs to the press itself. A different widget can hold the
+                    // drag token during an overlapping gesture, but that must not eat clicks.
+                    events.push(TrackViewEvent::ClipSelected { track: track.id.clone(), clip: clip.id.clone() });
                 } else if resp.dragged() {
                     let kind = ctx.memory(|m| m.clip_drag.clone()).filter(|(id, _, _, _)| *id == clip_id).map(|(_, k, _, _)| k);
                     let origin = ctx.memory(|m| m.clip_drag_origin.clone()).filter(|(id, _, _, _)| *id == clip_id);

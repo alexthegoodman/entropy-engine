@@ -145,6 +145,7 @@ struct BrowserBddDriver {
 
 enum BrowserBddAction {
     Pointer { x: f32, y: f32, phase: String },
+    GuiPointer { x: f32, y: f32, phase: String },
     AssertLabel { text: String, present: bool },
     Wait(u32),
     Event { control_id: String, value: Option<String> },
@@ -228,6 +229,11 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         let phase = quoted[0].to_string();
         assert!(["down", "move", "up"].contains(&phase.as_str()), "unknown pointer phase");
         return Some(BrowserBddAction::Pointer { phase, x: quoted[1].parse().expect("pointer x"), y: quoted[2].parse().expect("pointer y") });
+    }
+    if text.starts_with("I send GUI pointer ") && quoted.len() == 3 {
+        let phase = quoted[0].to_string();
+        assert!(["down", "move", "up"].contains(&phase.as_str()), "unknown GUI pointer phase");
+        return Some(BrowserBddAction::GuiPointer { phase, x: quoted[1].parse().expect("GUI pointer x"), y: quoted[2].parse().expect("GUI pointer y") });
     }
 
     if text.starts_with("I hold the key ") && quoted.len() == 1 {
@@ -371,6 +377,7 @@ impl BrowserBddDriver {
                 Ok("space") => include_str!("../tests/features/daw_space_live.feature"),
                 Ok("creative-suite") | Ok("special-bundle") => include_str!("../tests/features/special_bundle_windows_live.feature"),
                 Ok("app-tiling") | Ok("tiling") => include_str!("../tests/features/app_tiling_live.feature"),
+                Ok("app-pointer") => include_str!("../tests/features/app_pointer_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
@@ -483,6 +490,10 @@ impl BrowserBddDriver {
         }
         let Some(action) = self.actions.pop_front() else { return };
         match action {
+            BrowserBddAction::GuiPointer { x, y, phase } => {
+                window.gui.state.inject_pointer_for_bdd(x, y, phase != "up");
+                self.outcomes.push(serde_json::json!({ "kind": "gui-pointer", "phase": phase, "x": x, "y": y }));
+            }
             BrowserBddAction::AssertLabel { text, present } => {
                 let labels = window.pipeline.export_editor.as_mut().map(|editor| {
                     let state = editor.addon_engine.runtime.op_state();
