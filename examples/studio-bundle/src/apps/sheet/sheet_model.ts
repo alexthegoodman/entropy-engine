@@ -203,6 +203,23 @@ export function formatRef(ref: ParsedRef): string {
     return `${colStr}${rowStr}`;
 }
 
+/** Parses "A1:B10" or "A1" into a SheetRange, or null if invalid. */
+export function parseRangeA1(ref: string): SheetRange | null {
+    const parts = ref.split(":");
+    if (parts.length === 1) {
+        const addr = parseA1(parts[0].trim());
+        if (!addr) return null;
+        return { start: addr, end: addr };
+    }
+    if (parts.length === 2) {
+        const start = parseA1(parts[0].trim());
+        const end = parseA1(parts[1].trim());
+        if (!start || !end) return null;
+        return { start, end };
+    }
+    return null;
+}
+
 // ------------------------------------------------------------------------------------------
 // Formula engine
 // ------------------------------------------------------------------------------------------
@@ -1398,4 +1415,200 @@ export function evaluateSheet(doc: SheetDoc): Map<string, CellValue> {
     }
 
     return results;
+}
+
+export const CHART3D_PALETTE: [number, number, number, number][] = [
+    [0.28, 0.90, 0.84, 1.0], // Teal
+    [0.58, 0.45, 1.00, 1.0], // Violet
+    [1.00, 0.38, 0.66, 1.0], // Pink
+    [1.00, 0.78, 0.36, 1.0], // Amber
+    [0.45, 0.62, 1.00, 1.0], // Sky
+    [1.00, 0.36, 0.42, 1.0], // Rose
+    [0.65, 0.95, 0.35, 1.0], // Lime
+    [1.00, 0.55, 0.35, 1.0], // Coral
+];
+
+export interface Chart3dSeriesData {
+    name: string;
+    color?: [number, number, number, number];
+    values: number[];
+}
+
+export interface Chart3dExtractedData {
+    series: Chart3dSeriesData[];
+    xLabels: string[];
+    title?: string;
+}
+
+export interface Chart3dExtractOptions {
+    orientation?: "rows" | "cols";
+    firstRowHeaders?: boolean;
+    firstColHeaders?: boolean;
+}
+
+export function extractChart3dData(
+    doc: SheetDoc,
+    evaluated: Map<string, CellValue>,
+    range: SheetRange,
+    options?: Chart3dExtractOptions
+): Chart3dExtractedData {
+    const r0 = Math.min(range.start.row, range.end.row);
+    const r1 = Math.max(range.start.row, range.end.row);
+    const c0 = Math.min(range.start.col, range.end.col);
+    const c1 = Math.max(range.start.col, range.end.col);
+
+    const orientation = options?.orientation ?? "rows";
+    const hasRowHeaders = (options?.firstRowHeaders ?? false) && r1 > r0;
+    const hasColHeaders = (options?.firstColHeaders ?? false) && c1 > c0;
+
+    const getCellNumber = (row: number, col: number): number => {
+        const key = cellKey(row, col);
+        const evalCell = evaluated.get(key);
+        if (evalCell && evalCell.numeric && !evalCell.error) {
+            const cleaned = evalCell.text.replace(/[^0-9.-]/g, "");
+            const n = parseFloat(cleaned);
+            if (!Number.isNaN(n)) return n;
+        }
+        const raw = doc.cells[key]?.raw;
+        if (raw !== undefined) {
+            const n = Number(raw);
+            if (!Number.isNaN(n)) return n;
+        }
+        return 0;
+    };
+
+    const getCellText = (row: number, col: number, fallback: string): string => {
+        const key = cellKey(row, col);
+        const evalCell = evaluated.get(key);
+        if (evalCell && evalCell.text.trim()) return evalCell.text.trim();
+        const raw = doc.cells[key]?.raw;
+        if (raw && raw.trim()) return raw.trim();
+        return fallback;
+    };
+
+    const getCellBorder = (row: number, col: number): [number, number, number, number] | undefined => {
+        const key = cellKey(row, col);
+        return doc.cells[key]?.border;
+    };
+
+    const series: Chart3dSeriesData[] = [];
+    const xLabels: string[] = [];
+
+    if (orientation === "rows") {
+        const dataR0 = hasRowHeaders ? r0 + 1 : r0;
+        const dataC0 = hasColHeaders ? c0 + 1 : c0;
+
+        for (let c = dataC0; c <= c1; c++) {
+            const label = hasRowHeaders ? getCellText(r0, c, colLetters(c)) : colLetters(c);
+            xLabels.push(label);
+        }
+
+        for (let r = dataR0; r <= r1; r++) {
+            const name = hasColHeaders ? getCellText(r, c0, `Row ${r + 1}`) : `Row ${r + 1}`;
+            const sIdx = r - dataR0;
+            const customColor = (hasColHeaders ? getCellBorder(r, c0) : undefined) ?? getCellBorder(r, dataC0);
+            const color = customColor ?? CHART3D_PALETTE[sIdx % CHART3D_PALETTE.length];
+            const values: number[] = [];
+            for (let c = dataC0; c <= c1; c++) {
+                values.push(getCellNumber(r, c));
+            }
+            series.push({ name, color, values });
+        }
+    } else {
+        const dataR0 = hasRowHeaders ? r0 + 1 : r0;
+        const dataC0 = hasColHeaders ? c0 + 1 : c0;
+
+        for (let r = dataR0; r <= r1; r++) {
+            const label = hasColHeaders ? getCellText(r, c0, `Row ${r + 1}`) : `Row ${r + 1}`;
+            xLabels.push(label);
+        }
+
+        for (let c = dataC0; c <= c1; c++) {
+            const name = hasRowHeaders ? getCellText(r0, c, colLetters(c)) : colLetters(c);
+            const sIdx = c - dataC0;
+            const customColor = (hasRowHeaders ? getCellBorder(r0, c) : undefined) ?? getCellBorder(dataR0, c);
+            const color = customColor ?? CHART3D_PALETTE[sIdx % CHART3D_PALETTE.length];
+            const values: number[] = [];
+            for (let r = dataR0; r <= r1; r++) {
+                values.push(getCellNumber(r, c));
+            }
+            series.push({ name, color, values });
+        }
+    }
+
+    return { series, xLabels };
+}
+
+/** Applies matching 3D chart palette border colors to each series in the spreadsheet range. */
+export function applyChartBorders(
+    doc: SheetDoc,
+    range: SheetRange,
+    orientation: "rows" | "cols" = "rows",
+    hasRowHeaders = false,
+    hasColHeaders = false
+): SheetDoc {
+    const r0 = Math.min(range.start.row, range.end.row);
+    const r1 = Math.max(range.start.row, range.end.row);
+    const c0 = Math.min(range.start.col, range.end.col);
+    const c1 = Math.max(range.start.col, range.end.col);
+
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+    const rowH = hasRowHeaders && r1 > r0;
+    const colH = hasColHeaders && c1 > c0;
+
+    if (orientation === "rows") {
+        const dataR0 = rowH ? r0 + 1 : r0;
+        for (let r = dataR0; r <= r1; r++) {
+            const sIdx = r - dataR0;
+            const color = CHART3D_PALETTE[sIdx % CHART3D_PALETTE.length];
+            for (let c = c0; c <= c1; c++) {
+                const key = cellKey(r, c);
+                const existing = cells[key];
+                cells[key] = { raw: existing?.raw ?? "", border: color, format: existing?.format };
+            }
+        }
+    } else {
+        const dataC0 = colH ? c0 + 1 : c0;
+        for (let c = dataC0; c <= c1; c++) {
+            const sIdx = c - dataC0;
+            const color = CHART3D_PALETTE[sIdx % CHART3D_PALETTE.length];
+            for (let r = r0; r <= r1; r++) {
+                const key = cellKey(r, c);
+                const existing = cells[key];
+                cells[key] = { raw: existing?.raw ?? "", border: color, format: existing?.format };
+            }
+        }
+    }
+
+    return { ...doc, cells };
+}
+
+/** Creates a sample spreadsheet populated with quarterly revenue data ready for 3D charting. */
+export function createSampleSheet(): SheetDoc {
+    const doc = defaultSheet(30, 12);
+    // Header row
+    doc.cells[cellKey(0, 0)] = { raw: "Segment" };
+    doc.cells[cellKey(0, 1)] = { raw: "Q1" };
+    doc.cells[cellKey(0, 2)] = { raw: "Q2" };
+    doc.cells[cellKey(0, 3)] = { raw: "Q3" };
+    doc.cells[cellKey(0, 4)] = { raw: "Q4" };
+
+    const data: [string, number, number, number, number][] = [
+        ["SaaS", 120, 145, 180, 215],
+        ["Hardware", 95, 80, 110, 140],
+        ["Services", 60, 75, 70, 95],
+        ["Cloud", 150, 195, 240, 310],
+    ];
+
+    data.forEach(([name, q1, q2, q3, q4], idx) => {
+        const r = idx + 1;
+        const color = CHART3D_PALETTE[idx % CHART3D_PALETTE.length];
+        doc.cells[cellKey(r, 0)] = { raw: name, border: color };
+        doc.cells[cellKey(r, 1)] = { raw: String(q1), border: color, format: { type: "currency", decimals: 0 } };
+        doc.cells[cellKey(r, 2)] = { raw: String(q2), border: color, format: { type: "currency", decimals: 0 } };
+        doc.cells[cellKey(r, 3)] = { raw: String(q3), border: color, format: { type: "currency", decimals: 0 } };
+        doc.cells[cellKey(r, 4)] = { raw: String(q4), border: color, format: { type: "currency", decimals: 0 } };
+    });
+
+    return doc;
 }

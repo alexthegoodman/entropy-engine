@@ -88,6 +88,10 @@ name = "reverb_eq_view_bdd"
 harness = false
 
 [[test]]
+name = "chart3d_bdd"
+harness = false
+
+[[test]]
 name = "wavetable_synth_bdd"
 harness = false
 

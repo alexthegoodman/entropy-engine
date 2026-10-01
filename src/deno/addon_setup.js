@@ -1862,6 +1862,21 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A live 3D chart (Surface, Bar, Ribbon) driven by series data (see entropy_gui::Chart3dView).
+            // Orbit camera with drag rotation, wheel zoom, camera presets and live interactive hover readout.
+            chart3d: (windowId, config) => {
+                const id = nextWidgetId(windowId, "chart3d", config?.id);
+                ops.op_ui_widget_chart3d(windowId, { ...(config || {}) }, id);
+
+                if (config?.onHover || config?.onChartType) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "CHART3D_TYPE" && config.onChartType) config.onChartType(parts[2]);
+                        else if (type === "CHART3D_HOVER" && config.onHover) config.onHover(parseInt(parts[2], 10), parseInt(parts[3], 10), parseFloat(parts[4]));
+                    });
+                }
+            },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
             // treeView.

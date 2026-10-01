@@ -33,6 +33,10 @@ import {
     setRangeBorder,
     setRangeFormat,
     setColumnWidth,
+    applyChartBorders,
+    createSampleSheet,
+    extractChart3dData,
+    parseRangeA1,
 } from "./sheet_model";
 
 const addonInfo = {
@@ -58,6 +62,12 @@ let editing: { row: number; col: number; value: string } | null = null;
 let clipboard: SheetClipboard | null = null;
 let undoStack: SheetDoc[] = [];
 let redoStack: SheetDoc[] = [];
+let showChart = false;
+let chartType: "surface" | "bar" | "ribbon" = "surface";
+let chartOrientation: "rows" | "cols" = "rows";
+let chartFirstRowHeaders = true;
+let chartFirstColHeaders = true;
+let chartRangeOverride: string | null = null;
 
 function currentRange(): SheetRange {
     return {
@@ -292,11 +302,102 @@ function renderUI(win: string) {
                 doc = setRangeFormat(doc, currentRange(), { type: "integer" });
             }),
         });
+        Entropy.UI.Widget.button(row, {
+            id: "toggle_chart",
+            text: showChart ? "Hide 3D Chart" : "3D Chart",
+            onClick: () => { showChart = !showChart; },
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "load_sample",
+            text: "Load Sample",
+            onClick: () => commit(() => { doc = createSampleSheet(); }),
+        });
     });
     
     Entropy.UI.Widget.separator(win);
 
     const evaluated = evaluateSheet(doc);
+
+    if (showChart) {
+        const activeChartRange = (chartRangeOverride ? parseRangeA1(chartRangeOverride) : null) ?? (
+            isMultiCellRange() ? currentRange() : { start: { row: 0, col: 0 }, end: { row: 4, col: 4 } }
+        );
+
+        const chartData = extractChart3dData(doc, evaluated, activeChartRange, {
+            orientation: chartOrientation,
+            firstRowHeaders: chartFirstRowHeaders,
+            firstColHeaders: chartFirstColHeaders,
+        });
+
+        const activeRangeLabel = rangeA1(activeChartRange.start, activeChartRange.end);
+
+        Entropy.UI.Widget.horizontal(win, (row) => {
+            Entropy.UI.Widget.label(row, { text: `3D Chart (${activeRangeLabel}):`, bold: true });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_surface",
+                text: chartType === "surface" ? "[Surface]" : "Surface",
+                onClick: () => { chartType = "surface"; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_bar",
+                text: chartType === "bar" ? "[Bar]" : "Bar",
+                onClick: () => { chartType = "bar"; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_ribbon",
+                text: chartType === "ribbon" ? "[Ribbon]" : "Ribbon",
+                onClick: () => { chartType = "ribbon"; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_orientation",
+                text: chartOrientation === "rows" ? "Rows = Series" : "Cols = Series",
+                onClick: () => { chartOrientation = chartOrientation === "rows" ? "cols" : "rows"; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_row_hdr",
+                text: chartFirstRowHeaders ? "Row Hdr: On" : "Row Hdr: Off",
+                onClick: () => { chartFirstRowHeaders = !chartFirstRowHeaders; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_col_hdr",
+                text: chartFirstColHeaders ? "Col Hdr: On" : "Col Hdr: Off",
+                onClick: () => { chartFirstColHeaders = !chartFirstColHeaders; },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_use_sel",
+                text: "Use Selected",
+                onClick: () => {
+                    const r = currentRange();
+                    chartRangeOverride = rangeA1(r.start, r.end);
+                },
+            });
+            Entropy.UI.Widget.button(row, {
+                id: "c3d_color_borders",
+                text: "Color Sheet Borders",
+                onClick: () => commit(() => {
+                    doc = applyChartBorders(doc, activeChartRange, chartOrientation, chartFirstRowHeaders, chartFirstColHeaders);
+                }),
+            });
+        });
+
+        Entropy.UI.Widget.chart3d(win, {
+            id: "sheet_3d_chart",
+            chartType,
+            series: chartData.series,
+            xLabels: chartData.xLabels,
+            title: `3D Chart - ${activeRangeLabel}`,
+            height: 320,
+            onChartType: (t) => {
+                const lower = t.toLowerCase();
+                if (lower === "surface" || lower === "bar" || lower === "ribbon") {
+                    chartType = lower as any;
+                }
+            },
+        });
+
+        Entropy.UI.Widget.separator(win);
+    }
+
     const cells = Object.entries(doc.cells).map(([k, data]) => {
         const [rowStr, colStr] = k.split(":");
         const row = parseInt(rowStr, 10);
@@ -312,6 +413,8 @@ function renderUI(win: string) {
         };
     });
 
+    const gridMaxH = showChart ? 380 : GRID_MAX_HEIGHT;
+
     Entropy.UI.Widget.sheetGrid(win, {
         id: "sheet_grid",
         cells,
@@ -322,7 +425,7 @@ function renderUI(win: string) {
             endCol: selected.endCol,
         },
         editing: editing ? { row: editing.row, col: editing.col, value: editing.value } : undefined,
-        options: { rows: doc.rows, cols: doc.cols, maxHeight: GRID_MAX_HEIGHT, colWidths: doc.colWidths },
+        options: { rows: doc.rows, cols: doc.cols, maxHeight: gridMaxH, colWidths: doc.colWidths },
         onCellSelected: (row, col) => {
             selected = { row, col };
         },

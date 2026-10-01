@@ -49,6 +49,7 @@ pub mod widgets_tracks;
 pub mod widgets_tree;
 pub mod widgets_wavetable;
 pub mod widgets_reverb_eq;
+pub mod widgets_chart3d;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -92,6 +93,10 @@ pub use widgets_reverb_eq::{Camera as ReverbEqCamera, ReverbEqEvent, ReverbEqOpt
 pub use widgets_physmod::{Camera as PhysModCamera, PhysModEvent, PhysModOptions, PhysModResponse, PhysModView};
 pub use widgets_fretboard::{FretMark, FretboardEvent, FretboardOptions, FretboardResponse, FretboardView, HighwayItem, HighwayState};
 pub use widgets_piano::{PianoCamera, PianoEvent, PianoOptions, PianoResponse, PianoView};
+pub use widgets_chart3d::{
+    Chart3dCamera, Chart3dEvent, Chart3dHover, Chart3dOptions, Chart3dProjector, Chart3dResponse,
+    Chart3dSeries, Chart3dType, Chart3dView,
+};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

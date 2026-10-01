@@ -103,7 +103,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -321,6 +321,7 @@ extension!(
         op_water_render_analyze,
         op_ui_widget_matter,
         op_ui_widget_water,
+        op_ui_widget_chart3d,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -5789,6 +5790,45 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             WaterViewEvent::Pad { source, velocity } => format!("WATER_PAD|{}|{}|{:.3}", wv_id, source.name(), velocity),
                             WaterViewEvent::PhysicsView(on) => format!("WATER_PHYSICS_VIEW|{}|{}", wv_id, on as u8),
                         });
+                    }
+                }
+                UiWidget::Chart3dView { id: c3d_id, config } => {
+                    use crate::entropy_gui::{Chart3dEvent, Chart3dOptions, Chart3dSeries, Chart3dType, Chart3dView};
+                    let series_data: Vec<Chart3dSeries> = config
+                        .series
+                        .iter()
+                        .map(|s| {
+                            let mut ser = Chart3dSeries::new(s.name.clone(), s.values.clone());
+                            if let Some(c) = s.color {
+                                ser = ser.with_color(crate::entropy_gui::Color32::from_rgba_f32(c));
+                            }
+                            ser
+                        })
+                        .collect();
+
+                    let chart_type = config.chart_type.as_deref().and_then(Chart3dType::from_name).unwrap_or_default();
+                    let d = Chart3dOptions::default();
+                    let opts = Chart3dOptions {
+                        chart_type,
+                        title: config.title.clone(),
+                        x_labels: config.x_labels.clone().unwrap_or_default(),
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        y_min: config.y_min,
+                        y_max: config.y_max,
+                        show_toolbar: config.show_toolbar.unwrap_or(d.show_toolbar),
+                    };
+
+                    let resp = Chart3dView::new(c3d_id.as_str()).options(opts).show(ui, &series_data);
+                    for event in resp.events {
+                        match event {
+                            Chart3dEvent::ChartTypeChanged(t) => {
+                                events_to_push.push(format!("CHART3D_TYPE|{}|{}", c3d_id, t.name()));
+                            }
+                            Chart3dEvent::Hovered { series, x_idx, value } => {
+                                events_to_push.push(format!("CHART3D_HOVER|{}|{}|{}|{:.4}", c3d_id, series, x_idx, value));
+                            }
+                        }
                     }
                 }
                 UiWidget::Oscilloscope { id: scope_id, config } => {

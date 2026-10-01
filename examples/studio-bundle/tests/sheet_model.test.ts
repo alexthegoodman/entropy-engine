@@ -24,6 +24,10 @@ import {
     setRangeFormat,
     formatCellValue,
     setColumnWidth,
+    applyChartBorders,
+    createSampleSheet,
+    extractChart3dData,
+    parseRangeA1,
 } from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
@@ -887,4 +891,106 @@ describe("column widths", () => {
         expect(withoutRow.colWidths?.[2]).toBe(175);
     });
 });
+
+describe("Chart3D range extraction and styling", () => {
+    it("parseRangeA1 parses single cells and ranges", () => {
+        const single = parseRangeA1("B4");
+        expect(single).toEqual({
+            start: { row: 3, col: 1 },
+            end: { row: 3, col: 1 },
+        });
+
+        const range = parseRangeA1("A1:D5");
+        expect(range).toEqual({
+            start: { row: 0, col: 0 },
+            end: { row: 4, col: 3 },
+        });
+
+        expect(parseRangeA1("invalid")).toBeNull();
+    });
+
+    it("createSampleSheet initializes a sample dataset with borders and values", () => {
+        const doc = createSampleSheet();
+        expect(doc.rows).toBe(30);
+        expect(doc.cols).toBe(12);
+        expect(doc.cells[cellKey(0, 0)]?.raw).toBe("Segment");
+        expect(doc.cells[cellKey(0, 1)]?.raw).toBe("Q1");
+        expect(doc.cells[cellKey(1, 0)]?.raw).toBe("SaaS");
+        expect(doc.cells[cellKey(1, 1)]?.raw).toBe("120");
+        expect(doc.cells[cellKey(1, 1)]?.border).toBeDefined();
+    });
+
+    it("extractChart3dData extracts series and xLabels with rows as series", () => {
+        const doc = createSampleSheet();
+        const evaluated = evaluateSheet(doc);
+        const range = { start: { row: 0, col: 0 }, end: { row: 4, col: 4 } };
+
+        const chart = extractChart3dData(doc, evaluated, range, {
+            orientation: "rows",
+            firstRowHeaders: true,
+            firstColHeaders: true,
+        });
+
+        expect(chart.xLabels).toEqual(["Q1", "Q2", "Q3", "Q4"]);
+        expect(chart.series.length).toBe(4);
+        expect(chart.series[0].name).toBe("SaaS");
+        expect(chart.series[0].values).toEqual([120, 145, 180, 215]);
+        expect(chart.series[3].name).toBe("Cloud");
+        expect(chart.series[3].values).toEqual([150, 195, 240, 310]);
+    });
+
+    it("extractChart3dData extracts series with columns as series", () => {
+        const doc = createSampleSheet();
+        const evaluated = evaluateSheet(doc);
+        const range = { start: { row: 0, col: 0 }, end: { row: 4, col: 4 } };
+
+        const chart = extractChart3dData(doc, evaluated, range, {
+            orientation: "cols",
+            firstRowHeaders: true,
+            firstColHeaders: true,
+        });
+
+        expect(chart.xLabels).toEqual(["SaaS", "Hardware", "Services", "Cloud"]);
+        expect(chart.series.length).toBe(4);
+        expect(chart.series[0].name).toBe("Q1");
+        expect(chart.series[0].values).toEqual([120, 95, 60, 150]);
+        expect(chart.series[3].name).toBe("Q4");
+        expect(chart.series[3].values).toEqual([215, 140, 95, 310]);
+    });
+
+    it("extractChart3dData resolves live formulas to numbers in chart series", () => {
+        let doc = defaultSheet(5, 5);
+        doc.cells[cellKey(0, 0)] = { raw: "Base" };
+        doc.cells[cellKey(0, 1)] = { raw: "Col1" };
+        doc.cells[cellKey(1, 0)] = { raw: "Row1" };
+        doc.cells[cellKey(1, 1)] = { raw: "50" };
+        doc.cells[cellKey(2, 0)] = { raw: "Row2" };
+        doc.cells[cellKey(2, 1)] = { raw: "=B2*2" }; // formula evaluating to 100
+
+        const evaluated = evaluateSheet(doc);
+        const range = { start: { row: 0, col: 0 }, end: { row: 2, col: 1 } };
+        const chart = extractChart3dData(doc, evaluated, range, {
+            orientation: "rows",
+            firstRowHeaders: true,
+            firstColHeaders: true,
+        });
+
+        expect(chart.series[0].values).toEqual([50]);
+        expect(chart.series[1].values).toEqual([100]);
+    });
+
+    it("applyChartBorders colors sheet cells matching the 3D palette", () => {
+        let doc = defaultSheet(5, 5);
+        doc.cells[cellKey(1, 1)] = { raw: "10" };
+        doc.cells[cellKey(2, 1)] = { raw: "20" };
+
+        const range = { start: { row: 1, col: 1 }, end: { row: 2, col: 1 } };
+        const withBorders = applyChartBorders(doc, range, "rows");
+
+        expect(withBorders.cells[cellKey(1, 1)]?.border).toBeDefined();
+        expect(withBorders.cells[cellKey(2, 1)]?.border).toBeDefined();
+        expect(withBorders.cells[cellKey(1, 1)]?.border).not.toEqual(withBorders.cells[cellKey(2, 1)]?.border);
+    });
+});
+
 

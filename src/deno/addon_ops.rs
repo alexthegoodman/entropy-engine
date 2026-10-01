@@ -697,6 +697,32 @@ pub struct WaterViewConfig {
 }
 
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
+/// One series of data for `Widget.chart3d`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Chart3dSeriesConfig {
+    pub name: String,
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub values: Vec<f32>,
+}
+
+/// `Widget.chart3d` - see `entropy_gui::Chart3dView`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Chart3dViewConfig {
+    #[serde(default)]
+    pub series: Vec<Chart3dSeriesConfig>,
+    pub chart_type: Option<String>,
+    pub title: Option<String>,
+    pub x_labels: Option<Vec<String>>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub y_min: Option<f32>,
+    pub y_max: Option<f32>,
+    pub show_toolbar: Option<bool>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OscilloscopeConfig {
@@ -1015,6 +1041,7 @@ pub enum UiWidget {
     BrassView { id: String, config: BrassViewConfig },
     MatterView { id: String, config: MatterViewConfig },
     WaterView { id: String, config: WaterViewConfig },
+    Chart3dView { id: String, config: Chart3dViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -4747,6 +4774,18 @@ pub fn op_ui_widget_water(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::WaterView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_chart3d(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: Chart3dViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Chart3dView { id, config });
     }
 }
 

@@ -636,6 +636,8 @@ export interface ScopedAPI {
       /** A physically modeled water instrument, drawn from its own bubbles, glasses, vessels and
        *  moving water in the same neon style, and played by clicking it. */
       water: (windowId: string, config: WaterViewConfig) => void;
+      /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
+      chart3d: (windowId: string, config: Chart3dConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2821,6 +2823,27 @@ export interface WaterAPI {
   analyze: (config: WaterNoteConfig, seconds?: number) => WaterAnalysis;
 }
 
+export interface Chart3dSeries {
+  name: string;
+  color?: [number, number, number, number];
+  values: number[];
+}
+
+export interface Chart3dConfig {
+  id?: string;
+  series: Chart3dSeries[];
+  chartType?: "surface" | "bar" | "ribbon";
+  title?: string;
+  xLabels?: string[];
+  width?: number;
+  height?: number;
+  yMin?: number;
+  yMax?: number;
+  showToolbar?: boolean;
+  onHover?: (seriesIdx: number, xIdx: number, value: number) => void;
+  onChartType?: (chartType: string) => void;
+}
+
 export interface WaterViewConfig {
   id?: string;
   /** The water to show: a water track's id (`Audio.playWaterOnTrack` publishes to it). */
@@ -3379,6 +3402,8 @@ export interface EntropyAPI {
       /** A physically modeled water instrument, drawn from its own bubbles, glasses, vessels and
        *  moving water in the same neon style, and played by clicking it. */
       water: (windowId: string, config: WaterViewConfig) => void;
+      /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
+      chart3d: (windowId: string, config: Chart3dConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
