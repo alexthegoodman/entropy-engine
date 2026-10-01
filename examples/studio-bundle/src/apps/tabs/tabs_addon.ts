@@ -512,33 +512,66 @@ function renderStatus(tab: string) {
 
 function renderPaste(tab: string) {
     W.label(tab, { text: "Paste a guitar tab: six lines per system, highest string on top (e|---0---|). Two-digit frets, bar lines, x for a muted string and h p b / \\ ~ after a fret are understood. A line like \"Tuning: D A D G B E\" or \"Tempo: 90\" is read too, and \"let ring\" over a system plays it in chord mode.", wrap: true, color: UI.dim });
-    W.horizontal(tab, (row: string) => {
-        W.button(row, {
-            id: "tabs_paste", text: icon("clipboard-text", "Paste from clipboard"), onClick: () => {
-                const text = Entropy.Clipboard.readText();
-                if (!text.trim()) { message = "The clipboard has no text in it."; return; }
-                source = text;
-                reparse();
-                message = parsed.song.steps.length ? `Read ${parsed.song.steps.length} steps from the clipboard.` : "That doesn't look like a tab.";
-                scheduleSave();
-            },
+    const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(720) : false;
+    if (isNarrow) {
+        W.horizontal(tab, (row: string) => {
+            W.button(row, {
+                id: "tabs_paste", text: icon("clipboard-text", "Paste from clipboard"), onClick: () => {
+                    const text = Entropy.Clipboard.readText();
+                    if (!text.trim()) { message = "The clipboard has no text in it."; return; }
+                    source = text;
+                    reparse();
+                    message = parsed.song.steps.length ? `Read ${parsed.song.steps.length} steps from the clipboard.` : "That doesn't look like a tab.";
+                    scheduleSave();
+                },
+            });
+            W.dropdown(row, {
+                id: "tabs_example", label: "Example", options: EXAMPLE_TABS.map(e => e.label), selectedIndex: exampleIndex,
+                onChange: (idx: string) => {
+                    exampleIndex = Number(idx);
+                    source = EXAMPLE_TABS[exampleIndex].text;
+                    reparse();
+                    message = `Loaded the example "${EXAMPLE_TABS[exampleIndex].label}".`;
+                    scheduleSave();
+                },
+            });
         });
-        W.dropdown(row, {
-            id: "tabs_example", label: "Example", options: EXAMPLE_TABS.map(e => e.label), selectedIndex: exampleIndex,
-            onChange: (idx: string) => {
-                exampleIndex = Number(idx);
-                source = EXAMPLE_TABS[exampleIndex].text;
-                reparse();
-                message = `Loaded the example "${EXAMPLE_TABS[exampleIndex].label}".`;
-                scheduleSave();
-            },
+        W.horizontal(tab, (row: string) => {
+            W.button(row, { id: "tabs_clear", text: "Clear", onClick: () => { source = ""; reparse(); scheduleSave(); } });
+            W.button(row, {
+                id: "tabs_to_review", text: icon("arrow-right", "Review"), disabled: parsed.song.steps.length === 0,
+                onClick: () => goTo("review"),
+            });
         });
-        W.button(row, { id: "tabs_clear", text: "Clear", onClick: () => { source = ""; reparse(); scheduleSave(); } });
-        W.button(row, {
-            id: "tabs_to_review", text: icon("arrow-right", "Review"), disabled: parsed.song.steps.length === 0,
-            onClick: () => goTo("review"),
+    } else {
+        W.horizontal(tab, (row: string) => {
+            W.button(row, {
+                id: "tabs_paste", text: icon("clipboard-text", "Paste from clipboard"), onClick: () => {
+                    const text = Entropy.Clipboard.readText();
+                    if (!text.trim()) { message = "The clipboard has no text in it."; return; }
+                    source = text;
+                    reparse();
+                    message = parsed.song.steps.length ? `Read ${parsed.song.steps.length} steps from the clipboard.` : "That doesn't look like a tab.";
+                    scheduleSave();
+                },
+            });
+            W.dropdown(row, {
+                id: "tabs_example", label: "Example", options: EXAMPLE_TABS.map(e => e.label), selectedIndex: exampleIndex,
+                onChange: (idx: string) => {
+                    exampleIndex = Number(idx);
+                    source = EXAMPLE_TABS[exampleIndex].text;
+                    reparse();
+                    message = `Loaded the example "${EXAMPLE_TABS[exampleIndex].label}".`;
+                    scheduleSave();
+                },
+            });
+            W.button(row, { id: "tabs_clear", text: "Clear", onClick: () => { source = ""; reparse(); scheduleSave(); } });
+            W.button(row, {
+                id: "tabs_to_review", text: icon("arrow-right", "Review"), disabled: parsed.song.steps.length === 0,
+                onClick: () => goTo("review"),
+            });
         });
-    });
+    }
     const s = parsed.song;
     const summary = s.steps.length
         ? `"${s.title}": ${s.steps.length} steps in ${parsed.bars} bar${parsed.bars === 1 ? "" : "s"} over ${parsed.systems} system${parsed.systems === 1 ? "" : "s"}, tuned ${s.tuning.map(noteName).join(" ")}, ${s.bpm} BPM.`
@@ -552,27 +585,54 @@ function renderPaste(tab: string) {
 }
 
 function renderReview(tab: string) {
-    W.horizontal(tab, (row: string) => {
-        W.textInput(row, {
-            id: "tabs_title", label: "Title", value: titleDraft, width: 260,
-            onChange: (v: string) => { titleDraft = v; song.title = v.trim() || "Untitled tab"; scheduleSave(); },
+    const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(720) : false;
+    if (isNarrow) {
+        W.horizontal(tab, (row: string) => {
+            W.textInput(row, {
+                id: "tabs_title", label: "Title", value: titleDraft, width: 140,
+                onChange: (v: string) => { titleDraft = v; song.title = v.trim() || "Untitled tab"; scheduleSave(); },
+            });
+            const t = tuningPresetIndex(song.tuning);
+            const options = [...TUNINGS.map(x => x.label), ...(t < 0 ? [`Custom (${song.tuning.map(noteName).join(" ")})`] : [])];
+            W.dropdown(row, {
+                id: "tabs_tuning", label: "Tuning", options, selectedIndex: t < 0 ? options.length - 1 : t,
+                onChange: (idx: string) => { const p = TUNINGS[Number(idx)]; if (p) { song.tuning = [...p.tuning]; endSession(); scheduleSave(); } },
+            });
+            W.numericInput(row, {
+                id: "tabs_bpm", label: "BPM", value: song.bpm, min: 20, max: 300, speed: 0.5, decimals: 0,
+                onChange: (v: string) => { const n = Math.round(Number(v)); if (n >= 20 && n <= 300) { song.bpm = n; endSession(); scheduleSave(); } },
+            });
         });
-        const t = tuningPresetIndex(song.tuning);
-        const options = [...TUNINGS.map(x => x.label), ...(t < 0 ? [`Custom (${song.tuning.map(noteName).join(" ")})`] : [])];
-        W.dropdown(row, {
-            id: "tabs_tuning", label: "Tuning", options, selectedIndex: t < 0 ? options.length - 1 : t,
-            onChange: (idx: string) => { const p = TUNINGS[Number(idx)]; if (p) { song.tuning = [...p.tuning]; endSession(); scheduleSave(); } },
+        W.horizontal(tab, (row: string) => {
+            W.button(row, {
+                id: "tabs_copy", text: icon("clipboard-text", "Copy as tab"), tooltip: "The song, edits included, as ASCII tab on the clipboard",
+                onClick: () => { message = Entropy.Clipboard.writeText(songToTabText(song)) ? "Copied the tab to the clipboard." : "Could not reach the clipboard."; },
+            });
+            W.button(row, { id: "tabs_to_practice", text: icon("guitar", "Practice"), disabled: playableSteps(song).length === 0, onClick: () => goTo("practice") });
         });
-        W.numericInput(row, {
-            id: "tabs_bpm", label: "BPM", value: song.bpm, min: 20, max: 300, speed: 0.5, decimals: 0,
-            onChange: (v: string) => { const n = Math.round(Number(v)); if (n >= 20 && n <= 300) { song.bpm = n; endSession(); scheduleSave(); } },
+    } else {
+        W.horizontal(tab, (row: string) => {
+            W.textInput(row, {
+                id: "tabs_title", label: "Title", value: titleDraft, width: 260,
+                onChange: (v: string) => { titleDraft = v; song.title = v.trim() || "Untitled tab"; scheduleSave(); },
+            });
+            const t = tuningPresetIndex(song.tuning);
+            const options = [...TUNINGS.map(x => x.label), ...(t < 0 ? [`Custom (${song.tuning.map(noteName).join(" ")})`] : [])];
+            W.dropdown(row, {
+                id: "tabs_tuning", label: "Tuning", options, selectedIndex: t < 0 ? options.length - 1 : t,
+                onChange: (idx: string) => { const p = TUNINGS[Number(idx)]; if (p) { song.tuning = [...p.tuning]; endSession(); scheduleSave(); } },
+            });
+            W.numericInput(row, {
+                id: "tabs_bpm", label: "BPM", value: song.bpm, min: 20, max: 300, speed: 0.5, decimals: 0,
+                onChange: (v: string) => { const n = Math.round(Number(v)); if (n >= 20 && n <= 300) { song.bpm = n; endSession(); scheduleSave(); } },
+            });
+            W.button(row, {
+                id: "tabs_copy", text: icon("clipboard-text", "Copy as tab"), tooltip: "The song, edits included, as ASCII tab on the clipboard",
+                onClick: () => { message = Entropy.Clipboard.writeText(songToTabText(song)) ? "Copied the tab to the clipboard." : "Could not reach the clipboard."; },
+            });
+            W.button(row, { id: "tabs_to_practice", text: icon("guitar", "Practice"), disabled: playableSteps(song).length === 0, onClick: () => goTo("practice") });
         });
-        W.button(row, {
-            id: "tabs_copy", text: icon("clipboard-text", "Copy as tab"), tooltip: "The song, edits included, as ASCII tab on the clipboard",
-            onClick: () => { message = Entropy.Clipboard.writeText(songToTabText(song)) ? "Copied the tab to the clipboard." : "Could not reach the clipboard."; },
-        });
-        W.button(row, { id: "tabs_to_practice", text: icon("guitar", "Practice"), disabled: playableSteps(song).length === 0, onClick: () => goTo("practice") });
-    });
+    }
     W.label(tab, { text: "Each row is one step. Double-click a cell (or select it and type) to change it: a string takes a fret (7), a fret and technique (5h), x for muted, or nothing. Beats is the length; Play as picks the detector (auto, pick for single notes with bends, chord for strings ringing together). Type in the empty row below the last to add a step; right-click a row number to insert or delete one.", wrap: true, color: UI.dim, fontSize: 12 });
 
     const cells = songToSheetCells(song);
@@ -621,34 +681,71 @@ function commitCell(row: number, col: number, value: string) {
 function renderPractice(tab: string) {
     const now = Date.now();
     const running = !!session?.running;
-    W.horizontal(tab, (row: string) => {
-        W.segmented(row, {
-            id: "tabs_mode", options: PRACTICE_MODES.map(m => MODE_LABELS[m]), selectedIndex: PRACTICE_MODES.indexOf(practice.mode), accent: UI.amber,
-            onChange: (idx: string) => { practice.mode = PRACTICE_MODES[Number(idx)]; endSession(); scheduleSave(); },
+    const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(760) : false;
+
+    if (isNarrow) {
+        W.horizontal(tab, (row: string) => {
+            W.segmented(row, {
+                id: "tabs_mode", options: PRACTICE_MODES.map(m => MODE_LABELS[m]), selectedIndex: PRACTICE_MODES.indexOf(practice.mode), accent: UI.amber,
+                onChange: (idx: string) => { practice.mode = PRACTICE_MODES[Number(idx)]; endSession(); scheduleSave(); },
+            });
+            const label = !session || session.finished ? icon("play", "Start") : session.paused ? icon("play", "Resume") : icon("pause", "Pause");
+            W.button(row, { id: "tabs_play", text: label, shortcut: "Space", onClick: () => togglePlay(Date.now()) });
+            W.button(row, { id: "tabs_restart", text: icon("arrow-counter-clockwise", "Restart"), onClick: () => startSession(Date.now()) });
+            if (practice.mode === "wait") {
+                W.button(row, { id: "tabs_skip", text: icon("skip-forward", "Skip"), disabled: !running, onClick: () => { if (session) handleEvents(session.skip(Date.now()), Date.now()); } });
+            }
+            W.button(row, { id: "tabs_hear", text: icon("ear", "Hear it"), shortcut: "H", onClick: () => { ensureBuses(); playStep(currentStep(Date.now())); } });
         });
-        const label = !session || session.finished ? icon("play", "Start") : session.paused ? icon("play", "Resume") : icon("pause", "Pause");
-        W.button(row, { id: "tabs_play", text: label, shortcut: "Space", onClick: () => togglePlay(Date.now()) });
-        W.button(row, { id: "tabs_restart", text: icon("arrow-counter-clockwise", "Restart"), onClick: () => startSession(Date.now()) });
-        if (practice.mode === "wait") {
-            W.button(row, { id: "tabs_skip", text: icon("skip-forward", "Skip"), disabled: !running, onClick: () => { if (session) handleEvents(session.skip(Date.now()), Date.now()); } });
-        }
-        W.button(row, { id: "tabs_hear", text: icon("ear", "Hear it"), shortcut: "H", onClick: () => { ensureBuses(); playStep(currentStep(Date.now())); } });
-        W.slider(row, {
-            id: "tabs_tempo", label: `Tempo ${Math.round(song.bpm * practice.tempoPct / 100)} BPM (%)`, value: practice.tempoPct, min: 25, max: 150,
-            onChange: (v: string) => { practice.tempoPct = Math.round(Number(v)); if (session && !session.running) endSession(); scheduleSave(); },
+        W.horizontal(tab, (row: string) => {
+            W.slider(row, {
+                id: "tabs_tempo", label: `Tempo ${Math.round(song.bpm * practice.tempoPct / 100)} BPM (%)`, value: practice.tempoPct, min: 25, max: 150,
+                onChange: (v: string) => { practice.tempoPct = Math.round(Number(v)); if (session && !session.running) endSession(); scheduleSave(); },
+            });
         });
-    });
-    W.horizontal(tab, (row: string) => {
-        const maxBar = song.steps.length ? song.steps[song.steps.length - 1].bar : 1;
-        W.numericInput(row, { id: "tabs_from_bar", label: "From bar", value: Math.min(practice.fromBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.fromBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
-        W.numericInput(row, { id: "tabs_to_bar", label: "to", value: Math.min(practice.toBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.toBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
-        W.checkbox(row, { id: "tabs_loop", label: "Loop", value: practice.loop, onChange: (v: boolean) => { practice.loop = v; endSession(); scheduleSave(); } });
-        W.checkbox(row, { id: "tabs_guide", label: "Guide synth", value: practice.guide, tooltip: "Plays each step as it comes, in Real time", onChange: (v: boolean) => { practice.guide = v; scheduleSave(); } });
-        W.slider(row, { id: "tabs_guide_volume", label: "Guide volume", value: practice.guideVolume, min: 0, max: 1, onChange: (v: string) => { practice.guideVolume = Number(v); ensureBuses(); scheduleSave(); } });
-        W.checkbox(row, { id: "tabs_metronome", label: "Metronome", value: practice.metronome, onChange: (v: boolean) => { practice.metronome = v; scheduleSave(); } });
-        W.checkbox(row, { id: "tabs_lenient", label: "Lenient chords", value: practice.lenientChords, tooltip: "A chord counts when its bass note and every pitch class are heard; octave doublings are optional", onChange: (v: boolean) => { practice.lenientChords = v; endSession(); scheduleSave(); } });
-        W.checkbox(row, { id: "tabs_low_on_top", label: "Low string on top", value: practice.lowOnTop, onChange: (v: boolean) => { practice.lowOnTop = v; scheduleSave(); } });
-    });
+        W.horizontal(tab, (row: string) => {
+            const maxBar = song.steps.length ? song.steps[song.steps.length - 1].bar : 1;
+            W.numericInput(row, { id: "tabs_from_bar", label: "From bar", value: Math.min(practice.fromBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.fromBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
+            W.numericInput(row, { id: "tabs_to_bar", label: "to", value: Math.min(practice.toBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.toBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_loop", label: "Loop", value: practice.loop, onChange: (v: boolean) => { practice.loop = v; endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_metronome", label: "Metronome", value: practice.metronome, onChange: (v: boolean) => { practice.metronome = v; scheduleSave(); } });
+        });
+        W.horizontal(tab, (row: string) => {
+            W.checkbox(row, { id: "tabs_guide", label: "Guide synth", value: practice.guide, tooltip: "Plays each step as it comes, in Real time", onChange: (v: boolean) => { practice.guide = v; scheduleSave(); } });
+            W.slider(row, { id: "tabs_guide_volume", label: "Vol", value: practice.guideVolume, min: 0, max: 1, onChange: (v: string) => { practice.guideVolume = Number(v); ensureBuses(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_lenient", label: "Lenient chords", value: practice.lenientChords, tooltip: "A chord counts when its bass note and every pitch class are heard; octave doublings are optional", onChange: (v: boolean) => { practice.lenientChords = v; endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_low_on_top", label: "Low string on top", value: practice.lowOnTop, onChange: (v: boolean) => { practice.lowOnTop = v; scheduleSave(); } });
+        });
+    } else {
+        W.horizontal(tab, (row: string) => {
+            W.segmented(row, {
+                id: "tabs_mode", options: PRACTICE_MODES.map(m => MODE_LABELS[m]), selectedIndex: PRACTICE_MODES.indexOf(practice.mode), accent: UI.amber,
+                onChange: (idx: string) => { practice.mode = PRACTICE_MODES[Number(idx)]; endSession(); scheduleSave(); },
+            });
+            const label = !session || session.finished ? icon("play", "Start") : session.paused ? icon("play", "Resume") : icon("pause", "Pause");
+            W.button(row, { id: "tabs_play", text: label, shortcut: "Space", onClick: () => togglePlay(Date.now()) });
+            W.button(row, { id: "tabs_restart", text: icon("arrow-counter-clockwise", "Restart"), onClick: () => startSession(Date.now()) });
+            if (practice.mode === "wait") {
+                W.button(row, { id: "tabs_skip", text: icon("skip-forward", "Skip"), disabled: !running, onClick: () => { if (session) handleEvents(session.skip(Date.now()), Date.now()); } });
+            }
+            W.button(row, { id: "tabs_hear", text: icon("ear", "Hear it"), shortcut: "H", onClick: () => { ensureBuses(); playStep(currentStep(Date.now())); } });
+            W.slider(row, {
+                id: "tabs_tempo", label: `Tempo ${Math.round(song.bpm * practice.tempoPct / 100)} BPM (%)`, value: practice.tempoPct, min: 25, max: 150,
+                onChange: (v: string) => { practice.tempoPct = Math.round(Number(v)); if (session && !session.running) endSession(); scheduleSave(); },
+            });
+        });
+        W.horizontal(tab, (row: string) => {
+            const maxBar = song.steps.length ? song.steps[song.steps.length - 1].bar : 1;
+            W.numericInput(row, { id: "tabs_from_bar", label: "From bar", value: Math.min(practice.fromBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.fromBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
+            W.numericInput(row, { id: "tabs_to_bar", label: "to", value: Math.min(practice.toBar, maxBar), min: 1, max: maxBar, speed: 0.1, decimals: 0, onChange: (v: string) => { practice.toBar = Math.max(1, Math.round(Number(v))); endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_loop", label: "Loop", value: practice.loop, onChange: (v: boolean) => { practice.loop = v; endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_guide", label: "Guide synth", value: practice.guide, tooltip: "Plays each step as it comes, in Real time", onChange: (v: boolean) => { practice.guide = v; scheduleSave(); } });
+            W.slider(row, { id: "tabs_guide_volume", label: "Guide volume", value: practice.guideVolume, min: 0, max: 1, onChange: (v: string) => { practice.guideVolume = Number(v); ensureBuses(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_metronome", label: "Metronome", value: practice.metronome, onChange: (v: boolean) => { practice.metronome = v; scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_lenient", label: "Lenient chords", value: practice.lenientChords, tooltip: "A chord counts when its bass note and every pitch class are heard; octave doublings are optional", onChange: (v: boolean) => { practice.lenientChords = v; endSession(); scheduleSave(); } });
+            W.checkbox(row, { id: "tabs_low_on_top", label: "Low string on top", value: practice.lowOnTop, onChange: (v: boolean) => { practice.lowOnTop = v; scheduleSave(); } });
+        });
+    }
 
     W.fretboard(tab, fretboardConfig(now, true));
 
@@ -666,32 +763,58 @@ function renderPractice(tab: string) {
 
     // The guitar input.
     W.card(tab, { id: "tabs_guitar_card", fill: UI.card, padding: 10 }, (card: string) => {
-        W.horizontal(card, (row: string) => {
-            const options = ["Default input", ...guitarDevices.map(d => `${d.name}  [${d.host}, ${d.channels} ch]`)];
-            let idx = 0;
-            if (guitarPrefs.device) {
-                idx = guitarDevices.findIndex(d => d.name === guitarPrefs.device) + 1;
-                if (idx === 0) { options.push(`${guitarPrefs.device}  (not connected)`); idx = options.length - 1; }
-            }
-            W.dropdown(row, {
-                id: "tabs_input", label: "Guitar input", options, selectedIndex: idx,
-                onChange: (v: string) => {
-                    const i = Number(v);
-                    const d = guitarDevices[i - 1];
-                    if (i === 0) { delete guitarPrefs.device; delete guitarPrefs.host; }
-                    else if (d) { guitarPrefs.device = d.name; guitarPrefs.host = d.host; }
-                    if (guitarRunning) startGuitar();
-                    scheduleSave();
-                },
+        const options = ["Default input", ...guitarDevices.map(d => `${d.name}  [${d.host}, ${d.channels} ch]`)];
+        let idx = 0;
+        if (guitarPrefs.device) {
+            idx = guitarDevices.findIndex(d => d.name === guitarPrefs.device) + 1;
+            if (idx === 0) { options.push(`${guitarPrefs.device}  (not connected)`); idx = options.length - 1; }
+        }
+
+        if (isNarrow) {
+            W.horizontal(card, (row: string) => {
+                W.dropdown(row, {
+                    id: "tabs_input", label: "Input", options, selectedIndex: idx,
+                    onChange: (v: string) => {
+                        const i = Number(v);
+                        const d = guitarDevices[i - 1];
+                        if (i === 0) { delete guitarPrefs.device; delete guitarPrefs.host; }
+                        else if (d) { guitarPrefs.device = d.name; guitarPrefs.host = d.host; }
+                        if (guitarRunning) startGuitar();
+                        scheduleSave();
+                    },
+                });
+                W.button(row, { id: "tabs_refresh_inputs", text: "Refresh", onClick: () => refreshDevices() });
             });
-            W.button(row, { id: "tabs_refresh_inputs", text: "Refresh", onClick: () => refreshDevices() });
-            W.button(row, { id: "tabs_guitar_toggle", text: guitarRunning ? "Stop input" : icon("microphone", "Start input"), selected: guitarRunning, onClick: () => { if (guitarRunning) stopGuitar(); else startGuitar(); } });
-            W.button(row, { id: "tabs_cal_room", text: "Calibrate room (3 s quiet)", disabled: !guitarRunning, onClick: () => { addon.Guitar.calibrate(false, 3); message = "Listening to the room: stay quiet for 3 seconds."; } });
-            W.checkbox(row, {
-                id: "tabs_hear_guitar", label: "Hear my guitar through the synth", value: practice.hearGuitar,
-                onChange: (v: boolean) => { practice.hearGuitar = v; if (guitarRunning) addon.Guitar.target(v ? guitarOutput() : { trackId: "" }); scheduleSave(); },
+            W.horizontal(card, (row: string) => {
+                W.button(row, { id: "tabs_guitar_toggle", text: guitarRunning ? "Stop input" : icon("microphone", "Start input"), selected: guitarRunning, onClick: () => { if (guitarRunning) stopGuitar(); else startGuitar(); } });
+                W.button(row, { id: "tabs_cal_room", text: "Calibrate (3s)", disabled: !guitarRunning, onClick: () => { addon.Guitar.calibrate(false, 3); message = "Listening to the room: stay quiet for 3 seconds."; } });
+                W.checkbox(row, {
+                    id: "tabs_hear_guitar", label: "Hear guitar", value: practice.hearGuitar,
+                    onChange: (v: boolean) => { practice.hearGuitar = v; if (guitarRunning) addon.Guitar.target(v ? guitarOutput() : { trackId: "" }); scheduleSave(); },
+                });
             });
-        });
+        } else {
+            W.horizontal(card, (row: string) => {
+                W.dropdown(row, {
+                    id: "tabs_input", label: "Guitar input", options, selectedIndex: idx,
+                    onChange: (v: string) => {
+                        const i = Number(v);
+                        const d = guitarDevices[i - 1];
+                        if (i === 0) { delete guitarPrefs.device; delete guitarPrefs.host; }
+                        else if (d) { guitarPrefs.device = d.name; guitarPrefs.host = d.host; }
+                        if (guitarRunning) startGuitar();
+                        scheduleSave();
+                    },
+                });
+                W.button(row, { id: "tabs_refresh_inputs", text: "Refresh", onClick: () => refreshDevices() });
+                W.button(row, { id: "tabs_guitar_toggle", text: guitarRunning ? "Stop input" : icon("microphone", "Start input"), selected: guitarRunning, onClick: () => { if (guitarRunning) stopGuitar(); else startGuitar(); } });
+                W.button(row, { id: "tabs_cal_room", text: "Calibrate room (3 s quiet)", disabled: !guitarRunning, onClick: () => { addon.Guitar.calibrate(false, 3); message = "Listening to the room: stay quiet for 3 seconds."; } });
+                W.checkbox(row, {
+                    id: "tabs_hear_guitar", label: "Hear my guitar through the synth", value: practice.hearGuitar,
+                    onChange: (v: boolean) => { practice.hearGuitar = v; if (guitarRunning) addon.Guitar.target(v ? guitarOutput() : { trackId: "" }); scheduleSave(); },
+                });
+            });
+        }
         W.horizontal(card, (row: string) => {
             W.slider(row, {
                 id: "tabs_guitar_sensitivity", label: "Sensitivity", value: guitarPrefs.sensitivity, min: 0, max: 1,

@@ -169,7 +169,7 @@ function setupUI() {
     // integration, no text selection within a field - see the sheet-range-selection-and-
     // copy-paste backlog card for where multi-cell copy/paste is headed).
     Entropy.Input.onKeyDown((key, ctrl) => {
-        if (!ctrl || editing) return;
+        if (!ctrl || editing || Entropy.Input.isTypingInUI?.()) return;
         const k = key.toLowerCase();
         const rng = currentRange();
         if (k === "c") {

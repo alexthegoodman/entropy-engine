@@ -151,9 +151,13 @@ impl TopBottomPanel {
         paint_frame_bg(ctx, strip, &frame);
 
         let content_rect = shrink_by_margin(strip, frame.inner_margin);
+        let prev_layer = ctx.enter_layer(self.id);
+        ctx.add_occluder(self.id, strip);
         let mut ui = Ui::new(ctx.clone(), self.id, content_rect, Layout::left_to_right(Align::Center), content_rect, DrawTarget::Main);
         let inner = add_contents(&mut ui);
-        InnerResponse { inner, response: interact(ctx, strip, self.id, Sense::hover()) }
+        let response = interact(ctx, strip, self.id, Sense::hover());
+        ctx.leave_layer(prev_layer);
+        InnerResponse { inner, response }
     }
 }
 
@@ -230,8 +234,63 @@ impl SidePanel {
         paint_frame_bg(ctx, strip, &frame);
 
         let content_rect = shrink_by_margin(strip, frame.inner_margin);
+        let prev_layer = ctx.enter_layer(self.id);
+        ctx.add_occluder(self.id, strip);
         let mut ui = Ui::new(ctx.clone(), self.id, content_rect, Layout::top_down(Align::Min), content_rect, DrawTarget::Main);
         let inner = add_contents(&mut ui);
-        InnerResponse { inner, response: interact(ctx, strip, self.id, Sense::hover()) }
+        let response = interact(ctx, strip, self.id, Sense::hover());
+        ctx.leave_layer(prev_layer);
+        InnerResponse { inner, response }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entropy_gui::context::{Context, PointerState, RawInput};
+    use crate::entropy_gui::geometry::{pos2, vec2, Rect};
+
+    #[test]
+    fn test_top_bottom_panel_occludes_underlying_layer() {
+        let ctx = Context::default();
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+
+        // Frame 1: Pointer at (400, 580) hovering over taskbar to establish occluder
+        let raw1 = RawInput {
+            screen_rect: screen,
+            pointer: PointerState {
+                pos: Some(pos2(400.0, 580.0)),
+                primary_down: false,
+                primary_pressed: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        ctx.run(raw1, |ctx| {
+            TopBottomPanel::bottom("taskbar").default_height(48.0).show(ctx, |_ui| {});
+            CentralPanel::default().show(ctx, |_ui| {});
+        });
+
+        // Frame 2: With occluder active from frame 1, click over taskbar
+        let raw2 = RawInput {
+            screen_rect: screen,
+            pointer: PointerState {
+                pos: Some(pos2(400.0, 580.0)),
+                primary_down: true,
+                primary_pressed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        ctx.run(raw2, |ctx| {
+            let tb_resp = TopBottomPanel::bottom("taskbar").default_height(48.0).show(ctx, |_ui| {});
+            assert!(tb_resp.response.hovered(), "Taskbar panel should be hovered");
+
+            CentralPanel::default().show(ctx, |ui| {
+                // CentralPanel's ui should see pointer as None because it is occluded by the taskbar panel!
+                let pointer_pos = ui.input(|i| i.pointer.pos);
+                assert_eq!(pointer_pos, None, "CentralPanel pointer should be hidden under taskbar panel");
+            });
+        });
     }
 }

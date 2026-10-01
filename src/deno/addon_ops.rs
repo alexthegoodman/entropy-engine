@@ -1584,6 +1584,8 @@ pub struct AddonContext {
     pub focused_tile_slot: usize,
     /// Whether the Windows 11 style Snap / Tile Layout menu flyout is open in the taskbar.
     pub taskbar_layout_menu_open: bool,
+    /// Current rendered tab/tile slot viewport width and height in logical pixels.
+    pub current_viewport: [f32; 2],
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
     /// Dev-controlled save directory for an embedded (non-Studio) app. When set, it takes
@@ -4521,6 +4523,16 @@ pub fn op_ui_get_tile_layout(state: &mut OpState) -> UiTileLayoutInfoJs {
             slots: Vec::new(),
             focused_slot: 0,
         }
+    }
+}
+
+#[op2]
+#[serde]
+pub fn op_ui_get_viewport_size(state: &mut OpState) -> (f32, f32) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        (ctx.current_viewport[0], ctx.current_viewport[1])
+    } else {
+        (1200.0, 800.0)
     }
 }
 

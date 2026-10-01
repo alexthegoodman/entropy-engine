@@ -562,6 +562,12 @@ export interface ScopedAPI {
     setTileLayout: (layout: TileLayoutMode | string) => boolean;
     getTileLayout: () => TileLayoutInfo;
     assignTileSlot: (slot: number, tabId: string) => boolean;
+    /** Returns [width, height] of the calling tab or tile viewport in logical pixels. */
+    getViewportSize: () => [number, number];
+    /** Returns available width of the calling tab or tile viewport in logical pixels. */
+    getViewportWidth: () => number;
+    /** Whether the current tab/tile viewport width is narrow (< 720px by default, or below custom threshold). */
+    isNarrow: (threshold?: number) => boolean;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;
     clear: () => void;
@@ -3443,6 +3449,12 @@ export interface EntropyAPI {
     setTileLayout: (layout: TileLayoutMode | string) => boolean;
     getTileLayout: () => TileLayoutInfo;
     assignTileSlot: (slot: number, tabId: string) => boolean;
+    /** Returns [width, height] of the calling tab or tile viewport in logical pixels. */
+    getViewportSize: () => [number, number];
+    /** Returns available width of the calling tab or tile viewport in logical pixels. */
+    getViewportWidth: () => number;
+    /** Whether the current tab/tile viewport width is narrow (< 720px by default, or below custom threshold). */
+    isNarrow: (threshold?: number) => boolean;
     miniMap: (windowId: string, config: MiniMapConfig) => void;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;

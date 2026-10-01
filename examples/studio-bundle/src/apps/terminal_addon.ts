@@ -229,116 +229,225 @@ function renderUI(win: string) {
 
     Entropy.UI.Widget.separator(win);
 
+    const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(720) : false;
+
     // Convenience Action Section: MCP & Agent Setup
     Entropy.UI.Widget.label(win, { text: "AI Agent & MCP Connections (One-Click)", bold: true, fontSize: 13.0 });
-    Entropy.UI.Widget.horizontal(win, (w) => {
-        Entropy.UI.Widget.button(w, {
-            text: "Connect MCP to Claude Code",
-            onClick: () => {
-                runCommand("claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
-            },
+    if (isNarrow) {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Connect Claude Code",
+                onClick: () => {
+                    runCommand("claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Connect Antigravity",
+                onClick: () => {
+                    runCommand("agy mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
+                },
+            });
         });
-        Entropy.UI.Widget.button(w, {
-            text: "Connect MCP to Antigravity",
-            onClick: () => {
-                runCommand("agy mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
-            },
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Test MCP Server Status",
+                onClick: () => {
+                    runCommand('node -e "fetch(\'http://127.0.0.1:47100/mcp\').then(r=>console.log(\'MCP Server active! HTTP Status:\', r.status)).catch(e=>console.error(\'MCP Server offline:\', e.message))"');
+                },
+            });
         });
-        Entropy.UI.Widget.button(w, {
-            text: "Test MCP Server",
-            onClick: () => {
-                runCommand('node -e "fetch(\'http://127.0.0.1:47100/mcp\').then(r=>console.log(\'MCP Server active! HTTP Status:\', r.status)).catch(e=>console.error(\'MCP Server offline:\', e.message))"');
-            },
+    } else {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Connect MCP to Claude Code",
+                onClick: () => {
+                    runCommand("claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Connect MCP to Antigravity",
+                onClick: () => {
+                    runCommand("agy mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Test MCP Server",
+                onClick: () => {
+                    runCommand('node -e "fetch(\'http://127.0.0.1:47100/mcp\').then(r=>console.log(\'MCP Server active! HTTP Status:\', r.status)).catch(e=>console.error(\'MCP Server offline:\', e.message))"');
+                },
+            });
         });
-    });
+    }
 
     // Convenience Action Section: Tooling & Installers
     Entropy.UI.Widget.label(win, { text: "Tooling Installers & System Utilities", bold: true, fontSize: 13.0 });
-    Entropy.UI.Widget.horizontal(win, (w) => {
-        Entropy.UI.Widget.button(w, {
-            text: "Install Claude Code",
-            onClick: () => {
-                runCommand("npm install -g @anthropic-ai/claude-code");
-            },
+    if (isNarrow) {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Install Claude Code",
+                onClick: () => {
+                    runCommand("npm install -g @anthropic-ai/claude-code");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Install Antigravity CLI",
+                onClick: () => {
+                    runCommand("npm install -g antigravity-cli");
+                },
+            });
         });
-        Entropy.UI.Widget.button(w, {
-            text: "Install Antigravity CLI",
-            onClick: () => {
-                runCommand("npm install -g antigravity-cli");
-            },
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "System Check",
+                onClick: () => {
+                    runCommand("node -v; npm -v; git --version; cargo --version");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Git Status",
+                onClick: () => {
+                    runCommand("git status -s");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Monorepo Build",
+                onClick: () => {
+                    runCommand("npm run build");
+                },
+            });
         });
-        Entropy.UI.Widget.button(w, {
-            text: "System Check",
-            onClick: () => {
-                runCommand("node -v; npm -v; git --version; cargo --version");
-            },
+    } else {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Install Claude Code",
+                onClick: () => {
+                    runCommand("npm install -g @anthropic-ai/claude-code");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Install Antigravity CLI",
+                onClick: () => {
+                    runCommand("npm install -g antigravity-cli");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "System Check",
+                onClick: () => {
+                    runCommand("node -v; npm -v; git --version; cargo --version");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Git Status",
+                onClick: () => {
+                    runCommand("git status -s");
+                },
+            });
+            Entropy.UI.Widget.button(w, {
+                text: "Monorepo Build",
+                onClick: () => {
+                    runCommand("npm run build");
+                },
+            });
         });
-        Entropy.UI.Widget.button(w, {
-            text: "Git Status",
-            onClick: () => {
-                runCommand("git status -s");
-            },
-        });
-        Entropy.UI.Widget.button(w, {
-            text: "Monorepo Build",
-            onClick: () => {
-                runCommand("npm run build");
-            },
-        });
-    });
+    }
 
     Entropy.UI.Widget.separator(win);
 
     // Style & Typography Toolbar
-    Entropy.UI.Widget.horizontal(win, (w) => {
-        Entropy.UI.Widget.label(w, { text: "Font:", bold: true });
-        for (const font of POPULAR_FONTS.slice(0, 6)) {
+    if (isNarrow) {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.label(w, { text: "Font:", bold: true });
+            for (const font of POPULAR_FONTS.slice(0, 3)) {
+                Entropy.UI.Widget.button(w, {
+                    text: selectedFont === font ? `✓ ${font}` : font,
+                    onClick: () => {
+                        selectedFont = font;
+                    },
+                });
+            }
             Entropy.UI.Widget.button(w, {
-                text: selectedFont === font ? `✓ ${font}` : font,
+                text: showAllFonts ? "Less ▲" : "More ▼",
                 onClick: () => {
-                    selectedFont = font;
+                    showAllFonts = !showAllFonts;
                 },
             });
-        }
-
-        Entropy.UI.Widget.button(w, {
-            text: showAllFonts ? "Less Fonts ▲" : "More Fonts ▼",
-            onClick: () => {
-                showAllFonts = !showAllFonts;
-            },
-        });
-
-        // Font size buttons
-        Entropy.UI.Widget.button(w, {
-            text: "A-",
-            onClick: () => {
-                fontSize = Math.max(10.0, fontSize - 1.0);
-            },
-        });
-        Entropy.UI.Widget.label(w, { text: `${fontSize}pt` });
-        Entropy.UI.Widget.button(w, {
-            text: "A+",
-            onClick: () => {
-                fontSize = Math.min(24.0, fontSize + 1.0);
-            },
-        });
-
-        // Theme buttons
-        for (const th of THEMES) {
             Entropy.UI.Widget.button(w, {
-                text: selectedTheme === th ? `✓ ${th.toUpperCase()}` : th.toUpperCase(),
+                text: "A-",
                 onClick: () => {
-                    selectedTheme = th;
+                    fontSize = Math.max(10.0, fontSize - 1.0);
                 },
             });
-        }
-    });
+            Entropy.UI.Widget.label(w, { text: `${fontSize}pt` });
+            Entropy.UI.Widget.button(w, {
+                text: "A+",
+                onClick: () => {
+                    fontSize = Math.min(24.0, fontSize + 1.0);
+                },
+            });
+        });
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.label(w, { text: "Theme:", bold: true });
+            for (const th of THEMES) {
+                Entropy.UI.Widget.button(w, {
+                    text: selectedTheme === th ? `✓ ${th.toUpperCase()}` : th.toUpperCase(),
+                    onClick: () => {
+                        selectedTheme = th;
+                    },
+                });
+            }
+        });
+    } else {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.label(w, { text: "Font:", bold: true });
+            for (const font of POPULAR_FONTS.slice(0, 6)) {
+                Entropy.UI.Widget.button(w, {
+                    text: selectedFont === font ? `✓ ${font}` : font,
+                    onClick: () => {
+                        selectedFont = font;
+                    },
+                });
+            }
+
+            Entropy.UI.Widget.button(w, {
+                text: showAllFonts ? "Less Fonts ▲" : "More Fonts ▼",
+                onClick: () => {
+                    showAllFonts = !showAllFonts;
+                },
+            });
+
+            // Font size buttons
+            Entropy.UI.Widget.button(w, {
+                text: "A-",
+                onClick: () => {
+                    fontSize = Math.max(10.0, fontSize - 1.0);
+                },
+            });
+            Entropy.UI.Widget.label(w, { text: `${fontSize}pt` });
+            Entropy.UI.Widget.button(w, {
+                text: "A+",
+                onClick: () => {
+                    fontSize = Math.min(24.0, fontSize + 1.0);
+                },
+            });
+
+            // Theme buttons
+            for (const th of THEMES) {
+                Entropy.UI.Widget.button(w, {
+                    text: selectedTheme === th ? `✓ ${th.toUpperCase()}` : th.toUpperCase(),
+                    onClick: () => {
+                        selectedTheme = th;
+                    },
+                });
+            }
+        });
+    }
 
     // Extended fonts selection row if requested
     if (showAllFonts && allCatalogFonts.length > 0) {
         Entropy.UI.Widget.horizontal(win, (w) => {
             Entropy.UI.Widget.label(w, { text: "Catalog:", bold: true });
-            for (const font of allCatalogFonts.slice(6, 16)) {
+            const sliceCount = isNarrow ? 6 : 10;
+            for (const font of allCatalogFonts.slice(6, 6 + sliceCount)) {
                 Entropy.UI.Widget.button(w, {
                     text: selectedFont === font ? `✓ ${font}` : font,
                     onClick: () => {
@@ -371,56 +480,111 @@ function renderUI(win: string) {
         },
     });
 
-    Entropy.UI.Widget.horizontal(win, (w) => {
-        Entropy.UI.Widget.button(w, {
-            text: isRunning ? "Running..." : "Execute Command (Enter)",
-            onClick: () => {
-                runCommand(commandInput);
-            },
-        });
-
-        if (isRunning) {
+    if (isNarrow) {
+        Entropy.UI.Widget.horizontal(win, (w) => {
             Entropy.UI.Widget.button(w, {
-                text: "■ Stop / Terminate Process",
+                text: isRunning ? "Running..." : "Execute (Enter)",
                 onClick: () => {
-                    stopRunningProcess();
+                    runCommand(commandInput);
                 },
             });
-        }
 
-        Entropy.UI.Widget.button(w, {
-            text: "Clear Output",
-            onClick: () => {
-                clearTerminal();
-            },
-        });
+            if (isRunning) {
+                Entropy.UI.Widget.button(w, {
+                    text: "■ Stop",
+                    onClick: () => {
+                        stopRunningProcess();
+                    },
+                });
+            }
 
-        Entropy.UI.Widget.button(w, {
-            text: "Copy Output",
-            onClick: () => {
-                copyAllOutput();
-            },
-        });
-
-        Entropy.UI.Widget.button(w, {
-            text: autoScroll ? "Auto-Scroll: ON" : "Auto-Scroll: OFF",
-            onClick: () => {
-                autoScroll = !autoScroll;
-            },
-        });
-
-        if (cmdHistory.length > 0) {
             Entropy.UI.Widget.button(w, {
-                text: "↑ Last Command",
+                text: "Clear",
                 onClick: () => {
-                    if (cmdHistory.length > 0) {
-                        historyIndex = Math.max(0, historyIndex - 1);
-                        commandInput = cmdHistory[historyIndex] || cmdHistory[cmdHistory.length - 1];
-                    }
+                    clearTerminal();
                 },
             });
-        }
-    });
+        });
+
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: "Copy Output",
+                onClick: () => {
+                    copyAllOutput();
+                },
+            });
+
+            Entropy.UI.Widget.button(w, {
+                text: autoScroll ? "Scroll: ON" : "Scroll: OFF",
+                onClick: () => {
+                    autoScroll = !autoScroll;
+                },
+            });
+
+            if (cmdHistory.length > 0) {
+                Entropy.UI.Widget.button(w, {
+                    text: "↑ Last",
+                    onClick: () => {
+                        if (cmdHistory.length > 0) {
+                            historyIndex = Math.max(0, historyIndex - 1);
+                            commandInput = cmdHistory[historyIndex] || cmdHistory[cmdHistory.length - 1];
+                        }
+                    },
+                });
+            }
+        });
+    } else {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.button(w, {
+                text: isRunning ? "Running..." : "Execute Command (Enter)",
+                onClick: () => {
+                    runCommand(commandInput);
+                },
+            });
+
+            if (isRunning) {
+                Entropy.UI.Widget.button(w, {
+                    text: "■ Stop / Terminate Process",
+                    onClick: () => {
+                        stopRunningProcess();
+                    },
+                });
+            }
+
+            Entropy.UI.Widget.button(w, {
+                text: "Clear Output",
+                onClick: () => {
+                    clearTerminal();
+                },
+            });
+
+            Entropy.UI.Widget.button(w, {
+                text: "Copy Output",
+                onClick: () => {
+                    copyAllOutput();
+                },
+            });
+
+            Entropy.UI.Widget.button(w, {
+                text: autoScroll ? "Auto-Scroll: ON" : "Auto-Scroll: OFF",
+                onClick: () => {
+                    autoScroll = !autoScroll;
+                },
+            });
+
+            if (cmdHistory.length > 0) {
+                Entropy.UI.Widget.button(w, {
+                    text: "↑ Last Command",
+                    onClick: () => {
+                        if (cmdHistory.length > 0) {
+                            historyIndex = Math.max(0, historyIndex - 1);
+                            commandInput = cmdHistory[historyIndex] || cmdHistory[cmdHistory.length - 1];
+                        }
+                    },
+                });
+            }
+        });
+    }
 }
 
 addon.onInit(async () => {

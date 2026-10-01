@@ -56,6 +56,7 @@ let editTags = "";
 // keystrokes - those paths already write straight through to disk on every change anyway.
 const RELOAD_INTERVAL_FRAMES = 90;
 let frame = 0;
+let filterColumn = "all";
 
 function loadBoard() {
     // `IO` is scoped to this addon's own registration handle, not the global `Entropy`
@@ -235,9 +236,29 @@ function renderUI(win: string) {
         }
     }
 
+    const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(640) : false;
+    let visibleColumns = board.columns;
+    if (isNarrow && board.columns.length > 1) {
+        Entropy.UI.Widget.horizontal(win, (w) => {
+            Entropy.UI.Widget.label(w, { text: "Column:", bold: true });
+            const colOptions = [{ id: "all", title: "All" }, ...board.columns];
+            colOptions.forEach((col) => {
+                Entropy.UI.Widget.button(w, {
+                    text: filterColumn === col.id ? `✓ ${col.title}` : col.title,
+                    onClick: () => {
+                        filterColumn = col.id;
+                    },
+                });
+            });
+        });
+        if (filterColumn !== "all") {
+            visibleColumns = board.columns.filter((c) => c.id === filterColumn);
+        }
+    }
+
     Entropy.UI.Widget.kanban(win, {
         id: "cc_manager_board",
-        columns: board.columns,
+        columns: visibleColumns,
         selected: selected ?? undefined,
         onCardMoved: (card, fromColumn, toColumn, toIndex) => {
             const from = findCard(fromColumn, card);
@@ -251,6 +272,9 @@ function renderUI(win: string) {
             }
             const clampedIndex = Math.max(0, Math.min(toIndex, to.cards.length));
             to.cards.splice(clampedIndex, 0, moved);
+            if (selected && selected.card === card) {
+                selected.column = toColumn;
+            }
             saveBoard();
         },
         onCardSelected: (column, card) => {

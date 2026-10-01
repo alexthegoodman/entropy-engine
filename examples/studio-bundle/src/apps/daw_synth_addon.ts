@@ -1984,7 +1984,7 @@ function setRackVisible(visible: boolean) {
 // The Analyzer floats bottom-right and starts open; the transport bar's toggle (or its own close
 // button) puts it away when the arrangement needs the room.
 let analyzerWindowId: string | null = null;
-let analyzerVisible = false;
+let analyzerVisible = true;
 
 function setAnalyzerVisible(visible: boolean) {
     analyzerVisible = visible;
@@ -5637,17 +5637,21 @@ addon.onInit(async () => {
     // ---- Header: the song on the left, the transport in the middle, windows and export on the right ----
     const renderHeader = (tabId: string) => {
         syncBpmDraft();
+        const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(860) : false;
         W.bar(tabId, { id: "daw_header", height: 52, fill: UI.header, border: UI.line, paddingX: 12 },
             (left: string) => {
-                W.label(left, { text: withIcon("music-notes", currentSongName()), bold: true, fontSize: 15 });
-                W.label(left, { text: saveStatusText(), color: UI.dim, fontSize: 12 });
+                const songTitle = isNarrow && currentSongName().length > 12 ? currentSongName().slice(0, 10) + "…" : currentSongName();
+                W.label(left, { text: withIcon("music-notes", songTitle), bold: true, fontSize: 14 });
+                if (!isNarrow) {
+                    W.label(left, { text: saveStatusText(), color: UI.dim, fontSize: 12 });
+                }
                 W.button(left, { text: icon("folder-open"), id: "songs_toggle", frame: false, selected: songsVisible, tooltip: "Your songs: open, copy, rename or delete", shortcut: "Ctrl+O", onClick: () => { setSongsVisible(!songsVisible); } });
                 W.button(left, { text: icon("clock-counter-clockwise"), id: "history_toggle", frame: false, selected: historyVisible, tooltip: "Earlier versions of this song", onClick: () => { setHistoryVisible(!historyVisible); } });
                 W.button(left, { text: icon("floppy-disk"), id: "song_save_version", frame: false, tooltip: "Keep a version of the song as it is now (it is always saved)", shortcut: "Ctrl+S", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
             },
             (center: string) => {
                 W.button(center, {
-                    text: withIcon("skip-back", "Rewind"),
+                    text: isNarrow ? icon("skip-back") : withIcon("skip-back", "Rewind"),
                     id: "transport_rewind",
                     frame: false,
                     tooltip: "Back to the start of the song",
@@ -5659,30 +5663,32 @@ addon.onInit(async () => {
                 const glow = Math.pow(1 - beatPhase, 3) * 0.45;
                 const playFill: RGBA = [0, 1, 2].map(i => UI.amber[i] + (1 - UI.amber[i]) * glow).concat(1) as RGBA;
                 W.button(center, {
-                    text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),
+                    text: transport.playing ? (isNarrow ? icon("stop") : withIcon("stop", "Stop")) : (isNarrow ? icon("play") : withIcon("play", "Play")),
                     id: "transport_toggle",
                     accent: playFill,
-                    minWidth: 84,
+                    minWidth: isNarrow ? 44 : 84,
                     onClick: () => { transport.playing ? stop() : play(); }
                 });
-                W.segmented(center, {
-                    id: "transport_mode",
-                    options: ["Song", "Pattern loop"],
-                    selectedIndex: TRANSPORT_MODES.indexOf(transport.mode),
-                    onChange: (idx: string) => {
-                        const wasPlaying = transport.playing;
-                        if (wasPlaying) stop();
-                        transport.mode = TRANSPORT_MODES[parseInt(idx, 10)] ?? "song";
-                        transport.cursorStep = 0;
-                        if (wasPlaying) play();
-                    }
-                });
+                if (!isNarrow) {
+                    W.segmented(center, {
+                        id: "transport_mode",
+                        options: ["Song", "Pattern loop"],
+                        selectedIndex: TRANSPORT_MODES.indexOf(transport.mode),
+                        onChange: (idx: string) => {
+                            const wasPlaying = transport.playing;
+                            if (wasPlaying) stop();
+                            transport.mode = TRANSPORT_MODES[parseInt(idx, 10)] ?? "song";
+                            transport.cursorStep = 0;
+                            if (wasPlaying) play();
+                        }
+                    });
+                }
                 W.label(center, { text: positionReadout(), monospace: true, color: UI.amber, fontSize: 13.5 });
                 W.textInput(center, {
-                    label: "BPM",
+                    label: isNarrow ? "" : "BPM",
                     id: "bpm_input",
                     value: bpmDraft,
-                    width: 52,
+                    width: 48,
                     onChange: (v: string) => { commitBpmText(v); }
                 });
                 W.button(center, { text: "-", id: "bpm_down", tooltip: "Slower: 1 BPM down", onClick: () => { nudgeBpm(-1); } });
@@ -5722,14 +5728,14 @@ addon.onInit(async () => {
                     label: "",
                     id: "instrument_windows",
                     options: [
-                        withIcon("piano-keys", open ? `Instruments (${open} open)` : "Instruments"),
+                        withIcon("piano-keys", isNarrow ? (open ? `${open}` : "Inst") : (open ? `Instruments (${open} open)` : "Instruments")),
                         ...instruments.map(i => `${icon(i.open ? "check-square" : "square")} ${i.label}`)
                     ],
                     selectedIndex: 0,
                     onChange: (idx: string) => { instruments[parseInt(idx, 10) - 1]?.toggle(); }
                 });
                 W.button(right, {
-                    text: withIcon("download-simple", "Export WAV"),
+                    text: isNarrow ? icon("download-simple") : withIcon("download-simple", "Export WAV"),
                     id: "export_wav",
                     disabled: !!wavExport,
                     tooltip: "Render the whole song to a WAV file",
@@ -5741,24 +5747,25 @@ addon.onInit(async () => {
 
     // ---- The view switcher, what is being edited, and the inspector toggle ----
     const renderViewBar = (tabId: string, track: Track | undefined) => {
+        const isNarrow = Entropy.UI.isNarrow ? Entropy.UI.isNarrow(760) : false;
         W.bar(tabId, { id: "daw_views", height: 40, fill: UI.nav, border: UI.line, paddingX: 8 },
             (left: string) => {
                 W.tabBar(left, {
                     id: "daw_view",
                     stretch: false,
-                    tabs: DAW_VIEWS.map(v => ({ id: v.id, label: withIcon(v.icon, v.label) })),
+                    tabs: DAW_VIEWS.map(v => ({ id: v.id, label: isNarrow ? icon(v.icon) : withIcon(v.icon, v.label) })),
                     selected: dawView,
                     onSelect: (id: string) => { setDawView(id); }
                 });
             },
             undefined,
             (right: string) => {
-                if (track) {
+                if (track && !isNarrow) {
                     W.label(right, { text: "Editing", color: UI.dim, fontSize: 12 });
                     W.label(right, { text: `${track.name}  ›  ${activePattern(track).name}`, bold: true, color: trackRgba(track), fontSize: 12.5 });
                 }
                 W.button(right, {
-                    text: withIcon("sidebar-simple", "Inspector"),
+                    text: isNarrow ? icon("sidebar-simple") : withIcon("sidebar-simple", "Inspector"),
                     id: "toggle_inspector",
                     frame: false,
                     selected: inspectorOpen,
@@ -6118,9 +6125,60 @@ addon.onInit(async () => {
         });
     };
 
+    const renderTrackStrip = (row: string, track: Track) => {
+        W.card(row, { id: "strip_" + track.id, width: 168, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 12 }, (c: string) => {
+            W.button(c, {
+                text: (track.id === project.activeTrackId ? icon("play") + " " : "") + track.name,
+                id: "select_track_" + project.tracks.indexOf(track),
+                color: trackRgba(track),
+                frame: false,
+                tooltip: "Edit this track in the piano roll and the inspector",
+                onClick: () => { project.activeTrackId = track.id; }
+            });
+            W.label(c, { text: `Channel ${track.channel + 1}`, color: UI.dim, fontSize: 11.5 });
+            W.levelMeter(c, { id: "meter_" + track.id, source: track.id, width: 34, height: 160 });
+            W.slider(c, {
+                label: "Gain",
+                value: track.gain, min: 0, max: 1,
+                onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
+            });
+            W.horizontal(c, (r: string) => {
+                W.checkbox(r, {
+                    label: "M",
+                    value: track.muted,
+                    onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
+                });
+                W.checkbox(r, {
+                    label: "S",
+                    value: track.solo,
+                    onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
+                });
+            });
+            W.button(c, {
+                text: withIcon("trash", "Delete"),
+                frame: false,
+                onClick: () => {
+                    removeTrack(track);
+                    persist();
+                }
+            });
+        });
+    };
+
     // ---- Mixer: one channel strip per track, the master first ----
     const renderMixerView = (tid: string) => {
         W.spacer(tid, 12);
+        const vw = Entropy.UI.getViewportWidth ? Entropy.UI.getViewportWidth() : 1200;
+        const availW = Math.max(300, vw - 40);
+        const trackStripW = 176; // 168px card + 8px gap
+        const masterStripW = 108; // 96px card + 12px gap
+
+        // Compute how many track strips fit alongside master in the first row
+        const firstRowTrackCount = Math.max(0, Math.floor((availW - masterStripW) / trackStripW));
+        // Compute how many track strips fit per subsequent row
+        const subsequentRowTrackCount = Math.max(1, Math.floor(availW / trackStripW));
+
+        // Row 1: Master + first batch of tracks
         W.horizontal(tid, (row: string) => {
             W.spacer(row, 4);
             W.card(row, { id: "strip_master", width: 96, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 12 }, (c: string) => {
@@ -6128,46 +6186,21 @@ addon.onInit(async () => {
                 W.label(c, { text: "Output", color: UI.dim, fontSize: 11.5 });
                 W.levelMeter(c, { id: "meter_master_strip", source: "master", width: 44, height: 220, showScale: true });
             });
-            project.tracks.forEach(track => {
-                W.card(row, { id: "strip_" + track.id, width: 168, fill: UI.card, stroke: UI.cardLine, radius: 10, padding: 12 }, (c: string) => {
-                    W.button(c, {
-                        text: (track.id === project.activeTrackId ? icon("play") + " " : "") + track.name,
-                        id: "select_track_" + project.tracks.indexOf(track),
-                        color: trackRgba(track),
-                        frame: false,
-                        tooltip: "Edit this track in the piano roll and the inspector",
-                        onClick: () => { project.activeTrackId = track.id; }
-                    });
-                    W.label(c, { text: `Channel ${track.channel + 1}`, color: UI.dim, fontSize: 11.5 });
-                    W.levelMeter(c, { id: "meter_" + track.id, source: track.id, width: 34, height: 160 });
-                    W.slider(c, {
-                        label: "Gain",
-                        value: track.gain, min: 0, max: 1,
-                        onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
-                    });
-                    W.horizontal(c, (r: string) => {
-                        W.checkbox(r, {
-                            label: "M",
-                            value: track.muted,
-                            onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
-                        });
-                        W.checkbox(r, {
-                            label: "S",
-                            value: track.solo,
-                            onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
-                        });
-                    });
-                    W.button(c, {
-                        text: withIcon("trash", "Delete"),
-                        frame: false,
-                        onClick: () => {
-                            removeTrack(track);
-                            persist();
-                        }
-                    });
-                });
-            });
+            const firstBatch = project.tracks.slice(0, firstRowTrackCount);
+            firstBatch.forEach(track => renderTrackStrip(row, track));
         });
+
+        // Subsequent rows for remaining tracks
+        let trackIndex = firstRowTrackCount;
+        while (trackIndex < project.tracks.length) {
+            W.spacer(tid, 12);
+            const currentBatch = project.tracks.slice(trackIndex, trackIndex + subsequentRowTrackCount);
+            W.horizontal(tid, (row: string) => {
+                W.spacer(row, 4);
+                currentBatch.forEach(track => renderTrackStrip(row, track));
+            });
+            trackIndex += subsequentRowTrackCount;
+        }
     };
 
     // ---- Inspector: Sound ----

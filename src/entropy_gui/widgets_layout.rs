@@ -55,7 +55,8 @@ pub struct Bar {
 impl Bar {
     pub fn begin(ui: &mut Ui, id_salt: impl std::hash::Hash, style: BarStyle) -> Bar {
         let id = Id::new("layout_bar").with(id_salt);
-        let width = ui.available_width().max(1.0);
+        let avail_w = ui.available_width();
+        let width = if avail_w > 20_000.0 { ui.clip_rect.width().max(1.0) } else { avail_w.max(1.0) };
         let (rect, _) = ui.allocate_exact_size(vec2(width, style.height), Sense::hover());
         butt_against_next(ui);
         let painter = ui.painter();
@@ -86,6 +87,7 @@ impl Bar {
     /// would overlap the left zone.
     pub fn zone_ui(&self, ui: &Ui, zone: BarZone) -> Ui {
         let inner = self.inner();
+        let right_w = self.last_width(ui, BarZone::Right);
         let x = match zone {
             BarZone::Left => inner.min.x,
             BarZone::Center => {
@@ -93,13 +95,23 @@ impl Bar {
                 (inner.center().x - w * 0.5).max(inner.min.x + self.left_used + self.style.gap * 2.0)
             }
             BarZone::Right => {
-                let w = self.last_width(ui, zone);
+                let w = right_w;
                 (inner.max.x - w).max(inner.min.x)
             }
         };
-        let rect = Rect::from_min_max(pos2(x, inner.min.y), pos2(inner.max.x.max(x + 1.0), inner.max.y));
+        let max_x = match zone {
+            BarZone::Left | BarZone::Center => {
+                if right_w > 0.0 {
+                    (inner.max.x - right_w - self.style.gap).max(x + 1.0)
+                } else {
+                    inner.max.x.max(x + 1.0)
+                }
+            }
+            BarZone::Right => inner.max.x.max(x + 1.0),
+        };
+        let rect = Rect::from_min_max(pos2(x, inner.min.y), pos2(max_x, inner.max.y));
         let mut child = ui.child_ui_at(rect, Layout::left_to_right(Align::Center), (self.id, zone));
-        child.clip_rect = ui.clip_rect.intersect(self.rect);
+        child.clip_rect = ui.clip_rect.intersect(rect);
         child
     }
 
@@ -158,7 +170,8 @@ impl Split {
         let height = (avail.height() - style.reserve_bottom).max(style.min_height);
         // Inside a scroll area the available height is unbounded; fall back to the minimum.
         let height = if height > 20_000.0 { style.min_height } else { height };
-        let (rect, _) = ui.allocate_exact_size(vec2(avail.width().max(1.0), height), Sense::hover());
+        let width = if avail.width() > 20_000.0 { ui.clip_rect.width().max(1.0) } else { avail.width().max(1.0) };
+        let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         butt_against_next(ui);
         let side_w = if style.side_open { style.side_width.clamp(0.0, rect.width() * 0.6) } else { 0.0 };
         let main = Rect::from_min_max(rect.min, pos2(rect.max.x - side_w, rect.max.y));
@@ -303,3 +316,56 @@ impl Segmented {
         picked
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entropy_gui::context::{Context, RawInput};
+    use crate::entropy_gui::geometry::{pos2, vec2, Layout, Rect};
+    use crate::entropy_gui::id::Id;
+    use crate::entropy_gui::painter::DrawTarget;
+
+    #[test]
+    fn test_bar_and_split_bounded_in_unbounded_scroll_area() {
+        let ctx = Context::default();
+        ctx.run(RawInput::default(), |ctx| {
+            // Simulate a child Ui inside ScrollArea::both() where width is 100,000 but clip_rect is 600
+            let huge_rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(100_000.0, 100_000.0));
+            let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 800.0));
+            let mut ui = Ui::new(ctx.clone(), Id::new("scroll_content"), huge_rect, Layout::top_down(Align::Min), clip, DrawTarget::Main);
+
+            assert!(ui.available_width() > 20_000.0);
+
+            let bar = Bar::begin(&mut ui, "test_bar", BarStyle::default());
+            assert_eq!(bar.rect().width(), 600.0, "Bar must clamp to clip_rect when available_width > 20,000");
+
+            let split = Split::begin(&mut ui, SplitStyle::default());
+            assert_eq!(split.rect.width(), 600.0, "Split must clamp to clip_rect when available_width > 20,000");
+        });
+    }
+
+    #[test]
+    fn test_bar_zone_ui_clips_overlapping_center_and_right() {
+        let ctx = Context::default();
+        ctx.run(RawInput::default(), |ctx| {
+            let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 40.0));
+            let clip = rect;
+            let mut ui = Ui::new(ctx.clone(), Id::new("narrow_bar_ui"), rect, Layout::top_down(Align::Min), clip, DrawTarget::Main);
+
+            let bar = Bar::begin(&mut ui, "narrow_bar", BarStyle { height: 40.0, padding_x: 10.0, gap: 6.0, ..Default::default() });
+
+            // Simulate Right zone measuring 100px width
+            ctx.memory_mut(|m| m.set_scalar(bar.id.with(BarZone::Right), 100.0));
+
+            let center_ui = bar.zone_ui(&ui, BarZone::Center);
+            let right_ui = bar.zone_ui(&ui, BarZone::Right);
+
+            // Right zone starts at 300 - 10 (pad) - 100 = 190. Max x is 290.
+            assert_eq!(right_ui.max_rect().min.x, 190.0);
+
+            // Center zone must be capped so it does not exceed right_ui.min.x - gap (190 - 6 = 184)
+            assert!(center_ui.max_rect().max.x <= 184.0, "Center zone max_x ({}) must be <= 184 to avoid overlapping Right zone", center_ui.max_rect().max.x);
+        });
+    }
+}
+

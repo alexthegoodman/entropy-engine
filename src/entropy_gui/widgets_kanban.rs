@@ -29,7 +29,7 @@ use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Rect, StrokeKind}
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::Painter;
 use crate::entropy_gui::response::Sense;
-use crate::entropy_gui::ui::{interact, Ui};
+use crate::entropy_gui::ui::{interact, interact_with_clip, Ui};
 
 const COLUMN_W: f32 = 260.0;
 const COLUMN_GAP: f32 = 14.0;
@@ -201,7 +201,14 @@ impl KanbanBoard {
         let title_font = FontId::proportional(TITLE_SIZE);
         let desc_font = FontId::proportional(DESC_SIZE);
         let tag_font = FontId::proportional(TAG_SIZE);
-        let card_inner_w = COLUMN_W - CARD_INSET * 2.0 - CARD_PAD * 2.0;
+        let avail_w = ui.available_size().x.min(ui.clip_rect.width());
+        let col_w = if columns.len() <= 4 && avail_w > 100.0 && avail_w < 20_000.0 {
+            let total_gaps = (columns.len().saturating_sub(1)) as f32 * COLUMN_GAP;
+            ((avail_w - total_gaps) / columns.len() as f32).clamp(160.0, 260.0)
+        } else {
+            COLUMN_W
+        };
+        let card_inner_w = col_w - CARD_INSET * 2.0 - CARD_PAD * 2.0;
 
         // Pre-measure every card's height so column layout and hit-testing agree in one pass.
         let card_heights: Vec<Vec<f32>> = columns
@@ -223,7 +230,7 @@ impl KanbanBoard {
             })
             .collect();
 
-        let total_w = columns.len() as f32 * COLUMN_W + (columns.len().saturating_sub(1)) as f32 * COLUMN_GAP;
+        let total_w = columns.len() as f32 * col_w + (columns.len().saturating_sub(1)) as f32 * COLUMN_GAP;
         let column_content_h: Vec<f32> = columns
             .iter()
             .enumerate()
@@ -251,18 +258,18 @@ impl KanbanBoard {
         // is always visited before the target column, so an incremental version would only
         // ever see columns already passed and silently fall back to "drop in place."
         let drop_target: Option<(usize, usize)> = pointer_pos.and_then(|p| {
-            if p.y < board_rect.min.y || p.y > board_rect.max.y {
+            if columns.is_empty() {
                 return None;
             }
-            let slot = COLUMN_W + COLUMN_GAP;
+            if p.y < board_rect.min.y - 40.0 || p.y > board_rect.max.y + 120.0 {
+                return None;
+            }
+            let slot = col_w + COLUMN_GAP;
             let rel_x = p.x - board_rect.min.x;
-            if rel_x < 0.0 {
+            if rel_x < -40.0 || rel_x > total_w + 40.0 {
                 return None;
             }
-            let ci = (rel_x / slot) as usize;
-            if ci >= columns.len() || rel_x - ci as f32 * slot > COLUMN_W {
-                return None;
-            }
+            let ci = ((rel_x.max(0.0) / slot) as usize).min(columns.len() - 1);
             let mut insert_index = columns[ci].cards.len();
             let mut cursor_y = board_rect.min.y + HEADER_H + CARD_GAP;
             for (idx, h) in card_heights[ci].iter().enumerate() {
@@ -280,16 +287,17 @@ impl KanbanBoard {
         // more specific consumed the click so `BackgroundClicked` doesn't fire (and stomp a
         // `CardSelected` from the same press) alongside it.
         let mut click_consumed = false;
+        let board_clip = painter.clip_rect();
 
         for (ci, col) in columns.iter().enumerate() {
-            let x0 = board_rect.min.x + ci as f32 * (COLUMN_W + COLUMN_GAP);
-            let column_rect = Rect::from_min_size(pos2(x0, board_rect.min.y), vec2(COLUMN_W, board_h));
+            let x0 = board_rect.min.x + ci as f32 * (col_w + COLUMN_GAP);
+            let column_rect = Rect::from_min_size(pos2(x0, board_rect.min.y), vec2(col_w, board_h));
 
-            let header_rect = Rect::from_min_size(column_rect.min, vec2(COLUMN_W, HEADER_H));
+            let header_rect = Rect::from_min_size(column_rect.min, vec2(col_w, HEADER_H));
             painter.rect_filled(header_rect, visuals.widgets.inactive.corner_radius, visuals.widgets.inactive.weak_bg_fill);
 
             let add_rect = Rect::from_min_size(pos2(header_rect.max.x - ADD_BTN_SIZE - 6.0, header_rect.min.y + (HEADER_H - ADD_BTN_SIZE) / 2.0), vec2(ADD_BTN_SIZE, ADD_BTN_SIZE));
-            let add_resp = interact(&ctx, add_rect, board_id.with(("add", &col.id)), Sense::click());
+            let add_resp = interact_with_clip(&ctx, add_rect, board_clip, board_id.with(("add", &col.id)), Sense::click());
             painter.rect_filled(add_rect, 3u8, if add_resp.hovered() { visuals.widgets.hovered.bg_fill } else { visuals.widgets.inactive.bg_fill });
             painter.text(add_rect.center(), Align2::CENTER_CENTER, "+", FontId::proportional(14.0), Color32::from_gray(230));
             if add_resp.clicked() {
@@ -298,7 +306,7 @@ impl KanbanBoard {
             }
 
             let header_click_rect = Rect::from_min_max(header_rect.min, pos2(add_rect.min.x - 4.0, header_rect.max.y));
-            let header_resp = interact(&ctx, header_click_rect, board_id.with(("header", &col.id)), Sense::click());
+            let header_resp = interact_with_clip(&ctx, header_click_rect, board_clip, board_id.with(("header", &col.id)), Sense::click());
             if header_resp.clicked() {
                 events.push(KanbanEvent::ColumnClicked(col.id.clone()));
                 click_consumed = true;
@@ -317,7 +325,7 @@ impl KanbanBoard {
             for (idx, card) in col.cards.iter().enumerate() {
                 let is_dragged = dragging.as_ref().map_or(false, |(_, _, c)| c == &card.id);
                 let card_h = card_heights[ci][idx];
-                let card_rect = Rect::from_min_size(pos2(column_rect.min.x + CARD_INSET, cursor_y), vec2(COLUMN_W - CARD_INSET * 2.0, card_h));
+                let card_rect = Rect::from_min_size(pos2(column_rect.min.x + CARD_INSET, cursor_y), vec2(col_w - CARD_INSET * 2.0, card_h));
 
                 // Cards scrolled out of view cost nothing to paint (they still take part in
                 // layout and hit-testing above/below).
@@ -327,7 +335,7 @@ impl KanbanBoard {
                 }
 
                 let interact_id = board_id.with(("card", &card.id));
-                let resp = interact(&ctx, card_rect, interact_id, Sense::click_and_drag());
+                let resp = interact_with_clip(&ctx, card_rect, board_clip, interact_id, Sense::click_and_drag());
 
                 if resp.drag_started() {
                     ctx.memory_mut(|m| m.kanban_drag = Some((board_id, col.id.clone(), card.id.clone())));
@@ -346,7 +354,7 @@ impl KanbanBoard {
                 }
 
                 let mut delete_request = false;
-                resp.context_menu(|menu_ui| {
+                resp.context_menu(|menu_ui: &mut Ui| {
                     if menu_ui.button("Delete Card").clicked() {
                         delete_request = true;
                         menu_ui.close_menu();
@@ -370,11 +378,16 @@ impl KanbanBoard {
         if let (Some((_, src_col, card_id)), Some(p)) = (&dragging, pointer_pos) {
             if let Some((ci, card)) = columns.iter().enumerate().find_map(|(ci, c)| c.cards.iter().find(|c2| &c2.id == card_id).map(|c2| (ci, c2))) {
                 let card_h = card_heights[ci][columns[ci].cards.iter().position(|c| &c.id == card_id).unwrap()];
-                let ghost_rect = Rect::from_min_size(pos2(p.x - (COLUMN_W - CARD_INSET * 2.0) / 2.0, p.y - card_h / 2.0), vec2(COLUMN_W - CARD_INSET * 2.0, card_h));
+                let ghost_rect = Rect::from_min_size(pos2(p.x - (col_w - CARD_INSET * 2.0) / 2.0, p.y - card_h / 2.0), vec2(col_w - CARD_INSET * 2.0, card_h));
                 Self::paint_card(&painter, &ctx, ghost_rect, card, false, &visuals, title_font, desc_font, tag_font, card_inner_w);
                 painter.rect_stroke(ghost_rect, 4u8, Stroke::new(2.0, Color32::WHITE), StrokeKind::Middle);
             }
             let _ = src_col;
+        }
+
+        let pointer_released = ui.input(|i| i.pointer.primary_released || !i.pointer.primary_down);
+        if pointer_released && dragging.is_some() {
+            ctx.memory_mut(|m| m.kanban_drag = None);
         }
 
         if bg_response.clicked() && !click_consumed {
@@ -470,5 +483,81 @@ mod tests {
         assert!(wrap_text(&ctx, "   ", font, 200.0, 2).is_empty());
         // One word wider than the line still gets a line of its own.
         assert_eq!(wrap_text(&ctx, "supercalifragilisticexpialidocious", font, 20.0, usize::MAX).len(), 1);
+    }
+
+    #[test]
+    fn kanban_card_drag_and_drop_moves_card() {
+        use crate::entropy_gui::context::PointerState;
+        use crate::entropy_gui::{CentralPanel, RawInput};
+
+        let ctx = crate::entropy_gui::context::Context::default();
+        let mut col0 = KanbanColumn::new("todo", "To Do");
+        col0.cards.push(KanbanCard::new("c1", "Task 1"));
+        let col1 = KanbanColumn::new("done", "Done");
+        let columns = vec![col0, col1];
+
+        // Frame 1: Press on card c1 at (100.0, 55.0)
+        let mut raw = RawInput {
+            screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0)),
+            pointer: PointerState {
+                pos: Some(pos2(100.0, 55.0)),
+                primary_down: true,
+                primary_pressed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut resp1 = None;
+        ctx.run(raw, |ctx| {
+            CentralPanel::default().show(ctx, |ui| {
+                resp1 = Some(KanbanBoard::new("test_board").show(ui, &columns, None));
+            });
+        });
+        let r1 = resp1.unwrap();
+        println!("Frame 1 events: {:?}", r1.events);
+
+        // Frame 2: Drag pointer to column 1 at (350.0, 55.0)
+        raw = RawInput {
+            screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0)),
+            pointer: PointerState {
+                pos: Some(pos2(350.0, 55.0)),
+                primary_down: true,
+                primary_pressed: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut resp2 = None;
+        ctx.run(raw, |ctx| {
+            CentralPanel::default().show(ctx, |ui| {
+                resp2 = Some(KanbanBoard::new("test_board").show(ui, &columns, None));
+            });
+        });
+        let r2 = resp2.unwrap();
+        println!("Frame 2 events: {:?}", r2.events);
+
+        // Frame 3: Release pointer at (350.0, 55.0)
+        raw = RawInput {
+            screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0)),
+            pointer: PointerState {
+                pos: Some(pos2(350.0, 55.0)),
+                primary_down: false,
+                primary_pressed: false,
+                primary_released: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut resp3 = None;
+        ctx.run(raw, |ctx| {
+            CentralPanel::default().show(ctx, |ui| {
+                resp3 = Some(KanbanBoard::new("test_board").show(ui, &columns, None));
+            });
+        });
+        let r3 = resp3.unwrap();
+        println!("Frame 3 events: {:?}", r3.events);
+
+        let moved = r3.events.iter().any(|e| matches!(e, KanbanEvent::CardMoved { card, from_column, to_column, to_index } if card == "c1" && from_column == "todo" && to_column == "done" && *to_index == 0));
+        assert!(moved, "Expected CardMoved event, got {:?}", r3.events);
     }
 }

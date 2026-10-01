@@ -124,7 +124,7 @@ use crate::deno::addon_ops::{
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_set_speed, op_video_read_subtitles, op_video_close, op_video_poll,
     op_video_export_start, op_video_export_poll,
     op_ui_clear,
-    op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_set_tile_layout, op_ui_get_tile_layout, op_ui_assign_tile_slot, TileLayoutMode, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
+    op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_set_tile_layout, op_ui_get_tile_layout, op_ui_assign_tile_slot, op_ui_get_viewport_size, TileLayoutMode, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_spectrogram, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
@@ -242,6 +242,7 @@ extension!(
         op_ui_set_tile_layout,
         op_ui_get_tile_layout,
         op_ui_assign_tile_slot,
+        op_ui_get_viewport_size,
         op_ui_widget_label,
         op_ui_widget_button,
         op_ui_widget_color_input,
@@ -790,6 +791,7 @@ impl AddonEngine {
             tile_slots: vec![None, None, None, None],
             focused_tile_slot: 0,
             taskbar_layout_menu_open: false,
+            current_viewport: [1200.0, 800.0],
             ui_widgets: HashMap::new(),
             ui_frame_labels: Vec::new(),
             ui_frame_labels_from_tabs: false,
@@ -4349,7 +4351,33 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         };
 
-        for (_slot_idx, _tab_id, cb) in callbacks {
+        let screen = ctx.screen_rect();
+        let avail_rect = if tabs.len() > 1 {
+            egui::Rect::from_min_max(screen.min, egui::pos2(screen.max.x, screen.max.y - 48.0))
+        } else {
+            screen
+        };
+        let tile_rects = Self::compute_tile_rects(avail_rect, tile_layout, 4.0);
+        let header_h = 28.0;
+
+        for (slot_idx, _tab_id, cb) in callbacks {
+            // Set current_viewport for this tab/slot
+            {
+                let mut op_state = self.runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                    let (vw, vh) = if tile_layout == TileLayoutMode::Single {
+                        (avail_rect.width(), avail_rect.height())
+                    } else if slot_idx < tile_rects.len() {
+                        let tr = tile_rects[slot_idx];
+                        (tr.width(), (tr.height() - header_h).max(100.0))
+                    } else {
+                        (avail_rect.width(), avail_rect.height())
+                    };
+                    context.current_viewport = [vw, vh];
+                }
+            }
+
             // Reset widget counter for this callback
             {
                 let scope = &mut self.runtime.handle_scope();
@@ -4454,7 +4482,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let avail_rect = ui.available_rect_before_wrap();
                 let tile_rects = Self::compute_tile_rects(avail_rect, tile_layout, 4.0);
 
-                for (slot_idx, tab_id, widgets, _scroll, transparent) in render_slots {
+                for (slot_idx, tab_id, widgets, scroll, transparent) in render_slots {
                     if slot_idx >= tile_rects.len() { continue; }
                     let tile_rect = tile_rects[slot_idx];
                     let is_focused = slot_idx == focused_slot;
@@ -4570,14 +4598,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
                     if !transparent {
                         let mut child_ui = ui.child_ui_at(content_rect, egui::Layout::top_down(egui::Align::Min), format!("tile_content_{slot_idx}"));
-                        egui::ScrollArea::both()
-                            .show(&mut child_ui, |child| {
-                                let mut op_state = self.runtime.op_state();
-                                let mut op_state = op_state.borrow_mut();
-                                if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                                    Self::render_widgets(child, &widgets, &mut events_to_push, context, egui_renderer);
-                                }
-                            });
+                        let mut op_state = self.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                            if scroll {
+                                egui::ScrollArea::vertical()
+                                    .show(&mut child_ui, |child| {
+                                        Self::render_widgets(child, &widgets, &mut events_to_push, context, egui_renderer);
+                                    });
+                            } else {
+                                Self::render_widgets(&mut child_ui, &widgets, &mut events_to_push, context, egui_renderer);
+                            }
+                        }
                     }
 
                     // Border around tile
@@ -4626,6 +4658,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                 context.pointer_over_ui = ctx.pointer_over_ui() && !context.bdd_pointer_in_viewport;
+                context.ui_wants_keyboard = ctx.wants_keyboard_input();
+                context.ui_keyboard_navigating = ctx.keyboard_navigating();
             }
         }
 

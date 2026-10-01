@@ -958,6 +958,9 @@ globalThis.Entropy = {
                     setTileLayout: (layout) => ops.op_ui_set_tile_layout(String(layout)),
                     getTileLayout: () => ops.op_ui_get_tile_layout(),
                     assignTileSlot: (slot, tabId) => ops.op_ui_assign_tile_slot(Number(slot), String(tabId)),
+                    getViewportSize: () => ops.op_ui_get_viewport_size(),
+                    getViewportWidth: () => ops.op_ui_get_viewport_size()[0],
+                    isNarrow: (threshold = 720) => ops.op_ui_get_viewport_size()[0] < threshold,
                     drawRect: (config) => {
                         ops.op_ui_rect_create(metadata.name, {
                             position: config.position || [0, 0],
@@ -1362,6 +1365,9 @@ globalThis.Entropy = {
         setTileLayout: (layout) => ops.op_ui_set_tile_layout(String(layout)),
         getTileLayout: () => ops.op_ui_get_tile_layout(),
         assignTileSlot: (slot, tabId) => ops.op_ui_assign_tile_slot(Number(slot), String(tabId)),
+        getViewportSize: () => ops.op_ui_get_viewport_size(),
+        getViewportWidth: () => ops.op_ui_get_viewport_size()[0],
+        isNarrow: (threshold = 720) => ops.op_ui_get_viewport_size()[0] < threshold,
         // A short status message in the bottom-right corner that never takes keyboard focus.
         // `{ id?, message, kind?: "info"|"success"|"warning"|"error", actionLabel?, onAction?,
         //    onDismiss?, progress?: 0..1 (negative: indeterminate), durationMs? (0 = until
@@ -1431,7 +1437,17 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_color_input(windowId, label, color, id);
-                bindListener('_entropy_event_listeners', id, config?.onChange);
+                if (config?.onChange) {
+                    bindListener('_entropy_event_listeners', id, (payload) => {
+                        if (typeof payload === 'string' && payload.includes(",")) {
+                            config.onChange(payload.split(",").map(v => parseFloat(v)));
+                        } else if (Array.isArray(payload)) {
+                            config.onChange(payload);
+                        } else {
+                            config.onChange(payload);
+                        }
+                    });
+                }
             },
             slider: (windowId, config) => {
                 const label = config?.label || "";
@@ -1499,9 +1515,30 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "minimap", config?.id);
 
                 ops.op_ui_widget_mini_map(windowId, landscapeId, brushSize, markers, polylines, id);
-                bindListener('_entropy_event_listeners', id, config?.onDraw);
-                bindListener('_entropy_hover_listeners', id, config?.onHover);
-                bindListener('_entropy_click_listeners', id, config?.onClick);
+                const parseMapArgs = (payload) => {
+                    if (typeof payload === 'string' && payload.includes(",")) {
+                        return payload.split(",").map(v => parseFloat(v));
+                    }
+                    return [0, 0, brushSize];
+                };
+                if (config?.onDraw) {
+                    bindListener('_entropy_event_listeners', id, (payload) => {
+                        const vals = parseMapArgs(payload);
+                        config.onDraw(vals[0], vals[1], vals[2]);
+                    });
+                }
+                if (config?.onHover) {
+                    bindListener('_entropy_hover_listeners', id, (payload) => {
+                        const vals = parseMapArgs(payload);
+                        config.onHover(vals[0], vals[1], vals[2]);
+                    });
+                }
+                if (config?.onClick) {
+                    bindListener('_entropy_click_listeners', id, (payload) => {
+                        const vals = parseMapArgs(payload);
+                        config.onClick(vals[0], vals[1], vals[2]);
+                    });
+                }
             },
             horizontal: (windowId, render) => {
                 ops.op_ui_widget_start_horizontal(windowId);
@@ -2222,9 +2259,9 @@ globalThis.Entropy = {
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {
-                const parts = event.split("|");
-                id = parts[0];
-                payload = parts[1];
+                const idx = event.indexOf("|");
+                id = event.substring(0, idx);
+                payload = event.substring(idx + 1);
             }
 
             const listener_pool = isHover ? globalThis._entropy_hover_listeners :
@@ -2233,20 +2270,7 @@ globalThis.Entropy = {
 
             if (listener_pool && listener_pool[id]) {
                 if (payload !== null) {
-                    if (isRaw) {
-                        listener_pool[id](payload);
-                    } else if (payload.includes(",")) {
-                        const values = payload.split(",").map(v => parseFloat(v));
-
-                        // For minimap draw/hover events: x, y, brushSize
-                        if (values.length === 3) {
-                             listener_pool[id](values[0], values[1], values[2]);
-                        } else {
-                             listener_pool[id](values);
-                        }
-                    } else {
-                        listener_pool[id](payload);
-                    }
+                    listener_pool[id](payload);
                 } else {
                     listener_pool[id]();
                 }

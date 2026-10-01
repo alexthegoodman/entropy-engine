@@ -208,13 +208,13 @@ impl Ui {
     }
 
     pub fn interact(&self, rect: Rect, id: Id, sense: Sense) -> Response {
-        interact(&self.ctx, rect, id, sense)
+        interact_with_clip(&self.ctx, rect, self.clip_rect, id, sense)
     }
 
     pub fn allocate_response(&mut self, size: Vec2, sense: Sense) -> (Rect, Response) {
         let rect = self.allocate_space(size);
         let id = self.next_auto_id("widget");
-        (rect, interact(&self.ctx, rect, id, sense))
+        (rect, interact_with_clip(&self.ctx, rect, self.clip_rect, id, sense))
     }
 
     pub fn allocate_exact_size(&mut self, size: Vec2, sense: Sense) -> (Rect, Response) {
@@ -270,7 +270,7 @@ impl Ui {
         let used = child.used_rect();
         self.advance_after_child(used);
         let resp_id = self.next_auto_id("child_resp");
-        InnerResponse { inner, response: interact(&self.ctx, used, resp_id, Sense::hover()) }
+        InnerResponse { inner, response: interact_with_clip(&self.ctx, used, self.clip_rect, resp_id, Sense::hover()) }
     }
 
     pub fn horizontal<R>(&mut self, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
@@ -299,7 +299,7 @@ impl Ui {
         self.painter().rect_stroke(used, visuals.widgets.noninteractive.corner_radius, visuals.widgets.noninteractive.bg_stroke, crate::entropy_gui::geometry::StrokeKind::Middle);
         self.advance_after_child(used);
         let resp_id = self.next_auto_id("group_resp");
-        InnerResponse { inner, response: interact(&self.ctx, used, resp_id, Sense::hover()) }
+        InnerResponse { inner, response: interact_with_clip(&self.ctx, used, self.clip_rect, resp_id, Sense::hover()) }
     }
 
     /// Builds a fresh `Ui` rooted at an arbitrary rect, independent of this `Ui`'s cursor —
@@ -350,8 +350,12 @@ impl Ui {
 
 /// Shared hit-testing + drag-state logic for `ui.interact`/`allocate_response`.
 pub(crate) fn interact(ctx: &Context, rect: Rect, id: Id, sense: Sense) -> Response {
+    interact_with_clip(ctx, rect, Rect::everything(), id, sense)
+}
+
+pub(crate) fn interact_with_clip(ctx: &Context, rect: Rect, clip_rect: Rect, id: Id, sense: Sense) -> Response {
     let input = ctx.input(|i| i.clone());
-    let hovered = input.pointer.pos.map_or(false, |p| rect.contains(p));
+    let hovered = input.pointer.pos.map_or(false, |p| rect.contains(p) && clip_rect.contains(p));
     if hovered {
         ctx.mark_pointer_over_ui();
     }
@@ -399,5 +403,53 @@ pub(crate) fn interact(ctx: &Context, rect: Rect, id: Id, sense: Sense) -> Respo
         interact_pointer_pos,
         changed: false,
         focused: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entropy_gui::context::{Context, PointerState, RawInput};
+    use crate::entropy_gui::geometry::{pos2, vec2, Rect};
+    use crate::entropy_gui::id::Id;
+    use crate::entropy_gui::response::Sense;
+
+    #[test]
+    fn test_interact_respects_clip_rect() {
+        let ctx = Context::default();
+        let widget_rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(200.0, 50.0));
+        let clip_rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(100.0, 50.0)); // clipped at x=200
+
+        // Case 1: Pointer at (150, 125) -> inside widget_rect AND inside clip_rect
+        let raw = RawInput {
+            pointer: PointerState {
+                pos: Some(pos2(150.0, 125.0)),
+                primary_down: true,
+                primary_pressed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        ctx.run(raw, |ctx| {
+            let resp = interact_with_clip(ctx, widget_rect, clip_rect, Id::new("test_widget"), Sense::click());
+            assert!(resp.hovered(), "Pointer inside clip_rect should be hovered");
+            assert!(resp.clicked(), "Pointer inside clip_rect should be clicked");
+        });
+
+        // Case 2: Pointer at (250, 125) -> inside widget_rect BUT outside clip_rect (overflowing tile/container)
+        let raw_clipped = RawInput {
+            pointer: PointerState {
+                pos: Some(pos2(250.0, 125.0)),
+                primary_down: true,
+                primary_pressed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        ctx.run(raw_clipped, |ctx| {
+            let resp = interact_with_clip(ctx, widget_rect, clip_rect, Id::new("test_widget"), Sense::click());
+            assert!(!resp.hovered(), "Pointer outside clip_rect must NOT be hovered even if inside widget_rect");
+            assert!(!resp.clicked(), "Pointer outside clip_rect must NOT be clicked");
+        });
     }
 }
