@@ -45,6 +45,11 @@ fn main() {
     assert_eq!(own["wrong"], 1, "{own:#}");
     assert_eq!(own["currentStep"], 4, "{own:#}");
 
+    let guitar = &tools[0]["result"]["guitar"];
+    println!("  guitar settings: {guitar}");
+    assert_eq!(guitar["sensitivity"], 0.75, "{guitar:#}");
+    assert_eq!(guitar["gateOpenDb"], -35.0, "{guitar:#}");
+
     // The chord tab: read as two chords (C, then G), graded in chord mode; the C was played.
     let loaded = &tools[1]["result"];
     println!("  loaded: {loaded}");

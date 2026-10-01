@@ -93,7 +93,7 @@ down: the guitar input only hears the guitar, but you have to hear it too.
 **No guitar?** Click the neck. The note sounds and counts exactly as if the guitar had played it, so a
 lesson can be tried, and the app tested, with a mouse.
 
-**The guitar input** card picks the audio input, starts and stops it, and calibrates the gate against
+**The guitar input** card picks the audio input, starts and stops it, adjusts detection sensitivity and the gate threshold (with sliders akin to the DAW app), and calibrates the gate against
 the room (the same settings as the DAW's Guitar Input panel, see GUITAR_TO_MIDI.md section 3.1).
 
 ## How playing is checked

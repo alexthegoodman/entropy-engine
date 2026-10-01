@@ -226,6 +226,14 @@ function stopGuitar() {
     message = "Guitar input stopped.";
 }
 
+function pushGuitarSettings(patch: Record<string, unknown>) {
+    scheduleSave();
+    if (guitarRunning) {
+        const r = addon.Guitar.set(patch as any);
+        if (!r.ok) message = r.error ?? "Could not change that setting.";
+    }
+}
+
 /** The detector mode the song wants now: the current step's, or in a timed run the step about to
  * come (switching releases what sounds, so it happens just before, not on, the next note). */
 function desiredPolyphony(now: number): "mono" | "poly" {
@@ -684,6 +692,24 @@ function renderPractice(tab: string) {
                 onChange: (v: boolean) => { practice.hearGuitar = v; if (guitarRunning) addon.Guitar.target(v ? guitarOutput() : { trackId: "" }); scheduleSave(); },
             });
         });
+        W.horizontal(card, (row: string) => {
+            W.slider(row, {
+                id: "tabs_guitar_sensitivity", label: "Sensitivity", value: guitarPrefs.sensitivity, min: 0, max: 1,
+                onChange: (v: string) => {
+                    guitarPrefs.sensitivity = parseFloat(v);
+                    pushGuitarSettings({ sensitivity: guitarPrefs.sensitivity });
+                },
+            });
+            W.slider(row, {
+                id: "tabs_guitar_gate", label: "Gate opens at (dBFS)", value: guitarPrefs.gateOpenDb ?? -46, min: -70, max: -20,
+                onChange: (v: string) => {
+                    const open = parseFloat(v);
+                    guitarPrefs.gateOpenDb = open;
+                    guitarPrefs.gateCloseDb = open - 8;
+                    pushGuitarSettings({ gateOpenDb: open, gateCloseDb: open - 8 });
+                },
+            });
+        });
         const heard = diag?.notesSounding?.length ? diag.notesSounding.map(noteName).join(" ") : "nothing";
         const level = diag ? `${Number(diag.levelDb).toFixed(0)} dBFS` : "-";
         W.label(card, {
@@ -755,7 +781,13 @@ addon.onInit(() => {
             success: true, view, title: song.title, bpm: song.bpm, tuning: song.tuning.map(noteName),
             steps: song.steps.map((s, i) => ({ bar: s.bar, beats: s.beats, notes: stepMidi(song, s).map(noteName), playAs: plan[i] })),
             practice: session ? { mode: session.options.mode, currentStep: session.currentStep(now) + 1, finished: session.finished, ...session.stats() } : null,
-            guitar: { running: guitarRunning, polyphony: guitarPolyphony },
+            guitar: {
+                running: guitarRunning,
+                polyphony: guitarPolyphony,
+                sensitivity: guitarPrefs.sensitivity,
+                gateOpenDb: guitarPrefs.gateOpenDb ?? -46,
+                gateCloseDb: guitarPrefs.gateCloseDb ?? -54,
+            },
         };
     });
 });

@@ -25,6 +25,9 @@ Feature: The real Guitar Tabs app reads a tab, shows it for review, and grades p
   Scenario: At your own pace, right notes advance the cursor and a wrong one is counted
     When I click "tabs_to_practice"
     And I advance 3 frames
+    And I set "tabs_guitar_sensitivity" to "0.75"
+    And I set "tabs_guitar_gate" to "-35"
+    And I advance 2 frames
     And I send the widget event "FRETBOARD_PICK|tabs_neck|5|0"
     And I advance 2 frames
     And I send the widget event "FRETBOARD_PICK|tabs_neck|5|0"
