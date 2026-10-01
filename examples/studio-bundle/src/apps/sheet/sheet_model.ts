@@ -11,6 +11,27 @@ export interface CellAddr {
     col: number;
 }
 
+export interface SheetRange {
+    start: CellAddr;
+    end: CellAddr;
+}
+
+export interface ClipboardCell {
+    dRow: number;
+    dCol: number;
+    raw: string;
+    border?: [number, number, number, number];
+    source: CellAddr;
+}
+
+export interface SheetClipboard {
+    rows: number;
+    cols: number;
+    cells: ClipboardCell[];
+    isCut?: boolean;
+    sourceRange?: SheetRange;
+}
+
 export interface SheetCellData {
     /** "" for empty, a plain number/text literal, or a formula starting with "=". */
     raw: string;
@@ -336,13 +357,7 @@ class Parser {
     }
 
     private expandRange(a: CellAddr, b: CellAddr): number[] {
-        const out: number[] = [];
-        const r0 = Math.min(a.row, b.row);
-        const r1 = Math.max(a.row, b.row);
-        const c0 = Math.min(a.col, b.col);
-        const c1 = Math.max(a.col, b.col);
-        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push(this.getCell({ row: r, col: c }));
-        return out;
+        return expandRange(a, b).map((c) => this.getCell(c));
     }
 
     private applyFn(name: string, values: number[]): number {
@@ -573,6 +588,186 @@ export function adjustFormulaForPaste(raw: string, src: CellAddr, dst: CellAddr)
             return { start: newStart, end: newEnd };
         }
     });
+}
+
+/** 0-based range -> A1-notation range ("A1", "A1:B3"). */
+export function rangeA1(start: CellAddr, end: CellAddr): string {
+    const minRow = Math.min(start.row, end.row);
+    const maxRow = Math.max(start.row, end.row);
+    const minCol = Math.min(start.col, end.col);
+    const maxCol = Math.max(start.col, end.col);
+    if (minRow === maxRow && minCol === maxCol) {
+        return a1(minRow, minCol);
+    }
+    return `${a1(minRow, minCol)}:${a1(maxRow, maxCol)}`;
+}
+
+/** Returns all cell addresses within the bounding rectangle of `a` and `b` in row-major order. */
+export function expandRange(a: CellAddr, b: CellAddr): CellAddr[] {
+    const out: CellAddr[] = [];
+    const r0 = Math.min(a.row, b.row);
+    const r1 = Math.max(a.row, b.row);
+    const c0 = Math.min(a.col, b.col);
+    const c1 = Math.max(a.col, b.col);
+    for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+            out.push({ row: r, col: c });
+        }
+    }
+    return out;
+}
+
+/** Copies a cell range into a clipboard representation. */
+export function copyRange(doc: SheetDoc, range: SheetRange, isCut = false): SheetClipboard {
+    const minRow = Math.min(range.start.row, range.end.row);
+    const maxRow = Math.max(range.start.row, range.end.row);
+    const minCol = Math.min(range.start.col, range.end.col);
+    const maxCol = Math.max(range.start.col, range.end.col);
+    const rows = maxRow - minRow + 1;
+    const cols = maxCol - minCol + 1;
+    const cells: ClipboardCell[] = [];
+
+    for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+            const data = doc.cells[cellKey(r, c)];
+            cells.push({
+                dRow: r - minRow,
+                dCol: c - minCol,
+                raw: data?.raw ?? "",
+                border: data?.border,
+                source: { row: r, col: c },
+            });
+        }
+    }
+
+    return {
+        rows,
+        cols,
+        cells,
+        isCut,
+        sourceRange: { start: { ...range.start }, end: { ...range.end } },
+    };
+}
+
+/** Clears content (raw text) of all cells in `range`. If `clearBorders` is true, borders are also removed. */
+export function clearRange(doc: SheetDoc, range: SheetRange, clearBorders = false): SheetDoc {
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+    for (const addr of expandRange(range.start, range.end)) {
+        const key = cellKey(addr.row, addr.col);
+        const existing = cells[key];
+        if (existing) {
+            if (clearBorders || !existing.border) {
+                delete cells[key];
+            } else {
+                cells[key] = { raw: "", border: existing.border };
+            }
+        }
+    }
+    return { ...doc, cells };
+}
+
+/** Sets or clears borders across all cells in `range`. */
+export function setRangeBorder(doc: SheetDoc, range: SheetRange, border?: [number, number, number, number]): SheetDoc {
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+    for (const addr of expandRange(range.start, range.end)) {
+        const key = cellKey(addr.row, addr.col);
+        const existing = cells[key];
+        if (!border && (!existing || existing.raw.trim() === "")) {
+            delete cells[key];
+        } else {
+            cells[key] = { raw: existing?.raw ?? "", border };
+        }
+    }
+    return { ...doc, cells };
+}
+
+/** Pastes clipboard data into the document at destination `dst`.
+ * - If clipboard has 1 cell and destination is a multi-cell range: fills the entire destination range.
+ * - Otherwise: pastes clipboard cells offset from destination's top-left corner.
+ * - When `!clipboard.isCut`, formulas are adjusted relative to their movement.
+ */
+export function pasteRange(doc: SheetDoc, clipboard: SheetClipboard, dst: SheetRange): SheetDoc {
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+    const dstMinRow = Math.min(dst.start.row, dst.end.row);
+    const dstMaxRow = Math.max(dst.start.row, dst.end.row);
+    const dstMinCol = Math.min(dst.start.col, dst.end.col);
+    const dstMaxCol = Math.max(dst.start.col, dst.end.col);
+
+    const isDstRange = dstMinRow !== dstMaxRow || dstMinCol !== dstMaxCol;
+
+    if (clipboard.rows === 1 && clipboard.cols === 1 && isDstRange) {
+        // Single cell copied, pasting into a multi-cell range -> fill all destination cells
+        const srcCell = clipboard.cells[0];
+        for (let r = dstMinRow; r <= dstMaxRow; r++) {
+            for (let c = dstMinCol; c <= dstMaxCol; c++) {
+                if (r >= doc.rows || c >= doc.cols) continue;
+                const targetAddr: CellAddr = { row: r, col: c };
+                const raw = (!clipboard.isCut && srcCell.source)
+                    ? adjustFormulaForPaste(srcCell.raw, srcCell.source, targetAddr)
+                    : srcCell.raw;
+                const key = cellKey(r, c);
+                if (raw.trim() === "" && !srcCell.border) {
+                    delete cells[key];
+                } else {
+                    cells[key] = { raw, border: srcCell.border };
+                }
+            }
+        }
+    } else {
+        // Multi-cell clipboard (or 1x1 into 1x1): paste starting from top-left of destination
+        for (const item of clipboard.cells) {
+            const targetRow = dstMinRow + item.dRow;
+            const targetCol = dstMinCol + item.dCol;
+            if (targetRow >= doc.rows || targetCol >= doc.cols) continue;
+
+            const targetAddr: CellAddr = { row: targetRow, col: targetCol };
+            const raw = (!clipboard.isCut && item.source)
+                ? adjustFormulaForPaste(item.raw, item.source, targetAddr)
+                : item.raw;
+            const key = cellKey(targetRow, targetCol);
+            if (raw.trim() === "" && !item.border) {
+                delete cells[key];
+            } else {
+                cells[key] = { raw, border: item.border };
+            }
+        }
+    }
+
+    return { ...doc, cells };
+}
+
+/** Standard spreadsheet Fill-Down (Ctrl+D): takes the top row of `range` and fills downward
+ * across each column, adjusting formula references row by row. */
+export function fillDown(doc: SheetDoc, range: SheetRange): SheetDoc {
+    const minRow = Math.min(range.start.row, range.end.row);
+    const maxRow = Math.max(range.start.row, range.end.row);
+    const minCol = Math.min(range.start.col, range.end.col);
+    const maxCol = Math.max(range.start.col, range.end.col);
+
+    if (minRow === maxRow) return doc; // Only one row selected, nothing to fill down
+
+    const cells: Record<string, SheetCellData> = { ...doc.cells };
+
+    for (let c = minCol; c <= maxCol; c++) {
+        const srcAddr: CellAddr = { row: minRow, col: c };
+        const srcKey = cellKey(minRow, c);
+        const srcData = doc.cells[srcKey];
+        const srcRaw = srcData?.raw ?? "";
+        const srcBorder = srcData?.border;
+
+        for (let r = minRow + 1; r <= maxRow; r++) {
+            const targetAddr: CellAddr = { row: r, col: c };
+            const raw = adjustFormulaForPaste(srcRaw, srcAddr, targetAddr);
+            const targetKey = cellKey(r, c);
+            if (raw.trim() === "" && !srcBorder) {
+                delete cells[targetKey];
+            } else {
+                cells[targetKey] = { raw, border: srcBorder };
+            }
+        }
+    }
+
+    return { ...doc, cells };
 }
 
 // ------------------------------------------------------------------------------------------

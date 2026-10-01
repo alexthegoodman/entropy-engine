@@ -11,7 +11,7 @@ use entropy_engine::entropy_gui::color::Color32;
 use entropy_engine::entropy_gui::context::{Key, KeyEvent, Modifiers, PointerState};
 use entropy_engine::entropy_gui::draw_list::{DrawCommand, DrawTexture};
 use entropy_engine::entropy_gui::geometry::{pos2, vec2, Pos2, Rect};
-use entropy_engine::entropy_gui::{CentralPanel, Context, RawInput, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions};
+use entropy_engine::entropy_gui::{CentralPanel, Context, RawInput, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions, SheetRange};
 use image::RgbaImage;
 
 const SS: usize = 2;
@@ -34,12 +34,13 @@ impl Harness {
         Self { ctx: Context::default(), atlas: vec![[0; 4]; ATLAS * ATLAS], width, height, time_step: 1.0 / 60.0 }
     }
 
-    fn run_with_text(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, text_input: String, add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui)) -> Vec<DrawCommand> {
+    fn run_with_text(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, modifiers: Modifiers, text_input: String, add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui)) -> Vec<DrawCommand> {
         let raw = RawInput {
             screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(self.width as f32, self.height as f32)),
             pixels_per_point: 1.0,
             pointer,
             key_events: keys,
+            modifiers,
             text_input,
             dt: self.time_step,
             ..Default::default()
@@ -158,6 +159,7 @@ struct SheetWorld {
     cells: Vec<SheetCell>,
     opts: SheetGridOptions,
     selected: Option<(u32, u32)>,
+    range: Option<SheetRange>,
     /// (row, col, draft text) - mirrors what a real addon holds while an edit is in progress.
     editing: Option<(u32, u32, String)>,
     origin: Pos2,
@@ -168,7 +170,7 @@ struct SheetWorld {
 
 impl std::fmt::Debug for SheetWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SheetWorld(selected={:?}, editing={:?})", self.selected, self.editing)
+        write!(f, "SheetWorld(selected={:?}, range={:?}, editing={:?})", self.selected, self.range, self.editing)
     }
 }
 
@@ -179,6 +181,7 @@ impl Default for SheetWorld {
             cells: Vec::new(),
             opts: SheetGridOptions { rows: 5, cols: 4, col_width: 90.0, row_height: 22.0, max_height: None },
             selected: None,
+            range: None,
             editing: None,
             origin: pos2(0.0, 0.0),
             events: Vec::new(),
@@ -191,7 +194,9 @@ impl Default for SheetWorld {
 fn sheet_event(e: SheetEvent) -> String {
     match e {
         SheetEvent::CellSelected { row, col } => format!("CellSelected({row},{col})"),
+        SheetEvent::RangeSelected { start_row, start_col, end_row, end_col } => format!("RangeSelected({start_row},{start_col},{end_row},{end_col})"),
         SheetEvent::CellClearRequested { row, col } => format!("CellClearRequested({row},{col})"),
+        SheetEvent::RangeClearRequested { start_row, start_col, end_row, end_col } => format!("RangeClearRequested({start_row},{start_col},{end_row},{end_col})"),
         SheetEvent::CellEditStarted { row, col, initial } => format!("CellEditStarted({row},{col},{initial})"),
         SheetEvent::CellEditChanged { row, col, text } => format!("CellEditChanged({row},{col},{text})"),
         SheetEvent::CellEditCommitted { row, col } => format!("CellEditCommitted({row},{col})"),
@@ -205,15 +210,26 @@ fn sheet_event(e: SheetEvent) -> String {
 
 impl SheetWorld {
     fn frame(&mut self, pointer: PointerState, keys: Vec<KeyEvent>) {
-        self.frame_with_text(pointer, keys, String::new())
+        self.frame_with_mods(pointer, keys, Modifiers::default(), String::new())
     }
 
     fn frame_with_text(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, text_input: String) {
-        let (cells, opts, selected, editing) = (self.cells.clone(), self.opts, self.selected, self.editing.clone());
+        self.frame_with_mods(pointer, keys, Modifiers::default(), text_input)
+    }
+
+    fn frame_with_mods(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, modifiers: Modifiers, text_input: String) {
+        let (cells, opts, selected, range, editing) = (self.cells.clone(), self.opts, self.selected, self.range, self.editing.clone());
         let mut out = None;
-        self.pending = self.h.run_with_text(pointer, keys, text_input, |ui| {
+        let mut active_mods = modifiers;
+        for k in &keys {
+            active_mods.shift |= k.modifiers.shift;
+            active_mods.ctrl |= k.modifiers.ctrl;
+            active_mods.alt |= k.modifiers.alt;
+            active_mods.command |= k.modifiers.command;
+        }
+        self.pending = self.h.run_with_text(pointer, keys, active_mods, text_input, |ui| {
             let edit_arg = editing.as_ref().map(|(row, col, value)| SheetEdit { row: *row, col: *col, value: value.as_str() });
-            let r = SheetGrid::new("grid").options(opts).show(ui, &cells, selected, edit_arg);
+            let r = SheetGrid::new("grid").options(opts).selected_range(range).show(ui, &cells, selected, edit_arg);
             out = Some((r.events, r.origin));
         });
         let (ev, origin) = out.unwrap();
@@ -222,7 +238,14 @@ impl SheetWorld {
         // the way it would through an addon's own callbacks.
         for e in &ev {
             match e {
-                SheetEvent::CellSelected { row, col } => self.selected = Some((*row, *col)),
+                SheetEvent::CellSelected { row, col } => {
+                    self.selected = Some((*row, *col));
+                    self.range = None;
+                }
+                SheetEvent::RangeSelected { start_row, start_col, end_row, end_col } => {
+                    self.selected = Some((*start_row, *start_col));
+                    self.range = Some(SheetRange::new(*start_row, *start_col, *end_row, *end_col));
+                }
                 SheetEvent::CellEditStarted { row, col, initial } => {
                     let base = if initial.is_empty() { self.cells.iter().find(|c| c.row == *row && c.col == *col).map(|c| c.text.clone()).unwrap_or_default() } else { initial.clone() };
                     self.editing = Some((*row, *col, base));
@@ -253,8 +276,41 @@ impl SheetWorld {
         self.events = pressed_events;
     }
 
+    fn shift_click(&mut self, p: Pos2) {
+        self.hover(p);
+        let shift_mods = Modifiers { shift: true, ..Default::default() };
+        let press = PointerState { pos: Some(p), primary_pressed: true, primary_down: true, ..Default::default() };
+        self.frame_with_mods(press, Vec::new(), shift_mods, String::new());
+        let pressed_events = std::mem::take(&mut self.events);
+        let release = PointerState { pos: Some(p), primary_released: true, ..Default::default() };
+        self.frame_with_mods(release, Vec::new(), shift_mods, String::new());
+        self.events = pressed_events;
+    }
+
+    fn drag(&mut self, from: Pos2, to: Pos2) {
+        self.hover(from);
+        let press = PointerState { pos: Some(from), primary_pressed: true, primary_down: true, ..Default::default() };
+        self.frame(press, Vec::new());
+        let move_to = PointerState { pos: Some(to), primary_down: true, ..Default::default() };
+        self.frame(move_to, Vec::new());
+        let move_events = std::mem::take(&mut self.events);
+        let release = PointerState { pos: Some(to), primary_released: true, ..Default::default() };
+        self.frame(release, Vec::new());
+        self.events = move_events;
+    }
+
     fn press_key(&mut self, key: Key) {
         self.frame(PointerState::default(), vec![KeyEvent { key, pressed: true, modifiers: Modifiers::default() }]);
+    }
+
+    fn press_key_with_shift(&mut self, key: Key) {
+        let shift_mods = Modifiers { shift: true, ..Default::default() };
+        self.frame_with_mods(
+            PointerState::default(),
+            vec![KeyEvent { key, pressed: true, modifiers: shift_mods }],
+            shift_mods,
+            String::new(),
+        );
     }
 
     /// One frame with `ch` as this frame's committed text input - the same thing a keystroke
@@ -361,6 +417,13 @@ fn cell_border(world: &mut SheetWorld, row: u32, col: u32) {
 #[given(expr = "cell {int},{int} is selected")]
 fn select_given(world: &mut SheetWorld, row: u32, col: u32) {
     world.selected = Some((row, col));
+    world.range = None;
+}
+
+#[given(expr = "cells from {int},{int} to {int},{int} are selected")]
+fn range_given(world: &mut SheetWorld, r1: u32, c1: u32, r2: u32, c2: u32) {
+    world.selected = Some((r1, c1));
+    world.range = Some(SheetRange::new(r1, c1, r2, c2));
 }
 
 #[when("a frame is drawn")]
@@ -373,6 +436,21 @@ fn click_cell(world: &mut SheetWorld, row: u32, col: u32) {
     world.ensure_frame();
     let c = world.cell_rect(row, col).center();
     world.click(c);
+}
+
+#[when(expr = "I shift-click cell {int},{int}")]
+fn shift_click_cell(world: &mut SheetWorld, row: u32, col: u32) {
+    world.ensure_frame();
+    let c = world.cell_rect(row, col).center();
+    world.shift_click(c);
+}
+
+#[when(expr = "I drag from cell {int},{int} to cell {int},{int}")]
+fn drag_cells(world: &mut SheetWorld, r1: u32, c1: u32, r2: u32, c2: u32) {
+    world.ensure_frame();
+    let p1 = world.cell_rect(r1, c1).center();
+    let p2 = world.cell_rect(r2, c2).center();
+    world.drag(p1, p2);
 }
 
 #[when(expr = "I double-click cell {int},{int}")]
@@ -402,6 +480,18 @@ fn press(world: &mut SheetWorld, key: String) {
         other => panic!("unknown key {other}"),
     };
     world.press_key(k);
+}
+
+#[when(expr = "I press Shift+{string}")]
+fn press_shift(world: &mut SheetWorld, key: String) {
+    let k = match key.as_str() {
+        "ArrowLeft" => Key::ArrowLeft,
+        "ArrowRight" => Key::ArrowRight,
+        "ArrowUp" => Key::ArrowUp,
+        "ArrowDown" => Key::ArrowDown,
+        other => panic!("unknown shift key {other}"),
+    };
+    world.press_key_with_shift(k);
 }
 
 #[when(expr = "I right-click the row header for row {int} and choose {string}")]
@@ -498,6 +588,45 @@ fn assert_red_border(world: &mut SheetWorld, row: u32, col: u32) {
     }
     println!("    reddest pixel in cell {row},{col}'s row: x={} redness={}", best.1, best.0);
     assert!(best.0 > 60, "no red border pixel found in cell {row},{col} (best redness {})", best.0);
+}
+
+#[then(expr = "the selection range perimeter is white for rows {int} to {int} and columns {int} to {int}")]
+fn range_perimeter_white(world: &mut SheetWorld, r1: u32, r2: u32, c1: u32, c2: u32) {
+    use entropy_engine::entropy_gui::widgets_sheet::ROW_HEADER_W;
+    let min_r = r1.min(r2);
+    let max_r = r1.max(r2);
+    let min_c = c1.min(c2);
+    let max_c = c1.max(c2);
+    let img = world.picture();
+    let top_y = world.origin.y + min_r as f32 * world.opts.row_height;
+    let bottom_y = world.origin.y + (max_r + 1) as f32 * world.opts.row_height;
+    let left_x = world.origin.x + ROW_HEADER_W + min_c as f32 * world.opts.col_width;
+    let right_x = world.origin.x + ROW_HEADER_W + (max_c + 1) as f32 * world.opts.col_width;
+
+    let mid_x = (left_x + right_x) / 2.0;
+    let has_top = (-1..=1).any(|dy| {
+        let p = px(&img, mid_x, top_y + dy as f32);
+        p[0] > 150 && p[1] > 150 && p[2] > 150
+    });
+    assert!(has_top, "no white top perimeter line for range");
+
+    let has_bottom = (-1..=1).any(|dy| {
+        let p = px(&img, mid_x, bottom_y + dy as f32);
+        p[0] > 150 && p[1] > 150 && p[2] > 150
+    });
+    assert!(has_bottom, "no white bottom perimeter line for range");
+}
+
+#[then(expr = "inner boundary between cell {int},{int} and {int},{int} has no white line")]
+fn inner_boundary_no_white(world: &mut SheetWorld, r1: u32, c1: u32, _r2: u32, _c2: u32) {
+    let img = world.picture();
+    let r = world.cell_rect(r1, c1);
+    let mid_x = r.center().x;
+    let has_white = (-1..=1).any(|dy| {
+        let p = px(&img, mid_x, r.max.y + dy as f32);
+        p[0] > 150 && p[1] > 150 && p[2] > 150
+    });
+    assert!(!has_white, "unexpected white line at inner boundary between cells");
 }
 
 #[then(expr = "I save the picture {string}")]

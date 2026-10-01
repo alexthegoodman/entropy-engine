@@ -1855,7 +1855,8 @@ export interface SheetGridOptions {
 export interface SheetGridConfig {
   id?: string;
   cells?: SheetCellConfig[];
-  selected?: { row: number; col: number };
+  selected?: { row: number; col: number; endRow?: number; endCol?: number };
+  range?: { startRow: number; startCol: number; endRow: number; endCol: number };
   /** The cell currently being edited and its live draft text - see `onEditStarted`/
    * `onEditChanged` below. Pass the same cell your own formula bar is targeting if the user is
    * typing there instead of in the grid directly, so Enter/Tab/Escape and click-away-commits
@@ -1865,8 +1866,10 @@ export interface SheetGridConfig {
   /** Fired on a cell click, or on arrow-key/Tab/Enter navigation while a cell is already
    * selected. Use it both for selection and to re-target your own formula bar. */
   onCellSelected?: (row: number, col: number) => void;
+  onRangeSelected?: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
   /** Fired on Delete/Backspace while a cell is selected and not being edited - clear its content. */
   onCellClear?: (row: number, col: number) => void;
+  onRangeClear?: (startRow: number, startCol: number, endRow: number, endCol: number) => void;
   /** A double-click, or typing while a cell is selected and no other field has focus, asks to
    * start an edit session. `initial` is "" for a double-click (edit the existing content - load
    * it into `editing.value` yourself) or the just-typed character(s) for type-to-replace. */

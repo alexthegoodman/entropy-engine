@@ -14,13 +14,29 @@
 // Everything else (the cell store, formula parsing/evaluation, row/column insert/delete) lives
 // in sheet_model.ts so it can be unit-tested with no window at all.
 
-import type { CellAddr, SheetDoc } from "./sheet_model";
-import { a1, adjustFormulaForPaste, cellKey, defaultSheet, deleteColumn, deleteRow, evaluateSheet, insertColumn, insertRow } from "./sheet_model";
+import type { CellAddr, SheetClipboard, SheetDoc, SheetRange } from "./sheet_model";
+import {
+    a1,
+    adjustFormulaForPaste,
+    cellKey,
+    clearRange,
+    copyRange,
+    defaultSheet,
+    deleteColumn,
+    deleteRow,
+    evaluateSheet,
+    fillDown,
+    insertColumn,
+    insertRow,
+    pasteRange,
+    rangeA1,
+    setRangeBorder,
+} from "./sheet_model";
 
 const addonInfo = {
     name: "sheet",
-    version: "1.1.0",
-    description: "A spreadsheet grid with formulas, inline editing, copy/cut/paste, undo/redo, and row/column insert-delete - the second pass of Alex's live-3D-chart spreadsheet idea.",
+    version: "1.2.0",
+    description: "A spreadsheet grid with formulas, inline editing, multi-cell range selection, copy/cut/paste, fill-down, undo/redo, and row/column insert-delete - the second pass of Alex's live-3D-chart spreadsheet idea.",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true },
 };
@@ -33,13 +49,25 @@ const GRID_MAX_HEIGHT = 560;
 const UNDO_LIMIT = 100;
 
 let doc: SheetDoc = defaultSheet(DEFAULT_ROWS, DEFAULT_COLS);
-let selected: CellAddr = { row: 0, col: 0 };
+let selected: { row: number; col: number; endRow?: number; endCol?: number } = { row: 0, col: 0 };
 /** The cell currently being edited and its live draft text - shared between the formula bar and
  * SheetGrid's own inline box, however the edit started. `null` means nothing is being edited. */
 let editing: { row: number; col: number; value: string } | null = null;
-let clipboard: { raw: string; border?: [number, number, number, number]; source?: CellAddr; isCut?: boolean } | null = null;
+let clipboard: SheetClipboard | null = null;
 let undoStack: SheetDoc[] = [];
 let redoStack: SheetDoc[] = [];
+
+function currentRange(): SheetRange {
+    return {
+        start: { row: selected.row, col: selected.col },
+        end: { row: selected.endRow ?? selected.row, col: selected.endCol ?? selected.col },
+    };
+}
+
+function isMultiCellRange(): boolean {
+    return selected.endRow !== undefined && selected.endCol !== undefined &&
+        (selected.row !== selected.endRow || selected.col !== selected.endCol);
+}
 
 function loadSheet() {
     const loaded = addon.IO.load() as SheetDoc | null;
@@ -75,7 +103,12 @@ function mutateBorder(addr: CellAddr, border: [number, number, number, number] |
 }
 
 function clampSelection() {
-    selected = { row: Math.min(selected.row, doc.rows - 1), col: Math.min(selected.col, doc.cols - 1) };
+    selected = {
+        row: Math.min(selected.row, doc.rows - 1),
+        col: Math.min(selected.col, doc.cols - 1),
+        endRow: selected.endRow !== undefined ? Math.min(selected.endRow, doc.rows - 1) : undefined,
+        endCol: selected.endCol !== undefined ? Math.min(selected.endCol, doc.cols - 1) : undefined,
+    };
 }
 
 /** Snapshots the document for undo, runs `action`, then saves - the one path every mutation
@@ -125,32 +158,24 @@ function setupUI() {
     Entropy.Input.onKeyDown((key, ctrl) => {
         if (!ctrl || editing) return;
         const k = key.toLowerCase();
-        const cellKeyStr = cellKey(selected.row, selected.col);
+        const rng = currentRange();
         if (k === "c") {
-            const existing = doc.cells[cellKeyStr];
-            clipboard = existing
-                ? { raw: existing.raw, border: existing.border, source: { ...selected }, isCut: false }
-                : { raw: "", source: { ...selected }, isCut: false };
+            clipboard = copyRange(doc, rng, false);
         } else if (k === "x") {
-            const existing = doc.cells[cellKeyStr];
-            clipboard = existing
-                ? { raw: existing.raw, border: existing.border, source: { ...selected }, isCut: true }
-                : { raw: "", source: { ...selected }, isCut: true };
+            clipboard = copyRange(doc, rng, true);
             commit(() => {
-                mutateRaw(selected, "");
-                mutateBorder(selected, undefined);
+                doc = clearRange(doc, rng);
             });
         } else if (k === "v") {
             if (clipboard) {
-                const paste = clipboard;
                 commit(() => {
-                    const raw = (!paste.isCut && paste.source)
-                        ? adjustFormulaForPaste(paste.raw, paste.source, selected)
-                        : paste.raw;
-                    mutateRaw(selected, raw);
-                    mutateBorder(selected, paste.border);
+                    doc = pasteRange(doc, clipboard!, rng);
                 });
             }
+        } else if (k === "d") {
+            commit(() => {
+                doc = fillDown(doc, rng);
+            });
         } else if (k === "z") {
             undo();
         } else if (k === "y") {
@@ -162,7 +187,7 @@ function setupUI() {
 function renderUI(win: string) {
     Entropy.UI.Widget.label(win, { text: "Sheet", bold: true });
     Entropy.UI.Widget.label(win, {
-        text: "Click a cell and type, or double-click to edit in place. Right-click a row/column header to insert or delete. Ctrl+C/X/V copies, Ctrl+Z/Y undoes/redoes.",
+        text: "Click a cell and type, or double-click to edit in place. Shift-click/drag to select ranges. Ctrl+C/X/V copies/pastes, Ctrl+D fills down, Ctrl+Z/Y undoes/redoes.",
     });
     Entropy.UI.Widget.separator(win);
 
@@ -171,9 +196,13 @@ function renderUI(win: string) {
     // sync (see onChange below and onEditChanged further down).
     const isEditingSelected = editing !== null && editing.row === selected.row && editing.col === selected.col;
     const formulaValue = isEditingSelected ? editing!.value : getRaw(selected);
+    const rng = currentRange();
+    const rangeLabel = (rng.start.row === rng.end.row && rng.start.col === rng.end.col)
+        ? `${a1(rng.start.row, rng.start.col)}:`
+        : `${rangeA1(rng.start, rng.end)}:`;
     Entropy.UI.Widget.textInput(win, {
         id: "formula_bar",
-        label: `${a1(selected.row, selected.col)}:`,
+        label: rangeLabel,
         value: formulaValue,
         onChange: (v) => {
             editing = { row: selected.row, col: selected.col, value: v };
@@ -190,20 +219,34 @@ function renderUI(win: string) {
             color: currentBorder,
             onChange: (c) => {
                 const a = c[3] ?? 1;
-                commit(() => mutateBorder(selected, a > 0.01 ? [c[0], c[1], c[2], a] : undefined));
+                const borderVal: [number, number, number, number] | undefined = a > 0.01 ? [c[0], c[1], c[2], a] : undefined;
+                commit(() => {
+                    doc = setRangeBorder(doc, currentRange(), borderVal);
+                });
             },
         });
         Entropy.UI.Widget.button(row, {
             id: "clear_border",
             text: "Clear border",
-            onClick: () => commit(() => mutateBorder(selected, undefined)),
+            onClick: () => commit(() => {
+                doc = setRangeBorder(doc, currentRange(), undefined);
+            }),
+        });
+        Entropy.UI.Widget.button(row, {
+            id: "fill_down",
+            text: "Fill down",
+            onClick: () => commit(() => {
+                doc = fillDown(doc, currentRange());
+            }),
         });
         Entropy.UI.Widget.button(row, {
             id: "clear_cell",
-            text: "Clear cell",
+            text: isMultiCellRange() ? "Clear range" : "Clear cell",
             onClick: () => {
                 if (isEditingSelected) editing = null;
-                commit(() => mutateRaw(selected, ""));
+                commit(() => {
+                    doc = clearRange(doc, currentRange());
+                });
             },
         });
         Entropy.UI.Widget.button(row, { id: "undo_btn", text: "Undo", onClick: () => undo() });
@@ -231,15 +274,32 @@ function renderUI(win: string) {
     Entropy.UI.Widget.sheetGrid(win, {
         id: "sheet_grid",
         cells,
-        selected: { row: selected.row, col: selected.col },
+        selected: {
+            row: selected.row,
+            col: selected.col,
+            endRow: selected.endRow,
+            endCol: selected.endCol,
+        },
         editing: editing ? { row: editing.row, col: editing.col, value: editing.value } : undefined,
         options: { rows: doc.rows, cols: doc.cols, maxHeight: GRID_MAX_HEIGHT },
         onCellSelected: (row, col) => {
             selected = { row, col };
         },
+        onRangeSelected: (startRow, startCol, endRow, endCol) => {
+            selected = { row: startRow, col: startCol, endRow, endCol };
+        },
         onCellClear: (row, col) => {
             if (editing && editing.row === row && editing.col === col) editing = null;
             commit(() => mutateRaw({ row, col }, ""));
+        },
+        onRangeClear: (startRow, startCol, endRow, endCol) => {
+            if (editing) editing = null;
+            commit(() => {
+                doc = clearRange(doc, {
+                    start: { row: startRow, col: startCol },
+                    end: { row: endRow, col: endCol },
+                });
+            });
         },
         onEditStarted: (row, col, initial) => {
             const value = initial.length > 0 ? initial : getRaw({ row, col });
@@ -261,22 +321,30 @@ function renderUI(win: string) {
         onInsertRow: (row) =>
             commit(() => {
                 doc = insertRow(doc, row);
-                if (selected.row >= row) selected = { ...selected, row: selected.row + 1 };
+                if (selected.row >= row) selected.row += 1;
+                if (selected.endRow !== undefined && selected.endRow >= row) selected.endRow += 1;
             }),
         onDeleteRow: (row) =>
             commit(() => {
                 doc = deleteRow(doc, row);
-                if (selected.row > row || selected.row >= doc.rows) selected = { ...selected, row: Math.max(0, selected.row - 1) };
+                if (selected.row > row || selected.row >= doc.rows) selected.row = Math.max(0, selected.row - 1);
+                if (selected.endRow !== undefined && (selected.endRow > row || selected.endRow >= doc.rows)) {
+                    selected.endRow = Math.max(0, selected.endRow - 1);
+                }
             }),
         onInsertColumn: (col) =>
             commit(() => {
                 doc = insertColumn(doc, col);
-                if (selected.col >= col) selected = { ...selected, col: selected.col + 1 };
+                if (selected.col >= col) selected.col += 1;
+                if (selected.endCol !== undefined && selected.endCol >= col) selected.endCol += 1;
             }),
         onDeleteColumn: (col) =>
             commit(() => {
                 doc = deleteColumn(doc, col);
-                if (selected.col > col || selected.col >= doc.cols) selected = { ...selected, col: Math.max(0, selected.col - 1) };
+                if (selected.col > col || selected.col >= doc.cols) selected.col = Math.max(0, selected.col - 1);
+                if (selected.endCol !== undefined && (selected.endCol > col || selected.endCol >= doc.cols)) {
+                    selected.endCol = Math.max(0, selected.endCol - 1);
+                }
             }),
     });
 }

@@ -120,13 +120,61 @@ pub struct SheetEdit<'a> {
     pub value: &'a str,
 }
 
-#[derive(Clone, Debug)]
+/// A rectangular range of cells in a `SheetGrid`. `start_row`/`start_col` represents the anchor cell
+/// where selection started, and `end_row`/`end_col` represents the head (cursor) cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SheetRange {
+    pub start_row: u32,
+    pub start_col: u32,
+    pub end_row: u32,
+    pub end_col: u32,
+}
+
+impl SheetRange {
+    pub fn new(start_row: u32, start_col: u32, end_row: u32, end_col: u32) -> Self {
+        Self { start_row, start_col, end_row, end_col }
+    }
+
+    pub fn single_cell(row: u32, col: u32) -> Self {
+        Self { start_row: row, start_col: col, end_row: row, end_col: col }
+    }
+
+    pub fn min_row(&self) -> u32 {
+        self.start_row.min(self.end_row)
+    }
+
+    pub fn max_row(&self) -> u32 {
+        self.start_row.max(self.end_row)
+    }
+
+    pub fn min_col(&self) -> u32 {
+        self.start_col.min(self.end_col)
+    }
+
+    pub fn max_col(&self) -> u32 {
+        self.start_col.max(self.end_col)
+    }
+
+    pub fn contains(&self, row: u32, col: u32) -> bool {
+        row >= self.min_row() && row <= self.max_row() && col >= self.min_col() && col <= self.max_col()
+    }
+
+    pub fn is_single_cell(&self) -> bool {
+        self.start_row == self.end_row && self.start_col == self.end_col
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SheetEvent {
     /// A cell was clicked, or navigated to with the arrow keys/Tab/Enter while another cell was
     /// already selected. Use it both for selection and for advancing a formula bar's target.
     CellSelected { row: u32, col: u32 },
+    /// A multi-cell range was selected via Shift+click, drag-select, or Shift+arrow navigation.
+    RangeSelected { start_row: u32, start_col: u32, end_row: u32, end_col: u32 },
     /// Delete/Backspace pressed with a cell selected (and not being edited) - clear its content.
     CellClearRequested { row: u32, col: u32 },
+    /// Delete/Backspace pressed with a multi-cell range selected (and not being edited) - clear all cells in the range.
+    RangeClearRequested { start_row: u32, start_col: u32, end_row: u32, end_col: u32 },
     /// Start an edit session - see the module doc's "Editing" section.
     CellEditStarted { row: u32, col: u32, initial: String },
     CellEditChanged { row: u32, col: u32, text: String },
@@ -152,15 +200,26 @@ pub struct SheetResponse {
 pub struct SheetGrid {
     id: Id,
     options: SheetGridOptions,
+    range: Option<SheetRange>,
 }
 
 impl SheetGrid {
     pub fn new(id_salt: impl std::hash::Hash) -> Self {
-        Self { id: Id::new("sheet_grid").with(id_salt), options: SheetGridOptions::default() }
+        Self { id: Id::new("sheet_grid").with(id_salt), options: SheetGridOptions::default(), range: None }
     }
 
     pub fn options(mut self, options: SheetGridOptions) -> Self {
         self.options = options;
+        self
+    }
+
+    pub fn range(mut self, range: SheetRange) -> Self {
+        self.range = Some(range);
+        self
+    }
+
+    pub fn selected_range(mut self, range: Option<SheetRange>) -> Self {
+        self.range = range;
         self
     }
 
@@ -171,6 +230,9 @@ impl SheetGrid {
         let visuals = ui.visuals();
         let header_font = FontId::proportional(12.0);
         let cell_font = FontId::proportional(12.5);
+
+        let active_range = self.range.or_else(|| selected.map(|(r, c)| SheetRange::single_cell(r, c)));
+        let primary_cell = selected.or_else(|| active_range.map(|rng| (rng.start_row, rng.start_col)));
 
         let body_w = ROW_HEADER_W + opts.cols as f32 * opts.col_width;
 
@@ -187,7 +249,9 @@ impl SheetGrid {
         for c in 0..opts.cols {
             let x = header_rect.min.x + ROW_HEADER_W + c as f32 * opts.col_width;
             let r = Rect::from_min_size(pos2(x, header_rect.min.y), vec2(opts.col_width, HEADER_H));
-            if selected.is_some_and(|(_, sc)| sc == c) {
+            let is_in_col = active_range.map_or(false, |rng| c >= rng.min_col() && c <= rng.max_col())
+                || selected.is_some_and(|(_, sc)| sc == c);
+            if is_in_col {
                 header_painter.rect_filled(r, 0u8, visuals.selection.bg_fill.linear_multiply(0.25));
             }
             header_painter.text(r.center(), Align2::CENTER_CENTER, col_letters(c), header_font, Color32::from_gray(190));
@@ -230,7 +294,7 @@ impl SheetGrid {
         let mut origin = pos2(0.0, 0.0);
         let inner = ScrollArea::vertical()
             .show(&mut child, |inner_ui| {
-                let r = Self::body(grid_id, inner_ui, &ctx, &opts, &cell_map, selected, editing.as_ref(), body_w, cell_font);
+                let r = Self::body(grid_id, inner_ui, &ctx, &opts, &cell_map, primary_cell, active_range, editing.as_ref(), body_w, cell_font);
                 origin = r.1;
                 r.0
             })
@@ -240,7 +304,7 @@ impl SheetGrid {
         // A cell is selected, nothing is being edited yet, and no other text field owns
         // keyboard focus (the formula bar, if the user clicked into it instead, already claimed
         // it) - typing now means "start editing this cell, replacing its content".
-        if let (Some((row, col)), None) = (selected, editing) {
+        if let (Some((row, col)), None) = (primary_cell, editing) {
             if ctx.memory(|m| m.focused.is_none()) {
                 let typed = ui.input(|i| i.text_input.clone());
                 if !typed.is_empty() {
@@ -275,18 +339,74 @@ impl SheetGrid {
                     _ => {}
                 }
             }
-        } else if let Some((row, col)) = selected {
+        } else if let Some((row, col)) = primary_cell {
+            let shift = ui.input(|i| i.modifiers.shift);
             let pressed: Vec<Key> = ui.input(|i| i.key_events.iter().filter(|k| k.pressed).map(|k| k.key).collect());
             for key in pressed {
-                match key {
-                    Key::ArrowLeft if col > 0 => events.push(SheetEvent::CellSelected { row, col: col - 1 }),
-                    Key::ArrowRight if col + 1 < opts.cols => events.push(SheetEvent::CellSelected { row, col: col + 1 }),
-                    Key::ArrowUp if row > 0 => events.push(SheetEvent::CellSelected { row: row - 1, col }),
-                    Key::ArrowDown if row + 1 < opts.rows => events.push(SheetEvent::CellSelected { row: row + 1, col }),
-                    Key::Tab if col + 1 < opts.cols => events.push(SheetEvent::CellSelected { row, col: col + 1 }),
-                    Key::Enter if row + 1 < opts.rows => events.push(SheetEvent::CellSelected { row: row + 1, col }),
-                    Key::Delete | Key::Backspace => events.push(SheetEvent::CellClearRequested { row, col }),
-                    _ => {}
+                if shift {
+                    let anchor = active_range.map(|r| (r.start_row, r.start_col)).unwrap_or((row, col));
+                    let head = active_range.map(|r| (r.end_row, r.end_col)).unwrap_or((row, col));
+                    match key {
+                        Key::ArrowLeft if head.1 > 0 => {
+                            events.push(SheetEvent::RangeSelected {
+                                start_row: anchor.0,
+                                start_col: anchor.1,
+                                end_row: head.0,
+                                end_col: head.1 - 1,
+                            });
+                        }
+                        Key::ArrowRight if head.1 + 1 < opts.cols => {
+                            events.push(SheetEvent::RangeSelected {
+                                start_row: anchor.0,
+                                start_col: anchor.1,
+                                end_row: head.0,
+                                end_col: head.1 + 1,
+                            });
+                        }
+                        Key::ArrowUp if head.0 > 0 => {
+                            events.push(SheetEvent::RangeSelected {
+                                start_row: anchor.0,
+                                start_col: anchor.1,
+                                end_row: head.0 - 1,
+                                end_col: head.1,
+                            });
+                        }
+                        Key::ArrowDown if head.0 + 1 < opts.rows => {
+                            events.push(SheetEvent::RangeSelected {
+                                start_row: anchor.0,
+                                start_col: anchor.1,
+                                end_row: head.0 + 1,
+                                end_col: head.1,
+                            });
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        Key::ArrowLeft if col > 0 => events.push(SheetEvent::CellSelected { row, col: col - 1 }),
+                        Key::ArrowRight if col + 1 < opts.cols => events.push(SheetEvent::CellSelected { row, col: col + 1 }),
+                        Key::ArrowUp if row > 0 => events.push(SheetEvent::CellSelected { row: row - 1, col }),
+                        Key::ArrowDown if row + 1 < opts.rows => events.push(SheetEvent::CellSelected { row: row + 1, col }),
+                        Key::Tab if col + 1 < opts.cols => events.push(SheetEvent::CellSelected { row, col: col + 1 }),
+                        Key::Enter if row + 1 < opts.rows => events.push(SheetEvent::CellSelected { row: row + 1, col }),
+                        Key::Delete | Key::Backspace => {
+                            if let Some(rng) = active_range {
+                                if !rng.is_single_cell() {
+                                    events.push(SheetEvent::RangeClearRequested {
+                                        start_row: rng.min_row(),
+                                        start_col: rng.min_col(),
+                                        end_row: rng.max_row(),
+                                        end_col: rng.max_col(),
+                                    });
+                                } else {
+                                    events.push(SheetEvent::CellClearRequested { row, col });
+                                }
+                            } else {
+                                events.push(SheetEvent::CellClearRequested { row, col });
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -301,7 +421,8 @@ impl SheetGrid {
         ctx: &crate::entropy_gui::context::Context,
         opts: &SheetGridOptions,
         cell_map: &HashMap<(u32, u32), &SheetCell>,
-        selected: Option<(u32, u32)>,
+        primary_cell: Option<(u32, u32)>,
+        active_range: Option<SheetRange>,
         editing: Option<&SheetEdit>,
         width: f32,
         cell_font: FontId,
@@ -322,11 +443,30 @@ impl SheetGrid {
             }
         });
 
+        let pointer_down = ui.input(|i| i.pointer.primary_down);
+        let shift = ui.input(|i| i.modifiers.shift);
+        if !pointer_down {
+            ctx.memory_mut(|m| {
+                if let Some((id, _)) = m.sheet_drag_select {
+                    if id == grid_id {
+                        m.sheet_drag_select = None;
+                    }
+                }
+            });
+        }
+        let drag_anchor = ctx.memory(|m| {
+            match m.sheet_drag_select {
+                Some((id, anchor)) if id == grid_id => Some(anchor),
+                _ => None,
+            }
+        });
+
         for r in 0..opts.rows {
             let y = origin.y + r as f32 * opts.row_height;
             let rh_rect = Rect::from_min_size(pos2(origin.x, y), vec2(ROW_HEADER_W, opts.row_height));
-            let is_sel_row = selected.is_some_and(|(sr, _)| sr == r);
-            painter.rect_filled(rh_rect, 0u8, if is_sel_row { visuals.selection.bg_fill.linear_multiply(0.25) } else { visuals.widgets.inactive.weak_bg_fill });
+            let is_in_row = active_range.map_or(false, |rng| r >= rng.min_row() && r <= rng.max_row())
+                || primary_cell.is_some_and(|(sr, _)| sr == r);
+            painter.rect_filled(rh_rect, 0u8, if is_in_row { visuals.selection.bg_fill.linear_multiply(0.25) } else { visuals.widgets.inactive.weak_bg_fill });
             painter.text(rh_rect.center(), Align2::CENTER_CENTER, (r + 1).to_string(), cell_font, Color32::from_gray(170));
             painter.rect_stroke(rh_rect, 0u8, Stroke::new(1.0, Color32::from_gray(45)), StrokeKind::Middle);
 
@@ -361,7 +501,8 @@ impl SheetGrid {
             for c in 0..opts.cols {
                 let x = origin.x + ROW_HEADER_W + c as f32 * opts.col_width;
                 let cell_rect = Rect::from_min_size(pos2(x, y), vec2(opts.col_width, opts.row_height));
-                let is_selected = selected == Some((r, c));
+                let is_primary = primary_cell == Some((r, c));
+                let is_in_range = active_range.map_or(false, |rng| rng.contains(r, c));
                 let is_editing = editing.is_some_and(|e| e.row == r && e.col == c);
 
                 if is_editing {
@@ -381,7 +522,13 @@ impl SheetGrid {
 
                 let cell = cell_map.get(&(r, c)).copied();
 
-                let bg = if is_selected { visuals.selection.bg_fill.linear_multiply(0.35) } else { visuals.extreme_bg_color };
+                let bg = if is_primary {
+                    visuals.selection.bg_fill.linear_multiply(0.35)
+                } else if is_in_range {
+                    visuals.selection.bg_fill.linear_multiply(0.20)
+                } else {
+                    visuals.extreme_bg_color
+                };
                 painter.rect_filled(cell_rect, 0u8, bg);
                 painter.rect_stroke(cell_rect, 0u8, Stroke::new(1.0, Color32::from_gray(40)), StrokeKind::Middle);
 
@@ -397,11 +544,11 @@ impl SheetGrid {
                     }
                 }
 
-                if is_selected {
+                if active_range.is_some_and(|rng| rng.is_single_cell()) && is_primary {
                     painter.rect_stroke(cell_rect, 0u8, Stroke::new(2.0, Color32::WHITE), StrokeKind::Middle);
                 }
 
-                let resp = interact(ctx, cell_rect, grid_id.with(("cell", r, c)), Sense::click());
+                let resp = interact(ctx, cell_rect, grid_id.with(("cell", r, c)), Sense::click_and_drag());
                 if resp.clicked() {
                     let double = ctx.memory(|m| matches!(m.sheet_last_click, Some((id, cell, age)) if id == grid_id && cell == (r, c) && age < DOUBLE_CLICK_WINDOW));
 
@@ -415,12 +562,48 @@ impl SheetGrid {
                         ctx.memory_mut(|m| {
                             m.focused = Some(grid_id.with(("edit", r, c)));
                             m.sheet_last_click = None;
+                            m.sheet_drag_select = None;
+                        });
+                    } else if shift {
+                        let (ar, ac) = primary_cell.unwrap_or((r, c));
+                        events.push(SheetEvent::RangeSelected {
+                            start_row: ar,
+                            start_col: ac,
+                            end_row: r,
+                            end_col: c,
+                        });
+                        ctx.memory_mut(|m| {
+                            m.sheet_last_click = Some((grid_id, (r, c), 0.0));
+                            m.sheet_drag_select = Some((grid_id, (ar, ac)));
                         });
                     } else {
                         events.push(SheetEvent::CellSelected { row: r, col: c });
-                        ctx.memory_mut(|m| m.sheet_last_click = Some((grid_id, (r, c), 0.0)));
+                        ctx.memory_mut(|m| {
+                            m.sheet_last_click = Some((grid_id, (r, c), 0.0));
+                            m.sheet_drag_select = Some((grid_id, (r, c)));
+                        });
+                    }
+                } else if let Some(anchor) = drag_anchor {
+                    if pointer_down && resp.hovered() && (r, c) != anchor {
+                        events.push(SheetEvent::RangeSelected {
+                            start_row: anchor.0,
+                            start_col: anchor.1,
+                            end_row: r,
+                            end_col: c,
+                        });
                     }
                 }
+            }
+        }
+
+        if let Some(rng) = active_range {
+            if !rng.is_single_cell() {
+                let min_x = origin.x + ROW_HEADER_W + rng.min_col() as f32 * opts.col_width;
+                let max_x = origin.x + ROW_HEADER_W + (rng.max_col() + 1) as f32 * opts.col_width;
+                let min_y = origin.y + rng.min_row() as f32 * opts.row_height;
+                let max_y = origin.y + (rng.max_row() + 1) as f32 * opts.row_height;
+                let range_rect = Rect::from_min_max(pos2(min_x, min_y), pos2(max_x, max_y));
+                painter.rect_stroke(range_rect, 0u8, Stroke::new(2.0, Color32::WHITE), StrokeKind::Middle);
             }
         }
 

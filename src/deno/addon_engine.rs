@@ -5366,7 +5366,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::SheetGrid { id: sheet_id, cells, selected, editing, options } => {
+                UiWidget::SheetGrid { id: sheet_id, cells, selected, range, editing, options } => {
                     let cells_data: Vec<crate::entropy_gui::SheetCell> = cells
                         .iter()
                         .map(|c| crate::entropy_gui::SheetCell {
@@ -5387,14 +5387,24 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     };
                     let edit_arg = editing.as_ref().map(|(row, col, value)| crate::entropy_gui::SheetEdit { row: *row, col: *col, value: value.as_str() });
 
-                    let resp = crate::entropy_gui::SheetGrid::new(sheet_id.as_str()).options(grid_options).show(ui, &cells_data, *selected, edit_arg);
+                    let mut grid = crate::entropy_gui::SheetGrid::new(sheet_id.as_str()).options(grid_options);
+                    if let Some([sr, sc, er, ec]) = range {
+                        grid = grid.range(crate::entropy_gui::SheetRange::new(*sr, *sc, *er, *ec));
+                    }
+                    let resp = grid.show(ui, &cells_data, *selected, edit_arg);
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::SheetEvent::CellSelected { row, col } => {
                                 events_to_push.push(format!("SHEET_CELL_SELECTED|{}|{}|{}", sheet_id, row, col));
                             }
+                            crate::entropy_gui::SheetEvent::RangeSelected { start_row, start_col, end_row, end_col } => {
+                                events_to_push.push(format!("SHEET_RANGE_SELECTED|{}|{}|{}|{}|{}", sheet_id, start_row, start_col, end_row, end_col));
+                            }
                             crate::entropy_gui::SheetEvent::CellClearRequested { row, col } => {
                                 events_to_push.push(format!("SHEET_CELL_CLEAR|{}|{}|{}", sheet_id, row, col));
+                            }
+                            crate::entropy_gui::SheetEvent::RangeClearRequested { start_row, start_col, end_row, end_col } => {
+                                events_to_push.push(format!("SHEET_RANGE_CLEAR|{}|{}|{}|{}|{}", sheet_id, start_row, start_col, end_row, end_col));
                             }
                             // The free-text field is last in each of these so a `|` inside typed
                             // cell content can't be confused for a field separator - the JS

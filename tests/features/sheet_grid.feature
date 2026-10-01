@@ -141,3 +141,37 @@ Feature: The sheet grid lays out cells, tracks selection, and navigates like a s
     Then the events are "InsertColumnRequested(2)"
     When I right-click the column header for column 1 and choose "Delete column"
     Then the events are "DeleteColumnRequested(1)"
+
+  Scenario: Shift-clicking a cell selects a multi-cell range
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And cell 1,1 is selected
+    When I shift-click cell 3,2
+    Then the events are "RangeSelected(1,1,3,2)"
+
+  Scenario: Dragging across cells selects a range
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    When I drag from cell 0,0 to cell 2,2
+    Then the events are "RangeSelected(0,0,2,2)"
+
+  Scenario: Shift+Arrow keys expand range selection
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And cell 1,1 is selected
+    When I press Shift+"ArrowRight"
+    Then the events are "RangeSelected(1,1,1,2)"
+    When I press Shift+"ArrowDown"
+    Then the events are "RangeSelected(1,1,2,2)"
+
+  Scenario: Delete clears all cells in a selected range
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And cells from 1,1 to 2,2 are selected
+    When I press "Delete"
+    Then the events are "RangeClearRequested(1,1,2,2)"
+
+  Scenario: A selected range shows an outer perimeter border and not inner cell borders
+    Given a sheet grid of 5 rows and 4 columns at 90 by 22 cells
+    And cells from 1,1 to 2,2 are selected
+    When a frame is drawn
+    Then the selection range perimeter is white for rows 1 to 2 and columns 1 to 2
+    And inner boundary between cell 1,1 and 2,1 has no white line
+    And I save the picture "sheet-grid-range-selected"
+

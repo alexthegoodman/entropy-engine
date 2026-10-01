@@ -1607,9 +1607,13 @@ globalThis.Entropy = {
                 const editing = config?.editing ? [config.editing.row, config.editing.col, config.editing.value ?? ""] : null;
                 const id = nextWidgetId(windowId, "sheet", config?.id);
 
-                ops.op_ui_widget_sheet_grid(windowId, cells, selected, editing, config?.options ?? {}, id);
+                const range = (config?.selected && typeof config.selected.endRow === 'number' && typeof config.selected.endCol === 'number')
+                    ? [config.selected.row, config.selected.col, config.selected.endRow, config.selected.endCol]
+                    : (config?.range ? [config.range.startRow, config.range.startCol, config.range.endRow, config.range.endCol] : null);
 
-                if (config?.onCellSelected || config?.onCellClear || config?.onEditStarted || config?.onEditChanged || config?.onEditCommitted || config?.onEditCancelled || config?.onInsertRow || config?.onDeleteRow || config?.onInsertColumn || config?.onDeleteColumn) {
+                ops.op_ui_widget_sheet_grid(windowId, cells, selected, range, editing, config?.options ?? {}, id);
+
+                if (config?.onCellSelected || config?.onRangeSelected || config?.onCellClear || config?.onRangeClear || config?.onEditStarted || config?.onEditChanged || config?.onEditCommitted || config?.onEditCancelled || config?.onInsertRow || config?.onDeleteRow || config?.onInsertColumn || config?.onDeleteColumn) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -1617,7 +1621,15 @@ globalThis.Entropy = {
                         // which may itself contain "|" - rejoin everything past the fixed fields
                         // instead of trusting parts[4] alone.
                         if (type === "SHEET_CELL_SELECTED" && config.onCellSelected) config.onCellSelected(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_RANGE_SELECTED") {
+                            if (config.onRangeSelected) config.onRangeSelected(parseInt(parts[2], 10), parseInt(parts[3], 10), parseInt(parts[4], 10), parseInt(parts[5], 10));
+                            else if (config.onCellSelected) config.onCellSelected(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        }
                         else if (type === "SHEET_CELL_CLEAR" && config.onCellClear) config.onCellClear(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_RANGE_CLEAR") {
+                            if (config.onRangeClear) config.onRangeClear(parseInt(parts[2], 10), parseInt(parts[3], 10), parseInt(parts[4], 10), parseInt(parts[5], 10));
+                            else if (config.onCellClear) config.onCellClear(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        }
                         else if (type === "SHEET_EDIT_STARTED" && config.onEditStarted) config.onEditStarted(parseInt(parts[2], 10), parseInt(parts[3], 10), parts.slice(4).join("|"));
                         else if (type === "SHEET_EDIT_CHANGED" && config.onEditChanged) config.onEditChanged(parseInt(parts[2], 10), parseInt(parts[3], 10), parts.slice(4).join("|"));
                         else if (type === "SHEET_EDIT_COMMITTED" && config.onEditCommitted) config.onEditCommitted(parseInt(parts[2], 10), parseInt(parts[3], 10));

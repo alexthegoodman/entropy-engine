@@ -78,7 +78,7 @@ pub use widgets_kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanEvent, Kan
 pub use widgets_keyframe_timeline::{Keyframe, KeyframeRow, KeyframeTimeline, KeyframeTimelineEvent, KeyframeTimelineResponse};
 pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
 pub use widgets_pads::{Pad, PadEvent, PadGrid, PadGridOptions, PadGridResponse, PadKind};
-pub use widgets_sheet::{col_letters, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions, SheetResponse};
+pub use widgets_sheet::{col_letters, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions, SheetRange, SheetResponse};
 pub use widgets_layout::{card, Bar, BarStyle, BarZone, CardStyle, Segmented, Split, SplitStyle};
 pub use widgets_piano_roll::{PianoRoll, PianoRollEvent, PianoRollNote, PianoRollStyle};
 pub use widgets_tabs::{layout_tabs, Tab, TabBar, TabBarEvent, TabBarResponse, TabSlot};

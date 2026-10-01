@@ -4,16 +4,23 @@ import {
     a1,
     adjustFormulaForPaste,
     cellKey,
+    clearRange,
     colLetters,
+    copyRange,
     defaultSheet,
     deleteColumn,
     deleteRow,
     evaluateSheet,
+    expandRange,
+    fillDown,
     formatRef,
     insertColumn,
     insertRow,
     parseA1,
     parseA1Detailed,
+    pasteRange,
+    rangeA1,
+    setRangeBorder,
 } from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
@@ -415,5 +422,118 @@ describe("recomputation and error handling after reference adjustments", () => {
         expect(rawPasted).toBe("=A2*2");
         doc.cells[cellKey(1, 1)] = { raw: rawPasted };
         expect(textOf(doc, "B2")).toBe("100");
+    });
+});
+
+describe("range formatting and expansion", () => {
+    it("formats single cell and multi-cell ranges in A1 notation", () => {
+        expect(rangeA1({ row: 0, col: 0 }, { row: 0, col: 0 })).toBe("A1");
+        expect(rangeA1({ row: 0, col: 0 }, { row: 2, col: 1 })).toBe("A1:B3");
+        // Inverted selection order still produces canonical top-left to bottom-right
+        expect(rangeA1({ row: 2, col: 1 }, { row: 0, col: 0 })).toBe("A1:B3");
+    });
+
+    it("expands a bounding rectangle into row-major cell addresses", () => {
+        const addrs = expandRange({ row: 1, col: 2 }, { row: 2, col: 3 });
+        expect(addrs).toEqual([
+            { row: 1, col: 2 },
+            { row: 1, col: 3 },
+            { row: 2, col: 2 },
+            { row: 2, col: 3 },
+        ]);
+    });
+});
+
+describe("range copy, cut, paste, and fill-down", () => {
+    it("copies a multi-cell range and preserves relative structure", () => {
+        const doc = withCells({ A1: "1", B1: "2", A2: "3", B2: "=A1+B1" });
+        const clip = copyRange(doc, { start: { row: 0, col: 0 }, end: { row: 1, col: 1 } });
+        expect(clip.rows).toBe(2);
+        expect(clip.cols).toBe(2);
+        expect(clip.cells).toHaveLength(4);
+        expect(clip.cells[3].raw).toBe("=A1+B1");
+        expect(clip.cells[3].dRow).toBe(1);
+        expect(clip.cells[3].dCol).toBe(1);
+    });
+
+    it("pastes a multi-cell range to a new location with formula adjustment", () => {
+        const doc = withCells({ A1: "10", B1: "20", A2: "=A1*2", B2: "=B1*2" });
+        const clip = copyRange(doc, { start: { row: 0, col: 0 }, end: { row: 1, col: 1 } });
+
+        // Paste at C3 (row 2, col 2)
+        const pasted = pasteRange(doc, clip, { start: { row: 2, col: 2 }, end: { row: 2, col: 2 } });
+        expect(pasted.cells[cellKey(2, 2)].raw).toBe("10"); // C3
+        expect(pasted.cells[cellKey(2, 3)].raw).toBe("20"); // D3
+        expect(pasted.cells[cellKey(3, 2)].raw).toBe("=C3*2"); // C4
+        expect(pasted.cells[cellKey(3, 3)].raw).toBe("=D3*2"); // D4
+    });
+
+    it("pastes a single copied cell into a destination range (fill/repeat with adjustment)", () => {
+        const doc = withCells({ A1: "100", A2: "200", A3: "300", B1: "=A1+1" });
+        const clip = copyRange(doc, { start: { row: 0, col: 1 }, end: { row: 0, col: 1 } }); // copy B1
+
+        // Paste into B2:B3
+        const pasted = pasteRange(doc, clip, { start: { row: 1, col: 1 }, end: { row: 2, col: 1 } });
+        expect(pasted.cells[cellKey(1, 1)].raw).toBe("=A2+1");
+        expect(pasted.cells[cellKey(2, 1)].raw).toBe("=A3+1");
+        expect(textOf(pasted, "B2")).toBe("201");
+        expect(textOf(pasted, "B3")).toBe("301");
+    });
+
+    it("cutting a range keeps formulas unchanged on paste", () => {
+        const doc = withCells({ A1: "10", B1: "=A1*2" });
+        const clip = copyRange(doc, { start: { row: 0, col: 1 }, end: { row: 0, col: 1 } }, true); // cut B1
+        const pasted = pasteRange(doc, clip, { start: { row: 3, col: 3 }, end: { row: 3, col: 3 } }); // paste at D4
+        expect(pasted.cells[cellKey(3, 3)].raw).toBe("=A1*2");
+    });
+
+    it("fillDown copies top row values and adjusts formulas across multiple columns", () => {
+        const doc = withCells({
+            A1: "10",
+            B1: "=A1*2",
+            C1: "=$A$1+5",
+            A2: "20",
+            A3: "30",
+        });
+
+        // Fill down B1:C3
+        const next = fillDown(doc, { start: { row: 0, col: 1 }, end: { row: 2, col: 2 } });
+        // Column B has relative =A1*2, should shift to =A2*2 and =A3*2
+        expect(next.cells[cellKey(1, 1)].raw).toBe("=A2*2");
+        expect(next.cells[cellKey(2, 1)].raw).toBe("=A3*2");
+        expect(textOf(next, "B2")).toBe("40");
+        expect(textOf(next, "B3")).toBe("60");
+
+        // Column C has absolute =$A$1+5, should remain =$A$1+5
+        expect(next.cells[cellKey(1, 2)].raw).toBe("=$A$1+5");
+        expect(next.cells[cellKey(2, 2)].raw).toBe("=$A$1+5");
+        expect(textOf(next, "C2")).toBe("15");
+        expect(textOf(next, "C3")).toBe("15");
+    });
+
+    it("clearRange removes cell content across the range while preserving or clearing borders", () => {
+        const doc = withCells({ A1: "foo", A2: "bar", B1: "baz" });
+        doc.cells[cellKey(0, 0)].border = [1, 0, 0, 1];
+
+        // Clear A1:B1 without clearing borders
+        const clearedContent = clearRange(doc, { start: { row: 0, col: 0 }, end: { row: 0, col: 1 } }, false);
+        expect(clearedContent.cells[cellKey(0, 0)].raw).toBe("");
+        expect(clearedContent.cells[cellKey(0, 0)].border).toEqual([1, 0, 0, 1]);
+        expect(clearedContent.cells[cellKey(0, 1)]).toBeUndefined();
+        expect(clearedContent.cells[cellKey(1, 0)].raw).toBe("bar");
+
+        // Clear with borders
+        const clearedAll = clearRange(doc, { start: { row: 0, col: 0 }, end: { row: 0, col: 1 } }, true);
+        expect(clearedAll.cells[cellKey(0, 0)]).toBeUndefined();
+    });
+
+    it("setRangeBorder applies borders across an entire multi-cell range", () => {
+        const doc = withCells({ A1: "1", B2: "2" });
+        const red: [number, number, number, number] = [1, 0, 0, 1];
+        const next = setRangeBorder(doc, { start: { row: 0, col: 0 }, end: { row: 1, col: 1 } }, red);
+        expect(next.cells[cellKey(0, 0)].border).toEqual(red);
+        expect(next.cells[cellKey(0, 1)].border).toEqual(red);
+        expect(next.cells[cellKey(1, 0)].border).toEqual(red);
+        expect(next.cells[cellKey(1, 1)].border).toEqual(red);
     });
 });
