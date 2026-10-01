@@ -917,7 +917,7 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
 - **One instrument per track** holds a basin for drips, a rack of eight glasses (the quietest is
   retuned for a new pitch; a pitch already in the rack is struck again, ringing or not), two vessels
   that can fill at once, the rain on the track's surface, a brook and a beach that are already
-  flowing when it is built (3 s and 20 s of pre-roll), and a tub. The brook and the surf are walked up
+  flowing when it is built (3 s and 28 s of pre-roll), and a tub. The brook and the surf are walked up
   to and away from (a note fades them in over a quarter second and a second, out over one and a half
   and six); rain and the tub start and stop physically - the drops already landed and the waves
   already sloshing ring out.

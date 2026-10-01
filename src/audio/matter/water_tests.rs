@@ -441,7 +441,10 @@ fn a_water_track_plays_its_notes_at_their_pitches_and_lets_them_go() {
     // The brook fades in for its note and away after it.
     let brook = play(&[(0.0, WaterAction::Brook { speed: 0.5, duration: 1.0 })], 3.0);
     assert!(rms(seg(&brook, 0.5, 1.0)) > 1.0e-3);
-    assert!(brook.len() < (4.5 * SR) as usize, "the brook kept playing: {} s", brook.len() as f32 / SR);
+    // The surf fades in for its note and away after it; short notes are already flowing.
+    let surf = play(&[(0.0, WaterAction::Surf { height: 1.0, duration: 1.0 })], 6.0);
+    assert!(rms(seg(&surf, 0.5, 1.0)) > 1.0e-3, "the surf is silent on a short note");
+    assert!(surf.len() < (8.5 * SR) as usize, "the surf kept playing: {} s", surf.len() as f32 / SR);
 }
 
 #[test]

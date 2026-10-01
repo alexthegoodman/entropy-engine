@@ -263,7 +263,7 @@ pub const GLASSES: usize = 8;
 pub const FILLS: usize = 2;
 /// Seconds a brook or the surf runs before it is first heard (so it is already flowing).
 const BROOK_PREROLL: f32 = 3.0;
-const SURF_PREROLL: f32 = 20.0;
+const SURF_PREROLL: f32 = 28.0;
 
 /// A texture held for a while: how long is left (samples), and its fader (0..1) for the textures
 /// that fade in and out (brook, surf) as the listener walks up to and away from them.

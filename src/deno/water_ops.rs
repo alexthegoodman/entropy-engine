@@ -322,6 +322,18 @@ mod tests {
         let (start, end) = (fill["vessel"]["startHz"].as_f64().unwrap(), fill["vessel"]["endHz"].as_f64().unwrap());
         assert!((end / 330.0 - 1.0).abs() < 0.02, "{fill}");
         assert!((1200.0 * (end / start).log2() - 700.0).abs() < 30.0, "{fill}");
+        // Surf is already breaking, so even a 2 s note is heard (not silent / wave not arrived).
+        let surf = analyze(&note("surf", |c| {
+            c.height = Some(1.0);
+            c.duration = Some(2.0);
+        }), 2.0);
+        assert_eq!(surf["ok"], true, "{surf}");
+        assert_eq!(surf["action"], "surf");
+        assert_eq!(surf["surf"]["heightM"], 1.0);
+        assert!(surf["peakDb"].as_f64().unwrap() > -20.0, "surf was silent on 2s note: {surf}");
+        assert!(surf["peakDb"].as_f64().unwrap() <= 0.0, "surf clipped on 2s note: {surf}");
+        assert!(surf["rmsDb"].as_f64().unwrap() > -30.0, "surf rms too low: {surf}");
+        assert!(surf["strongestHz"].as_f64().unwrap() > 0.0, "expected non-zero strongest frequency: {surf}");
         // Unknown things are errors, not panics.
         assert_eq!(analyze(&note("tsunami", |_| {}), 1.0)["ok"], false);
         assert_eq!(analyze(&note("rain", |c| c.water.rain = Some("ocean liner".into())), 1.0)["ok"], false);

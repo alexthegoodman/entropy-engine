@@ -205,6 +205,10 @@ describe("The DAW's water (production addon callbacks)", () => {
         expect(h.glass.pitchHz).toBeCloseTo(h.strongestHz, 0);
         expect(tool("daw_water", { trackId: "trk-lead", action: "play", row: 2 }).success).toBe(true);
         expect(w.waterNotes.at(-1)!.cfg).toMatchObject({ action: "glass", spoon: true });
+        tool("daw_water", { trackId: "trk-lead", action: "params", params: { play: "weather", weatherSource: "surf" } });
+        const hs = tool("daw_water", { trackId: "trk-lead", action: "hear", seconds: 2, velocity: 1 });
+        expect(hs).toMatchObject({ success: true, action: "surf" });
+        expect(hs.surf).toMatchObject({ heightM: expect.any(Number), duration: 2 });
         expect(tool("daw_water", { trackId: "trk-lead", action: "preset", preset: "polka" }).success).toBe(false);
         expect(tool("daw_water", { trackId: "trk-kick", action: "info" }).success).toBe(false);
     });

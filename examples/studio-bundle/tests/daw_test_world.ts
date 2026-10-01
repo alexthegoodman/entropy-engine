@@ -468,6 +468,9 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 ok: true, action: cfg.action, seconds: 1, peakDb: -12, rmsDb: -24, centroidHz: 2000, strongestHz: cfg.pitch ?? 3000,
                 ...(cfg.action === "glass" ? { glass: { radiusMm: 40, heightMm: 115, levelMm: 90, emptyHz: (cfg.pitch ?? 500) * 1.6, fullHz: (cfg.pitch ?? 500) * 0.8, pitchHz: cfg.pitch, speed: cfg.speed } } : {}),
                 ...(cfg.action === "rain" ? { rain: { surface: cfg.water?.rain ?? "lake", rateMmH: cfg.rate, duration: cfg.duration } } : {}),
+                ...(cfg.action === "surf" ? { surf: { heightM: cfg.height, duration: cfg.duration } } : {}),
+                ...(cfg.action === "brook" ? { brook: { speed: cfg.speed, duration: cfg.duration } } : {}),
+                ...(cfg.action === "slosh" ? { slosh: { strength: cfg.strength, duration: cfg.duration } } : {}),
             }),
         },
         Guitar: {
