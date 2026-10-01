@@ -98,6 +98,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "sheet",
     "special-bundle",
     "stylus-drawing",
+    "terminal",
     "theme-gallery",
     "video-export-demo",
 ];

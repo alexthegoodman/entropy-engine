@@ -7,3 +7,4 @@ import "./apps/daw_synth_addon";
 import "./apps/tabs/tabs_addon";
 import "./apps/mesha/mesha_addon";
 import "./apps/cc_manager_addon";
+import "./apps/terminal_addon";

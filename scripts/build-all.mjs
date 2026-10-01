@@ -39,6 +39,7 @@ const bundles = [
   ["creative-suite", "src/creative_suite.ts", "creative_suite.js"],
   ["special-bundle", "src/special_bundle.ts", "special_bundle.js"],
   ["stylus-drawing", "src/apps/stylus_drawing_addon.ts", "stylus_drawing.js"],
+  ["terminal", "src/apps/terminal_addon.ts", "terminal.js"],
   ["theme-gallery", "src/apps/theme_gallery_addon.ts", "theme_gallery.js"],
   ["video-export-demo", "src/apps/video_export_demo_addon.ts", "video_export_demo.js"],
 ];

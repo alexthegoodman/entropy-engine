@@ -50,7 +50,14 @@ impl Button {
 
 impl Widget for Button {
     fn ui(self, ui: &mut Ui) -> Response {
-        let font = FontId::proportional(self.text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE));
+        let font_size = self.text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+        let font = if let Some(ref family) = self.text.0.font_family {
+            FontId::named(family, font_size)
+        } else if self.text.0.monospace {
+            FontId::monospace(font_size)
+        } else {
+            FontId::proportional(font_size)
+        };
         let padding = ui.style().spacing.button_padding;
         let text_size = Painter::measure_text(ui.ctx(), font, &self.text.0.text);
         let size = vec2(text_size.x + padding.x * 2.0, text_size.y.max(font.size) + padding.y * 2.0).max(ui.style().spacing.interact_size).max(self.min_size);

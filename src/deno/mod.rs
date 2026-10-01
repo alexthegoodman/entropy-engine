@@ -13,3 +13,4 @@ pub mod piano_ops;
 pub mod quadplanet_ops;
 pub mod vst3_ops;
 pub mod wavetable_ops;
+pub mod terminal_ops;

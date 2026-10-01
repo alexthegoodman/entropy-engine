@@ -838,6 +838,7 @@ pub struct WidgetExtras {
     pub min_width: Option<f32>,
     /// Knob/widget layout size: "normal" (default) or "small".
     pub size: Option<String>,
+    pub font_family: Option<String>,
 }
 
 /// `Widget.bar(...)`: a full-width, fixed-height strip with left / centre / right zones.
@@ -1042,6 +1043,7 @@ pub enum UiWidget {
     MatterView { id: String, config: MatterViewConfig },
     WaterView { id: String, config: WaterViewConfig },
     Chart3dView { id: String, config: Chart3dViewConfig },
+    Terminal { id: String, config: crate::deno::terminal_ops::TerminalWidgetConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,

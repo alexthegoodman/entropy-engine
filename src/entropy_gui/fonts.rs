@@ -100,18 +100,20 @@ impl FontRegistry {
     /// does nothing for an unknown name or a file fontdue can't parse - callers fall back to
     /// the proportional face via `get_named`/`resolve_named_or_fallback` returning `None`.
     pub fn ensure_named(&mut self, name: &str) {
-        if self.named_font_cache.contains_key(name) {
+        let key = name.to_ascii_lowercase();
+        if self.named_font_cache.contains_key(&key) {
             return;
         }
         if let Some(bytes) = self.catalog.get_font_by_name(name) {
             if let Ok(font) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()) {
-                self.named_font_cache.insert(name.to_string(), font);
+                self.named_font_cache.insert(key, font);
             }
         }
     }
 
     pub fn get_named(&self, name: &str) -> Option<&fontdue::Font> {
-        self.named_font_cache.get(name)
+        let key = name.to_ascii_lowercase();
+        self.named_font_cache.get(&key)
     }
 
     #[cfg(target_os = "windows")]
@@ -148,6 +150,7 @@ impl FontRegistry {
         match family {
             FontFamily::Proportional => &self.proportional,
             FontFamily::Monospace => &self.monospace,
+            FontFamily::Named(name) => self.get_named(name).unwrap_or(&self.proportional),
         }
     }
 

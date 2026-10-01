@@ -22,7 +22,13 @@ impl Ui {
     pub fn label(&mut self, text: impl Into<WidgetText>) -> Response {
         let text = text.into();
         let size = text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-        let font = if text.0.monospace { FontId::monospace(size) } else { FontId::proportional(size) };
+        let font = if let Some(ref family) = text.0.font_family {
+            FontId::named(family, size)
+        } else if text.0.monospace {
+            FontId::monospace(size)
+        } else {
+            FontId::proportional(size)
+        };
         if text.0.wrap {
             return self.wrapped_label(&text, font);
         }

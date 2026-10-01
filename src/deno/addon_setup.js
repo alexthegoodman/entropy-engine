@@ -324,6 +324,22 @@ const systemAPI = {
     launchExample: (name) => ops.op_launch_example(name),
 };
 
+const terminalAPI = {
+    execute: (command, options = {}) => {
+        const sessionId = options.sessionId || "main";
+        const cwd = options.cwd || "";
+        const shell = options.shell || "";
+        return ops.op_terminal_execute(sessionId, String(command), cwd, shell);
+    },
+    poll: (sessionId = "main") => ops.op_terminal_poll(sessionId),
+    kill: (sessionId = "main") => ops.op_terminal_kill(sessionId),
+    writeInput: (input, sessionId = "main") => ops.op_terminal_write_input(sessionId, String(input)),
+    clear: (sessionId = "main") => ops.op_terminal_clear(sessionId),
+    getCwd: (sessionId = "main") => ops.op_terminal_get_cwd(sessionId),
+    setCwd: (newCwd, sessionId = "main") => ops.op_terminal_set_cwd(sessionId, String(newCwd)),
+    listFonts: () => ops.op_terminal_list_fonts(),
+};
+
 const wavetableAPI = {
     // Creates the table if there is none (a stack of sines) and describes it:
     // {ok, frames, tableSize, revision, version, canUndo, canRedo}. options: {preset, frames}.
@@ -1184,6 +1200,7 @@ globalThis.Entropy = {
                 Icons: iconsAPI,
                 System: systemAPI,
                 Clipboard: clipboardAPI,
+                Terminal: terminalAPI,
                 Guitar: guitarAPI,
                 IO: {
                     // Pretty-printing is opt-in: large saved states (for example canvas artwork)
@@ -1388,7 +1405,7 @@ globalThis.Entropy = {
                 const bold = typeof config === 'object' ? (config?.bold || false) : false;
                 const fontSize = typeof config === 'object' ? (config?.fontSize || 0) : 0;
                 const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
-                if (typeof config === 'object') emitWidgetExtras(windowId, config, ["tooltip", "color", "monospace", "wrap"]);
+                if (typeof config === 'object') emitWidgetExtras(windowId, config, ["tooltip", "color", "monospace", "wrap", "fontFamily"]);
                 ops.op_ui_widget_label(windowId, text, bold, fontSize, alpha);
             },
             button: (windowId, config) => {
@@ -1398,7 +1415,7 @@ globalThis.Entropy = {
                 const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
                 const frame = typeof config === 'object' && config?.frame !== undefined ? config.frame : true;
 
-                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "disabled", "selected", "accent", "color", "minWidth"]);
+                emitWidgetExtras(windowId, config, ["tooltip", "shortcut", "disabled", "selected", "accent", "color", "minWidth", "fontFamily"]);
                 ops.op_ui_widget_button(windowId, text, id, fontSize, alpha, frame);
                 bindListener('_entropy_event_listeners', id, config?.onClick);
             },
@@ -1876,6 +1893,21 @@ globalThis.Entropy = {
                         else if (type === "CHART3D_HOVER" && config.onHover) config.onHover(parseInt(parts[2], 10), parseInt(parts[3], 10), parseFloat(parts[4]));
                     });
                 }
+            },
+            // High-performance virtualized Terminal widget supporting ~60 catalog fonts,
+            // color-coded output, timestamps, and background execution status.
+            terminal: (windowId, config) => {
+                const id = nextWidgetId(windowId, "terminal", config?.id);
+                ops.op_ui_widget_terminal(windowId, {
+                    id,
+                    lines: config?.lines || [],
+                    isRunning: config?.isRunning ?? false,
+                    fontFamily: config?.fontFamily ?? "Quicksand",
+                    fontSize: config?.fontSize ?? 13.5,
+                    theme: config?.theme ?? "neon",
+                    height: config?.height,
+                    autoScroll: config?.autoScroll ?? true,
+                });
             },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
@@ -2444,6 +2476,7 @@ globalThis.Entropy = {
     Icons: iconsAPI,
     System: systemAPI,
     Clipboard: clipboardAPI,
+    Terminal: terminalAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

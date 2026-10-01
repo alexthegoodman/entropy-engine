@@ -79,6 +79,11 @@ use crate::deno::vst3_ops::{
     op_vst3_close_editor, op_vst3_poll_state, op_vst3_save_state, op_vst3_find_parameters, op_vst3_set_parameter,
     op_vst3_take_peak, op_vst3_stats,
 };
+use crate::deno::terminal_ops::{
+    op_terminal_execute, op_terminal_poll, op_terminal_kill, op_terminal_write_input,
+    op_terminal_clear, op_terminal_get_cwd, op_terminal_set_cwd, op_terminal_list_fonts,
+    op_ui_widget_terminal,
+};
 use crate::deno::addon_ops::{
     AddonContext,
     AddonMetadata,
@@ -322,6 +327,15 @@ extension!(
         op_ui_widget_matter,
         op_ui_widget_water,
         op_ui_widget_chart3d,
+        op_terminal_execute,
+        op_terminal_poll,
+        op_terminal_kill,
+        op_terminal_write_input,
+        op_terminal_clear,
+        op_terminal_get_cwd,
+        op_terminal_set_cwd,
+        op_terminal_list_fonts,
+        op_ui_widget_terminal,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4415,6 +4429,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         ("CC Manager", "kanban", Color32::from_rgb(130, 220, 110))
                     } else if addon_name.contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
                         ("Mesha", "shapes", Color32::from_rgb(175, 150, 255))
+                    } else if addon_name.contains("terminal") || title.to_lowercase().contains("terminal") {
+                        ("Terminal", "terminal", Color32::from_rgb(0, 240, 200))
                     } else {
                         (title.as_str(), "squares-four", Color32::from_rgb(200, 215, 235))
                     };
@@ -4426,6 +4442,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             "guitar" => "🎸".to_string(),
                             "kanban" => "📋".to_string(),
                             "shapes" => "❖".to_string(),
+                            "terminal" => "⚡".to_string(),
                             _ => "▪".to_string(),
                         });
 
@@ -4565,7 +4582,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
         if start_menu_open {
             let menu_w = 380.0;
-            let menu_h = 440.0;
+            let menu_h = 500.0;
             let menu_x = ((screen_rect.width() - menu_w) / 2.0).round().max(12.0);
             let menu_y = (screen_rect.height() - taskbar_height - menu_h - 12.0).max(10.0);
 
@@ -4643,6 +4660,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         ("tabs", "Guitar Lingo", "Interactive tablature editor, playback & fretboard", "guitar", Color32::from_rgb(255, 180, 80)),
                         ("cc", "CC Manager", "Kanban task manager & Claude Code session board", "kanban", Color32::from_rgb(130, 220, 110)),
                         ("mesha", "Mesha", "Create 3D models with procedural power", "shapes", Color32::from_rgb(130, 120, 110)),
+                        ("terminal", "Terminal", "Fast developer terminal with MCP integration & fonts", "terminal", Color32::from_rgb(0, 240, 200)),
                     ];
 
                     for (filter_key, app_title, app_desc, icon_name, icon_c) in apps_meta {
@@ -4686,6 +4704,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                 "waveform" => "〰".to_string(),
                                 "guitar" => "🎸".to_string(),
                                 "kanban" => "📋".to_string(),
+                                "shapes" => "❖".to_string(),
+                                "terminal" => "⚡".to_string(),
                                 _ => "▪".to_string(),
                             });
                         painter.text(
@@ -4843,6 +4863,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if extras.wrap.unwrap_or(false) {
                         txt = txt.wrap();
                     }
+                    if let Some(ref family) = extras.font_family {
+                        txt = txt.font_family(family.clone());
+                    }
                     let resp = ui.label(txt);
                     if !tooltip.is_empty() {
                         resp.on_hover_text(tooltip.clone());
@@ -4862,6 +4885,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                     if let Some(c) = extras.color {
                         txt = txt.color(egui::Color32::from_rgba_f32(c));
+                    }
+                    if let Some(ref family) = extras.font_family {
+                        txt = txt.font_family(family.clone());
                     }
                     let mut button = egui::Button::new(txt)
                         .frame(*frame)
@@ -5830,6 +5856,38 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                         }
                     }
+                }
+                UiWidget::Terminal { id: term_id, config } => {
+                    use crate::entropy_gui::widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
+                    let converted_lines: Vec<TerminalLine> = config.lines.iter().map(|l| {
+                        TerminalLine::new(
+                            l.id,
+                            TerminalLineKind::from_str(&l.kind),
+                            &l.text,
+                            &l.timestamp,
+                        )
+                    }).collect();
+
+                    let mut view = TerminalView::new(term_id.as_str(), &converted_lines);
+                    if let Some(ref family) = config.font_family {
+                        view = view.font_family(family);
+                    }
+                    if let Some(size) = config.font_size {
+                        view = view.font_size(size);
+                    }
+                    if let Some(running) = config.is_running {
+                        view = view.is_running(running);
+                    }
+                    if let Some(ref th) = config.theme {
+                        view = view.theme(TerminalTheme::from_name(th));
+                    }
+                    if let Some(h) = config.height {
+                        view = view.height(h);
+                    }
+                    if let Some(auto) = config.auto_scroll {
+                        view = view.auto_scroll(auto);
+                    }
+                    view.show(ui);
                 }
                 UiWidget::Oscilloscope { id: scope_id, config } => {
                     use crate::entropy_gui::{widgets_analysis::ACCENT, Oscilloscope, ScopeMode, ScopeOptions};

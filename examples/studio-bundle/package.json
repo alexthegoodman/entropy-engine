@@ -38,6 +38,7 @@
     "build-canvas-surfaces": "npm run ensure-dist && deno bundle src/apps/canvas_surfaces/canvas_surface_addon.ts > dist/canvas_surfaces.js",
     "build-app-launcher": "npm run ensure-dist && deno bundle src/apps/app_launcher_addon.ts > dist/app_launcher.js",
     "build-guitar-tabs": "npm run ensure-dist && deno bundle src/apps/tabs/tabs_addon.ts --output dist/guitar_tabs.js",
+    "build-terminal": "npm run ensure-dist && deno bundle src/apps/terminal_addon.ts --output dist/terminal.js",
     "build-creative-suite": "npm run ensure-dist && deno bundle src/creative_suite.ts --output dist/creative_suite.js",
     "build-special-bundle": "npm run ensure-dist && deno bundle src/creative_suite.ts --output dist/special_bundle.js",
     "build-studio-bundle": "npm run ensure-dist && deno bundle src/creative_suite.ts --output dist/special_bundle.js",

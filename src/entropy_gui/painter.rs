@@ -161,6 +161,9 @@ impl Painter {
     pub fn text(&self, pos: Pos2, align: Align2, text: impl ToString, font_id: FontId, color: Color32) -> Rect {
         let text = text.to_string();
         let mut guard = self.ctx.inner_mut();
+        if let crate::entropy_gui::geometry::FontFamily::Named(name) = font_id.family {
+            guard.fonts.ensure_named(name);
+        }
         let ContextInner { fonts, atlas, draw_list, overlay_draw_list, popup_draw_list, shape_cache, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
 
@@ -219,12 +222,18 @@ impl Painter {
     /// `text` shaped as one unwrapped line, from the `Context`'s shape cache.
     pub(crate) fn shaped(ctx: &Context, font_id: FontId, text: &str) -> std::rc::Rc<crate::entropy_gui::text_layout::ShapedText> {
         let mut guard = ctx.inner_mut();
+        if let crate::entropy_gui::geometry::FontFamily::Named(name) = font_id.family {
+            guard.fonts.ensure_named(name);
+        }
         let ContextInner { fonts, shape_cache, .. } = &mut *guard;
         shape_cache.shape(fonts.shaping_set(font_id.family), font_id.family, font_id.size, text)
     }
 
     pub fn measure_text(ctx: &Context, font_id: FontId, text: &str) -> crate::entropy_gui::geometry::Vec2 {
         let mut guard = ctx.inner_mut();
+        if let crate::entropy_gui::geometry::FontFamily::Named(name) = font_id.family {
+            guard.fonts.ensure_named(name);
+        }
         let ContextInner { fonts, shape_cache, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
         let shaped = shape_cache.shape(face_set, font_id.family, font_id.size, text);

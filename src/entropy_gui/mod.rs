@@ -50,6 +50,7 @@ pub mod widgets_tree;
 pub mod widgets_wavetable;
 pub mod widgets_reverb_eq;
 pub mod widgets_chart3d;
+pub mod widgets_terminal;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -97,6 +98,7 @@ pub use widgets_chart3d::{
     Chart3dCamera, Chart3dEvent, Chart3dHover, Chart3dOptions, Chart3dProjector, Chart3dResponse,
     Chart3dSeries, Chart3dType, Chart3dView,
 };
+pub use widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's
@@ -108,8 +110,8 @@ pub struct RichText {
     pub italics: bool,
     pub color: Option<Color32>,
     /// Overrides the widget's default font size (e.g. a big Phosphor glyph on an icon-only
-    /// launcher tile). `None` keeps whatever the drawing widget would otherwise use.
     pub font_size: Option<f32>,
+    pub font_family: Option<String>,
     /// Multiplies the drawn color's alpha - `1.0` is fully opaque. Lets a caller fade a label or
     /// button in/out frame by frame (its own animation timer drives this every frame; there is no
     /// engine-side tweening) without needing a whole separate "ghost" draw path.
@@ -122,7 +124,7 @@ pub struct RichText {
 
 impl RichText {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), strong: false, italics: false, color: None, font_size: None, alpha: 1.0, monospace: false, wrap: false }
+        Self { text: text.into(), strong: false, italics: false, color: None, font_size: None, font_family: None, alpha: 1.0, monospace: false, wrap: false }
     }
     pub fn strong(mut self) -> Self {
         self.strong = true;
@@ -138,6 +140,10 @@ impl RichText {
     }
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = Some(size);
+        self
+    }
+    pub fn font_family(mut self, family: impl Into<String>) -> Self {
+        self.font_family = Some(family.into());
         self
     }
     pub fn monospace(mut self) -> Self {

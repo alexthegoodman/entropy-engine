@@ -326,3 +326,22 @@ impl FontManager {
         self.font_data.iter().map(|(name, _, _)| name.clone()).collect()
     }
 }
+
+pub const CANONICAL_FONT_NAMES: &[&str] = &[
+    "Actor", "Aladin", "Aleo", "Amiko", "Ballet", "Basic", "Bungee", "Caramel",
+    "Cherish", "Coda", "David Libre", "Dorsa", "Duru Sans", "Dynalight", "Eater",
+    "Epilogue", "Exo", "Explora", "Federo", "Figtree", "Flavors", "Galada",
+    "Gantari", "Geo", "Glory", "HappyMonkey", "HennyPenny", "Iceberg", "Inika",
+    "InriaSans", "Jaro", "Kavoon", "Khula", "Kokoro", "Lemon", "Lexend",
+    "Macondo", "Maitree", "Martel", "Maven Pro", "Neuton", "News Cycle",
+    "Nixie One", "Overlock", "Oxygen", "Play", "Quicksand", "Radley",
+    "Rethink Sans", "Rosario", "Sacramento", "Salsa", "Scope One", "Teachers",
+    "Underdog", "Vibes", "Vina Sans", "Water Brush", "Wind Song", "Zain",
+];
+
+pub fn canonical_name(name: &str) -> Option<&'static str> {
+    let clean_name = name.replace(' ', "");
+    CANONICAL_FONT_NAMES.iter().copied().find(|n| {
+        n.eq_ignore_ascii_case(name) || n.replace(' ', "").eq_ignore_ascii_case(&clean_name)
+    })
+}

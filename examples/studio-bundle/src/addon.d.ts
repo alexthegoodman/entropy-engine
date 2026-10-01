@@ -531,6 +531,7 @@ export interface ScopedAPI {
   Icons: IconsAPI;
   System: SystemAPI;
   Clipboard: ClipboardAPI;
+  Terminal: TerminalAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -638,6 +639,8 @@ export interface ScopedAPI {
       water: (windowId: string, config: WaterViewConfig) => void;
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
+      /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */
+      terminal: (windowId: string, config: TerminalViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -1436,6 +1439,51 @@ interface ClipboardAPI {
   readText: () => string;
   /** False when the clipboard could not be set. */
   writeText: (text: string) => boolean;
+}
+
+export interface TerminalLine {
+  id: number;
+  kind: "command" | "stdout" | "stderr" | "system" | "success" | "error" | string;
+  text: string;
+  timestamp: string;
+}
+
+export interface TerminalStatus {
+  isRunning: boolean;
+  exitCode: number | null;
+  cwd: string;
+  pid: number | null;
+  lines: TerminalLine[];
+}
+
+export interface TerminalViewConfig {
+  id?: string;
+  lines: TerminalLine[];
+  isRunning?: boolean;
+  fontFamily?: string;
+  fontSize?: number;
+  theme?: "neon" | "obsidian" | "violet" | "amber" | string;
+  height?: number;
+  autoScroll?: boolean;
+}
+
+export interface TerminalAPI {
+  /** Execute an OS command in the background for a session (default "main"). Returns process PID. */
+  execute: (command: string, options?: { sessionId?: string; cwd?: string; shell?: "powershell" | "cmd" | "sh" | string }) => number;
+  /** Poll the status and accumulated output lines of a terminal session. */
+  poll: (sessionId?: string) => TerminalStatus;
+  /** Terminate the running background command tree in a session. */
+  kill: (sessionId?: string) => void;
+  /** Send standard input to the running process in a session. */
+  writeInput: (input: string, sessionId?: string) => void;
+  /** Clear the line history of a terminal session. */
+  clear: (sessionId?: string) => void;
+  /** Get the current working directory of a terminal session. */
+  getCwd: (sessionId?: string) => string;
+  /** Set the working directory of a terminal session. */
+  setCwd: (newCwd: string, sessionId?: string) => string;
+  /** List all ~60 available font family names in the engine's font catalog. */
+  listFonts: () => string[];
 }
 
 /** One audio input device, from `Guitar.listInputs`. */
@@ -3404,6 +3452,8 @@ export interface EntropyAPI {
       water: (windowId: string, config: WaterViewConfig) => void;
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
+      /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */
+      terminal: (windowId: string, config: TerminalViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -3806,6 +3856,7 @@ export interface EntropyAPI {
   Icons: IconsAPI;
   System: SystemAPI;
   Clipboard: ClipboardAPI;
+  Terminal: TerminalAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

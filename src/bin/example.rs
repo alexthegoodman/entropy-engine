@@ -160,6 +160,12 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/stylus_drawing.js")
                 .with_title("Stylus Drawing")
                 .with_window_size(1280.0, 800.0),
+            Some("terminal") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/terminal.js")
+                .with_hot_reload(true)
+                .with_title("Entropy Terminal")
+                .with_window_size(1200.0, 780.0)
+                .with_data_dir(env::var("ENTROPY_TERMINAL_BDD_DATA").unwrap_or_else(|_| "../terminal-data".to_string())),
             Some("theme-gallery") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/theme_gallery.js")
                 .with_hot_reload(true)

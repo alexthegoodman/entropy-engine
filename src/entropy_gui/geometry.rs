@@ -285,6 +285,17 @@ impl Margin {
 pub enum FontFamily {
     Proportional,
     Monospace,
+    Named(&'static str),
+}
+
+impl FontFamily {
+    pub fn named(name: &str) -> Self {
+        if let Some(canon) = crate::renderer_text::fonts::canonical_name(name) {
+            FontFamily::Named(canon)
+        } else {
+            FontFamily::Named(Box::leak(name.to_string().into_boxed_str()))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -299,6 +310,9 @@ impl FontId {
     }
     pub fn monospace(size: f32) -> Self {
         Self { size, family: FontFamily::Monospace }
+    }
+    pub fn named(name: &str, size: f32) -> Self {
+        Self { size, family: FontFamily::named(name) }
     }
 }
 
