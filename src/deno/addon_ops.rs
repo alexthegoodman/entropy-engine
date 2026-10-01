@@ -723,6 +723,32 @@ pub struct Chart3dViewConfig {
     pub show_toolbar: Option<bool>,
 }
 
+/// `Widget.heatmap` - see `entropy_gui::HeatmapView`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapViewConfig {
+    pub rows: usize,
+    pub cols: usize,
+    pub data: Vec<f32>,
+    pub colormap: Option<String>,
+    pub title: Option<String>,
+    pub row_labels: Option<Vec<String>>,
+    pub col_labels: Option<Vec<String>>,
+    pub min_value: Option<f32>,
+    pub max_value: Option<f32>,
+    pub show_values: Option<bool>,
+    pub value_precision: Option<usize>,
+    pub show_colorbar: Option<bool>,
+    pub show_toolbar: Option<bool>,
+    pub show_labels: Option<bool>,
+    pub cell_gap: Option<f32>,
+    pub cell_radius: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub selected_row: Option<usize>,
+    pub selected_col: Option<usize>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OscilloscopeConfig {
@@ -1064,6 +1090,7 @@ pub enum UiWidget {
     MatterView { id: String, config: MatterViewConfig },
     WaterView { id: String, config: WaterViewConfig },
     Chart3dView { id: String, config: Chart3dViewConfig },
+    HeatmapView { id: String, config: HeatmapViewConfig },
     Terminal { id: String, config: crate::deno::terminal_ops::TerminalWidgetConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
@@ -4821,6 +4848,18 @@ pub fn op_ui_widget_chart3d(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Chart3dView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_heatmap(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: HeatmapViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::HeatmapView { id, config });
     }
 }
 

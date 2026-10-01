@@ -36,6 +36,7 @@ import {
     applyChartBorders,
     createSampleSheet,
     extractChart3dData,
+    extractHeatmapData,
     parseRangeA1,
 } from "./sheet_model";
 
@@ -63,7 +64,7 @@ let clipboard: SheetClipboard | null = null;
 let undoStack: SheetDoc[] = [];
 let redoStack: SheetDoc[] = [];
 let showChart = false;
-let chartType: "surface" | "bar" | "ribbon" = "surface";
+let chartType: "surface" | "bar" | "ribbon" | "heatmap" = "surface";
 let chartOrientation: "rows" | "cols" = "rows";
 let chartFirstRowHeaders = true;
 let chartFirstColHeaders = true;
@@ -349,6 +350,11 @@ function renderUI(win: string) {
                 onClick: () => { chartType = "ribbon"; },
             });
             Entropy.UI.Widget.button(row, {
+                id: "c3d_heatmap",
+                text: chartType === "heatmap" ? "[Heatmap]" : "Heatmap",
+                onClick: () => { chartType = "heatmap"; },
+            });
+            Entropy.UI.Widget.button(row, {
                 id: "c3d_orientation",
                 text: chartOrientation === "rows" ? "Rows = Series" : "Cols = Series",
                 onClick: () => { chartOrientation = chartOrientation === "rows" ? "cols" : "rows"; },
@@ -380,20 +386,44 @@ function renderUI(win: string) {
             });
         });
 
-        Entropy.UI.Widget.chart3d(win, {
-            id: "sheet_3d_chart",
-            chartType,
-            series: chartData.series,
-            xLabels: chartData.xLabels,
-            title: `3D Chart - ${activeRangeLabel}`,
-            height: 320,
-            onChartType: (t) => {
-                const lower = t.toLowerCase();
-                if (lower === "surface" || lower === "bar" || lower === "ribbon") {
-                    chartType = lower as any;
-                }
-            },
-        });
+        if (chartType === "heatmap") {
+            const heatmapData = extractHeatmapData(doc, evaluated, activeChartRange, {
+                firstRowHeaders: chartFirstRowHeaders,
+                firstColHeaders: chartFirstColHeaders,
+            });
+            Entropy.UI.Widget.heatmap(win, {
+                id: "sheet_heatmap",
+                rows: heatmapData.rows,
+                cols: heatmapData.cols,
+                data: heatmapData.data,
+                rowLabels: heatmapData.rowLabels,
+                colLabels: heatmapData.colLabels,
+                title: `Heatmap - ${activeRangeLabel}`,
+                height: 320,
+                onCellClick: (row, col) => {
+                    const r0 = Math.min(activeChartRange.start.row, activeChartRange.end.row);
+                    const c0 = Math.min(activeChartRange.start.col, activeChartRange.end.col);
+                    const targetR = r0 + (chartFirstRowHeaders ? 1 : 0) + row;
+                    const targetC = c0 + (chartFirstColHeaders ? 1 : 0) + col;
+                    selectCell(targetR, targetC);
+                },
+            });
+        } else {
+            Entropy.UI.Widget.chart3d(win, {
+                id: "sheet_3d_chart",
+                chartType,
+                series: chartData.series,
+                xLabels: chartData.xLabels,
+                title: `3D Chart - ${activeRangeLabel}`,
+                height: 320,
+                onChartType: (t) => {
+                    const lower = t.toLowerCase();
+                    if (lower === "surface" || lower === "bar" || lower === "ribbon") {
+                        chartType = lower as any;
+                    }
+                },
+            });
+        }
 
         Entropy.UI.Widget.separator(win);
     }

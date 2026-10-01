@@ -639,6 +639,8 @@ export interface ScopedAPI {
       water: (windowId: string, config: WaterViewConfig) => void;
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
+      /** A 2D matrix heatmap widget with multiple colormaps (Turbo, Magma, Viridis, Phosphor, Warm, Cool), cell hover inspection, cell selection, and colorbar. */
+      heatmap: (windowId: string, config: HeatmapConfig) => void;
       /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */
       terminal: (windowId: string, config: TerminalViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
@@ -2894,6 +2896,33 @@ export interface Chart3dConfig {
   onChartType?: (chartType: string) => void;
 }
 
+export interface HeatmapConfig {
+  id?: string;
+  rows: number;
+  cols: number;
+  data: number[];
+  colormap?: "turbo" | "magma" | "viridis" | "phosphor" | "warm" | "cool";
+  title?: string;
+  rowLabels?: string[];
+  colLabels?: string[];
+  minValue?: number;
+  maxValue?: number;
+  showValues?: boolean;
+  valuePrecision?: number;
+  showColorbar?: boolean;
+  showToolbar?: boolean;
+  showLabels?: boolean;
+  cellGap?: number;
+  cellRadius?: number;
+  width?: number;
+  height?: number;
+  selectedRow?: number;
+  selectedCol?: number;
+  onCellClick?: (row: number, col: number, value: number) => void;
+  onCellHover?: (row: number, col: number, value: number) => void;
+  onColorMap?: (colormap: string) => void;
+}
+
 export interface WaterViewConfig {
   id?: string;
   /** The water to show: a water track's id (`Audio.playWaterOnTrack` publishes to it). */
@@ -3474,6 +3503,8 @@ export interface EntropyAPI {
       water: (windowId: string, config: WaterViewConfig) => void;
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
+      /** A 2D matrix heatmap widget with multiple colormaps (Turbo, Magma, Viridis, Phosphor, Warm, Cool), cell hover inspection, cell selection, and colorbar. */
+      heatmap: (windowId: string, config: HeatmapConfig) => void;
       /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */
       terminal: (windowId: string, config: TerminalViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */

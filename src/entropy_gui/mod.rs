@@ -50,6 +50,7 @@ pub mod widgets_tree;
 pub mod widgets_wavetable;
 pub mod widgets_reverb_eq;
 pub mod widgets_chart3d;
+pub mod widgets_heatmap;
 pub mod widgets_terminal;
 
 pub use color::{Color32, Shadow, Stroke};
@@ -101,6 +102,10 @@ pub use widgets_piano::{PianoCamera, PianoEvent, PianoOptions, PianoResponse, Pi
 pub use widgets_chart3d::{
     Chart3dCamera, Chart3dEvent, Chart3dHover, Chart3dOptions, Chart3dProjector, Chart3dResponse,
     Chart3dSeries, Chart3dType, Chart3dView,
+};
+pub use widgets_heatmap::{
+    format_value, text_color_for_bg, HeatmapColorMap, HeatmapEvent, HeatmapHover, HeatmapOptions,
+    HeatmapResponse, HeatmapView,
 };
 pub use widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
 

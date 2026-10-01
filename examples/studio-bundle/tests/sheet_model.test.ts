@@ -27,6 +27,7 @@ import {
     applyChartBorders,
     createSampleSheet,
     extractChart3dData,
+    extractHeatmapData,
     parseRangeA1,
 } from "../src/apps/sheet/sheet_model";
 
@@ -990,6 +991,32 @@ describe("Chart3D range extraction and styling", () => {
         expect(withBorders.cells[cellKey(1, 1)]?.border).toBeDefined();
         expect(withBorders.cells[cellKey(2, 1)]?.border).toBeDefined();
         expect(withBorders.cells[cellKey(1, 1)]?.border).not.toEqual(withBorders.cells[cellKey(2, 1)]?.border);
+    });
+
+    it("extractHeatmapData extracts 2D matrix data and labels", () => {
+        let doc = defaultSheet(4, 4);
+        doc.cells[cellKey(0, 0)] = { raw: "Label" };
+        doc.cells[cellKey(0, 1)] = { raw: "ColA" };
+        doc.cells[cellKey(0, 2)] = { raw: "ColB" };
+        doc.cells[cellKey(1, 0)] = { raw: "Row1" };
+        doc.cells[cellKey(1, 1)] = { raw: "12" };
+        doc.cells[cellKey(1, 2)] = { raw: "34" };
+        doc.cells[cellKey(2, 0)] = { raw: "Row2" };
+        doc.cells[cellKey(2, 1)] = { raw: "56" };
+        doc.cells[cellKey(2, 2)] = { raw: "78" };
+
+        const evaluated = evaluateSheet(doc);
+        const range = { start: { row: 0, col: 0 }, end: { row: 2, col: 2 } };
+        const heatmap = extractHeatmapData(doc, evaluated, range, {
+            firstRowHeaders: true,
+            firstColHeaders: true,
+        });
+
+        expect(heatmap.rows).toBe(2);
+        expect(heatmap.cols).toBe(2);
+        expect(heatmap.rowLabels).toEqual(["Row1", "Row2"]);
+        expect(heatmap.colLabels).toEqual(["ColA", "ColB"]);
+        expect(heatmap.data).toEqual([12, 34, 56, 78]);
     });
 });
 

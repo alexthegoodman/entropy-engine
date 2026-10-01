@@ -108,7 +108,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_ui_widget_heatmap, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -327,6 +327,7 @@ extension!(
         op_ui_widget_matter,
         op_ui_widget_water,
         op_ui_widget_chart3d,
+        op_ui_widget_heatmap,
         op_terminal_execute,
         op_terminal_poll,
         op_terminal_kill,
@@ -5854,6 +5855,48 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             Chart3dEvent::Hovered { series, x_idx, value } => {
                                 events_to_push.push(format!("CHART3D_HOVER|{}|{}|{}|{:.4}", c3d_id, series, x_idx, value));
+                            }
+                        }
+                    }
+                }
+                UiWidget::HeatmapView { id: hm_id, config } => {
+                    use crate::entropy_gui::{HeatmapColorMap, HeatmapEvent, HeatmapOptions, HeatmapView};
+                    let colormap = config.colormap.as_deref().and_then(HeatmapColorMap::from_name).unwrap_or_default();
+                    let d = HeatmapOptions::default();
+                    let selected_cell = match (config.selected_row, config.selected_col) {
+                        (Some(r), Some(c)) => Some((r, c)),
+                        _ => None,
+                    };
+                    let opts = HeatmapOptions {
+                        colormap,
+                        min_value: config.min_value,
+                        max_value: config.max_value,
+                        show_values: config.show_values.unwrap_or(d.show_values),
+                        value_precision: config.value_precision.unwrap_or(d.value_precision),
+                        show_colorbar: config.show_colorbar.unwrap_or(d.show_colorbar),
+                        show_labels: config.show_labels.unwrap_or(d.show_labels),
+                        show_toolbar: config.show_toolbar.unwrap_or(d.show_toolbar),
+                        row_labels: config.row_labels.clone().unwrap_or_default(),
+                        col_labels: config.col_labels.clone().unwrap_or_default(),
+                        title: config.title.clone(),
+                        cell_gap: config.cell_gap.unwrap_or(d.cell_gap),
+                        cell_radius: config.cell_radius.unwrap_or(d.cell_radius),
+                        width: config.width,
+                        height: config.height,
+                        selected_cell,
+                    };
+
+                    let resp = HeatmapView::new(hm_id.as_str()).options(opts).show(ui, config.rows, config.cols, &config.data);
+                    for event in resp.events {
+                        match event {
+                            HeatmapEvent::CellClicked { row, col, value } => {
+                                events_to_push.push(format!("HEATMAP_CELL_CLICK|{}|{}|{}|{:.4}", hm_id, row, col, value));
+                            }
+                            HeatmapEvent::CellHovered { row, col, value } => {
+                                events_to_push.push(format!("HEATMAP_CELL_HOVER|{}|{}|{}|{:.4}", hm_id, row, col, value));
+                            }
+                            HeatmapEvent::ColorMapChanged(cm) => {
+                                events_to_push.push(format!("HEATMAP_COLORMAP|{}|{}", hm_id, cm.name()));
                             }
                         }
                     }

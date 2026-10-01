@@ -1539,6 +1539,76 @@ export function extractChart3dData(
     return { series, xLabels };
 }
 
+export interface HeatmapExtractedData {
+    rows: number;
+    cols: number;
+    data: number[];
+    rowLabels: string[];
+    colLabels: string[];
+}
+
+export function extractHeatmapData(
+    doc: SheetDoc,
+    evaluated: Map<string, CellValue>,
+    range: SheetRange,
+    options?: { firstRowHeaders?: boolean; firstColHeaders?: boolean }
+): HeatmapExtractedData {
+    const r0 = Math.min(range.start.row, range.end.row);
+    const r1 = Math.max(range.start.row, range.end.row);
+    const c0 = Math.min(range.start.col, range.end.col);
+    const c1 = Math.max(range.start.col, range.end.col);
+
+    const hasRowHeaders = (options?.firstRowHeaders ?? false) && r1 > r0;
+    const hasColHeaders = (options?.firstColHeaders ?? false) && c1 > c0;
+
+    const getCellNumber = (row: number, col: number): number => {
+        const key = cellKey(row, col);
+        const evalCell = evaluated.get(key);
+        if (evalCell && evalCell.numeric && !evalCell.error) {
+            const cleaned = evalCell.text.replace(/[^0-9.-]/g, "");
+            const n = parseFloat(cleaned);
+            if (!Number.isNaN(n)) return n;
+        }
+        const raw = doc.cells[key]?.raw;
+        if (raw !== undefined) {
+            const n = Number(raw);
+            if (!Number.isNaN(n)) return n;
+        }
+        return 0;
+    };
+
+    const getCellText = (row: number, col: number, fallback: string): string => {
+        const key = cellKey(row, col);
+        const evalCell = evaluated.get(key);
+        if (evalCell && evalCell.text.trim()) return evalCell.text.trim();
+        const raw = doc.cells[key]?.raw;
+        if (raw && raw.trim()) return raw.trim();
+        return fallback;
+    };
+
+    const dataR0 = hasRowHeaders ? r0 + 1 : r0;
+    const dataC0 = hasColHeaders ? c0 + 1 : c0;
+
+    const colLabels: string[] = [];
+    for (let c = dataC0; c <= c1; c++) {
+        colLabels.push(hasRowHeaders ? getCellText(r0, c, colLetters(c)) : colLetters(c));
+    }
+
+    const rowLabels: string[] = [];
+    const data: number[] = [];
+    const rows = r1 - dataR0 + 1;
+    const cols = c1 - dataC0 + 1;
+
+    for (let r = dataR0; r <= r1; r++) {
+        rowLabels.push(hasColHeaders ? getCellText(r, c0, `Row ${r + 1}`) : `Row ${r + 1}`);
+        for (let c = dataC0; c <= c1; c++) {
+            data.push(getCellNumber(r, c));
+        }
+    }
+
+    return { rows, cols, data, rowLabels, colLabels };
+}
+
 /** Applies matching 3D chart palette border colors to each series in the spreadsheet range. */
 export function applyChartBorders(
     doc: SheetDoc,

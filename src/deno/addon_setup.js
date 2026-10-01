@@ -1898,6 +1898,25 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // 2D matrix heatmap widget with multiple colormaps, cell hover tooltips, cell click selection events, and colorbar (see entropy_gui::HeatmapView).
+            heatmap: (windowId, config) => {
+                const id = nextWidgetId(windowId, "heatmap", config?.id);
+                ops.op_ui_widget_heatmap(windowId, { ...(config || {}) }, id);
+
+                if (config?.onCellClick || config?.onCellHover || config?.onColorMap) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "HEATMAP_CELL_CLICK" && config.onCellClick) {
+                            config.onCellClick(parseInt(parts[2], 10), parseInt(parts[3], 10), parseFloat(parts[4]));
+                        } else if (type === "HEATMAP_CELL_HOVER" && config.onCellHover) {
+                            config.onCellHover(parseInt(parts[2], 10), parseInt(parts[3], 10), parseFloat(parts[4]));
+                        } else if (type === "HEATMAP_COLORMAP" && config.onColorMap) {
+                            config.onColorMap(parts[2]);
+                        }
+                    });
+                }
+            },
             // High-performance virtualized Terminal widget supporting ~60 catalog fonts,
             // color-coded output, timestamps, and background execution status.
             terminal: (windowId, config) => {
