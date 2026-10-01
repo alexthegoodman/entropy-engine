@@ -765,6 +765,26 @@ pub struct SpectrumConfig {
     pub width: Option<f32>,
 }
 
+/// `Widget.spectrogram` - see `entropy_gui::SpectrogramView`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectrogramConfig {
+    pub source: String,
+    /// 1024, 2048, 4096 (default) or 8192.
+    pub fft_size: Option<u32>,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    pub min_db: Option<f32>,
+    pub max_db: Option<f32>,
+    pub min_hz: Option<f32>,
+    pub max_hz: Option<f32>,
+    pub history_size: Option<usize>,
+    pub tilt_db_per_octave: Option<f32>,
+    /// "turbo" (default), "magma", "phosphor" or "fire".
+    pub color_map: Option<String>,
+    pub color: Option<[f32; 4]>,
+}
+
 /// The reverb half of `Widget.reverbEq`: what the track's reverb effect is set to.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -941,6 +961,7 @@ pub enum UiWidget {
     /// drawn, so no samples ever cross into JS.
     Oscilloscope { id: String, config: OscilloscopeConfig },
     Spectrum { id: String, config: SpectrumConfig },
+    Spectrogram { id: String, config: SpectrogramConfig },
     LevelMeter { id: String, config: LevelMeterConfig },
     /// A live preview of a music-video visualizer style (`crate::music_video`).
     MusicVisualizer { id: String, config: crate::deno::music_video_ops::MusicVisualizerConfig },
@@ -4640,6 +4661,18 @@ pub fn op_ui_widget_spectrum(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Spectrum { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_spectrogram(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: SpectrogramConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Spectrogram { id, config });
     }
 }
 

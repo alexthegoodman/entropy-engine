@@ -645,6 +645,8 @@ export interface ScopedAPI {
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
       spectrum: (windowId: string, config: SpectrumConfig) => void;
+      /** A scrolling audio spectrogram / waterfall widget over `source`, with log-frequency axis, multi-palette colormaps, and hover inspection. */
+      spectrogram: (windowId: string, config: SpectrogramConfig) => void;
       /** A stereo peak/RMS meter with peak hold and a click-to-clear clip latch. */
       levelMeter: (windowId: string, config: LevelMeterConfig) => void;
       /** A live preview of a music-video visualizer (`Video.exportMusicVideo`'s renderer) fed by
@@ -3019,6 +3021,26 @@ export interface SpectrumConfig {
   color?: [number, number, number, number];
   /** Fixed width in points; omit to fill the row. */
   width?: number;
+}
+
+/** Config for `Widget.spectrogram`. */
+export interface SpectrogramConfig {
+  id?: string;
+  source?: string;
+  /** 1024, 2048, 4096 (default) or 8192. */
+  fftSize?: number;
+  height?: number;
+  width?: number;
+  minDb?: number;
+  maxDb?: number;
+  minHz?: number;
+  maxHz?: number;
+  historySize?: number;
+  /** Display tilt about 1 kHz; 4.5 makes pink noise look flat, 0 (default) is honest. */
+  tiltDbPerOctave?: number;
+  /** "turbo" (default), "magma", "phosphor" or "fire". */
+  colorMap?: "turbo" | "magma" | "phosphor" | "fire";
+  color?: [number, number, number, number];
 }
 
 /** Config for `Widget.levelMeter`. */

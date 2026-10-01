@@ -141,3 +141,43 @@ Feature: The analyzer widgets draw what the signal actually is
     When I click the meter
     Then no channel is latched as clipped
     And I save the picture "meter-clip-cleared"
+
+  Scenario Outline: The spectrogram draws a tone at its own frequency on a logarithmic axis
+    Given a spectrogram view 720 px wide
+    When I show a <hz> Hz sine at -6 dBFS for 40 frames
+    Then the brightest column of the spectrogram is at <hz> Hz within 4 px
+    And I save the picture "spectrogram-<hz>hz"
+
+    Examples:
+      | hz   |
+      | 60   |
+      | 440  |
+      | 1000 |
+      | 9000 |
+
+  Scenario: The spectrogram captures both ends of the axis simultaneously
+    Given a spectrogram view 720 px wide
+    When I show a 60 Hz sine and a 9000 Hz sine at -12 dBFS for 40 frames
+    Then the spectrogram has two separate bright peaks, at 60 Hz and at 9000 Hz, each within 6 px
+    And I save the picture "spectrogram-two-tones"
+
+  Scenario: The spectrogram shows a scrolling history moving downward
+    Given a spectrogram view 720 px wide
+    When I show a 1000 Hz sine at -6 dBFS for 25 frames
+    And I show silence for 15 frames
+    Then the spectrogram older history has a peak at 1000 Hz while the newest rows are quiet
+    And I save the picture "spectrogram-history-scroll"
+
+  Scenario: Hovering over the spectrogram reports the frequency, level and time
+    Given a spectrogram view 720 px wide
+    When I show a 440 Hz sine at -6 dBFS for 40 frames
+    And I hover the pointer over 440 Hz on the spectrogram
+    Then the spectrogram readout is within 2 percent of 440 Hz
+    And the spectrogram readout level is within 5 dB of -6 dBFS
+    And I save the picture "spectrogram-hover"
+
+  Scenario: The spectrogram supports alternative colormaps
+    Given a spectrogram view 720 px wide with "phosphor" color map
+    When I show a 1000 Hz sine at -6 dBFS for 30 frames
+    Then the brightest column of the spectrogram is at 1000 Hz within 3 px
+    And I save the picture "spectrogram-phosphor"

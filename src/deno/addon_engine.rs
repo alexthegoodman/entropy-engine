@@ -126,7 +126,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_spectrogram, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -338,6 +338,7 @@ extension!(
         op_ui_widget_terminal,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
+        op_ui_widget_spectrogram,
         op_ui_widget_level_meter,
         op_audio_analyze,
         op_ui_widget_collapsing_header,
@@ -5943,6 +5944,35 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         ..d
                     };
                     SpectrumView::new(spectrum_id.as_str()).options(opts).show(ui, &bins, sr);
+                }
+                UiWidget::Spectrogram { id: spectrogram_id, config } => {
+                    use crate::entropy_gui::{SpectrogramColorMap, SpectrogramOptions, SpectrogramView};
+                    let fft = config.fft_size.unwrap_or(4096) as usize;
+                    let (bins, sr) = context
+                        .audio_engine
+                        .spectrum(&config.source, fft)
+                        .map(|s| (s.bins_db, s.sample_rate))
+                        .unwrap_or_else(|| (Vec::new(), crate::audio::analysis::ENGINE_SAMPLE_RATE as f32));
+                    let d = SpectrogramOptions::default();
+                    let color_map = match config.color_map.as_deref() {
+                        Some("magma") => SpectrogramColorMap::Magma,
+                        Some("phosphor") => SpectrogramColorMap::Phosphor,
+                        Some("fire") => SpectrogramColorMap::Fire,
+                        _ => SpectrogramColorMap::Turbo,
+                    };
+                    let opts = SpectrogramOptions {
+                        height: config.height.unwrap_or(d.height),
+                        width: config.width,
+                        min_db: config.min_db.unwrap_or(d.min_db),
+                        max_db: config.max_db.unwrap_or(d.max_db),
+                        min_hz: config.min_hz.unwrap_or(d.min_hz),
+                        max_hz: config.max_hz.unwrap_or(d.max_hz),
+                        history_size: config.history_size.unwrap_or(d.history_size),
+                        tilt_db_per_octave: config.tilt_db_per_octave.unwrap_or(d.tilt_db_per_octave),
+                        color_map,
+                        color: config.color.map(analysis_color),
+                    };
+                    SpectrogramView::new(spectrogram_id.as_str()).options(opts).show(ui, &bins, sr);
                 }
                 UiWidget::MusicVisualizer { id: viz_id, config } => {
                     crate::deno::music_video_ops::draw_preview(ui, viz_id, config, context, egui_renderer);

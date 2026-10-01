@@ -4122,7 +4122,7 @@ const analyzer = {
     /** "master" or a track id; both are names the audio engine's analysis taps answer to. */
     source: "master" as string,
     fftSize: 4096,
-    style: "filled" as "filled" | "bars",
+    style: "filled" as "filled" | "bars" | "waterfall",
     scope: "stereo" as "stereo" | "mono" | "xy",
     trigger: true
 };
@@ -5874,9 +5874,9 @@ addon.onInit(async () => {
             Entropy.UI.Widget.dropdown(row, {
                 label: "Style",
                 id: "analyzer_style",
-                options: ["Filled", "Bars"],
-                selectedIndex: analyzer.style === "bars" ? 1 : 0,
-                onChange: (idx: string) => { analyzer.style = idx === "1" ? "bars" : "filled"; }
+                options: ["Filled", "Bars", "Waterfall"],
+                selectedIndex: analyzer.style === "waterfall" ? 2 : analyzer.style === "bars" ? 1 : 0,
+                onChange: (idx: string) => { analyzer.style = idx === "2" ? "waterfall" : idx === "1" ? "bars" : "filled"; }
             });
             Entropy.UI.Widget.dropdown(row, {
                 label: "Scope",
@@ -5893,10 +5893,17 @@ addon.onInit(async () => {
         });
 
         Entropy.UI.Widget.horizontal(win, (row: string) => {
-            Entropy.UI.Widget.spectrum(row, {
-                id: "analyzer_spectrum", source: analyzer.source, fftSize: analyzer.fftSize,
-                style: analyzer.style, height: 200, width: 380, color
-            });
+            if (analyzer.style === "waterfall") {
+                Entropy.UI.Widget.spectrogram(row, {
+                    id: "analyzer_spectrogram", source: analyzer.source, fftSize: analyzer.fftSize,
+                    height: 200, width: 380, color
+                });
+            } else {
+                Entropy.UI.Widget.spectrum(row, {
+                    id: "analyzer_spectrum", source: analyzer.source, fftSize: analyzer.fftSize,
+                    style: analyzer.style, height: 200, width: 380, color
+                });
+            }
             Entropy.UI.Widget.oscilloscope(row, {
                 id: "analyzer_scope", source: analyzer.source, mode: analyzer.scope,
                 trigger: analyzer.trigger, height: 200, width: 220, color,

@@ -1674,6 +1674,10 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "spectrum", config?.id);
                 ops.op_ui_widget_spectrum(windowId, { source: "master", ...(config || {}) }, id);
             },
+            spectrogram: (windowId, config) => {
+                const id = nextWidgetId(windowId, "spectrogram", config?.id);
+                ops.op_ui_widget_spectrogram(windowId, { source: "master", ...(config || {}) }, id);
+            },
             levelMeter: (windowId, config) => {
                 const id = nextWidgetId(windowId, "levelmeter", config?.id);
                 ops.op_ui_widget_level_meter(windowId, { source: "master", ...(config || {}) }, id);

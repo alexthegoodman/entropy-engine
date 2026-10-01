@@ -18,7 +18,8 @@ use entropy_engine::entropy_gui::geometry::{pos2, vec2, Rect};
 use entropy_engine::entropy_gui::widgets_analysis::{db_to_frac, frac_to_hz, hz_to_frac, note_name};
 use entropy_engine::entropy_gui::{
     CentralPanel, Context, LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, RawInput, ScopeMode, ScopeOptions,
-    ScopeResponse, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView,
+    ScopeResponse, SpectrogramColorMap, SpectrogramOptions, SpectrogramResponse, SpectrogramView, SpectrumOptions,
+    SpectrumResponse, SpectrumStyle, SpectrumView,
 };
 use image::RgbaImage;
 
@@ -203,6 +204,7 @@ enum Kind {
     Spectrum,
     Scope,
     Meter,
+    Spectrogram,
 }
 
 #[derive(cucumber::World)]
@@ -212,12 +214,14 @@ struct WidgetWorld {
     spectrum: SpectrumOptions,
     scope: ScopeOptions,
     meter: MeterOptions,
+    spectrogram: SpectrogramOptions,
     analyzer: SpectrumAnalyzer,
     last_bins: Vec<f32>,
     pointer: PointerState,
     spec_resp: Option<SpectrumResponse>,
     scope_resp: Option<ScopeResponse>,
     meter_resp: Option<MeterResponse>,
+    spectrogram_resp: Option<SpectrogramResponse>,
     pending: Vec<DrawCommand>,
     image: Option<RgbaImage>,
     /// One trace (centre row per column, NaN where no trace) per frame of a steadiness scenario.
@@ -227,7 +231,6 @@ struct WidgetWorld {
     /// Whether any frame of the last click reported the meter as cleared (`clicked` is true on
     /// the frame the button goes down, not the frame it comes up).
     cleared_seen: bool,
-    phase: f32,
 }
 
 impl std::fmt::Debug for WidgetWorld {
@@ -244,18 +247,19 @@ impl Default for WidgetWorld {
             spectrum: SpectrumOptions { height: 240.0, ..Default::default() },
             scope: ScopeOptions::default(),
             meter: MeterOptions::default(),
+            spectrogram: SpectrogramOptions { height: 240.0, ..Default::default() },
             analyzer: SpectrumAnalyzer::new(),
             last_bins: Vec::new(),
             pointer: PointerState::default(),
             spec_resp: None,
             scope_resp: None,
             meter_resp: None,
+            spectrogram_resp: None,
             pending: Vec::new(),
             image: None,
             traces: Vec::new(),
             reading: MeterReading::default(),
             cleared_seen: false,
-            phase: 0.0,
         }
     }
 }
@@ -275,6 +279,16 @@ impl WidgetWorld {
         let cmds = self.h.run(ptr, |ui| resp = Some(SpectrumView::new("spectrum").options(opts).show(ui, &bins, SR)));
         self.pending = cmds;
         self.spec_resp = resp;
+        self.last_bins = bins;
+        self.image = None;
+    }
+
+    fn frame_spectrogram(&mut self, bins: Vec<f32>) {
+        let (opts, ptr) = (self.spectrogram.clone(), self.pointer);
+        let mut resp = None;
+        let cmds = self.h.run(ptr, |ui| resp = Some(SpectrogramView::new("spectrogram").options(opts).show(ui, &bins, SR)));
+        self.pending = cmds;
+        self.spectrogram_resp = resp;
         self.last_bins = bins;
         self.image = None;
     }
@@ -333,6 +347,17 @@ impl WidgetWorld {
                     LevelMeter::new("meter").options(opts).show(ui, MeterReading::default());
                 })
             }
+            Kind::Spectrogram => {
+                let opts = self.spectrogram.clone();
+                let bins = vec![-120.0f32; 2049];
+                let mut c = Vec::new();
+                for _ in 0..3 {
+                    c = h.run(PointerState::default(), |ui| {
+                        SpectrogramView::new("spectrogram").options(opts.clone()).show(ui, &bins, SR);
+                    });
+                }
+                c
+            }
         };
         h.render(&cmds)
     }
@@ -374,7 +399,11 @@ fn feed_spectrum(world: &mut WidgetWorld, signal: impl Fn(usize) -> Vec<f32>, fr
     for f in 0..frames {
         let s = signal(f);
         let spec = world.analyzer.analyze(&s, &s, 4096, SR);
-        world.frame_spectrum(spec.bins_db);
+        match world.kind {
+            Kind::Spectrum => world.frame_spectrum(spec.bins_db),
+            Kind::Spectrogram => world.frame_spectrogram(spec.bins_db),
+            _ => {}
+        }
     }
 }
 
@@ -396,6 +425,7 @@ fn show_two_sines(world: &mut WidgetWorld, a: u32, b: u32, db: i32, frames: usiz
 fn show_silence(world: &mut WidgetWorld, frames: usize) {
     match world.kind {
         Kind::Spectrum => feed_spectrum(world, |_| vec![0.0; 4096], frames),
+        Kind::Spectrogram => feed_spectrum(world, |_| vec![0.0; 4096], frames),
         Kind::Scope => {
             for _ in 0..frames {
                 world.frame_scope(&vec![0.0; 2048], &vec![0.0; 2048]);
@@ -902,4 +932,136 @@ fn none_clipped(world: &mut WidgetWorld) {
 
 fn main() {
     futures::executor::block_on(WidgetWorld::cucumber().max_concurrent_scenarios(1).fail_on_skipped().run_and_exit("tests/features/audio_widgets.feature"));
+}
+
+// ------------------------------------------------------------------------------------------
+// Spectrogram steps
+// ------------------------------------------------------------------------------------------
+
+#[given(expr = "a spectrogram view {int} px wide")]
+fn spectrogram_view(world: &mut WidgetWorld, width: usize) {
+    world.kind = Kind::Spectrogram;
+    world.h = Harness::new(width + 40, 270);
+}
+
+#[given(expr = "a spectrogram view {int} px wide with {string} color map")]
+fn spectrogram_view_colormap(world: &mut WidgetWorld, width: usize, map: String) {
+    world.kind = Kind::Spectrogram;
+    world.h = Harness::new(width + 40, 270);
+    world.spectrogram.color_map = match map.to_lowercase().as_str() {
+        "magma" => SpectrogramColorMap::Magma,
+        "phosphor" => SpectrogramColorMap::Phosphor,
+        "fire" => SpectrogramColorMap::Fire,
+        _ => SpectrogramColorMap::Turbo,
+    };
+}
+
+fn spectrogram_geometry(world: &WidgetWorld) -> Rect {
+    world.spectrogram_resp.expect("a frame was drawn").plot
+}
+
+#[then(expr = "the brightest column of the spectrogram is at {int} Hz within {int} px")]
+fn brightest_column_at(world: &mut WidgetWorld, hz: u32, tol: f32) {
+    let plot = spectrogram_geometry(world);
+    let img = world.picture();
+    let ref_img = world.reference();
+    let y_start = (plot.min.y + 2.0) as u32;
+    let y_end = (plot.min.y + 20.0).min(plot.max.y - 2.0) as u32;
+
+    let mut best_x = 0;
+    let mut max_diff = 0i32;
+    for x in (plot.min.x as u32 + 1)..(plot.max.x as u32 - 1) {
+        let col_d: i32 = (y_start..y_end).map(|y| diff(img.get_pixel(x, y), ref_img.get_pixel(x, y))).sum();
+        if col_d > max_diff {
+            max_diff = col_d;
+            best_x = x;
+        }
+    }
+
+    let want = plot.min.x + hz_to_frac(hz as f32, 20.0, 20_000.0) * plot.width();
+    println!("    brightest column {best_x}, {hz} Hz should be at {want:.1}px");
+    assert!((best_x as f32 - want).abs() <= tol, "brightest column {best_x} vs expected {want:.1}");
+}
+
+#[then(expr = "the spectrogram has two separate bright peaks, at {int} Hz and at {int} Hz, each within {int} px")]
+fn two_peaks_spectrogram(world: &mut WidgetWorld, a: u32, b: u32, tol: f32) {
+    let plot = spectrogram_geometry(world);
+    let img = world.picture();
+    let ref_img = world.reference();
+    let y_start = (plot.min.y + 2.0) as u32;
+    let y_end = (plot.min.y + 20.0).min(plot.max.y - 2.0) as u32;
+
+    let split = plot.center().x as u32;
+    let mut best_a = 0;
+    let mut max_a = 0i32;
+    for x in (plot.min.x as u32 + 1)..split {
+        let col_d: i32 = (y_start..y_end).map(|y| diff(img.get_pixel(x, y), ref_img.get_pixel(x, y))).sum();
+        if col_d > max_a {
+            max_a = col_d;
+            best_a = x;
+        }
+    }
+
+    let mut best_b = 0;
+    let mut max_b = 0i32;
+    for x in split..(plot.max.x as u32 - 1) {
+        let col_d: i32 = (y_start..y_end).map(|y| diff(img.get_pixel(x, y), ref_img.get_pixel(x, y))).sum();
+        if col_d > max_b {
+            max_b = col_d;
+            best_b = x;
+        }
+    }
+
+    let want_a = plot.min.x + hz_to_frac(a as f32, 20.0, 20_000.0) * plot.width();
+    let want_b = plot.min.x + hz_to_frac(b as f32, 20.0, 20_000.0) * plot.width();
+    println!("    spectrogram peaks: {best_a} (want {want_a:.1}) and {best_b} (want {want_b:.1})");
+    assert!((best_a as f32 - want_a).abs() <= tol, "peak a {best_a} vs {want_a:.1}");
+    assert!((best_b as f32 - want_b).abs() <= tol, "peak b {best_b} vs {want_b:.1}");
+}
+
+#[then(expr = "the spectrogram older history has a peak at {int} Hz while the newest rows are quiet")]
+fn history_scrolls_down(world: &mut WidgetWorld, hz: u32) {
+    let plot = spectrogram_geometry(world);
+    let img = world.picture();
+    let ref_img = world.reference();
+
+    let x = (plot.min.x + hz_to_frac(hz as f32, 20.0, 20_000.0) * plot.width()) as u32;
+
+    let top_y_start = (plot.min.y + 2.0) as u32;
+    let top_y_end = (plot.min.y + 12.0) as u32;
+    let quiet_diff: i32 = (top_y_start..top_y_end).map(|y| diff(img.get_pixel(x, y), ref_img.get_pixel(x, y))).sum();
+    let quiet_avg = quiet_diff as f32 / (top_y_end - top_y_start) as f32;
+
+    let old_y_start = (plot.min.y + 22.0) as u32;
+    let old_y_end = (plot.min.y + 40.0).min(plot.max.y - 2.0) as u32;
+    let lit_diff: i32 = (old_y_start..old_y_end).map(|y| diff(img.get_pixel(x, y), ref_img.get_pixel(x, y))).sum();
+    let lit_avg = lit_diff as f32 / (old_y_end - old_y_start) as f32;
+
+    println!("    spectrogram scroll: newest avg diff {quiet_avg:.1}, older avg diff {lit_avg:.1}");
+    assert!(lit_avg > quiet_avg + 30.0, "older rows must be lit compared to quiet newest rows");
+}
+
+#[when(expr = "I hover the pointer over {int} Hz on the spectrogram")]
+fn hover_spectrogram(world: &mut WidgetWorld, hz: u32) {
+    let plot = spectrogram_geometry(world);
+    let x = plot.min.x + hz_to_frac(hz as f32, 20.0, 20_000.0) * plot.width();
+    let y = plot.center().y;
+    world.pointer = PointerState { pos: Some(pos2(x, y)), ..Default::default() };
+    let bins = world.last_bins.clone();
+    world.frame_spectrogram(bins);
+}
+
+#[then(expr = "the spectrogram readout is within {int} percent of {int} Hz")]
+fn hover_spectrogram_hz(world: &mut WidgetWorld, percent: u32, hz: u32) {
+    let h = world.spectrogram_resp.as_ref().and_then(|r| r.hover).expect("spectrogram hover");
+    let err = (h.hz - hz as f32).abs() / hz as f32;
+    println!("    spectrogram hover hz: {:.1} Hz (target {hz})", h.hz);
+    assert!(err <= percent as f32 / 100.0, "readout {} vs {}", h.hz, hz);
+}
+
+#[then(expr = "the spectrogram readout level is within {int} dB of {int} dBFS")]
+fn hover_spectrogram_db(world: &mut WidgetWorld, tol: u32, db: i32) {
+    let h = world.spectrogram_resp.as_ref().and_then(|r| r.hover).expect("spectrogram hover");
+    println!("    spectrogram hover db: {:.1} dBFS (target {db})", h.db);
+    assert!((h.db - db as f32).abs() <= tol as f32, "readout {} vs {}", h.db, db);
 }

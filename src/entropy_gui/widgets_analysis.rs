@@ -847,6 +847,303 @@ impl SpectrumView {
 }
 
 // ------------------------------------------------------------------------------------------
+// Spectrogram (scrolling waterfall)
+// ------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpectrogramColorMap {
+    /// Dark blue -> cyan -> yellow -> orange -> hot red -> white.
+    Turbo,
+    /// Dark purple -> magenta -> red-orange -> yellow -> white.
+    Magma,
+    /// Black -> deep cyan -> phosphor mint -> bright white.
+    Phosphor,
+    /// Black -> dark red -> fiery orange -> bright yellow -> white.
+    Fire,
+}
+
+/// Converts a normalized level fraction (0.0 to 1.0) to a color according to `map`.
+pub fn spectrogram_color(frac: f32, map: SpectrogramColorMap, tint: Option<Color32>) -> Color32 {
+    let t = frac.clamp(0.0, 1.0);
+    if let Some(tint_color) = tint {
+        if t <= 0.6 {
+            return PANEL_TOP.lerp(tint_color, t / 0.6);
+        } else {
+            return tint_color.lerp(Color32::WHITE, (t - 0.6) / 0.4);
+        }
+    }
+    match map {
+        SpectrogramColorMap::Turbo => {
+            let stops: [(f32, Color32); 6] = [
+                (0.0, Color32::from_rgb(10, 14, 26)),
+                (0.2, Color32::from_rgb(32, 75, 185)),
+                (0.4, Color32::from_rgb(28, 175, 160)),
+                (0.6, Color32::from_rgb(140, 215, 50)),
+                (0.8, Color32::from_rgb(250, 110, 25)),
+                (1.0, Color32::from_rgb(255, 245, 220)),
+            ];
+            for w in stops.windows(2) {
+                if t <= w[1].0 {
+                    return w[0].1.lerp(w[1].1, (t - w[0].0) / (w[1].0 - w[0].0));
+                }
+            }
+            stops[5].1
+        }
+        SpectrogramColorMap::Magma => {
+            let stops: [(f32, Color32); 5] = [
+                (0.0, Color32::from_rgb(10, 8, 20)),
+                (0.25, Color32::from_rgb(60, 15, 95)),
+                (0.5, Color32::from_rgb(180, 45, 90)),
+                (0.75, Color32::from_rgb(250, 140, 50)),
+                (1.0, Color32::from_rgb(252, 253, 190)),
+            ];
+            for w in stops.windows(2) {
+                if t <= w[1].0 {
+                    return w[0].1.lerp(w[1].1, (t - w[0].0) / (w[1].0 - w[0].0));
+                }
+            }
+            stops[4].1
+        }
+        SpectrogramColorMap::Phosphor => {
+            let stops: [(f32, Color32); 4] = [
+                (0.0, Color32::from_rgb(10, 14, 20)),
+                (0.3, Color32::from_rgb(18, 55, 60)),
+                (0.7, ACCENT),
+                (1.0, Color32::from_rgb(240, 255, 250)),
+            ];
+            for w in stops.windows(2) {
+                if t <= w[1].0 {
+                    return w[0].1.lerp(w[1].1, (t - w[0].0) / (w[1].0 - w[0].0));
+                }
+            }
+            stops[3].1
+        }
+        SpectrogramColorMap::Fire => {
+            let stops: [(f32, Color32); 5] = [
+                (0.0, Color32::from_rgb(10, 8, 12)),
+                (0.25, Color32::from_rgb(120, 15, 10)),
+                (0.5, Color32::from_rgb(220, 70, 15)),
+                (0.75, Color32::from_rgb(255, 190, 30)),
+                (1.0, Color32::from_rgb(255, 255, 220)),
+            ];
+            for w in stops.windows(2) {
+                if t <= w[1].0 {
+                    return w[0].1.lerp(w[1].1, (t - w[0].0) / (w[1].0 - w[0].0));
+                }
+            }
+            stops[4].1
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SpectrogramOptions {
+    pub height: f32,
+    pub width: Option<f32>,
+    pub min_db: f32,
+    pub max_db: f32,
+    pub min_hz: f32,
+    pub max_hz: f32,
+    pub history_size: usize,
+    pub tilt_db_per_octave: f32,
+    pub color_map: SpectrogramColorMap,
+    pub color: Option<Color32>,
+}
+
+impl Default for SpectrogramOptions {
+    fn default() -> Self {
+        Self {
+            height: 200.0,
+            width: None,
+            min_db: -90.0,
+            max_db: 0.0,
+            min_hz: 20.0,
+            max_hz: 20_000.0,
+            history_size: 100,
+            tilt_db_per_octave: 0.0,
+            color_map: SpectrogramColorMap::Turbo,
+            color: None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct SpectrogramState {
+    history: VecDeque<Vec<f32>>,
+    last_time: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SpectrogramHover {
+    pub hz: f32,
+    pub db: f32,
+    pub time_secs: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SpectrogramResponse {
+    pub rect: Rect,
+    pub plot: Rect,
+    pub hover: Option<SpectrogramHover>,
+}
+
+pub struct SpectrogramView {
+    id: Id,
+    opts: SpectrogramOptions,
+}
+
+impl SpectrogramView {
+    pub fn new(id_salt: impl std::hash::Hash) -> Self {
+        Self { id: Id::new("spectrogram_view").with(id_salt), opts: SpectrogramOptions::default() }
+    }
+
+    pub fn options(mut self, opts: SpectrogramOptions) -> Self {
+        self.opts = opts;
+        self
+    }
+
+    pub fn show(self, ui: &mut Ui, bins_db: &[f32], sample_rate: f32) -> SpectrogramResponse {
+        let ctx = ui.ctx().clone();
+        let o = self.opts;
+        let width = o.width.unwrap_or_else(|| ui.available_size().x.max(160.0));
+        let (resp, painter) = ui.allocate_painter(vec2(width, o.height), Sense::hover());
+        let rect = resp.rect;
+        panel(&painter, rect);
+
+        // Room on the left for time labels and below for Hz labels.
+        let plot = Rect::from_min_max(pos2(rect.min.x + 36.0, rect.min.y + 8.0), pos2(rect.max.x - 8.0, rect.max.y - 16.0));
+        let clip = painter.with_clip_rect(plot.expand(1.0));
+        let now = ctx.time();
+        let mut state: SpectrogramState = ctx.memory_mut(|m| m.take_view_state(self.id));
+        let dt = state.last_time.map_or(1.0 / 60.0, |t| (now - t).clamp(1.0e-3, 0.25));
+        state.last_time = Some(now);
+
+        let num_cols = (plot.width() as usize).clamp(64, 240);
+
+        // Update history with new frame
+        if bins_db.len() >= 2 {
+            let bin_hz = sample_rate / (2.0 * (bins_db.len() - 1) as f32);
+            let mut row = spectrum_columns(bins_db, bin_hz, num_cols, o.min_hz, o.max_hz);
+            let tilt = |hz: f32| o.tilt_db_per_octave * (hz / 1000.0).log2();
+            for (c, v) in row.iter_mut().enumerate() {
+                let hz = frac_to_hz((c as f32 + 0.5) / num_cols as f32, o.min_hz, o.max_hz);
+                *v += tilt(hz);
+            }
+            state.history.push_front(row);
+            while state.history.len() > o.history_size.max(2) {
+                state.history.pop_back();
+            }
+        }
+
+        // Draw waterfall mesh
+        let rows = state.history.len();
+        if rows >= 2 && num_cols >= 2 {
+            let total_history = o.history_size.max(2) as f32;
+            let col_x = |c: usize| plot.min.x + (c as f32 / (num_cols - 1) as f32) * plot.width();
+            let row_y = |r: usize| plot.min.y + (r as f32 / total_history) * plot.height();
+
+            let mut vertices = Vec::with_capacity(rows * num_cols);
+            let mut indices = Vec::with_capacity((rows - 1) * (num_cols - 1) * 6);
+
+            for r in 0..rows {
+                let y = row_y(r);
+                let row_data = &state.history[r];
+                for c in 0..num_cols {
+                    let db = if c < row_data.len() { row_data[c] } else { o.min_db };
+                    let frac = db_to_frac(db, o.min_db, o.max_db);
+                    let color = spectrogram_color(frac, o.color_map, o.color);
+                    vertices.push(Vertex::new(col_x(c), y, 0.0, color.to_array_f32()));
+                }
+            }
+
+            for r in 0..rows - 1 {
+                for c in 0..num_cols - 1 {
+                    let tl = (r * num_cols + c) as u32;
+                    let tr = tl + 1;
+                    let bl = ((r + 1) * num_cols + c) as u32;
+                    let br = bl + 1;
+                    indices.extend([tl, tr, br, tl, br, bl]);
+                }
+            }
+
+            clip.mesh(vertices, indices);
+        } else if bins_db.len() < 2 && rows == 0 {
+            label(&painter, rect.center(), Align2::CENTER_CENTER, "no signal source", LABEL);
+        }
+
+        // Grid lines: frequency decades along X
+        let mut decade = 10.0f32;
+        while decade <= o.max_hz {
+            for m in [1.0f32, 2.0, 5.0] {
+                let hz = decade * m;
+                if hz < o.min_hz || hz > o.max_hz {
+                    continue;
+                }
+                let x = plot.min.x + hz_to_frac(hz, o.min_hz, o.max_hz) * plot.width();
+                let major = m == 1.0 && matches!(hz as u32, 100 | 1000 | 10_000);
+                clip.line_segment([pos2(x, plot.min.y), pos2(x, plot.max.y)], Stroke::new(1.0, if major { GRID_MAJOR } else { GRID_MINOR }));
+                if m == 1.0 || m == 5.0 || hz == 20.0 {
+                    let text = if hz >= 1000.0 { format!("{}k", hz / 1000.0) } else { format!("{hz}") };
+                    label(&painter, pos2(x, rect.max.y - 3.0), Align2::CENTER_BOTTOM, text, LABEL);
+                }
+            }
+            decade *= 10.0;
+        }
+
+        // Time divisions along Y (every 25% of height)
+        let total_secs = o.history_size as f32 * dt;
+        for i in 0..=4 {
+            let frac = i as f32 / 4.0;
+            let y = plot.min.y + frac * plot.height();
+            clip.line_segment([pos2(plot.min.x, y), pos2(plot.max.x, y)], Stroke::new(1.0, if i == 0 { GRID_MAJOR } else { GRID_MINOR }));
+            let sec = frac * total_secs;
+            let text = if i == 0 { "0.0s".to_string() } else { format!("-{sec:.1}s") };
+            label(&painter, pos2(plot.min.x - 4.0, y), Align2::RIGHT_CENTER, text, LABEL);
+        }
+
+        // Hover readout
+        let mut hover = None;
+        let hover_id = self.id.with("hover");
+        let hr = interact(&ctx, plot, hover_id, Sense::hover());
+        let pointer = ctx.input(|i| i.pointer.hover_pos());
+        if let (true, Some(p)) = (hr.hovered(), pointer) {
+            if plot.contains(p) {
+                let frac_x = (p.x - plot.min.x) / plot.width();
+                let hz = frac_to_hz(frac_x, o.min_hz, o.max_hz);
+                let col = ((frac_x * (num_cols - 1) as f32).round() as usize).min(num_cols.saturating_sub(1));
+
+                let frac_y = (p.y - plot.min.y) / plot.height();
+                let r = ((frac_y * (o.history_size - 1) as f32).round() as usize).min(rows.saturating_sub(1));
+                let db = if r < rows && col < state.history[r].len() {
+                    state.history[r][col]
+                } else {
+                    o.min_db
+                };
+                let time_secs = -(r as f32 * dt);
+                hover = Some(SpectrogramHover { hz, db, time_secs });
+
+                // Crosshair and hover dot
+                painter.line_segment([pos2(p.x, plot.min.y), pos2(p.x, plot.max.y)], Stroke::new(1.0, Color32::from_white_alpha(70)));
+                painter.line_segment([pos2(plot.min.x, p.y), pos2(plot.max.x, p.y)], Stroke::new(1.0, Color32::from_white_alpha(70)));
+                painter.circle_filled(p, 3.0, Color32::WHITE);
+
+                let note = note_name(hz).map(|(n, c)| format!("  {n} {c:+}c")).unwrap_or_default();
+                let text = format!("{}  {:.1} dB{}  {time_secs:+.2}s", format_hz(hz), db, note);
+                let approx_w = text.len() as f32 * 5.6 + 14.0;
+                let tag_x = if p.x + 10.0 + approx_w > plot.max.x { p.x - 10.0 - approx_w } else { p.x + 10.0 };
+                let tag_y = if p.y + 20.0 > plot.max.y { p.y - 20.0 } else { p.y + 4.0 };
+                let tag = Rect::from_min_size(pos2(tag_x.max(plot.min.x), tag_y.max(plot.min.y)), vec2(approx_w, 17.0));
+                painter.rect_filled(tag, 3u8, Color32::from_rgba_unmultiplied(8, 10, 14, 220));
+                painter.text(pos2(tag.min.x + 6.0, tag.center().y), Align2::LEFT_CENTER, text, FontId::proportional(10.5), Color32::from_gray(225));
+            }
+        }
+
+        ctx.memory_mut(|m| m.put_view_state(self.id, state));
+        SpectrogramResponse { rect, plot, hover }
+    }
+}
+
+// ------------------------------------------------------------------------------------------
 // Level meter
 // ------------------------------------------------------------------------------------------
 
@@ -1179,5 +1476,26 @@ mod tests {
         assert!(meter_color(-40.0).g() > meter_color(-40.0).r());
         assert!(meter_color(0.0).r() > 200 && meter_color(0.0).g() < 100);
         assert_eq!(meter_color(6.0), meter_color(0.0));
+    }
+
+    #[test]
+    fn spectrogram_colormaps_interpolate_properly() {
+        for map in [SpectrogramColorMap::Turbo, SpectrogramColorMap::Magma, SpectrogramColorMap::Phosphor, SpectrogramColorMap::Fire] {
+            let c0 = spectrogram_color(0.0, map, None);
+            let c5 = spectrogram_color(0.5, map, None);
+            let c1 = spectrogram_color(1.0, map, None);
+            let b0 = c0.r() as u32 + c0.g() as u32 + c0.b() as u32;
+            let b1 = c1.r() as u32 + c1.g() as u32 + c1.b() as u32;
+            assert!(b1 > b0, "map {:?} peak {b1} should be brighter than floor {b0}", map);
+            assert_ne!(c5, c0);
+            assert_ne!(c5, c1);
+        }
+        let tint = Color32::from_rgb(100, 200, 50);
+        let ct0 = spectrogram_color(0.0, SpectrogramColorMap::Turbo, Some(tint));
+        let ct6 = spectrogram_color(0.6, SpectrogramColorMap::Turbo, Some(tint));
+        let ct1 = spectrogram_color(1.0, SpectrogramColorMap::Turbo, Some(tint));
+        assert_eq!(ct6, tint);
+        assert_eq!(ct1, Color32::WHITE);
+        assert_ne!(ct0, tint);
     }
 }

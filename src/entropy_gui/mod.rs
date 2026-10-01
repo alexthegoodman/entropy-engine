@@ -73,7 +73,11 @@ pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widge
 pub use ui::{FocusOptions, InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, Knob, KnobSize, ScrollArea, Slider};
-pub use widgets_analysis::{LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, ScopeMode, ScopeOptions, ScopeResponse, SpectrumHover, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView};
+pub use widgets_analysis::{
+    spectrogram_color, LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, ScopeMode, ScopeOptions,
+    ScopeResponse, SpectrogramColorMap, SpectrogramHover, SpectrogramOptions, SpectrogramResponse, SpectrogramView,
+    SpectrumHover, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView,
+};
 pub use widgets_color_picker::ColorPicker;
 pub use widgets_doc_editor::{DocEditor, DocEditorCommand, DocEditorResponse, DocEditorState, PageConfig, PageEntry, PageLayout};
 pub use widgets_kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanEvent, KanbanResponse};
