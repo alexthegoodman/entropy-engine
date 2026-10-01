@@ -559,6 +559,9 @@ export interface ScopedAPI {
     getTabs: () => UITabInfo[];
     setActiveTab: (tabIdOrName: string) => boolean;
     getActiveTab: () => string | null;
+    setTileLayout: (layout: TileLayoutMode | string) => boolean;
+    getTileLayout: () => TileLayoutInfo;
+    assignTileSlot: (slot: number, tabId: string) => boolean;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;
     clear: () => void;
@@ -944,6 +947,23 @@ export interface UITabInfo {
   title: string;
   addonName: string;
   isActive: boolean;
+}
+
+export type TileLayoutMode =
+  | "single"
+  | "split_h"
+  | "split_h_67_33"
+  | "split_h_33_67"
+  | "split_v"
+  | "three_columns"
+  | "three_grid"
+  | "quad_grid";
+
+export interface TileLayoutInfo {
+  mode: TileLayoutMode;
+  slotCount: number;
+  slots: (string | null)[];
+  focusedSlot: number;
 }
 
 export interface LabelConfig {
@@ -3420,6 +3440,9 @@ export interface EntropyAPI {
     getTabs: () => UITabInfo[];
     setActiveTab: (tabIdOrName: string) => boolean;
     getActiveTab: () => string | null;
+    setTileLayout: (layout: TileLayoutMode | string) => boolean;
+    getTileLayout: () => TileLayoutInfo;
+    assignTileSlot: (slot: number, tabId: string) => boolean;
     miniMap: (windowId: string, config: MiniMapConfig) => void;
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;

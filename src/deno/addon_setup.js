@@ -955,6 +955,9 @@ globalThis.Entropy = {
                     getTabs: () => ops.op_ui_get_tabs(),
                     setActiveTab: (tabIdOrName) => ops.op_ui_set_active_tab(String(tabIdOrName)),
                     getActiveTab: () => ops.op_ui_get_active_tab(),
+                    setTileLayout: (layout) => ops.op_ui_set_tile_layout(String(layout)),
+                    getTileLayout: () => ops.op_ui_get_tile_layout(),
+                    assignTileSlot: (slot, tabId) => ops.op_ui_assign_tile_slot(Number(slot), String(tabId)),
                     drawRect: (config) => {
                         ops.op_ui_rect_create(metadata.name, {
                             position: config.position || [0, 0],
@@ -1356,6 +1359,9 @@ globalThis.Entropy = {
             bindListener('_entropy_event_listeners', `__window_closed:${windowId}`, config.onClose);
             return windowId;
         },
+        setTileLayout: (layout) => ops.op_ui_set_tile_layout(String(layout)),
+        getTileLayout: () => ops.op_ui_get_tile_layout(),
+        assignTileSlot: (slot, tabId) => ops.op_ui_assign_tile_slot(Number(slot), String(tabId)),
         // A short status message in the bottom-right corner that never takes keyboard focus.
         // `{ id?, message, kind?: "info"|"success"|"warning"|"error", actionLabel?, onAction?,
         //    onDismiss?, progress?: 0..1 (negative: indeterminate), durationMs? (0 = until

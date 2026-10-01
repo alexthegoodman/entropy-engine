@@ -1576,6 +1576,14 @@ pub struct AddonContext {
     pub active_tab: Option<String>,
     /// Whether the Windows-style Start Menu flyout is open in the taskbar.
     pub taskbar_start_menu_open: bool,
+    /// Active tile layout mode for multitasking in creative-suite / tabbed apps.
+    pub tile_layout: TileLayoutMode,
+    /// Tab IDs assigned to each tile slot (up to 4 slots).
+    pub tile_slots: Vec<Option<String>>,
+    /// Currently focused tile slot index (0..slot_count-1).
+    pub focused_tile_slot: usize,
+    /// Whether the Windows 11 style Snap / Tile Layout menu flyout is open in the taskbar.
+    pub taskbar_layout_menu_open: bool,
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
     /// Dev-controlled save directory for an embedded (non-Studio) app. When set, it takes
@@ -1661,6 +1669,120 @@ pub struct AddonContext {
     pub music_video_job: Option<crate::music_video::export::MusicVideoJob>,
     /// `Widget.musicVisualizer` state by widget id: its visualizer, tracker and texture.
     pub music_previews: HashMap<String, crate::deno::music_video_ops::MusicPreview>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TileLayoutMode {
+    Single,              // Fullscreen single app (normal mode)
+    SplitHorizontal,     // Left / Right (50 / 50)
+    SplitHorizontal67_33,// Left 67%, Right 33%
+    SplitHorizontal33_67,// Left 33%, Right 67%
+    SplitVertical,       // Top / Bottom (50 / 50)
+    ThreeColumns,        // Left, Center, Right (33% each)
+    ThreeGrid,           // Left 50% full height, Right Top 50%x50%, Right Bottom 50%x50%
+    QuadGrid,            // 2x2 Grid (4 quadrants)
+}
+
+impl TileLayoutMode {
+    pub fn slot_count(&self) -> usize {
+        match self {
+            TileLayoutMode::Single => 1,
+            TileLayoutMode::SplitHorizontal
+            | TileLayoutMode::SplitHorizontal67_33
+            | TileLayoutMode::SplitHorizontal33_67
+            | TileLayoutMode::SplitVertical => 2,
+            TileLayoutMode::ThreeColumns | TileLayoutMode::ThreeGrid => 3,
+            TileLayoutMode::QuadGrid => 4,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            TileLayoutMode::Single => "single",
+            TileLayoutMode::SplitHorizontal => "split_h",
+            TileLayoutMode::SplitHorizontal67_33 => "split_h_67_33",
+            TileLayoutMode::SplitHorizontal33_67 => "split_h_33_67",
+            TileLayoutMode::SplitVertical => "split_v",
+            TileLayoutMode::ThreeColumns => "three_columns",
+            TileLayoutMode::ThreeGrid => "three_grid",
+            TileLayoutMode::QuadGrid => "quad_grid",
+        }
+    }
+
+    pub fn display_title(&self) -> &'static str {
+        match self {
+            TileLayoutMode::Single => "Single App",
+            TileLayoutMode::SplitHorizontal => "Split 50 / 50",
+            TileLayoutMode::SplitHorizontal67_33 => "Left Focus (67 / 33)",
+            TileLayoutMode::SplitHorizontal33_67 => "Right Focus (33 / 67)",
+            TileLayoutMode::SplitVertical => "Top / Bottom",
+            TileLayoutMode::ThreeColumns => "Three Columns",
+            TileLayoutMode::ThreeGrid => "Left Main + 2 Stacked",
+            TileLayoutMode::QuadGrid => "2x2 Quad Grid",
+        }
+    }
+}
+
+impl AddonContext {
+    pub fn is_tab_visible(&self, tab_id: &str) -> bool {
+        if self.tile_layout == TileLayoutMode::Single {
+            self.active_tab.as_deref() == Some(tab_id)
+        } else {
+            let count = self.tile_layout.slot_count();
+            self.tile_slots.iter().take(count).any(|slot| slot.as_deref() == Some(tab_id))
+        }
+    }
+
+    pub fn active_slots(&self) -> Vec<(usize, String)> {
+        let count = self.tile_layout.slot_count();
+        let mut result = Vec::new();
+        for (i, slot) in self.tile_slots.iter().take(count).enumerate() {
+            if let Some(id) = slot {
+                result.push((i, id.clone()));
+            }
+        }
+        result
+    }
+
+    pub fn ensure_tile_slots_populated(&mut self) {
+        if self.tile_slots.len() < 4 {
+            self.tile_slots.resize(4, None);
+        }
+        // Slot 0 defaults to active_tab or first tab in tab_order
+        if self.tile_slots[0].is_none() {
+            self.tile_slots[0] = self.active_tab.clone().or_else(|| self.tab_order.first().cloned());
+        }
+        // Fill subsequent slots with different available tabs from tab_order
+        for i in 1..4 {
+            if self.tile_slots[i].is_none() {
+                let candidate = self.tab_order.iter().find(|id| {
+                    !self.tile_slots[0..i].iter().any(|s| s.as_deref() == Some(id.as_str()))
+                }).cloned().or_else(|| self.tab_order.first().cloned());
+                self.tile_slots[i] = candidate;
+            }
+        }
+    }
+
+    pub fn set_tile_layout(&mut self, layout: TileLayoutMode) {
+        self.tile_layout = layout;
+        self.ensure_tile_slots_populated();
+        if self.focused_tile_slot >= layout.slot_count() {
+            self.focused_tile_slot = 0;
+        }
+        if let Some(Some(focused_tab)) = self.tile_slots.get(self.focused_tile_slot) {
+            self.active_tab = Some(focused_tab.clone());
+        }
+    }
+
+    pub fn assign_tile_slot(&mut self, slot: usize, tab_id: String) {
+        self.ensure_tile_slots_populated();
+        if slot < 4 {
+            self.tile_slots[slot] = Some(tab_id.clone());
+            if slot == self.focused_tile_slot {
+                self.active_tab = Some(tab_id);
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4359,6 +4481,71 @@ pub fn op_ui_set_active_tab(state: &mut OpState, #[string] tab_id_or_name: Strin
 pub fn op_ui_get_active_tab(state: &mut OpState) -> Option<String> {
     state.try_borrow::<AddonContext>().and_then(|ctx| ctx.active_tab.clone())
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UiTileLayoutInfoJs {
+    pub layout: String,
+    pub slots: Vec<String>,
+    pub focused_slot: usize,
+}
+
+#[op2(fast)]
+pub fn op_ui_set_tile_layout(state: &mut OpState, #[string] layout: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let mode = match layout.to_lowercase().as_str() {
+            "split_h" | "split_horizontal" | "horizontal" => TileLayoutMode::SplitHorizontal,
+            "split_h_67_33" | "left_wide" => TileLayoutMode::SplitHorizontal67_33,
+            "split_h_33_67" | "right_wide" => TileLayoutMode::SplitHorizontal33_67,
+            "split_v" | "split_vertical" | "vertical" => TileLayoutMode::SplitVertical,
+            "three_columns" | "three_col" => TileLayoutMode::ThreeColumns,
+            "three_grid" | "three_stacked" => TileLayoutMode::ThreeGrid,
+            "quad" | "quad_grid" | "grid" => TileLayoutMode::QuadGrid,
+            _ => TileLayoutMode::Single,
+        };
+        ctx.set_tile_layout(mode);
+    }
+}
+
+#[op2]
+#[serde]
+pub fn op_ui_get_tile_layout(state: &mut OpState) -> UiTileLayoutInfoJs {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        UiTileLayoutInfoJs {
+            layout: ctx.tile_layout.name().to_string(),
+            slots: ctx.tile_slots.iter().filter_map(|s| s.clone()).collect(),
+            focused_slot: ctx.focused_tile_slot,
+        }
+    } else {
+        UiTileLayoutInfoJs {
+            layout: "single".to_string(),
+            slots: Vec::new(),
+            focused_slot: 0,
+        }
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_assign_tile_slot(state: &mut OpState, slot: u32, #[string] app_id_or_name: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let found_id = ctx.tab_order.iter().find(|id| {
+            if *id == &app_id_or_name {
+                return true;
+            }
+            if let Some((cfg, _, addon_name)) = ctx.ui_tabs.get(*id) {
+                if addon_name.eq_ignore_ascii_case(&app_id_or_name)
+                    || cfg.title.eq_ignore_ascii_case(&app_id_or_name)
+                    || cfg.title.to_lowercase().contains(&app_id_or_name.to_lowercase())
+                {
+                    return true;
+                }
+            }
+            false
+        }).cloned().unwrap_or(app_id_or_name);
+
+        ctx.assign_tile_slot(slot as usize, found_id);
+    }
+}
+
 
 #[op2(fast)]
 pub fn op_ui_widget_label(state: &mut OpState, #[string] window_id: String, #[string] text: String, bold: bool, font_size: f32, alpha: f32) {

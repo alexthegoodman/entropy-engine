@@ -124,7 +124,7 @@ use crate::deno::addon_ops::{
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_set_speed, op_video_read_subtitles, op_video_close, op_video_poll,
     op_video_export_start, op_video_export_poll,
     op_ui_clear,
-    op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
+    op_ui_create_tab, op_ui_get_tabs, op_ui_set_active_tab, op_ui_get_active_tab, op_ui_set_tile_layout, op_ui_get_tile_layout, op_ui_assign_tile_slot, TileLayoutMode, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_layout, op_ui_widget_segmented, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_spectrogram, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
@@ -239,6 +239,9 @@ extension!(
         op_ui_get_tabs,
         op_ui_set_active_tab,
         op_ui_get_active_tab,
+        op_ui_set_tile_layout,
+        op_ui_get_tile_layout,
+        op_ui_assign_tile_slot,
         op_ui_widget_label,
         op_ui_widget_button,
         op_ui_widget_color_input,
@@ -783,6 +786,10 @@ impl AddonEngine {
             tab_order: Vec::new(),
             active_tab: None,
             taskbar_start_menu_open: false,
+            tile_layout: TileLayoutMode::Single,
+            tile_slots: vec![None, None, None, None],
+            focused_tile_slot: 0,
+            taskbar_layout_menu_open: false,
             ui_widgets: HashMap::new(),
             ui_frame_labels: Vec::new(),
             ui_frame_labels_from_tabs: false,
@@ -3895,7 +3902,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                     let order = &context.window_order;
                     let mut windows: Vec<_> = context.ui_windows.iter()
-                        .filter(|(_, (config, _))| config.owner_tab_id.as_ref().map_or(true, |owner| context.active_tab.as_ref() == Some(owner)))
+                        .filter(|(_, (config, _))| config.owner_tab_id.as_ref().map_or(true, |owner| context.is_tab_visible(owner)))
                         .map(|(id, (_, cb))| (id.clone(), cb.clone())).collect();
                     windows.sort_by_key(|(id, _)| order.iter().position(|w| w == id).unwrap_or(usize::MAX));
                     windows
@@ -3961,7 +3968,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     context.ui_frame_labels.clear();
                 }
                 for (id, config) in &sorted_windows {
-                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| context.active_tab.as_ref() != Some(owner)) { continue; }
+                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| !context.is_tab_visible(owner)) { continue; }
                     context.ui_frame_labels.push(config.title.clone());
                     if let Some(widgets) = context.ui_widgets.get(id) {
                         context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| match widget {
@@ -3974,7 +3981,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 for (id, config) in sorted_windows {
-                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| context.active_tab.as_ref() != Some(owner)) { continue; }
+                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| !context.is_tab_visible(owner)) { continue; }
                     let mut open = true;
                     let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
@@ -4034,57 +4041,199 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         }
     }
 
-    /// Renders every `Entropy.UI.createTab`/`addon.UI.createTab` tab as a plain, generic
-    /// full-window layout: a tab-bar strip along the top (only shown once there's more than one
-    /// tab) plus the active tab's content filling the rest of the window. This is the
-    /// non-Studio counterpart to `render_ui`'s floating windows - Studio itself renders the same
-    /// `ui_tabs` data inside its own `DockArea` (see `render_egui.rs`) instead of calling this.
-    pub fn render_tabs(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
-        self.apply_pending_theme(ctx);
-        // 0. Reset widget counter in JS (same bookkeeping as render_ui).
-        {
-            let scope = &mut self.runtime.handle_scope();
-            let global = scope.get_current_context().global(scope);
-            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
-            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
-                if entropy_val.is_object() {
-                    let entropy_obj = entropy_val.to_object(scope).unwrap();
-                    let reset_key = v8::String::new(scope, "_reset_widget_counter").unwrap();
-                    if let Some(reset_val) = entropy_obj.get(scope, reset_key.into()) {
-                        if reset_val.is_function() {
-                            let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
-                            let _ = reset_func.call(scope, entropy_obj.into(), &[]);
-                        }
-                    }
-                }
+    pub fn clean_title_and_icon<'a>(title: &'a str, addon_name: &'a str) -> (&'a str, &'static str, egui::Color32) {
+        if addon_name.to_lowercase().contains("daw") || title.to_lowercase().contains("daw") || addon_name.to_lowercase().contains("matter") || title.to_lowercase().contains("matter") {
+            ("DAW", "waveform", egui::Color32::from_rgb(96, 205, 255))
+        } else if addon_name.to_lowercase().contains("tabs") || title.to_lowercase().contains("guitar") || title.to_lowercase().contains("tabs") {
+            ("Guitar Tabs", "guitar", egui::Color32::from_rgb(255, 180, 80))
+        } else if addon_name.to_lowercase().contains("cc") || title.to_lowercase().contains("kanban") || title.to_lowercase().contains("cc manager") || addon_name.to_lowercase().contains("tasks") {
+            ("CC Manager", "kanban", egui::Color32::from_rgb(130, 220, 110))
+        } else if addon_name.to_lowercase().contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
+            ("Mesha", "shapes", egui::Color32::from_rgb(175, 150, 255))
+        } else if addon_name.to_lowercase().contains("terminal") || title.to_lowercase().contains("terminal") {
+            ("Terminal", "terminal", egui::Color32::from_rgb(0, 240, 200))
+        } else {
+            (title, "squares-four", egui::Color32::from_rgb(200, 215, 235))
+        }
+    }
+
+    pub fn compute_tile_rects(avail: egui::Rect, mode: TileLayoutMode, gap: f32) -> Vec<egui::Rect> {
+        let w = avail.width();
+        let h = avail.height();
+        let x0 = avail.min.x;
+        let y0 = avail.min.y;
+
+        match mode {
+            TileLayoutMode::Single => vec![avail],
+            TileLayoutMode::SplitHorizontal => {
+                let mid_w = (w - gap) * 0.5;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(mid_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + mid_w + gap, y0), egui::vec2(mid_w, h)),
+                ]
+            }
+            TileLayoutMode::SplitHorizontal67_33 => {
+                let left_w = (w - gap) * 0.65;
+                let right_w = (w - gap) * 0.35;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(left_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + left_w + gap, y0), egui::vec2(right_w, h)),
+                ]
+            }
+            TileLayoutMode::SplitHorizontal33_67 => {
+                let left_w = (w - gap) * 0.35;
+                let right_w = (w - gap) * 0.65;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(left_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + left_w + gap, y0), egui::vec2(right_w, h)),
+                ]
+            }
+            TileLayoutMode::SplitVertical => {
+                let mid_h = (h - gap) * 0.5;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(w, mid_h)),
+                    egui::Rect::from_min_size(egui::pos2(x0, y0 + mid_h + gap), egui::vec2(w, mid_h)),
+                ]
+            }
+            TileLayoutMode::ThreeColumns => {
+                let col_w = (w - 2.0 * gap) / 3.0;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(col_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + col_w + gap, y0), egui::vec2(col_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + 2.0 * (col_w + gap), y0), egui::vec2(col_w, h)),
+                ]
+            }
+            TileLayoutMode::ThreeGrid => {
+                let left_w = (w - gap) * 0.5;
+                let right_w = left_w;
+                let right_h = (h - gap) * 0.5;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(left_w, h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + left_w + gap, y0), egui::vec2(right_w, right_h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + left_w + gap, y0 + right_h + gap), egui::vec2(right_w, right_h)),
+                ]
+            }
+            TileLayoutMode::QuadGrid => {
+                let mid_w = (w - gap) * 0.5;
+                let mid_h = (h - gap) * 0.5;
+                vec![
+                    egui::Rect::from_min_size(egui::pos2(x0, y0), egui::vec2(mid_w, mid_h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + mid_w + gap, y0), egui::vec2(mid_w, mid_h)),
+                    egui::Rect::from_min_size(egui::pos2(x0, y0 + mid_h + gap), egui::vec2(mid_w, mid_h)),
+                    egui::Rect::from_min_size(egui::pos2(x0 + mid_w + gap, y0 + mid_h + gap), egui::vec2(mid_w, mid_h)),
+                ]
             }
         }
+    }
 
-        // 1. Snapshot the tab list (in creation order) and resolve/default the active tab.
-        let (tabs, active_tab): (Vec<(String, String, String)>, Option<String>) = {
+    /// Renders every `Entropy.UI.createTab`/`addon.UI.createTab` tab with App Tiling Manager
+    /// support: fullscreen single app mode or responsive tiled multi-app layouts (split horizontal,
+    /// 67/33, 33/67, split vertical, 3 columns, 3-grid, and 2x2 quad grid).
+    pub fn render_tabs(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
+        self.apply_pending_theme(ctx);
+
+        // 1. Snapshot the tab list (in creation order) and resolve/default the active tab and tile layout.
+        let (tabs, active_tab, tile_layout, slots_to_render, focused_slot): (Vec<(String, String, String)>, Option<String>, TileLayoutMode, Vec<(usize, String)>, usize) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                // Check if any tab selection event was queued from BDD or controls
-                if let Ok(mut events) = context.ui_events.lock() {
+                // Check if any tab selection or tiling event was queued from BDD or controls
+                let (switch_to, new_tile_layout, tile_assign, tile_focus, toggle_layout_menu) = {
                     let mut switch_to = None;
-                    events.retain(|evt| {
-                        if evt == "tab_daw" || evt == "tab_DAW" {
-                            switch_to = Some("DAW".to_string());
+                    let mut new_tile_layout = None;
+                    let mut tile_assign = None;
+                    let mut tile_focus = None;
+                    let mut toggle_layout_menu = false;
+
+                    if let Ok(mut events) = context.ui_events.lock() {
+                        events.retain(|evt| {
+                            if evt == "tab_daw" || evt == "tab_DAW" {
+                                switch_to = Some("DAW".to_string());
+                                false
+                            } else if evt == "tab_guitar_tabs" || evt == "tab_tabs" {
+                                switch_to = Some("guitar-tabs".to_string());
+                                false
+                            } else if evt == "tab_cc_manager" || evt == "tab_cc" {
+                                switch_to = Some("tasks".to_string());
+                                false
+                            } else if let Some(target) = evt.strip_prefix("TAB_SELECT|") {
+                                switch_to = Some(target.to_string());
+                                false
+                            } else if let Some(mode_str) = evt.strip_prefix("TILE_LAYOUT|") {
+                                new_tile_layout = Some(mode_str.to_string());
+                                false
+                            } else if let Some(assign_str) = evt.strip_prefix("TILE_ASSIGN|") {
+                                let parts: Vec<&str> = assign_str.splitn(2, '|').collect();
+                                if parts.len() == 2 {
+                                    if let Ok(slot) = parts[0].parse::<usize>() {
+                                        tile_assign = Some((slot, parts[1].to_string()));
+                                    }
+                                }
+                                false
+                            } else if let Some(focus_str) = evt.strip_prefix("TILE_FOCUS|") {
+                                if let Ok(slot) = focus_str.parse::<usize>() {
+                                    tile_focus = Some(slot);
+                                }
+                                false
+                            } else if evt == "TOGGLE_LAYOUT_MENU" || evt == "taskbar_task_view" || evt == "taskbar_snap_layouts" {
+                                toggle_layout_menu = true;
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                    }
+                    (switch_to, new_tile_layout, tile_assign, tile_focus, toggle_layout_menu)
+                };
+
+                    if let Some(mode_str) = new_tile_layout {
+                        let mode = match mode_str.to_lowercase().as_str() {
+                            "split_h" | "split_horizontal" | "horizontal" | "50_50" => TileLayoutMode::SplitHorizontal,
+                            "split_h_67_33" | "left_wide" | "left_focus" => TileLayoutMode::SplitHorizontal67_33,
+                            "split_h_33_67" | "right_wide" | "right_focus" => TileLayoutMode::SplitHorizontal33_67,
+                            "split_v" | "split_vertical" | "vertical" => TileLayoutMode::SplitVertical,
+                            "three_columns" | "three_col" => TileLayoutMode::ThreeColumns,
+                            "three_grid" | "three_stacked" => TileLayoutMode::ThreeGrid,
+                            "quad" | "quad_grid" | "grid" => TileLayoutMode::QuadGrid,
+                            _ => TileLayoutMode::Single,
+                        };
+                        context.set_tile_layout(mode);
+                    }
+
+                    if let Some((slot, target)) = tile_assign {
+                        let match_id = context.tab_order.iter().find(|id| {
+                            if *id == &target {
+                                return true;
+                            }
+                            if let Some((cfg, _, addon_name)) = context.ui_tabs.get(*id) {
+                                if addon_name.eq_ignore_ascii_case(&target)
+                                    || cfg.title.eq_ignore_ascii_case(&target)
+                                    || cfg.title.to_lowercase().contains(&target.to_lowercase())
+                                {
+                                    return true;
+                                }
+                            }
                             false
-                        } else if evt == "tab_guitar_tabs" || evt == "tab_tabs" {
-                            switch_to = Some("guitar-tabs".to_string());
-                            false
-                        } else if evt == "tab_cc_manager" || evt == "tab_cc" {
-                            switch_to = Some("tasks".to_string());
-                            false
-                        } else if let Some(target) = evt.strip_prefix("TAB_SELECT|") {
-                            switch_to = Some(target.to_string());
-                            false
-                        } else {
-                            true
+                        }).cloned().unwrap_or(target);
+                        context.assign_tile_slot(slot, match_id);
+                    }
+
+                    if let Some(slot) = tile_focus {
+                        if slot < context.tile_layout.slot_count() {
+                            context.focused_tile_slot = slot;
+                            if let Some(Some(id)) = context.tile_slots.get(slot) {
+                                context.active_tab = Some(id.clone());
+                            }
                         }
-                    });
+                    }
+
+                    if toggle_layout_menu {
+                        context.taskbar_layout_menu_open = !context.taskbar_layout_menu_open;
+                        if context.taskbar_layout_menu_open {
+                            context.taskbar_start_menu_open = false;
+                        }
+                    }
+
                     if let Some(target) = switch_to {
                         let match_id = context.tab_order.iter().find(|id| {
                             if *id == &target {
@@ -4101,10 +4250,21 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             false
                         }).cloned();
                         if let Some(id) = match_id {
-                            context.active_tab = Some(id);
+                            if context.tile_layout == TileLayoutMode::Single {
+                                context.active_tab = Some(id.clone());
+                            } else {
+                                let count = context.tile_layout.slot_count();
+                                if let Some(pos) = context.tile_slots.iter().take(count).position(|s| s.as_deref() == Some(id.as_str())) {
+                                    context.focused_tile_slot = pos;
+                                    context.active_tab = Some(id.clone());
+                                } else {
+                                    let slot = context.focused_tile_slot;
+                                    context.assign_tile_slot(slot, id.clone());
+                                    context.active_tab = Some(id.clone());
+                                }
+                            }
                         }
                     }
-                }
 
                 context.tab_order.retain(|id| context.ui_tabs.contains_key(id));
                 let tabs: Vec<(String, String, String)> = context.tab_order.iter()
@@ -4113,9 +4273,17 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 if context.active_tab.as_ref().map_or(true, |id| !context.ui_tabs.contains_key(id)) {
                     context.active_tab = tabs.first().map(|(id, _, _)| id.clone());
                 }
-                (tabs, context.active_tab.clone())
+
+                context.ensure_tile_slots_populated();
+                let slots = if context.tile_layout == TileLayoutMode::Single {
+                    context.active_tab.clone().map(|id| vec![(0, id)]).unwrap_or_default()
+                } else {
+                    context.active_slots()
+                };
+
+                (tabs, context.active_tab.clone(), context.tile_layout, slots, context.focused_tile_slot)
             } else {
-                (Vec::new(), None)
+                (Vec::new(), None, TileLayoutMode::Single, Vec::new(), 0)
             }
         };
 
@@ -4131,28 +4299,76 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
         // The taskbar can change the selection during this UI pass. Cache the resolved
         // addon once here so scene rendering never needs to borrow the JS op state.
-        let active_tab = {
-            let op_state = self.runtime.op_state();
-            let op_state = op_state.borrow();
-            op_state.try_borrow::<AddonContext>().and_then(|context| context.active_tab.clone())
-        };
-        self.selected_addon_name = tabs.iter()
-            .find(|(id, _, _)| active_tab.as_ref() == Some(id))
-            .map(|(_, _, addon_name)| addon_name.clone());
-        let Some(active_id) = active_tab else { return };
-
-        // 3. Run the active tab's JS onRender callback to (re)populate its widgets.
-        let callback = {
+        let (active_tab, tile_layout, slots_to_render, focused_slot) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.ui_tabs.get(&active_id).map(|(_, cb, _)| cb.clone())
+                context.ensure_tile_slots_populated();
+                let slots = if context.tile_layout == TileLayoutMode::Single {
+                    context.active_tab.clone().map(|id| vec![(0, id)]).unwrap_or_default()
+                } else {
+                    context.active_slots()
+                };
+                (context.active_tab.clone(), context.tile_layout, slots, context.focused_tile_slot)
             } else {
-                None
+                (None, TileLayoutMode::Single, Vec::new(), 0)
             }
         };
 
-        if let Some(cb) = callback {
+        self.selected_addon_name = if tile_layout == TileLayoutMode::Single {
+            tabs.iter()
+                .find(|(id, _, _)| active_tab.as_ref() == Some(id))
+                .map(|(_, _, addon_name)| addon_name.clone())
+        } else {
+            slots_to_render.iter()
+                .find_map(|(_, tab_id)| {
+                    tabs.iter().find(|(id, _, a)| id == tab_id && (a.to_lowercase().contains("mesha") || a.to_lowercase().contains("shapes")))
+                        .map(|(_, _, a)| a.clone())
+                })
+                .or_else(|| {
+                    tabs.iter()
+                        .find(|(id, _, _)| active_tab.as_ref() == Some(id))
+                        .map(|(_, _, addon_name)| addon_name.clone())
+                })
+        };
+
+        if active_tab.is_none() && slots_to_render.is_empty() { return };
+
+        // 3. Run JS onRender callbacks for each active slot to (re)populate its widgets.
+        let callbacks: Vec<(usize, String, v8::Global<v8::Function>)> = {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                slots_to_render.iter()
+                    .filter_map(|(slot_idx, tab_id)| {
+                        context.ui_tabs.get(tab_id).map(|(_, cb, _)| (*slot_idx, tab_id.clone(), cb.clone()))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        };
+
+        for (_slot_idx, _tab_id, cb) in callbacks {
+            // Reset widget counter for this callback
+            {
+                let scope = &mut self.runtime.handle_scope();
+                let global = scope.get_current_context().global(scope);
+                let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+                if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                    if entropy_val.is_object() {
+                        let entropy_obj = entropy_val.to_object(scope).unwrap();
+                        let reset_key = v8::String::new(scope, "_reset_widget_counter").unwrap();
+                        if let Some(reset_val) = entropy_obj.get(scope, reset_key.into()) {
+                            if reset_val.is_function() {
+                                let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
+                                let _ = reset_func.call(scope, entropy_obj.into(), &[]);
+                            }
+                        }
+                    }
+                }
+            }
+
             let scope = &mut self.runtime.handle_scope();
             let tc = &mut v8::TryCatch::new(scope);
             let func = v8::Local::new(tc, cb);
@@ -4169,52 +4385,55 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         }
 
-        // 4. Draw the populated widgets, filling the rest of the window.
+        // 4. Draw populated widgets and collect visible labels for BDD driver
+        let mut render_slots: Vec<(usize, String, Vec<UiWidget>, bool, bool)> = Vec::new();
         let mut events_to_push = Vec::new();
         {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                let widgets = context.ui_widgets.remove(&active_id);
-                // The BDD driver's "I see the label" reads this. `render_ui` fills it for windowed
-                // addons; a tabbed addon (the DAW) draws through here instead, so it needs the same.
-                // These are the labels the addon emitted this frame, including any inside a
-                // collapsed header - the addon still declares them, the widget just doesn't paint.
-                context.ui_frame_labels = widgets
-                    .as_ref()
-                    .map(|w| w.iter().filter_map(|widget| if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }).collect())
-                    .unwrap_or_default();
+                context.ui_frame_labels.clear();
                 context.ui_frame_labels_from_tabs = true;
-                if tabs.len() > 1 {
-                    for (_, title, addon_name) in &tabs {
-                        if !context.ui_frame_labels.contains(title) {
-                            context.ui_frame_labels.push(title.clone());
+
+                for (slot_idx, tab_id) in &slots_to_render {
+                    let widgets = context.ui_widgets.remove(tab_id).unwrap_or_default();
+                    let scroll = context.ui_tabs.get(tab_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
+                    let transparent = context.ui_tabs.get(tab_id).is_some_and(|(cfg, _, _)| cfg.transparent);
+
+                    context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| match widget {
+                        UiWidget::Label { text, .. } => Some(text.clone()),
+                        UiWidget::Button { label, .. } if !label.is_empty() => Some(label.clone()),
+                        UiWidget::Knob { label, .. } if !label.is_empty() => Some(label.clone()),
+                        _ => None,
+                    }));
+
+                    render_slots.push((*slot_idx, tab_id.clone(), widgets, scroll, transparent));
+                }
+
+                for (_, tab_id) in &slots_to_render {
+                    if let Some((cfg, _, addon_name)) = context.ui_tabs.get(tab_id) {
+                        let (clean_title, _, _) = Self::clean_title_and_icon(&cfg.title, addon_name);
+                        let clean_str = clean_title.to_string();
+                        if !context.ui_frame_labels.contains(&clean_str) {
+                            context.ui_frame_labels.push(clean_str);
                         }
-                        if !context.ui_frame_labels.contains(addon_name) {
-                            context.ui_frame_labels.push(addon_name.clone());
-                        }
-                    }
-                    if !context.ui_frame_labels.contains(&"DAW".to_string()) {
-                        context.ui_frame_labels.push("DAW".to_string());
-                    }
-                    if !context.ui_frame_labels.contains(&"Guitar Tabs".to_string()) {
-                        context.ui_frame_labels.push("Guitar Tabs".to_string());
-                    }
-                    if !context.ui_frame_labels.contains(&"CC Manager".to_string()) {
-                        context.ui_frame_labels.push("CC Manager".to_string());
-                    }
-                    if !context.ui_frame_labels.contains(&"Mesha".to_string()) {
-                        context.ui_frame_labels.push("Mesha".to_string());
-                    }
-                    if !context.ui_frame_labels.contains(&"Start".to_string()) {
-                        context.ui_frame_labels.push("Start".to_string());
                     }
                 }
-                let scroll = context.ui_tabs.get(&active_id).and_then(|(cfg, _, _)| cfg.scroll) != Some(false);
-                let transparent = context.ui_tabs.get(&active_id).is_some_and(|(cfg, _, _)| cfg.transparent);
+
+                if context.taskbar_layout_menu_open {
+                    context.ui_frame_labels.push("Snap Layouts & Multitasking".to_string());
+                }
+            }
+        }
+
+        // 5. Draw populated widgets: Single Mode or Tiled Multitasking
+        if tile_layout == TileLayoutMode::Single {
+            if let Some((_, _tab_id, widgets, scroll, transparent)) = render_slots.into_iter().next() {
                 if !transparent {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        if let Some(widgets) = widgets {
+                        let mut op_state = self.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                             if scroll {
                                 egui::ScrollArea::vertical().show(ui, |ui| {
                                     Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
@@ -4224,6 +4443,178 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                         }
                     });
+                }
+            }
+        } else {
+            let mut clicked_slot_to_focus: Option<usize> = None;
+            let mut slot_to_maximize: Option<String> = None;
+            let mut slot_to_cycle: Option<usize> = None;
+
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let avail_rect = ui.available_rect_before_wrap();
+                let tile_rects = Self::compute_tile_rects(avail_rect, tile_layout, 4.0);
+
+                for (slot_idx, tab_id, widgets, _scroll, transparent) in render_slots {
+                    if slot_idx >= tile_rects.len() { continue; }
+                    let tile_rect = tile_rects[slot_idx];
+                    let is_focused = slot_idx == focused_slot;
+
+                    let painter = ui.painter();
+
+                    // 1. Tile card background
+                    if !transparent {
+                        painter.rect_filled(tile_rect, 6.0, egui::Color32::from_rgba_unmultiplied(22, 26, 35, 240));
+                    }
+
+                    // 2. Tile header bar (height 28px)
+                    let header_h = 28.0;
+                    let header_rect = egui::Rect::from_min_size(tile_rect.min, egui::vec2(tile_rect.width(), header_h));
+                    let header_bg = if is_focused {
+                        egui::Color32::from_rgba_unmultiplied(36, 44, 60, 252)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(26, 30, 40, 230)
+                    };
+                    painter.rect_filled(header_rect, 6.0, header_bg);
+                    painter.line_segment(
+                        [egui::pos2(header_rect.min.x, header_rect.max.y), egui::pos2(header_rect.max.x, header_rect.max.y)],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18)),
+                    );
+
+                    // Header elements
+                    let tab_title = tabs.iter().find(|(id, _, _)| id == &tab_id).map(|(_, t, _)| t.as_str()).unwrap_or(&tab_id);
+                    let addon_name = tabs.iter().find(|(id, _, a)| id == &tab_id).map(|(_, _, a)| a.as_str()).unwrap_or("");
+                    let (clean_title, icon_name, icon_color) = Self::clean_title_and_icon(tab_title, addon_name);
+
+                    let icon_glyph = crate::entropy_gui::icons::glyph(icon_name, crate::entropy_gui::icons::IconStyle::Bold)
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| match icon_name {
+                            "waveform" => "〰".to_string(),
+                            "guitar" => "🎸".to_string(),
+                            "kanban" => "📋".to_string(),
+                            "shapes" => "❖".to_string(),
+                            "terminal" => "⚡".to_string(),
+                            _ => "▪".to_string(),
+                        });
+
+                    // App Icon
+                    painter.text(
+                        egui::pos2(header_rect.min.x + 14.0, header_rect.center().y),
+                        egui::Align2::CENTER_CENTER,
+                        icon_glyph,
+                        egui::FontId::proportional(14.0),
+                        icon_color,
+                    );
+
+                    // App Title
+                    painter.text(
+                        egui::pos2(header_rect.min.x + 28.0, header_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        clean_title,
+                        egui::FontId::proportional(12.0),
+                        if is_focused { egui::Color32::from_rgb(255, 255, 255) } else { egui::Color32::from_rgb(190, 200, 215) },
+                    );
+
+                    // Tile badge
+                    let tile_tag = format!("Tile {}", slot_idx + 1);
+                    painter.text(
+                        egui::pos2(header_rect.min.x + 36.0 + clean_title.len() as f32 * 7.5, header_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        &tile_tag,
+                        egui::FontId::proportional(9.0),
+                        egui::Color32::from_rgba_unmultiplied(140, 160, 190, 160),
+                    );
+
+                    // Right controls: Maximize and Switch App
+                    let mut ctrl_x = header_rect.max.x - 8.0;
+
+                    let max_rect = egui::Rect::from_center_size(egui::pos2(ctrl_x - 10.0, header_rect.center().y), egui::vec2(20.0, 20.0));
+                    let max_resp = ui.interact(max_rect, egui::Id::new(format!("tile_max_btn_{slot_idx}")), egui::Sense::click())
+                        .on_hover_text("Maximize (Single App)");
+                    if max_resp.hovered() {
+                        painter.rect_filled(max_rect, 4.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 20));
+                    }
+                    painter.rect_stroke(max_rect.shrink(4.0), 1.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 190, 210)), egui::StrokeKind::Inside);
+                    if max_resp.clicked() {
+                        slot_to_maximize = Some(tab_id.clone());
+                    }
+                    ctrl_x -= 24.0;
+
+                    let switch_rect = egui::Rect::from_center_size(egui::pos2(ctrl_x - 10.0, header_rect.center().y), egui::vec2(20.0, 20.0));
+                    let switch_resp = ui.interact(switch_rect, egui::Id::new(format!("tile_switch_btn_{slot_idx}")), egui::Sense::click())
+                        .on_hover_text("Switch App in this Tile");
+                    if switch_resp.hovered() {
+                        painter.rect_filled(switch_rect, 4.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 20));
+                    }
+                    painter.text(
+                        switch_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "⇄",
+                        egui::FontId::proportional(12.0),
+                        egui::Color32::from_rgb(160, 180, 210),
+                    );
+                    if switch_resp.clicked() {
+                        slot_to_cycle = Some(slot_idx);
+                    }
+
+                    // Click header to focus
+                    let header_resp = ui.interact(header_rect, egui::Id::new(format!("tile_header_{slot_idx}")), egui::Sense::click());
+                    if header_resp.clicked() {
+                        clicked_slot_to_focus = Some(slot_idx);
+                    }
+
+                    // Content area below header
+                    let content_rect = egui::Rect::from_min_max(
+                        egui::pos2(tile_rect.min.x, tile_rect.min.y + header_h),
+                        tile_rect.max,
+                    );
+
+                    if !transparent {
+                        let mut child_ui = ui.child_ui_at(content_rect, egui::Layout::top_down(egui::Align::Min), format!("tile_content_{slot_idx}"));
+                        egui::ScrollArea::both()
+                            .show(&mut child_ui, |child| {
+                                let mut op_state = self.runtime.op_state();
+                                let mut op_state = op_state.borrow_mut();
+                                if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                                    Self::render_widgets(child, &widgets, &mut events_to_push, context, egui_renderer);
+                                }
+                            });
+                    }
+
+                    // Border around tile
+                    let border_stroke = if is_focused {
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 164, 239))
+                    } else {
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25))
+                    };
+                    painter.rect_stroke(tile_rect, 6.0, border_stroke, egui::StrokeKind::Inside);
+                }
+            });
+
+            // Apply any tile actions
+            {
+                let mut op_state = self.runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                    if let Some(slot_idx) = clicked_slot_to_focus {
+                        context.focused_tile_slot = slot_idx;
+                        if let Some(Some(id)) = context.tile_slots.get(slot_idx) {
+                            context.active_tab = Some(id.clone());
+                        }
+                    }
+                    if let Some(tab_id) = slot_to_maximize {
+                        context.tile_layout = TileLayoutMode::Single;
+                        context.active_tab = Some(tab_id);
+                    }
+                    if let Some(slot_idx) = slot_to_cycle {
+                        let cur_tab = context.tile_slots.get(slot_idx).cloned().flatten();
+                        let next_tab = if let Some(cur) = cur_tab {
+                            let cur_pos = tabs.iter().position(|(id, _, _)| id == &cur).unwrap_or(0);
+                            tabs[(cur_pos + 1) % tabs.len()].0.clone()
+                        } else {
+                            tabs[0].0.clone()
+                        };
+                        context.assign_tile_slot(slot_idx, next_tab);
+                    }
                 }
             }
         }
@@ -4261,15 +4652,30 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         let screen_rect = ctx.screen_rect();
         let taskbar_height = 48.0;
 
-        // Retrieve current start menu state and setup mutable state tracking
-        let mut start_menu_open = {
+        // Retrieve current start menu and snap flyout state along with tiling layout tracking
+        let (mut start_menu_open, mut layout_menu_open, current_layout, tile_slots, focused_slot) = {
             let op_state = runtime.op_state();
             let op_state = op_state.borrow();
-            op_state.try_borrow::<AddonContext>().map(|c| c.taskbar_start_menu_open).unwrap_or(false)
+            if let Some(c) = op_state.try_borrow::<AddonContext>() {
+                (
+                    c.taskbar_start_menu_open,
+                    c.taskbar_layout_menu_open,
+                    c.tile_layout,
+                    c.tile_slots.clone(),
+                    c.focused_tile_slot,
+                )
+            } else {
+                (false, false, TileLayoutMode::Single, Vec::new(), 0)
+            }
         };
 
         let mut tab_to_activate: Option<String> = None;
         let mut toggle_start_menu = false;
+        let mut toggle_layout_menu = false;
+        let mut new_tile_layout: Option<TileLayoutMode> = None;
+        let mut slot_assignment_to_apply: Option<(usize, String)> = None;
+        let mut slot_to_focus: Option<usize> = None;
+        let mut preset_to_apply: Option<(TileLayoutMode, Vec<&'static str>)> = None;
 
         // 1. Bottom taskbar panel
         let panel_frame = egui::Frame::none().fill(Color32::from_rgba_unmultiplied(20, 23, 31, 245));
@@ -4329,7 +4735,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let sep_gap = 8.0;
                 let sep_line_w = 1.0;
 
-                let sys_count = 3; // Start, Search, Task View
+                let sys_count = 4; // Start, Search, Task View, Snap Layouts
                 let sys_total_w = sys_count as f32 * btn_size + (sys_count - 1) as f32 * btn_gap;
                 let sep_total_w = sep_gap * 2.0 + sep_line_w;
                 let apps_count = tabs.len();
@@ -4399,7 +4805,10 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 // 3. Task View Icon (2 overlapping rectangles)
                 let task_view_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
                 let task_view_resp = ui.interact(task_view_rect, egui::Id::new("taskbar_task_view"), egui::Sense::click());
-                if task_view_resp.hovered() {
+                if task_view_resp.clicked() {
+                    toggle_layout_menu = true;
+                }
+                if layout_menu_open || task_view_resp.hovered() {
                     painter.rect_filled(task_view_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18));
                 }
                 let tv_c = task_view_rect.center();
@@ -4408,7 +4817,39 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 painter.rect_stroke(tv_r2, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(150, 160, 175)), egui::StrokeKind::Inside);
                 painter.rect_filled(tv_r1, 2.0, Color32::from_rgba_unmultiplied(20, 23, 31, 245));
                 painter.rect_stroke(tv_r1, 2.0, egui::Stroke::new(1.2, Color32::from_rgb(205, 215, 230)), egui::StrokeKind::Inside);
-                task_view_resp.on_hover_text("Task view");
+                task_view_resp.on_hover_text("Task view & Snap layouts");
+                cur_x += btn_size + btn_gap;
+
+                // 4. Snap Layouts / Multitask Button (Split window / grid icon)
+                let snap_rect = egui::Rect::from_center_size(egui::pos2(cur_x + btn_size / 2.0, center_y), egui::vec2(btn_size, btn_size));
+                let snap_resp = ui.interact(snap_rect, egui::Id::new("taskbar_snap_layouts"), egui::Sense::click());
+                if snap_resp.clicked() {
+                    toggle_layout_menu = true;
+                }
+                let is_tiled = current_layout != TileLayoutMode::Single;
+                if layout_menu_open || snap_resp.hovered() || is_tiled {
+                    let fill = if is_tiled {
+                        Color32::from_rgba_unmultiplied(0, 164, 239, 28)
+                    } else {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 18)
+                    };
+                    painter.rect_filled(snap_rect, 6.0, fill);
+                    if is_tiled {
+                        painter.rect_stroke(snap_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 164, 239, 90)), egui::StrokeKind::Inside);
+                    }
+                }
+                let sn_c = snap_rect.center();
+                let sn_outer = egui::Rect::from_center_size(sn_c, egui::vec2(15.0, 12.0));
+                painter.rect_stroke(sn_outer, 2.0, egui::Stroke::new(1.2, if is_tiled { Color32::from_rgb(96, 205, 255) } else { Color32::from_rgb(180, 192, 210) }), egui::StrokeKind::Inside);
+                if is_tiled {
+                    let left_h = egui::Rect::from_min_max(sn_outer.min, egui::pos2(sn_c.x - 0.5, sn_outer.max.y));
+                    painter.rect_filled(left_h, 1.0, Color32::from_rgb(0, 164, 239));
+                }
+                painter.line_segment(
+                    [egui::pos2(sn_c.x, sn_outer.min.y + 1.0), egui::pos2(sn_c.x, sn_outer.max.y - 1.0)],
+                    egui::Stroke::new(1.0, if is_tiled { Color32::from_rgb(20, 23, 31) } else { Color32::from_rgb(150, 160, 175) }),
+                );
+                snap_resp.on_hover_text(format!("Snap layouts ({})", current_layout.display_title()));
                 cur_x += btn_size + sep_gap;
 
                 // Subtle vertical divider
@@ -4418,24 +4859,26 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 );
                 cur_x += sep_line_w + sep_gap;
 
-                // Taskbar App Items (DAW, Guitar Tabs, Mesha, CC Manager, etc.) - Windows 11 style (centered, icon-only, no labels)
+                // Taskbar App Items (DAW, Guitar Tabs, Mesha, CC Manager, Terminal, etc.)
                 for (tab_id, title, addon_name) in tabs {
-                    let is_active = active_tab == Some(tab_id.as_str());
+                    let (clean_title, icon_name, icon_color) = Self::clean_title_and_icon(title, addon_name);
 
-                    // Icon and clean title detection
-                    let (clean_title, icon_name, icon_color) = if addon_name.contains("daw") || title.to_lowercase().contains("daw") {
-                        ("DAW", "waveform", Color32::from_rgb(96, 205, 255))
-                    } else if addon_name.contains("tabs") || title.to_lowercase().contains("guitar") || title.to_lowercase().contains("tabs") {
-                        ("Guitar Tabs", "guitar", Color32::from_rgb(255, 180, 80))
-                    } else if addon_name.contains("cc") || title.to_lowercase().contains("kanban") || title.to_lowercase().contains("cc manager") {
-                        ("CC Manager", "kanban", Color32::from_rgb(130, 220, 110))
-                    } else if addon_name.contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
-                        ("Mesha", "shapes", Color32::from_rgb(175, 150, 255))
-                    } else if addon_name.contains("terminal") || title.to_lowercase().contains("terminal") {
-                        ("Terminal", "terminal", Color32::from_rgb(0, 240, 200))
-                    } else {
-                        (title.as_str(), "squares-four", Color32::from_rgb(200, 215, 235))
+                    let is_focused = match current_layout {
+                        TileLayoutMode::Single => active_tab == Some(tab_id.as_str()),
+                        _ => {
+                            if let Some(Some(focused_id)) = tile_slots.get(focused_slot) {
+                                focused_id == tab_id
+                            } else {
+                                active_tab == Some(tab_id.as_str())
+                            }
+                        }
                     };
+                    let tiled_slot_pos = if current_layout != TileLayoutMode::Single {
+                        tile_slots.iter().take(current_layout.slot_count()).position(|s| s.as_deref() == Some(tab_id.as_str()))
+                    } else {
+                        None
+                    };
+                    let is_tiled = tiled_slot_pos.is_some();
 
                     let icon_glyph = crate::entropy_gui::icons::glyph(icon_name, crate::entropy_gui::icons::IconStyle::Bold)
                         .map(|c| c.to_string())
@@ -4452,13 +4895,26 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     let item_resp = ui.interact(item_rect, egui::Id::new(format!("taskbar_tab_{tab_id}")), egui::Sense::click());
 
                     if item_resp.clicked() {
-                        tab_to_activate = Some(tab_id.clone());
+                        if current_layout == TileLayoutMode::Single {
+                            tab_to_activate = Some(tab_id.clone());
+                        } else {
+                            if let Some(pos) = tiled_slot_pos {
+                                slot_to_focus = Some(pos);
+                                tab_to_activate = Some(tab_id.clone());
+                            } else {
+                                slot_assignment_to_apply = Some((focused_slot, tab_id.clone()));
+                                tab_to_activate = Some(tab_id.clone());
+                            }
+                        }
                     }
 
                     // Windows 11 style button highlight
-                    if is_active {
+                    if is_focused {
                         painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 24));
                         painter.rect_stroke(item_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 30)), egui::StrokeKind::Inside);
+                    } else if is_tiled {
+                        painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(0, 164, 239, 20));
+                        painter.rect_stroke(item_rect, 6.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 164, 239, 40)), egui::StrokeKind::Inside);
                     } else if item_resp.hovered() {
                         painter.rect_filled(item_rect, 6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
                     }
@@ -4473,13 +4929,20 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     );
 
                     // Windows 11 indicator bar at bottom edge
-                    if is_active {
+                    if is_focused {
                         // Wide accent blue line
                         let bar_rect = egui::Rect::from_center_size(
                             egui::pos2(item_rect.center().x, item_rect.max.y - 2.5),
-                            egui::vec2(16.0, 3.0),
+                            egui::vec2(18.0, 3.0),
                         );
                         painter.rect_filled(bar_rect, 1.5, Color32::from_rgb(96, 205, 255));
+                    } else if is_tiled {
+                        // Medium cyan bar for tiled running app
+                        let bar_rect = egui::Rect::from_center_size(
+                            egui::pos2(item_rect.center().x, item_rect.max.y - 2.5),
+                            egui::vec2(12.0, 3.0),
+                        );
+                        painter.rect_filled(bar_rect, 1.5, Color32::from_rgb(0, 164, 239));
                     } else {
                         // Small running app dot indicator, slightly wider on hover
                         let dot_w = if item_resp.hovered() { 10.0 } else { 6.0 };
@@ -4490,7 +4953,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         painter.rect_filled(dot_rect, 1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 120));
                     }
 
-                    item_resp.on_hover_text(clean_title);
+                    if let Some(pos) = tiled_slot_pos {
+                        item_resp.on_hover_text(format!("{clean_title} (Tile Slot {})", pos + 1));
+                    } else {
+                        item_resp.on_hover_text(clean_title);
+                    }
                     cur_x += btn_size + btn_gap;
                 }
 
@@ -4577,9 +5044,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 );
             });
 
-        // 2. Start Menu Flyout
+        // 2. Start Menu Flyout & Snap Layouts Flyout toggles
         if toggle_start_menu {
             start_menu_open = !start_menu_open;
+            if start_menu_open {
+                layout_menu_open = false;
+            }
+        }
+        if toggle_layout_menu {
+            layout_menu_open = !layout_menu_open;
+            if layout_menu_open {
+                start_menu_open = false;
+            }
         }
 
         if start_menu_open {
@@ -4793,12 +5269,401 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         }
 
+        // 3. Snap Layouts & Multitasking Flyout
+        if layout_menu_open {
+            let snap_w = 440.0;
+            let snap_h = 490.0;
+            let snap_x = ((screen_rect.width() - snap_w) / 2.0).round().max(12.0);
+            let snap_y = (screen_rect.height() - taskbar_height - snap_h - 12.0).max(10.0);
+
+            let mut close_snap_menu = false;
+            egui::Window::new("WindowsSnapLayoutsFlyout")
+                .id(egui::Id::new("entropy_taskbar_snap_flyout"))
+                .decorations(false)
+                .resizable(false)
+                .default_pos([snap_x, snap_y])
+                .default_size([snap_w, snap_h])
+                .show(ctx, |ui| {
+                    let rect = ui.max_rect();
+                    let painter = ui.painter();
+
+                    // Dark acrylic flyout background with subtle luminous border
+                    painter.rect_filled(rect, 10.0, Color32::from_rgba_unmultiplied(26, 30, 40, 252));
+                    painter.rect_stroke(rect, 10.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 28)), egui::StrokeKind::Inside);
+
+                    let mut cur_y = rect.min.y + 14.0;
+                    let pad_x = rect.min.x + 16.0;
+                    let content_w = snap_w - 32.0;
+
+                    // Header: Icon + Title + Close button
+                    let header_icon = crate::entropy_gui::icons::glyph("squares-four", crate::entropy_gui::icons::IconStyle::Bold)
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "❖".to_string());
+                    painter.text(
+                        egui::pos2(pad_x + 4.0, cur_y + 4.0),
+                        egui::Align2::LEFT_TOP,
+                        header_icon,
+                        egui::FontId::proportional(16.0),
+                        Color32::from_rgb(0, 164, 239),
+                    );
+                    painter.text(
+                        egui::pos2(pad_x + 28.0, cur_y + 2.0),
+                        egui::Align2::LEFT_TOP,
+                        "Snap Layouts & Multitasking",
+                        egui::FontId::proportional(14.5),
+                        Color32::from_rgb(255, 255, 255),
+                    );
+                    painter.text(
+                        egui::pos2(pad_x + 28.0, cur_y + 20.0),
+                        egui::Align2::LEFT_TOP,
+                        "Tile applications side-by-side with independent floating windows",
+                        egui::FontId::proportional(10.0),
+                        Color32::from_rgb(160, 168, 182),
+                    );
+
+                    // Close button
+                    let close_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - 34.0, cur_y + 4.0), egui::vec2(22.0, 22.0));
+                    let close_resp = ui.interact(close_rect, egui::Id::new("snap_flyout_close_btn"), egui::Sense::click());
+                    if close_resp.clicked() {
+                        close_snap_menu = true;
+                    }
+                    if close_resp.hovered() {
+                        painter.rect_filled(close_rect, 4.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20));
+                    }
+                    painter.text(
+                        close_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "✕",
+                        egui::FontId::proportional(11.0),
+                        Color32::from_rgb(200, 210, 225),
+                    );
+
+                    cur_y += 44.0;
+
+                    // Section 1 Header: SNAP TEMPLATES
+                    painter.text(
+                        egui::pos2(pad_x, cur_y),
+                        egui::Align2::LEFT_TOP,
+                        "SNAP TEMPLATES",
+                        egui::FontId::proportional(9.5),
+                        Color32::from_rgb(120, 140, 175),
+                    );
+                    cur_y += 16.0;
+
+                    // 8 Template Cards arranged in a 4x2 grid
+                    let modes = [
+                        (TileLayoutMode::Single, "Fullscreen", "1 App"),
+                        (TileLayoutMode::SplitHorizontal, "Split 50/50", "2 Apps"),
+                        (TileLayoutMode::SplitHorizontal67_33, "Left Focus", "67 / 33"),
+                        (TileLayoutMode::SplitHorizontal33_67, "Right Focus", "33 / 67"),
+                        (TileLayoutMode::SplitVertical, "Split V", "Top / Bot"),
+                        (TileLayoutMode::ThreeColumns, "3 Columns", "3 Apps"),
+                        (TileLayoutMode::ThreeGrid, "Main + 2", "3 Apps"),
+                        (TileLayoutMode::QuadGrid, "2x2 Quad", "4 Apps"),
+                    ];
+
+                    let cols = 4;
+                    let card_gap = 6.0;
+                    let card_w = ((content_w - (cols as f32 - 1.0) * card_gap) / cols as f32).round();
+                    let card_h = 58.0;
+
+                    for (i, (mode, label, sublabel)) in modes.iter().enumerate() {
+                        let row = i / cols;
+                        let col = i % cols;
+                        let cx = pad_x + col as f32 * (card_w + card_gap);
+                        let cy = cur_y + row as f32 * (card_h + card_gap);
+                        let c_rect = egui::Rect::from_min_size(egui::pos2(cx, cy), egui::vec2(card_w, card_h));
+
+                        let is_sel = current_layout == *mode;
+                        let c_resp = ui.interact(c_rect, egui::Id::new(format!("snap_mode_{}", mode.name())), egui::Sense::click());
+                        if c_resp.clicked() {
+                            new_tile_layout = Some(*mode);
+                        }
+
+                        let bg = if is_sel {
+                            Color32::from_rgba_unmultiplied(0, 164, 239, 45)
+                        } else if c_resp.hovered() {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 20)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                        };
+                        painter.rect_filled(c_rect, 6.0, bg);
+                        let stroke_c = if is_sel {
+                            Color32::from_rgb(0, 164, 239)
+                        } else if c_resp.hovered() {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 45)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 18)
+                        };
+                        painter.rect_stroke(c_rect, 6.0, egui::Stroke::new(if is_sel { 1.5 } else { 1.0 }, stroke_c), egui::StrokeKind::Inside);
+
+                        // Miniature layout diagram
+                        let icon_box = egui::Rect::from_center_size(egui::pos2(c_rect.center().x, c_rect.min.y + 16.0), egui::vec2(32.0, 20.0));
+                        let fill_c = if is_sel { Color32::from_rgb(0, 164, 239) } else { Color32::from_rgba_unmultiplied(180, 195, 220, 120) };
+                        let line_c = if is_sel { Color32::from_rgb(20, 23, 31) } else { Color32::from_rgb(26, 30, 40) };
+
+                        painter.rect_filled(icon_box, 1.5, fill_c);
+                        match mode {
+                            TileLayoutMode::Single => {}
+                            TileLayoutMode::SplitHorizontal => {
+                                painter.line_segment([egui::pos2(icon_box.center().x, icon_box.min.y), egui::pos2(icon_box.center().x, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::SplitHorizontal67_33 => {
+                                let split_x = icon_box.min.x + icon_box.width() * 0.67;
+                                painter.line_segment([egui::pos2(split_x, icon_box.min.y), egui::pos2(split_x, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::SplitHorizontal33_67 => {
+                                let split_x = icon_box.min.x + icon_box.width() * 0.33;
+                                painter.line_segment([egui::pos2(split_x, icon_box.min.y), egui::pos2(split_x, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::SplitVertical => {
+                                painter.line_segment([egui::pos2(icon_box.min.x, icon_box.center().y), egui::pos2(icon_box.max.x, icon_box.center().y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::ThreeColumns => {
+                                let w3 = icon_box.width() / 3.0;
+                                painter.line_segment([egui::pos2(icon_box.min.x + w3, icon_box.min.y), egui::pos2(icon_box.min.x + w3, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                                painter.line_segment([egui::pos2(icon_box.min.x + w3 * 2.0, icon_box.min.y), egui::pos2(icon_box.min.x + w3 * 2.0, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::ThreeGrid => {
+                                let split_x = icon_box.center().x;
+                                painter.line_segment([egui::pos2(split_x, icon_box.min.y), egui::pos2(split_x, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                                painter.line_segment([egui::pos2(split_x, icon_box.center().y), egui::pos2(icon_box.max.x, icon_box.center().y)], egui::Stroke::new(1.0, line_c));
+                            }
+                            TileLayoutMode::QuadGrid => {
+                                painter.line_segment([egui::pos2(icon_box.center().x, icon_box.min.y), egui::pos2(icon_box.center().x, icon_box.max.y)], egui::Stroke::new(1.0, line_c));
+                                painter.line_segment([egui::pos2(icon_box.min.x, icon_box.center().y), egui::pos2(icon_box.max.x, icon_box.center().y)], egui::Stroke::new(1.0, line_c));
+                            }
+                        }
+
+                        painter.text(
+                            egui::pos2(c_rect.center().x, c_rect.min.y + 32.0),
+                            egui::Align2::CENTER_TOP,
+                            *label,
+                            egui::FontId::proportional(10.5),
+                            if is_sel { Color32::from_rgb(255, 255, 255) } else { Color32::from_rgb(210, 220, 235) },
+                        );
+                        painter.text(
+                            egui::pos2(c_rect.center().x, c_rect.min.y + 45.0),
+                            egui::Align2::CENTER_TOP,
+                            *sublabel,
+                            egui::FontId::proportional(8.5),
+                            if is_sel { Color32::from_rgb(130, 205, 255) } else { Color32::from_rgb(140, 150, 168) },
+                        );
+                    }
+
+                    cur_y += 2.0 * card_h + card_gap + 16.0;
+
+                    // Section 2: QUICK MULTITASK PRESETS
+                    painter.text(
+                        egui::pos2(pad_x, cur_y),
+                        egui::Align2::LEFT_TOP,
+                        "QUICK MULTITASK PRESETS",
+                        egui::FontId::proportional(9.5),
+                        Color32::from_rgb(120, 140, 175),
+                    );
+                    cur_y += 16.0;
+
+                    let presets = [
+                        ("⚡ Terminal & 〰 DAW", TileLayoutMode::SplitHorizontal, vec!["terminal", "daw"]),
+                        ("⚡ Terminal & 📋 Tasks", TileLayoutMode::SplitHorizontal, vec!["terminal", "cc"]),
+                        ("〰 DAW & 🎸 Guitar Tabs", TileLayoutMode::SplitHorizontal, vec!["daw", "tabs"]),
+                        ("❖ 4-App Studio Grid", TileLayoutMode::QuadGrid, vec!["terminal", "daw", "cc", "tabs"]),
+                    ];
+
+                    let p_w = ((content_w - card_gap) / 2.0).round();
+                    let p_h = 30.0;
+                    for (idx, (p_title, p_mode, p_apps)) in presets.into_iter().enumerate() {
+                        let row = idx / 2;
+                        let col = idx % 2;
+                        let px = pad_x + col as f32 * (p_w + card_gap);
+                        let py = cur_y + row as f32 * (p_h + card_gap);
+                        let p_rect = egui::Rect::from_min_size(egui::pos2(px, py), egui::vec2(p_w, p_h));
+
+                        let p_resp = ui.interact(p_rect, egui::Id::new(format!("snap_preset_{idx}")), egui::Sense::click());
+                        if p_resp.clicked() {
+                            preset_to_apply = Some((p_mode, p_apps));
+                        }
+                        let p_bg = if p_resp.hovered() {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 18)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                        };
+                        painter.rect_filled(p_rect, 5.0, p_bg);
+                        painter.rect_stroke(p_rect, 5.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16)), egui::StrokeKind::Inside);
+                        painter.text(
+                            egui::pos2(p_rect.min.x + 8.0, p_rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            p_title,
+                            egui::FontId::proportional(10.5),
+                            Color32::from_rgb(220, 230, 245),
+                        );
+                    }
+
+                    cur_y += 2.0 * p_h + card_gap + 16.0;
+
+                    // Section 3: ACTIVE SLOTS ASSIGNMENT (when not single mode)
+                    if current_layout != TileLayoutMode::Single {
+                        painter.text(
+                            egui::pos2(pad_x, cur_y),
+                            egui::Align2::LEFT_TOP,
+                            "ACTIVE SLOTS ASSIGNMENT",
+                            egui::FontId::proportional(9.5),
+                            Color32::from_rgb(120, 140, 175),
+                        );
+                        cur_y += 16.0;
+
+                        let slot_count = current_layout.slot_count();
+                        let s_w = ((content_w - (slot_count as f32 - 1.0) * card_gap) / slot_count as f32).round();
+                        let s_h = 44.0;
+
+                        for slot_idx in 0..slot_count {
+                            let sx = pad_x + slot_idx as f32 * (s_w + card_gap);
+                            let s_rect = egui::Rect::from_min_size(egui::pos2(sx, cur_y), egui::vec2(s_w, s_h));
+
+                            let is_focused_slot = focused_slot == slot_idx;
+                            let assigned_id = tile_slots.get(slot_idx).and_then(|s| s.as_ref());
+
+                            let (slot_title, _slot_icon, slot_color) = if let Some(id) = assigned_id {
+                                let matching = tabs.iter().find(|(t_id, _, _)| t_id == id);
+                                if let Some((_, t_title, t_addon)) = matching {
+                                    Self::clean_title_and_icon(t_title, t_addon)
+                                } else {
+                                    (id.as_str(), "squares-four", Color32::from_rgb(200, 215, 235))
+                                }
+                            } else {
+                                ("Empty", "squares-four", Color32::from_rgb(140, 150, 165))
+                            };
+
+                            let s_resp = ui.interact(s_rect, egui::Id::new(format!("snap_slot_card_{slot_idx}")), egui::Sense::click());
+                            if s_resp.clicked() {
+                                slot_to_focus = Some(slot_idx);
+                            }
+
+                            let s_bg = if is_focused_slot {
+                                Color32::from_rgba_unmultiplied(0, 164, 239, 30)
+                            } else if s_resp.hovered() {
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+                            } else {
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 6)
+                            };
+                            painter.rect_filled(s_rect, 6.0, s_bg);
+                            let stroke_c = if is_focused_slot {
+                                Color32::from_rgb(0, 164, 239)
+                            } else {
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 16)
+                            };
+                            painter.rect_stroke(s_rect, 6.0, egui::Stroke::new(1.0, stroke_c), egui::StrokeKind::Inside);
+
+                            painter.text(
+                                egui::pos2(s_rect.min.x + 8.0, s_rect.min.y + 8.0),
+                                egui::Align2::LEFT_TOP,
+                                format!("Slot {}", slot_idx + 1),
+                                egui::FontId::proportional(9.0),
+                                if is_focused_slot { Color32::from_rgb(96, 205, 255) } else { Color32::from_rgb(140, 150, 168) },
+                            );
+                            painter.text(
+                                egui::pos2(s_rect.min.x + 8.0, s_rect.min.y + 22.0),
+                                egui::Align2::LEFT_TOP,
+                                slot_title,
+                                egui::FontId::proportional(11.0),
+                                slot_color,
+                            );
+                        }
+                    }
+
+                    // Footer info & Fullscreen reset
+                    let footer_y = rect.max.y - 38.0;
+                    painter.line_segment(
+                        [egui::pos2(rect.min.x, footer_y), egui::pos2(rect.max.x, footer_y)],
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16)),
+                    );
+
+                    painter.text(
+                        egui::pos2(pad_x, footer_y + 10.0),
+                        egui::Align2::LEFT_TOP,
+                        format!("Current: {} ({} slots)", current_layout.display_title(), current_layout.slot_count()),
+                        egui::FontId::proportional(10.0),
+                        Color32::from_rgb(160, 170, 185),
+                    );
+
+                    if current_layout != TileLayoutMode::Single {
+                        let reset_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - 120.0, footer_y + 6.0), egui::vec2(104.0, 24.0));
+                        let reset_resp = ui.interact(reset_rect, egui::Id::new("snap_reset_single_btn"), egui::Sense::click());
+                        if reset_resp.clicked() {
+                            new_tile_layout = Some(TileLayoutMode::Single);
+                        }
+                        if reset_resp.hovered() {
+                            painter.rect_filled(reset_rect, 4.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18));
+                        }
+                        painter.text(
+                            reset_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "Reset Fullscreen",
+                            egui::FontId::proportional(10.0),
+                            Color32::from_rgb(220, 230, 245),
+                        );
+                    }
+                });
+
+            if close_snap_menu {
+                layout_menu_open = false;
+            }
+        }
+
         // Apply state changes to AddonContext
         {
             let mut op_state = runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                 context.taskbar_start_menu_open = start_menu_open;
+                context.taskbar_layout_menu_open = layout_menu_open;
+
+                if layout_menu_open {
+                    context.ui_frame_labels.push("Snap Layouts & Multitasking".to_string());
+                }
+
+                if let Some(mode) = new_tile_layout {
+                    context.set_tile_layout(mode);
+                    if let Ok(mut events) = context.ui_events.lock() {
+                        events.push(format!("TILE_LAYOUT|{}", mode.name()));
+                    }
+                }
+
+                if let Some((mode, app_keys)) = preset_to_apply {
+                    context.set_tile_layout(mode);
+                    for (slot_idx, key) in app_keys.iter().enumerate() {
+                        let match_id = context.tab_order.iter().find(|id| {
+                            if *id == key { return true; }
+                            if let Some((cfg, _, addon_name)) = context.ui_tabs.get(*id) {
+                                addon_name.to_lowercase().contains(key)
+                                    || id.to_lowercase().contains(key)
+                                    || cfg.title.to_lowercase().contains(key)
+                            } else {
+                                false
+                            }
+                        }).cloned();
+                        if let Some(id) = match_id {
+                            context.assign_tile_slot(slot_idx, id);
+                        }
+                    }
+                }
+
+                if let Some((slot, tab_id)) = slot_assignment_to_apply {
+                    context.assign_tile_slot(slot, tab_id.clone());
+                    if let Ok(mut events) = context.ui_events.lock() {
+                        events.push(format!("TILE_ASSIGN|{slot}|{tab_id}"));
+                    }
+                }
+
+                if let Some(slot) = slot_to_focus {
+                    if slot < context.tile_layout.slot_count() {
+                        context.focused_tile_slot = slot;
+                        if let Some(Some(id)) = context.tile_slots.get(slot) {
+                            context.active_tab = Some(id.clone());
+                        }
+                    }
+                }
+
                 if let Some(tab_id) = tab_to_activate {
                     context.active_tab = Some(tab_id.clone());
                     if let Ok(mut events) = context.ui_events.lock() {

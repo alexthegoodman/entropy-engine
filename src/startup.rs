@@ -370,6 +370,7 @@ impl BrowserBddDriver {
                 Ok("visualizer") => include_str!("../tests/features/daw_visualizer_live.feature"),
                 Ok("space") => include_str!("../tests/features/daw_space_live.feature"),
                 Ok("creative-suite") | Ok("special-bundle") => include_str!("../tests/features/special_bundle_windows_live.feature"),
+                Ok("app-tiling") | Ok("tiling") => include_str!("../tests/features/app_tiling_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
