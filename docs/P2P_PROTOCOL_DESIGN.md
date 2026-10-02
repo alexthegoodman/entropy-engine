@@ -432,10 +432,10 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    cannot join, only indexed ids reach the piece store, tombstone prevents resurrection.
 7. **Minimal rendezvous node.** `get_index` / `put_announce` / `get_peers` over a short-TTL live
    table. Verify only maintainer-signed entries enter the index, no bytes or secrets touch the node,
-   and liveness expires "no seeder" entries.
+   and liveness expires "no seeder" entries. (if this is the central Rust droplet, okay, or if its a peer node, okay, but im not sure what the goal is - needs clarification)
 8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
    punching; assert piece data never traverses a relayed route (via `RecvMetadata`/`LinkMode` relay
-   info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything.
+   info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything. (we may delay this till after Phase 9 due to physical logistics)
 9. **P2P forum addon (first product surface).** Room join, post/compose, index replication,
    availability display ("no seeders"), and moderation via the maintainer key. Live BDD with two
    windows. This is the MVP that ships before files or media and proves the discovery layer with
