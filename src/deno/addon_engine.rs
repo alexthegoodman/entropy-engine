@@ -75,7 +75,7 @@ use crate::deno::piano_ops::{
     op_audio_piano_all_notes_off, op_audio_piano_note_on, op_audio_piano_note_off, op_audio_piano_set_pedal, op_piano_render_analyze,
 };
 use crate::deno::vst3_ops::{
-    op_vst3_scan, op_vst3_load, op_vst3_unload, op_vst3_note_on, op_vst3_all_notes_off, op_vst3_open_editor,
+    op_vst3_scan, op_vst3_scan_poll, op_vst3_load, op_vst3_unload, op_vst3_note_on, op_vst3_all_notes_off, op_vst3_open_editor,
     op_vst3_close_editor, op_vst3_poll_state, op_vst3_save_state, op_vst3_find_parameters, op_vst3_set_parameter,
     op_vst3_take_peak, op_vst3_stats,
 };
@@ -456,6 +456,7 @@ extension!(
         op_guitar_release_all,
         op_guitar_set_position,
         op_vst3_scan,
+        op_vst3_scan_poll,
         op_vst3_load,
         op_vst3_unload,
         op_vst3_note_on,
@@ -883,6 +884,8 @@ impl AddonEngine {
             video_export_result: None,
             #[cfg(not(target_arch = "wasm32"))]
             music_video_job: None,
+            vst3_scan_job: None,
+            vst3_scan_cache: None,
             music_previews: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);

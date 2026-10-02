@@ -462,10 +462,14 @@ const matterAPI = {
 };
 
 const vst3API = {
-    // Installed plugins from the standard VST3 folders: {plugins: [{name, vendor, category, path,
-    // isInstrument, hasGui, hasMidiInput, hasMidiOutput, ...}], skipped: string[]}. Cached for the
-    // session (reading Maschine's metadata alone takes ~2s); pass refresh=true to rescan.
+    // Installed plugins from the standard VST3 folders. Runs on a background thread, so it never
+    // blocks the frame: returns {scanning: true, done, total} while in flight, or {scanning: false,
+    // plugins: [{name, vendor, category, path, isInstrument, hasGui, hasMidiInput, hasMidiOutput,
+    // ...}], skipped: string[]} with the cached result. Pass refresh=true to rescan.
     scan: (refresh) => ops.op_vst3_scan(!!refresh),
+    // Progress/result of the scan started by scan(): null when no scan has run, {scanning: true,
+    // done, total} while running, or {scanning: false, plugins, skipped} when it finishes.
+    scanPoll: () => ops.op_vst3_scan_poll(),
     // state is base64 from a previous saveState/pollState; omit for the plugin's default patch.
     load: (trackId, config) => ops.op_vst3_load({ trackId, path: config.path, state: config.state ?? null }),
     unload: (trackId) => ops.op_vst3_unload(trackId),

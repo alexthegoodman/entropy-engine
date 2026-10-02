@@ -1405,6 +1405,18 @@ interface Vst3PluginInfo {
   audioOutputs: number;
 }
 
+/** The result of a VST3 folder scan. `scanning` is true while the scan runs on a background
+ * thread (the frame is never blocked); `plugins`/`skipped` are present once it finishes. */
+interface Vst3ScanResult {
+  scanning: boolean;
+  done?: number;
+  total?: number;
+  plugins?: Vst3PluginInfo[];
+  skipped?: string[];
+  /** Why the scan could not run at all (e.g. the isolated probe binary is missing). */
+  error?: string;
+}
+
 interface Vst3Ok { ok: boolean; error?: string }
 
 interface Vst3LoadResult extends Vst3Ok {
@@ -1441,8 +1453,13 @@ interface Vst3Stats {
  * (`Audio.ensureTrackBus`); the plugin's audio then joins that bus, so its gain/mute/solo and
  * effect chain apply. Calls report failure as `{ ok: false, error }` rather than throwing. */
 interface Vst3API {
-  /** Installed plugins from the standard VST3 folders. Cached for the session; `refresh` rescans. */
-  scan: (refresh?: boolean) => { plugins: Vst3PluginInfo[]; skipped: string[] };
+  /** Installed plugins from the standard VST3 folders. Runs on a background thread, so it never
+   * blocks the frame: returns `scanning: true` while in flight, or the cached result otherwise.
+   * `refresh` rescans. */
+  scan: (refresh?: boolean) => Vst3ScanResult;
+  /** Progress/result of the scan started by `scan`: `null` when none has run, `scanning: true`
+   * while running, or the finished result. */
+  scanPoll: () => Vst3ScanResult | null;
   /** `state` is base64 from an earlier `saveState`/`pollState`; omit for the default patch. */
   load: (trackId: string, config: { path: string; state?: string | null }) => Vst3LoadResult;
   unload: (trackId: string) => void;

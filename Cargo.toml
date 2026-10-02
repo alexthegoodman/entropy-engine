@@ -27,6 +27,14 @@ name = "game_addon"
 path = "src/bin/game_addon.rs"
 test = false
 
+# Out-of-process VST3 introspection used by the DAW's background scan (src/audio/vst3.rs): a plugin
+# that crashes during init kills this small process, not the app. Built alongside the other bins;
+# deployed builds ship it next to the app executable.
+[[bin]]
+name = "vst3-host-probe"
+path = "src/bin/vst3_host_probe.rs"
+test = false
+
 
 [[test]]
 name = "browser_bdd"

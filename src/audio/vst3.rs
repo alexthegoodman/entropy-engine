@@ -111,9 +111,10 @@ pub fn find_plugin_path(name: &str) -> Option<PathBuf> {
     })
 }
 
-/// Reads each plugin's factory metadata. This *loads* the plugin (Maschine 3 measured 1.9s, the
-/// other three 90-140ms on the dev machine) and does it in-process, so a plugin that crashes during
-/// its own init takes the app with it - `vst3-host` has an isolated probe for that, not used yet.
+/// Reads each plugin's factory metadata in-process, on the calling (window) thread. This *loads*
+/// each plugin (Maschine 3 measured 1.9s, the other three 90-140ms on the dev machine), so a plugin
+/// that crashes during its own init takes the app with it. Used by the BDD test and as the
+/// synchronous reference; the DAW's scan runs out-of-process via `Vst3ScanJob`.
 /// Returns the plugins that read cleanly plus a note for each one that didn't.
 pub fn scan_plugins(dirs: &[PathBuf]) -> (Vec<Vst3PluginEntry>, Vec<String>) {
     let mut paths = Vec::new();
@@ -122,11 +123,23 @@ pub fn scan_plugins(dirs: &[PathBuf]) -> (Vec<Vst3PluginEntry>, Vec<String>) {
     }
     paths.sort();
     paths.dedup();
+    scan_paths(&paths, |_, _| {})
+}
 
+/// In-process introspection of `paths`, calling `on_progress(done, total)` after each. This is the
+/// synchronous path `scan_plugins` (and the BDD test) use; it must stay on the window thread, so a
+/// real scan never calls it directly - `Vst3ScanJob` uses the out-of-process probe instead (see
+/// `scan_plugins_isolated`), because loading plugin code on a worker thread and then touching the
+/// same DLLs from the main thread later crashes (STATUS_ACCESS_VIOLATION on Maschine).
+fn scan_paths(
+    paths: &[PathBuf],
+    mut on_progress: impl FnMut(usize, usize),
+) -> (Vec<Vst3PluginEntry>, Vec<String>) {
+    let total = paths.len();
     let mut entries = Vec::new();
     let mut skipped = Vec::new();
-    for path in paths {
-        match vst3_host::discovery::get_plugin_info(&path) {
+    for (i, path) in paths.iter().enumerate() {
+        match vst3_host::discovery::get_plugin_info(path) {
             Ok(info) => entries.push(Vst3PluginEntry {
                 is_instrument: info.category.contains("Instrument"),
                 name: info.name,
@@ -141,8 +154,113 @@ pub fn scan_plugins(dirs: &[PathBuf]) -> (Vec<Vst3PluginEntry>, Vec<String>) {
             }),
             Err(e) => skipped.push(format!("{}: {e}", path.display())),
         }
+        on_progress(i + 1, total);
     }
     (entries, skipped)
+}
+
+/// Progress and final result of a plugin scan, shared between the scan thread and the main thread.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Vst3ScanStatus {
+    /// Total plugin files found to introspect.
+    pub total: usize,
+    /// How many have been introspected so far.
+    pub done: usize,
+    /// The scan finished; `entries`, `skipped` and `error` are final.
+    pub finished: bool,
+    /// Plugins that read cleanly (final once `finished`).
+    pub entries: Vec<Vst3PluginEntry>,
+    /// One note per plugin that didn't read (final once `finished`).
+    pub skipped: Vec<String>,
+    /// Why the scan could not run at all (the isolated probe binary is missing), if that happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// A plugin scan running on its own thread, so the frame that triggers it never blocks on a
+/// plugin's own load time (Maschine alone is ~2s). Introspection is done out-of-process via the
+/// `vst3-host-probe` binary - a plugin that crashes during init kills that child, not the DAW, and
+/// no plugin code is loaded into this process, so later main-thread loads stay safe.
+pub struct Vst3ScanJob {
+    status: Arc<Mutex<Vst3ScanStatus>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Vst3ScanJob {
+    pub fn start(dirs: Vec<PathBuf>) -> Self {
+        let status = Arc::new(Mutex::new(Vst3ScanStatus::default()));
+        let thread_status = status.clone();
+        let thread = std::thread::Builder::new()
+            .name("vst3-scan".to_string())
+            .spawn(move || {
+                // Each plugin is introspected in its own child process; a crash there skips the
+                // plugin instead of taking us down.
+                let report = vst3_host::discovery::discover_plugins_safe(&dirs, Duration::from_secs(10));
+
+                let mut entries = Vec::with_capacity(report.plugins.len());
+                for info in &report.plugins {
+                    let i = &info.info;
+                    entries.push(Vst3PluginEntry {
+                        is_instrument: i.category.contains("Instrument"),
+                        name: i.name.clone(),
+                        vendor: i.vendor.clone(),
+                        category: i.category.clone(),
+                        path: i.path.to_string_lossy().to_string(),
+                        has_gui: i.has_gui,
+                        has_midi_input: i.has_midi_input,
+                        has_midi_output: i.has_midi_output,
+                        audio_inputs: i.audio_inputs,
+                        audio_outputs: i.audio_outputs,
+                    });
+                }
+
+                let mut skipped = Vec::with_capacity(report.skipped.len());
+                for skip in &report.skipped {
+                    use vst3_host::discovery::SafeDiscoverySkip;
+                    skipped.push(match skip {
+                        SafeDiscoverySkip::Crashed { path, detail } => {
+                            format!("{}: crashed the probe ({detail})", path.display())
+                        }
+                        SafeDiscoverySkip::TimedOut { path } => {
+                            format!("{}: probe timed out", path.display())
+                        }
+                        SafeDiscoverySkip::Failed { path, detail } => {
+                            format!("{}: {detail}", path.display())
+                        }
+                    });
+                }
+
+                let total = entries.len() + skipped.len();
+                let mut s = thread_status.lock().unwrap();
+                s.entries = entries;
+                s.skipped = skipped;
+                s.total = total;
+                s.done = total;
+                s.error = report.error;
+                s.finished = true;
+            })
+            .expect("spawn vst3 scan thread");
+        Self { status, thread: Some(thread) }
+    }
+
+    pub fn status(&self) -> Vst3ScanStatus {
+        self.status.lock().unwrap().clone()
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.status.lock().unwrap().finished
+    }
+}
+
+impl Drop for Vst3ScanJob {
+    fn drop(&mut self) {
+        // Dropping a still-running scan (the app exiting) waits for it rather than leaving a thread
+        // loading plugin code as the process tears down.
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 // --- Audio-thread side -----------------------------------------------------------------------
@@ -627,7 +745,6 @@ pub struct ParameterView {
 
 thread_local! {
     static INSTRUMENTS: RefCell<HashMap<String, Vst3Instrument>> = RefCell::new(HashMap::new());
-    static SCAN_CACHE: RefCell<Option<(Vec<Vst3PluginEntry>, Vec<String>)>> = RefCell::new(None);
 }
 
 /// Runs `f` on the instrument loaded for `track_id`, if any.
@@ -646,17 +763,6 @@ pub fn remove_instrument(track_id: &str) {
     if let Some(old) = INSTRUMENTS.with(|map| map.borrow_mut().remove(track_id)) {
         old.unload();
     }
-}
-
-/// Scan results are cached for the session (Maschine alone is ~2s to read); `refresh` rescans.
-pub fn cached_scan(refresh: bool) -> (Vec<Vst3PluginEntry>, Vec<String>) {
-    SCAN_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if refresh || cache.is_none() {
-            *cache = Some(scan_plugins(&default_scan_dirs()));
-        }
-        cache.clone().unwrap()
-    })
 }
 
 /// Called once per frame from the app loop so editor windows stay serviced and user-closed editors

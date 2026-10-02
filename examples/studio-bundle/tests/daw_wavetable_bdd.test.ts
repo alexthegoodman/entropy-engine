@@ -237,6 +237,22 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                     t.onSelect(n.id);
                     world.render();
                 }],
+                [/^the preset tree offers the waveform "(.+)"$/, label => {
+                    world.render();
+                    const t = w.trees.get("wt_instrument_presets");
+                    if (!t) throw new Error("no instrument preset tree; is the Wavetable window open and a wavetable track selected?");
+                    const n = t.nodes.find((n: any) => n.id.startsWith("wave:") && n.label === label);
+                    if (!n) throw new Error(`no waveform "${label}"; have ${t.nodes.filter((n: any) => n.id.startsWith("wave:")).map((n: any) => n.label).join(", ")}`);
+                }],
+                [/^I select the waveform "(.+)"$/, label => {
+                    world.render();
+                    const t = w.trees.get("wt_instrument_presets");
+                    if (!t) throw new Error("no instrument preset tree; is the Wavetable window open and a wavetable track selected?");
+                    const n = t.nodes.find((n: any) => n.id.startsWith("wave:") && n.label === label);
+                    if (!n) throw new Error(`no waveform "${label}"; have ${t.nodes.filter((n: any) => n.id.startsWith("wave:")).map((n: any) => n.label).join(", ")}`);
+                    t.onSelect(n.id);
+                    world.render();
+                }],
 
                 // ---- the guitar ----
                 [/^the Guitar Input window is open$/, () => { world.openInstrument("Guitar Input"); }],

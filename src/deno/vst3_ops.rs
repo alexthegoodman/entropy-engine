@@ -18,11 +18,65 @@ fn err(message: impl Into<String>) -> Json {
     json!({ "ok": false, "error": message.into() })
 }
 
+/// Starts (or reports progress of) a VST3 folder scan. The scan runs on a background thread so the
+/// calling frame never blocks on a plugin's own load time (Maschine alone is ~2s). Returns
+/// `{ scanning: true, done, total }` while it runs, or `{ scanning: false, plugins, skipped }` with
+/// the cached result. `refresh` ignores the cache and rescans; a scan already in flight is reported
+/// rather than restarted.
 #[op2]
 #[serde]
-pub fn op_vst3_scan(refresh: bool) -> Json {
-    let (plugins, skipped) = vst3::cached_scan(refresh);
-    json!({ "plugins": plugins, "skipped": skipped })
+pub fn op_vst3_scan(state: &mut OpState, refresh: bool) -> Json {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else { return err("Context not available") };
+
+    // Harvest a finished scan into the cache first.
+    if let Some(s) = ctx.vst3_scan_job.as_ref().filter(|j| j.is_done()).map(|j| j.status()) {
+        ctx.vst3_scan_cache = Some((s.entries, s.skipped, s.error));
+        ctx.vst3_scan_job = None;
+    }
+
+    // Still running? Report progress.
+    if let Some(job) = ctx.vst3_scan_job.as_ref() {
+        let s = job.status();
+        return json!({ "scanning": true, "done": s.done, "total": s.total });
+    }
+
+    if !refresh {
+        if let Some((plugins, skipped, error)) = &ctx.vst3_scan_cache {
+            return json!({ "scanning": false, "plugins": plugins, "skipped": skipped, "error": error });
+        }
+    }
+
+    ctx.vst3_scan_cache = None;
+    ctx.vst3_scan_job = Some(vst3::Vst3ScanJob::start(vst3::default_scan_dirs()));
+    json!({ "scanning": true, "done": 0, "total": 0 })
+}
+
+/// Progress/result of the background scan started by `scan`. `null` when no scan has run and none is
+/// running. Returns `{ scanning: false, plugins, skipped }` exactly once when the scan completes,
+/// then the cached result afterwards (or `null` if a fresh scan has not been started).
+#[op2]
+#[serde]
+pub fn op_vst3_scan_poll(state: &mut OpState) -> Json {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else { return Json::Null };
+
+    let status = match ctx.vst3_scan_job.as_ref() {
+        Some(job) => job.status(),
+        None => {
+            return match &ctx.vst3_scan_cache {
+                Some((plugins, skipped, error)) => json!({ "scanning": false, "plugins": plugins, "skipped": skipped, "error": error }),
+                None => Json::Null,
+            };
+        }
+    };
+
+    if status.finished {
+        ctx.vst3_scan_cache = Some((status.entries, status.skipped, status.error));
+        ctx.vst3_scan_job = None;
+        let (plugins, skipped, error) = ctx.vst3_scan_cache.as_ref().unwrap();
+        json!({ "scanning": false, "plugins": plugins, "skipped": skipped, "error": error })
+    } else {
+        json!({ "scanning": true, "done": status.done, "total": status.total })
+    }
 }
 
 #[derive(Deserialize, Debug)]

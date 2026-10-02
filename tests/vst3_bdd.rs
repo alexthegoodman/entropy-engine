@@ -7,13 +7,14 @@
 //! scenario at a time.
 
 use cucumber::{given, then, when, World as _};
-use entropy_engine::audio::vst3::{self, Vst3Instrument, Vst3PluginEntry, Vst3Source, BLOCK_FRAMES, SAMPLE_RATE};
+use entropy_engine::audio::vst3::{self, Vst3Instrument, Vst3PluginEntry, Vst3ScanJob, Vst3Source, BLOCK_FRAMES, SAMPLE_RATE};
 use std::collections::HashMap;
 use std::time::Instant;
 
 #[derive(Default, cucumber::World)]
 struct VstWorld {
     scan: Option<Vec<Vst3PluginEntry>>,
+    background_scan: Option<Vst3ScanJob>,
     instrument: Option<Vst3Instrument>,
     source: Option<Vst3Source>,
     plugin_name: String,
@@ -67,6 +68,31 @@ fn scan(world: &mut VstWorld) {
     let (entries, skipped) = vst3::scan_plugins(&vst3::default_scan_dirs());
     assert!(skipped.is_empty(), "plugins that failed to read: {skipped:?}");
     world.scan = Some(entries);
+}
+
+#[when("I start a background VST3 scan")]
+fn start_background_scan(world: &mut VstWorld) {
+    world.background_scan = Some(Vst3ScanJob::start(vst3::default_scan_dirs()));
+}
+
+#[then("the background scan finishes with the installed plugins")]
+fn background_scan_finishes(world: &mut VstWorld) {
+    let job = world.background_scan.take().expect("a background scan must be started first");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let status = job.status();
+        if status.finished {
+            assert!(status.error.is_none(), "scan could not run: {:?}", status.error);
+            assert!(status.skipped.is_empty(), "plugins that failed to read: {:?}", status.skipped);
+            let names: Vec<&str> = status.entries.iter().map(|e| e.name.as_str()).collect();
+            for expected in ["Vital", "Massive", "Maschine 3", "MIDI Guitar 3"] {
+                assert!(names.contains(&expected), "{expected} not found in {names:?}");
+            }
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "background scan did not finish in 30s");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 #[then(expr = "the scan lists {string} as an instrument")]

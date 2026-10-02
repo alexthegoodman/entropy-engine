@@ -1,5 +1,9 @@
 Feature: Hosting real VST3 instruments
 
+  Scenario: The scan runs on a background thread and finishes with the installed plugins
+    When I start a background VST3 scan
+    Then the background scan finishes with the installed plugins
+
   Scenario: The scan finds the installed plugins and tells instruments from effects
     When I scan the VST3 folders
     Then the scan lists "Vital" as an instrument

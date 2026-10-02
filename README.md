@@ -343,7 +343,7 @@ Host installed VST3 instruments on a track bus. This API is Windows-only. Create
 
 | Call | What it does |
 |---|---|
-| `Vst3.scan(refresh?)` | Lists installed VST3 plugins from the standard folders. Results are cached for the session unless `refresh` is true. |
+| `Vst3.scan(refresh?)` / `scanPoll()` | Lists installed VST3 plugins from the standard folders, introspected out-of-process so a crashing plugin does not take the DAW down. `scan` runs on a background thread and returns `{ scanning: true }` while in flight (so it never blocks the frame), then the cached result; poll `scanPoll()` each frame for the result. `refresh` rescans. |
 | `Vst3.load(trackId, { path, state? })` / `unload(trackId)` | Loads or unloads a plugin on a track. `state` restores base64 plugin state captured earlier. |
 | `Vst3.noteOn(trackId, config)` / `allNotesOff(trackId)` | Sends MIDI note events to the loaded instrument or silences all active notes. |
 | `Vst3.openEditor(trackId)` / `closeEditor(trackId)` | Opens or closes the plugin's native editor window when the plugin provides one. |

@@ -23,7 +23,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     Then the track "Lead" is a wavetable track
     And the terrain widget shows the table of "Lead"
     And the engine has a table for "Lead" that started as "saw"
-    And I see the label "Lead - start from"
+    And the preset tree offers the waveform "Sine"
 
   Scenario: The editor only works on built-in synth tracks
     Given the DAW is open
@@ -117,7 +117,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     Given the DAW is open
     And "Lead" is a wavetable track
     And the track "Lead" is selected
-    When I click "wt_preset_vowels"
+    When I select the waveform "Vowels"
     And I advance 400 milliseconds
     Then the engine table of "Lead" started as "vowels"
     And the saved project has the table of "Lead" as it is in the engine
@@ -166,7 +166,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And "Lead" is a wavetable track
     And "Pad" is a wavetable track
     And the track "Pad" is selected
-    When I click "wt_preset_glass"
+    When I select the waveform "Glass"
     Then the engine table of "Pad" started as "glass"
     And the engine table of "Lead" started as "saw"
 
@@ -370,7 +370,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And the track "Lead" is selected
     When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"simple_horns"}
     Then the tool reports instrument preset "simple_horns"
-    When I click "wt_preset_saw"
+    When I select the waveform "Sine to Saw"
     And I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"info"}
     Then the tool reports no instrument preset
 

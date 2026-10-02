@@ -1567,11 +1567,36 @@ function vst3Slug(name: string): string {
 
 function scanVst3Plugins(refresh: boolean) {
     const result = addon.Vst3.scan(refresh);
-    vst3Catalog = result.plugins.filter((p: any) => p.isInstrument);
-    const others = result.plugins.length - vst3Catalog.length;
+    if (result.scanning) {
+        vst3ScanStatus = `Scanning VST3 folders...${result.total ? ` (${result.done}/${result.total})` : ""}`;
+        return;
+    }
+    applyVst3ScanResult(result);
+}
+
+function applyVst3ScanResult(result: any) {
+    if (result.error) {
+        vst3ScanStatus = `Could not scan VST3 folders: ${result.error}`;
+        return;
+    }
+    const plugins: any[] = result.plugins ?? [];
+    vst3Catalog = plugins.filter((p: any) => p.isInstrument);
+    const others = plugins.length - vst3Catalog.length;
+    const skipped: string[] = result.skipped ?? [];
     vst3ScanStatus = `${vst3Catalog.length} instrument${vst3Catalog.length === 1 ? "" : "s"} found`
         + (others > 0 ? ` (${others} effect/other plugin${others === 1 ? "" : "s"} not listed - MIDI-out effects like MIDI Guitar are not supported yet)` : "")
-        + (result.skipped.length > 0 ? `, ${result.skipped.length} could not be read` : "");
+        + (skipped.length > 0 ? `, ${skipped.length} could not be read` : "");
+}
+
+// The scan runs on a background thread; this drains its result into the catalog each frame.
+function pollVst3Scan() {
+    const result = addon.Vst3.scanPoll();
+    if (!result) return;
+    if (result.scanning) {
+        vst3ScanStatus = `Scanning VST3 folders...${result.total ? ` (${result.done}/${result.total})` : ""}`;
+        return;
+    }
+    applyVst3ScanResult(result);
 }
 
 function loadTrackInstrument(track: Track, instrument: Vst3Instrument) {
@@ -2789,12 +2814,20 @@ function setWavetableVisible(visible: boolean) {
     if (wavetableWindowId) Entropy.UI.setWindowVisible(wavetableWindowId, visible);
 }
 
-// Folders start collapsed except the first, so a track that has never touched presets opens on
-// one short, readable list rather than all ten at once.
-const wtPresetCollapsed = new Set<string>(instrumentPresetFolders().slice(1).map(g => g.folder));
+// The waveforms a track can start from stay expanded; the full-patch folders start collapsed, so a
+// track that has never touched presets opens on the short waveform list rather than everything.
+const WT_WAVEFORMS_FOLDER = "Waveforms";
+const wtPresetCollapsed = new Set<string>(instrumentPresetFolders().map(g => g.folder));
 
 function wtPresetTreeNodes(wt: WavetableSettings) {
     const nodes: { id: string; label: string; depth: number; hasChildren: boolean; expanded?: boolean; selected?: boolean; detail?: string }[] = [];
+    const waveformsCollapsed = wtPresetCollapsed.has(WT_WAVEFORMS_FOLDER);
+    nodes.push({ id: `folder:${WT_WAVEFORMS_FOLDER}`, label: WT_WAVEFORMS_FOLDER, depth: 0, hasChildren: true, expanded: !waveformsCollapsed });
+    if (!waveformsCollapsed) {
+        for (const p of WT_PRESETS) {
+            nodes.push({ id: `wave:${p.id}`, label: p.label, depth: 1, hasChildren: false, selected: wt.preset === p.id });
+        }
+    }
     for (const group of instrumentPresetFolders()) {
         const collapsed = wtPresetCollapsed.has(group.folder);
         nodes.push({ id: `folder:${group.folder}`, label: group.folder, depth: 0, hasChildren: true, expanded: !collapsed });
@@ -2825,15 +2858,6 @@ function renderWavetableWindow(win: string) {
 
     Entropy.UI.Widget.horizontal(win, (columns: string) => {
     Entropy.UI.Widget.vertical(columns, (left: string) => {
-    Entropy.UI.Widget.horizontal(left, (row: string) => {
-        Entropy.UI.Widget.label(row, { text: `${track.name} - start from`, bold: true });
-        for (const p of WT_PRESETS) {
-            Entropy.UI.Widget.button(row, {
-                text: radio(wt.preset === p.id) + p.label, id: "wt_preset_" + p.id,
-                onClick: () => { loadWavetablePreset(track, p.id); }
-            });
-        }
-    });
     Entropy.UI.Widget.horizontal(left, (row: string) => {
         Entropy.UI.Widget.label(row, { text: "Frames", bold: true });
         for (const f of WT_FRAME_CHOICES) {
@@ -2896,7 +2920,7 @@ function renderWavetableWindow(win: string) {
         Entropy.UI.Widget.group(right, (g: string) => {
             Entropy.UI.Widget.label(g, { text: "Presets", bold: true });
             Entropy.UI.Widget.treeView(g, {
-                id: "wt_instrument_presets", width: WAVETABLE_SIDE_COLUMN - 34, maxHeight: 160,
+                id: "wt_instrument_presets", width: WAVETABLE_SIDE_COLUMN - 34, maxHeight: 230,
                 nodes: wtPresetTreeNodes(wt),
                 onSelect: (id: string) => {
                     if (id.startsWith("folder:")) {
@@ -2904,6 +2928,7 @@ function renderWavetableWindow(win: string) {
                         if (wtPresetCollapsed.has(folder)) wtPresetCollapsed.delete(folder); else wtPresetCollapsed.add(folder);
                         return;
                     }
+                    if (id.startsWith("wave:")) { loadWavetablePreset(track, id.slice(5)); return; }
                     applyInstrumentPreset(track, id);
                 },
                 onToggleExpand: (id: string) => {
@@ -7452,6 +7477,7 @@ addon.onInit(async () => {
 
     const onFrame = () => {
         pollGuitar();
+        pollVst3Scan();
         // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The
         // host snapshots its state when the editor closes or a parameter edit settles, and this
         // collects it into the project. The peak meter drains here too.
@@ -8423,11 +8449,15 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_list_vst3_plugins",
-        description: "List the VST3 instrument plugins installed on this machine (name, vendor, path). Scans the standard VST3 folders on first use, which can take a couple of seconds. Use a returned name with daw_set_track_instrument.",
+        description: "List the VST3 instrument plugins installed on this machine (name, vendor, path). The scan runs in the background (it can take a couple of seconds); if the result has \"scanning\": true, call again in a moment to get the finished list. Use a returned name with daw_set_track_instrument.",
         parameters: { type: "object", properties: { rescan: { type: "boolean" } } }
     }, (args: any) => {
-        scanVst3Plugins(args.rescan === true || vst3Catalog.length === 0);
-        return { success: true, status: vst3ScanStatus, plugins: vst3Catalog.map(p => ({ name: p.name, vendor: p.vendor, path: p.path })) };
+        const result = addon.Vst3.scan(args.rescan === true || vst3Catalog.length === 0);
+        if (result.scanning) {
+            return { success: true, scanning: true, status: vst3ScanStatus, plugins: [] };
+        }
+        applyVst3ScanResult(result);
+        return { success: true, scanning: false, status: vst3ScanStatus, plugins: vst3Catalog.map(p => ({ name: p.name, vendor: p.vendor, path: p.path })) };
     });
 
     addon.registerTool({
@@ -8449,7 +8479,13 @@ addon.onInit(async () => {
             persist();
             return { success: true, instrument: null };
         }
-        if (vst3Catalog.length === 0) scanVst3Plugins(false);
+        if (vst3Catalog.length === 0) {
+            const result = addon.Vst3.scan(false);
+            if (result.scanning) {
+                return { success: false, error: "The VST3 plugin list is still scanning in the background - call daw_list_vst3_plugins again in a moment" };
+            }
+            applyVst3ScanResult(result);
+        }
         const plugin = vst3Catalog.find(p => p.name.toLowerCase() === String(args.plugin).toLowerCase());
         if (!plugin) return { success: false, error: "No installed VST3 instrument named " + args.plugin, available: vst3Catalog.map(p => p.name) };
         const result = loadTrackInstrument(track, { path: plugin.path, name: plugin.name });

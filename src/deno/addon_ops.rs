@@ -1675,6 +1675,11 @@ pub struct AddonContext {
     /// The music video exporting on a background thread, if any (`Entropy.Video.exportMusicVideo`).
     #[cfg(not(target_arch = "wasm32"))]
     pub music_video_job: Option<crate::music_video::export::MusicVideoJob>,
+    /// A VST3 plugin scan running on a background thread, if any (`Entropy.Vst3.scan`).
+    pub vst3_scan_job: Option<crate::audio::vst3::Vst3ScanJob>,
+    /// The last completed VST3 scan result, cached so re-scans are instant: entries, skipped, and
+    /// any top-level error (e.g. the isolated probe binary missing).
+    pub vst3_scan_cache: Option<(Vec<crate::audio::vst3::Vst3PluginEntry>, Vec<String>, Option<String>)>,
     /// `Widget.musicVisualizer` state by widget id: its visualizer, tracker and texture.
     pub music_previews: HashMap<String, crate::deno::music_video_ops::MusicPreview>,
 }
