@@ -136,7 +136,8 @@ use crate::deno::addon_ops::{
     op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text, op_http_fetch_text, op_http_poll_text, op_http_cancel_text,
     op_ui_set_theme, op_ui_widget_extras, op_ui_toast, op_ui_dismiss_toast, op_ui_set_preferences, op_ui_keyboard_state, op_visual_load, op_window_get_size, op_window_set_fullscreen, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick,
-    op_ml_graph_train, op_ml_graph_poll, op_ml_architecture_train, op_ml_architecture_poll
+    op_ml_graph_train, op_ml_graph_poll, op_ml_architecture_train, op_ml_architecture_poll,
+    AddonTimer, op_timer_set, op_timer_clear, op_timer_has
 };
 use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::heightfield_landscapes::Landscape::Landscape;
@@ -205,6 +206,9 @@ extension!(
         op_addon_on_update,
         op_addon_on_cleanup,
         op_addon_on_action,
+        op_timer_set,
+        op_timer_clear,
+        op_timer_has,
         op_yumon_create,
         op_yumon_tick,
         op_yumon_sleep,
@@ -741,6 +745,7 @@ impl AddonEngine {
         let audio_engine = Arc::new(AudioEngine::new());
 
         let context = AddonContext {
+            timers: HashMap::new(),
             registered_addons: Vec::new(),
             behaviors: HashMap::new(),
             gpu_resources: None,
@@ -1223,6 +1228,7 @@ impl AddonEngine {
         mut alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
         self.check_hot_reload();
+        self.run_expired_timers();
 
         // Poll Yumon background trainers
         {
@@ -3604,6 +3610,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         let source = std::fs::read_to_string(path)?;
         self.hot_reload_gen += 1;
 
+        self.run_on_cleanup();
+
         {
             let op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -3622,6 +3630,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 ctx.op_addon_on_all_projects_loaded_callbacks.clear();
                 ctx.tab_order.clear();
                 ctx.window_order.clear();
+                ctx.timers.clear();
                 // Deliberately NOT cleared: resource maps (buffers, pipelines,
                 // compute_pipelines, textures, addon_meshes on RendererState, etc.) and
                 // HashMap-keyed registries (behaviors, ui_windows, ui_tabs, registered_tools)
@@ -3677,6 +3686,62 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         if !callbacks.is_empty() {
             let scope = &mut self.runtime.handle_scope();
             for callback in callbacks {
+                let func = v8::Local::new(scope, callback);
+                let receiver = v8::undefined(scope);
+                let _ = func.call(scope, receiver.into(), &[]);
+            }
+        }
+    }
+
+    pub fn run_on_cleanup(&mut self) {
+        let callbacks = {
+            let op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                ctx.timers.clear();
+                std::mem::take(&mut ctx.on_cleanup_callbacks)
+            } else {
+                Vec::new()
+            }
+        };
+
+        if !callbacks.is_empty() {
+            let scope = &mut self.runtime.handle_scope();
+            for (_addon_name, callback) in callbacks {
+                let func = v8::Local::new(scope, callback);
+                let receiver = v8::undefined(scope);
+                let _ = func.call(scope, receiver.into(), &[]);
+            }
+        }
+    }
+
+    pub fn run_expired_timers(&mut self) {
+        let expired: Vec<(String, v8::Global<v8::Function>)> = {
+            let op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                let now = std::time::Instant::now();
+                let ready_keys: Vec<String> = ctx
+                    .timers
+                    .iter()
+                    .filter(|(_, timer)| timer.deadline <= now)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                let mut ready = Vec::with_capacity(ready_keys.len());
+                for k in ready_keys {
+                    if let Some(timer) = ctx.timers.remove(&k) {
+                        ready.push((k, timer.callback));
+                    }
+                }
+                ready
+            } else {
+                Vec::new()
+            }
+        };
+
+        if !expired.is_empty() {
+            let scope = &mut self.runtime.handle_scope();
+            for (_key, callback) in expired {
                 let func = v8::Local::new(scope, callback);
                 let receiver = v8::undefined(scope);
                 let _ = func.call(scope, receiver.into(), &[]);
@@ -3860,6 +3925,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
     pub fn render_ui(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
         self.apply_pending_theme(ctx);
+        self.run_expired_timers();
         // 0. Reset widget counter in JS
         {
             let scope = &mut self.runtime.handle_scope();
@@ -3988,7 +4054,10 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 for (id, config) in sorted_windows {
-                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| !context.is_tab_visible(owner)) { continue; }
+                    if !config.visible || config.owner_tab_id.as_ref().is_some_and(|owner| !context.is_tab_visible(owner)) {
+                        ctx.remove_occluders(egui::Id::new(&id));
+                        continue;
+                    }
                     let mut open = true;
                     let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
@@ -4138,6 +4207,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
     /// 67/33, 33/67, split vertical, 3 columns, 3-grid, and 2x2 quad grid).
     pub fn render_tabs(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
         self.apply_pending_theme(ctx);
+        self.run_expired_timers();
 
         // 1. Snapshot the tab list (in creation order) and resolve/default the active tab and tile layout.
         let (tabs, active_tab, tile_layout, slots_to_render, focused_slot): (Vec<(String, String, String)>, Option<String>, TileLayoutMode, Vec<(usize, String)>, usize) = {

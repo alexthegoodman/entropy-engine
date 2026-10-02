@@ -368,6 +368,15 @@ impl Context {
         inner.occluders_cur.push(Occluder { id, order, rect });
     }
 
+    /// Removes any occluders registered for `id` from both last frame's footprints
+    /// (`occluders_prev`) and this frame's (`occluders_cur`), so a window or popup closed
+    /// during the frame immediately ceases blocking underlying widgets.
+    pub fn remove_occluders(&self, id: Id) {
+        let mut inner = self.0.borrow_mut();
+        inner.occluders_prev.retain(|o| o.id != id);
+        inner.occluders_cur.retain(|o| o.id != id);
+    }
+
     pub fn output_mut<R>(&self, writer: impl FnOnce(&mut PlatformOutput) -> R) -> R {
         let mut inner = self.0.borrow_mut();
         let mut out = PlatformOutput { cursor_icon: inner.cursor_icon };

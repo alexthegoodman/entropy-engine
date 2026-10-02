@@ -875,7 +875,129 @@ function bindListener(poolName, id, fn) {
     globalThis[poolName][id] = fn;
 }
 
+let _nextTimerId = 0;
+const _activeTimers = new Map();
+
+const timerAPI = {
+    setTimeout: (fn, delayMs = 0, key = null) => {
+        if (typeof fn !== "function") {
+            throw new TypeError("Entropy.setTimeout: first argument must be a function");
+        }
+        const timerKey = key != null ? String(key) : ("__timer_" + (++_nextTimerId));
+        _activeTimers.set(timerKey, fn);
+        ops.op_timer_set(timerKey, Number(delayMs) || 0, () => {
+            _activeTimers.delete(timerKey);
+            try {
+                fn();
+            } catch (e) {
+                ops.op_println(String("Error in timer callback (" + timerKey + "): " + e));
+            }
+        });
+        return timerKey;
+    },
+    clearTimeout: (key) => {
+        if (key != null) {
+            const timerKey = String(key);
+            _activeTimers.delete(timerKey);
+            return ops.op_timer_clear(timerKey);
+        }
+        return false;
+    },
+    flushTimeout: (key) => {
+        if (key != null) {
+            const timerKey = String(key);
+            const fn = _activeTimers.get(timerKey);
+            if (fn) {
+                _activeTimers.delete(timerKey);
+                ops.op_timer_clear(timerKey);
+                try {
+                    fn();
+                } catch (e) {
+                    ops.op_println(String("Error in flushed timer callback (" + timerKey + "): " + e));
+                }
+                return true;
+            }
+        }
+        return false;
+    },
+    hasTimeout: (key) => {
+        if (key != null) {
+            return ops.op_timer_has(String(key));
+        }
+        return false;
+    }
+};
+
+globalThis.setTimeout = timerAPI.setTimeout;
+globalThis.clearTimeout = timerAPI.clearTimeout;
+
+function debounce(fn, delayMs = 250, options = {}) {
+    const debounceKey = options.key ? String(options.key) : ("__debounce_" + (++_nextTimerId));
+    let lastArgs = null;
+    let lastThis = null;
+    const maxWait = options.maxWait != null ? Number(options.maxWait) : null;
+    const maxWaitKey = maxWait != null ? (debounceKey + "_max") : null;
+
+    function invoke() {
+        if (maxWaitKey) {
+            timerAPI.clearTimeout(maxWaitKey);
+        }
+        if (lastArgs !== null) {
+            const args = lastArgs;
+            const thisArg = lastThis;
+            lastArgs = null;
+            lastThis = null;
+            fn.apply(thisArg, args);
+        }
+    }
+
+    function debounced(...args) {
+        lastArgs = args;
+        lastThis = this;
+
+        if (options.immediate && !timerAPI.hasTimeout(debounceKey)) {
+            fn.apply(this, args);
+        }
+
+        timerAPI.setTimeout(invoke, delayMs, debounceKey);
+
+        if (maxWaitKey && !timerAPI.hasTimeout(maxWaitKey)) {
+            timerAPI.setTimeout(invoke, maxWait, maxWaitKey);
+        }
+    }
+
+    debounced.flush = () => {
+        timerAPI.flushTimeout(debounceKey);
+        if (maxWaitKey) {
+            timerAPI.clearTimeout(maxWaitKey);
+        }
+    };
+    debounced.cancel = () => {
+        timerAPI.clearTimeout(debounceKey);
+        if (maxWaitKey) {
+            timerAPI.clearTimeout(maxWaitKey);
+        }
+        lastArgs = null;
+        lastThis = null;
+    };
+    debounced.pending = () => timerAPI.hasTimeout(debounceKey);
+
+    return debounced;
+}
+
 globalThis.Entropy = {
+    setTimeout: timerAPI.setTimeout,
+    clearTimeout: timerAPI.clearTimeout,
+    flushTimeout: timerAPI.flushTimeout,
+    hasTimeout: timerAPI.hasTimeout,
+    debounce,
+    Utils: {
+        debounce,
+        setTimeout: timerAPI.setTimeout,
+        clearTimeout: timerAPI.clearTimeout,
+        flushTimeout: timerAPI.flushTimeout,
+        hasTimeout: timerAPI.hasTimeout,
+    },
     Addon: {
         register: (metadata) => {
             ops.op_addon_register(metadata);
@@ -890,10 +1012,37 @@ globalThis.Entropy = {
                 return metadata.name;
             };
 
+            let _pendingSaveData = null;
+            let _pendingSaveOptions = null;
+            const _saveKey = "__save_debounce_" + metadata.name;
+
+            const _flushSave = () => {
+                if (_pendingSaveData !== null) {
+                    timerAPI.clearTimeout(_saveKey);
+                    ops.op_println(String("Saving Data (flushed): " + metadata.name));
+                    ops.op_addon_save_data(metadata.name, JSON.stringify(_pendingSaveData, null, _pendingSaveOptions?.pretty ? 2 : undefined));
+                    _pendingSaveData = null;
+                    _pendingSaveOptions = null;
+                }
+            };
+
+            const _cancelSave = () => {
+                timerAPI.clearTimeout(_saveKey);
+                _pendingSaveData = null;
+                _pendingSaveOptions = null;
+            };
+
+            ops.op_addon_on_cleanup(metadata.name, _flushSave);
+
             const contextualAPI = createAddonContextualAPI(getAddonName);
 
             // Return scoped API
             return {
+                debounce,
+                setTimeout: timerAPI.setTimeout,
+                clearTimeout: timerAPI.clearTimeout,
+                flushTimeout: timerAPI.flushTimeout,
+                hasTimeout: timerAPI.hasTimeout,
                 Input: inputForAddon(metadata.name),
                 Controls: {
                     enable: (format, options) => globalThis.Entropy.Controls.enable(format, options, metadata.name),
@@ -1223,9 +1372,30 @@ globalThis.Entropy = {
                     // stay compact, while human-maintained files such as CC Manager's board can
                     // request stable, readable JSON.
                     save: (data, options = {}) => {
+                        _cancelSave();
                         ops.op_println(String("Saving Data: " + metadata.name));
                         ops.op_addon_save_data(metadata.name, JSON.stringify(data, null, options.pretty ? 2 : undefined));
                     },
+                    saveDebounced: (data, delayMs = 500, options = {}) => {
+                        _pendingSaveData = data;
+                        _pendingSaveOptions = options;
+                        timerAPI.setTimeout(() => {
+                            if (_pendingSaveData !== null) {
+                                ops.op_println(String("Saving Data (debounced): " + metadata.name));
+                                ops.op_addon_save_data(metadata.name, JSON.stringify(_pendingSaveData, null, _pendingSaveOptions?.pretty ? 2 : undefined));
+                                _pendingSaveData = null;
+                                _pendingSaveOptions = null;
+                            }
+                        }, delayMs, _saveKey);
+                    },
+                    flushPendingSave: () => {
+                        _flushSave();
+                    },
+                    cancelPendingSave: () => {
+                        _cancelSave();
+                    },
+                    hasPendingSave: () => timerAPI.hasTimeout(_saveKey),
+                    debounce,
                     saveImage: (filename, width, height, data) => {
                         ops.op_addon_save_image(metadata.name, filename, width, height, data);
                     },
@@ -3007,6 +3177,7 @@ globalThis.Entropy = {
 
 // IO Namespace (Scoped to addon)
 globalThis.Entropy.IO = {
+    debounce,
     // This is a placeholder, actual implementation needs scoped metadata.name access.
     // However, globalThis.Entropy structure is static.
     // The `register` function returns the SCOPED API.

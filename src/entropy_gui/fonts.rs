@@ -24,6 +24,7 @@ use crate::entropy_gui::icons::{self, IconStyle};
 use crate::entropy_gui::text_layout::FaceSet;
 use crate::renderer_text::fonts::FontManager;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 // Icon-fallback faces per platform. Linux has no single stock equivalent of Segoe UI Emoji whose
 // outlines fontdue can rasterize (Noto Color Emoji is bitmap-only), so it tries the monochrome
@@ -51,9 +52,6 @@ pub struct FontRegistry {
     monospace: fontdue::Font,
     emoji: Option<fontdue::Font>,
     symbol: Option<fontdue::Font>,
-    /// Phosphor Regular, Bold and Fill, indexed by `IconStyle::index`. Embedded, so they always
-    /// load (unlike the two system faces). Icons are private-use characters, see `icons.rs`.
-    phosphor: [fontdue::Font; 3],
     /// The engine's full ~60-font catalog (`src/renderer_text/fonts.rs`, already embedded via
     /// `include_bytes!` for the old 3D-scene text renderer) - reused here so `DocEditor`'s font
     /// picker has real choices instead of just proportional/monospace. Only raw bytes are
@@ -70,6 +68,7 @@ const PHOSPHOR_BYTES: [&[u8]; 3] = [
     include_bytes!("../fonts/phosphor/Phosphor-Bold.ttf"),
     include_bytes!("../fonts/phosphor/Phosphor-Fill.ttf"),
 ];
+static PHOSPHOR: [OnceLock<fontdue::Font>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
 
 impl FontRegistry {
     pub fn new() -> Self {
@@ -84,11 +83,7 @@ impl FontRegistry {
         let emoji = Self::load_system_font(EMOJI_FONT_CANDIDATES);
         let symbol = Self::load_system_font(SYMBOL_FONT_CANDIDATES);
 
-        let phosphor = PHOSPHOR_BYTES.map(|bytes| {
-            fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("failed to parse embedded Phosphor icon font")
-        });
-
-        Self { proportional, monospace, emoji, symbol, phosphor, catalog: FontManager::new(), named_font_cache: HashMap::new() }
+        Self { proportional, monospace, emoji, symbol, catalog: FontManager::new(), named_font_cache: HashMap::new() }
     }
 
     /// Every font name `DocEditor`'s font picker can offer, in catalog order.
@@ -161,9 +156,17 @@ impl FontRegistry {
         [self.emoji.as_ref(), self.symbol.as_ref()]
     }
 
-    /// The Phosphor face for one icon weight.
+    /// The Phosphor face for one icon weight, parsed lazily on first access and cached statically.
     pub fn phosphor(&self, style: IconStyle) -> &fontdue::Font {
-        &self.phosphor[style.index()]
+        Self::phosphor_face(style)
+    }
+
+    /// Access the static Phosphor face for one icon weight, parsing on first use.
+    pub fn phosphor_face(style: IconStyle) -> &'static fontdue::Font {
+        PHOSPHOR[style.index()].get_or_init(|| {
+            fontdue::Font::from_bytes(PHOSPHOR_BYTES[style.index()], fontdue::FontSettings::default())
+                .expect("failed to parse embedded Phosphor icon font")
+        })
     }
 
     /// Resolves the actual face `ch` should render with for the requested `family`: a Phosphor
@@ -202,9 +205,9 @@ impl FontRegistry {
             primary,
             self.emoji.as_ref().unwrap_or(primary),
             self.symbol.as_ref().unwrap_or(primary),
-            &self.phosphor[0],
-            &self.phosphor[1],
-            &self.phosphor[2],
+            Self::phosphor_face(IconStyle::Regular),
+            Self::phosphor_face(IconStyle::Bold),
+            Self::phosphor_face(IconStyle::Fill),
         ]
     }
 }

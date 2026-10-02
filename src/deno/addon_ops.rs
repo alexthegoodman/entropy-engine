@@ -1478,7 +1478,13 @@ pub struct BoneTransformConfig {
 // product regression (addons can no longer let users draw new connections via this UI) until
 // a real graph editor is built as a follow-up.
 
+pub struct AddonTimer {
+    pub deadline: std::time::Instant,
+    pub callback: v8::Global<v8::Function>,
+}
+
 pub struct AddonContext {
+    pub timers: HashMap<String, AddonTimer>,
     pub registered_addons: Vec<(String, AddonMetadata)>,
     pub behaviors: HashMap<String, BehaviorHooks>,
     pub npc_motion_states: HashMap<String, NpcMotionState>,
@@ -4380,6 +4386,38 @@ pub fn op_addon_on_cleanup(state: &mut OpState, #[string] addon_name: String, #[
 pub fn op_addon_on_action(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.on_action_callbacks.push((addon_name, callback));
+    }
+}
+
+#[op2]
+pub fn op_timer_set(
+    state: &mut OpState,
+    #[string] key: String,
+    delay_ms: f64,
+    #[global] callback: v8::Global<v8::Function>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(delay_ms);
+        ctx.timers.insert(key, AddonTimer { deadline, callback });
+    }
+}
+
+#[op2(fast)]
+pub fn op_timer_clear(state: &mut OpState, #[string] key: &str) -> bool {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.timers.remove(key).is_some()
+    } else {
+        false
+    }
+}
+
+#[op2(fast)]
+pub fn op_timer_has(state: &mut OpState, #[string] key: &str) -> bool {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.timers.contains_key(key)
+    } else {
+        false
     }
 }
 

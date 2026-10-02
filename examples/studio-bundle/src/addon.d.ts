@@ -237,7 +237,45 @@ export interface AttackStats {
   recoveryTime: number;
 }
 
+export interface DebounceOptions {
+  immediate?: boolean;
+  maxWait?: number;
+  /**
+   * Optional timer key. If supplied, the Rust-side timer auto-cancels any
+   * existing timer with the same key without needing clearTimeout.
+   */
+  key?: string;
+}
+
+export interface DebouncedFunction<T extends (...args: any[]) => any> {
+  (...args: Parameters<T>): void;
+  flush: () => void;
+  cancel: () => void;
+  pending: () => boolean;
+}
+
 export interface ScopedAPI {
+  /**
+   * Returns a debounced version of `fn` delaying execution until `delayMs` has elapsed
+   * since the last call. Includes `.flush()`, `.cancel()`, and `.pending()` controls.
+   */
+  debounce: <T extends (...args: any[]) => any>(
+    fn: T,
+    delayMs?: number,
+    options?: DebounceOptions
+  ) => DebouncedFunction<T>;
+  /**
+   * Sets a timer that executes a function after the specified delay in milliseconds.
+   * If `key` is provided, scheduling again with the same key auto-cancels the previous
+   * timer on the Rust side without needing clearTimeout.
+   */
+  setTimeout: (fn: () => void, delayMs?: number, key?: string) => string;
+  /** Cancels a timer previously established by `setTimeout`. */
+  clearTimeout: (key: string) => boolean;
+  /** Immediately executes the pending timer callback (if any) and cancels the timer. */
+  flushTimeout: (key: string) => boolean;
+  /** Checks if a timer with the given key is currently scheduled. */
+  hasTimeout: (key: string) => boolean;
   /** Input listeners and hover state bound to this registered addon. */
   Input: Pick<EntropyAPI["Input"], "onMouseDown" | "onMouseMove" | "onMouseUp" | "onMouseWheel" | "onKeyDown" | "onKeyUp" | "onGamepadButton" | "onGamepadAxis" | "onStylusDown" | "onStylusMove" | "onStylusUp" | "isPointerOverUI">;
   Controls: EntropyAPI["Controls"];
@@ -791,6 +829,22 @@ export interface ScopedAPI {
   IO: {
     /** Persists this addon's JSON state. Pass `{ pretty: true }` for a human-maintained file. */
     save: (data: any, options?: { pretty?: boolean }) => void;
+    /**
+     * Persists this addon's JSON state debounced by `delayMs` milliseconds (default 500 ms).
+     * Automatically batched and flushed on addon unload or app cleanup.
+     */
+    saveDebounced: (data: any, delayMs?: number, options?: { pretty?: boolean }) => void;
+    /** Immediately writes any pending debounced save for this addon. */
+    flushPendingSave: () => void;
+    /** Cancels any pending debounced save without writing. */
+    cancelPendingSave: () => void;
+    /** Returns true if a debounced save is currently pending. */
+    hasPendingSave: () => boolean;
+    debounce: <T extends (...args: any[]) => any>(
+      fn: T,
+      delayMs?: number,
+      options?: DebounceOptions
+    ) => DebouncedFunction<T>;
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
     listModels: () => Promise<string[]>;
     pickAndImportModel: () => Promise<string>;
@@ -3447,6 +3501,33 @@ export interface DialogueSystem {
 }
 
 export interface EntropyAPI {
+  debounce: <T extends (...args: any[]) => any>(
+    fn: T,
+    delayMs?: number,
+    options?: DebounceOptions
+  ) => DebouncedFunction<T>;
+  setTimeout: (fn: () => void, delayMs?: number, key?: string) => string;
+  clearTimeout: (key: string) => boolean;
+  flushTimeout: (key: string) => boolean;
+  hasTimeout: (key: string) => boolean;
+  Utils: {
+    debounce: <T extends (...args: any[]) => any>(
+      fn: T,
+      delayMs?: number,
+      options?: DebounceOptions
+    ) => DebouncedFunction<T>;
+    setTimeout: (fn: () => void, delayMs?: number, key?: string) => string;
+    clearTimeout: (key: string) => boolean;
+    flushTimeout: (key: string) => boolean;
+    hasTimeout: (key: string) => boolean;
+  };
+  IO?: {
+    debounce: <T extends (...args: any[]) => any>(
+      fn: T,
+      delayMs?: number,
+      options?: DebounceOptions
+    ) => DebouncedFunction<T>;
+  };
   Addon: {
     register: (metadata: AddonMetadata) => ScopedAPI;
     onCleanup: (callback: CleanupCallback) => void;

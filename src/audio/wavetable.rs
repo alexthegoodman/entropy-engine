@@ -809,6 +809,42 @@ impl Wavetable {
         self.commit(k, k);
     }
 
+    /// Sets the amplitude of harmonic `harmonic` (1-indexed: 1 = fundamental) in frame `frame`,
+    /// keeping all other harmonics' phases and amplitudes unchanged, and re-synthesizes the frame.
+    pub fn set_harmonic_amplitude(&mut self, frame: usize, harmonic: usize, new_amp: f32) {
+        if harmonic == 0 {
+            return;
+        }
+        let frame = frame.min(self.frames - 1);
+        let frame_slice = &self.data[frame * TABLE_SIZE..(frame + 1) * TABLE_SIZE];
+        self.band.analyze(frame_slice);
+        let max_h = TABLE_SIZE / 2;
+        let mut amps = Vec::with_capacity(max_h);
+        let mut phases = Vec::with_capacity(max_h);
+        for h in 1..max_h {
+            let c = self.band.spec[h];
+            let mag = (c.re * c.re + c.im * c.im).sqrt();
+            let amp = if h == harmonic {
+                new_amp.max(0.0)
+            } else {
+                2.0 * mag / TABLE_SIZE as f32
+            };
+            let phase = if mag > 1.0e-7 {
+                f32::atan2(c.re, -c.im)
+            } else {
+                0.0
+            };
+            amps.push(amp);
+            phases.push(phase);
+        }
+        let cycle = self.band.synth(&amps, &phases);
+        for (dst, src) in self.data[frame * TABLE_SIZE..(frame + 1) * TABLE_SIZE].iter_mut().zip(&cycle) {
+            *dst = src.clamp(-1.0, 1.0);
+        }
+        self.revision += 1;
+        self.commit(frame, frame);
+    }
+
     // --- presets ---
 
     /// Replaces the whole table with a named preset. Unknown names leave it alone and return false.

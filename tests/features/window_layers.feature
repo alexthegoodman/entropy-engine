@@ -81,3 +81,8 @@ Feature: A floating window takes the pointer from everything underneath it
     And the pointer hovers at 200,70
     And I click at 200,70
     Then the pad events are "Clicked(pad-2)"
+
+  Scenario: Closing the window immediately uncovers the pads beneath it without an extra frame
+    When I click the close button of the window
+    And I click at 200,70
+    Then the pad events are "Clicked(pad-2)"

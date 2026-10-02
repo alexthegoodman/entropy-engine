@@ -246,6 +246,22 @@ Feature: A wavetable is terrain you sculpt with a mouse or a pen
     Then the table is as it was in the snapshot
     And I save the picture "cycle-drawn"
 
+  # ---------------------------------------------------------------- the harmonics panel
+
+  Scenario: Dragging a harmonic bar re-synthesizes the selected frame
+    Given a wavetable of 32 "sine" frames
+    And frame 9 is selected
+    And I take a snapshot of the table
+    When I press harmonic 3 at height 0.6
+    And I drag harmonic 3 to height 0.6 over 4 frames
+    And I release
+    Then harmonic 3 of frame 9 has amplitude above 0.3
+    And only frames 9 to 9 have changed
+    And the events are "Edited"
+    When I click the "Undo" button
+    Then the table is as it was in the snapshot
+    And I save the picture "harmonics-edited"
+
   # ---------------------------------------------------------------- the keys
 
   Scenario: A key plays on press and stops on release, harder toward the bottom of the key

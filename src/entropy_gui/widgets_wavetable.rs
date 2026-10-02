@@ -457,6 +457,16 @@ impl WavetableResponse {
         pos2(r.min.x + phase * r.width(), r.center().y - value * r.height() * 0.5)
     }
 
+    /// The pixel in the harmonics panel for harmonic `harmonic` (1-indexed) and normalized height (0..1).
+    pub fn harmonic_point(&self, harmonic: usize, norm_height: f32) -> Pos2 {
+        let plot = harmonics_plot(self.harmonics);
+        let n = 48usize;
+        let bw = plot.width() / n as f32;
+        let x = plot.min.x + (harmonic.saturating_sub(1) as f32 + 0.5) * bw;
+        let y = plot.max.y - norm_height.clamp(0.0, 1.0) * plot.height();
+        pos2(x, y)
+    }
+
     pub fn key(&self, midi: u8) -> Option<Rect> {
         self.key_rects.iter().find(|(m, _, _)| *m == midi).map(|(_, r, _)| *r)
     }
@@ -610,6 +620,7 @@ enum Drag {
     Sculpt { plane_y: f32, target: f32, last: (f32, f32), tool: BrushTool },
     Rail,
     Cycle { last: (f32, f32) },
+    Harmonic { harmonic: usize },
     Key { midi: u8 },
 }
 
@@ -786,6 +797,14 @@ impl WavetableView {
                     let (a, b) = table.draw_segment(sel, ph, v, ph, v, 0.0);
                     table.commit(a, b);
                     st.drag = Some(Drag::Cycle { last: (ph, v) });
+                } else if started_primary && lay.harmonics.contains(p) {
+                    if let Some((h, norm_h)) = harmonic_at(lay.harmonics, p, 48) {
+                        table.begin_edit();
+                        let peak = st.harmonics.iter().cloned().fold(0.05f32, f32::max);
+                        let a = if norm_h < 0.02 { 0.0 } else { norm_h.powf(1.0 / 0.6) * peak.max(1.0) };
+                        table.set_harmonic_amplitude(sel, h, a);
+                        st.drag = Some(Drag::Harmonic { harmonic: h });
+                    }
                 } else if started_primary && o.keyboard && lay.keys.contains(p) {
                     if let Some((midi, kr)) = key_at(&key_rects, p) {
                         let velocity = pen.map(|p| p.pressure.max(0.2)).unwrap_or(0.35 + 0.65 * ((p.y - kr.min.y) / kr.height()).clamp(0.0, 1.0));
@@ -851,6 +870,16 @@ impl WavetableView {
                         st.drag = Some(Drag::Cycle { last: cur });
                     }
                 }
+                Drag::Harmonic { .. } => {
+                    if let (Some(p), true) = (pos, still_down) {
+                        if let Some((h, norm_h)) = harmonic_at(lay.harmonics, p, 48) {
+                            let peak = st.harmonics.iter().cloned().fold(0.05f32, f32::max);
+                            let a = if norm_h < 0.02 { 0.0 } else { norm_h.powf(1.0 / 0.6) * peak.max(1.0) };
+                            table.set_harmonic_amplitude(sel, h, a);
+                            st.drag = Some(Drag::Harmonic { harmonic: h });
+                        }
+                    }
+                }
                 Drag::Key { midi } => {
                     if let (Some(p), true) = (pos, still_down) {
                         if let Some((m2, kr)) = key_at(&key_rects, p) {
@@ -874,6 +903,10 @@ impl WavetableView {
                         events.push(WavetableEvent::Edited);
                     }
                     Drag::Cycle { .. } => {
+                        table.end_edit();
+                        events.push(WavetableEvent::Edited);
+                    }
+                    Drag::Harmonic { .. } => {
                         table.end_edit();
                         events.push(WavetableEvent::Edited);
                     }
@@ -1234,6 +1267,19 @@ pub fn harmonics_plot(rect: Rect) -> Rect {
     Rect::from_min_max(pos2(inner.min.x, inner.min.y + 12.0), pos2(inner.max.x, inner.max.y - 12.0))
 }
 
+/// Which harmonic (1-indexed) and normalized height (0..1) sits under pixel `p` in the harmonics panel.
+pub fn harmonic_at(rect: Rect, p: Pos2, count: usize) -> Option<(usize, f32)> {
+    if !rect.contains(p) {
+        return None;
+    }
+    let plot = harmonics_plot(rect);
+    let n = count.max(1);
+    let norm_x = ((p.x - plot.min.x) / plot.width()).clamp(0.0, 0.9999);
+    let harmonic = (norm_x * n as f32).floor() as usize + 1;
+    let norm_h = ((plot.max.y - p.y) / plot.height()).clamp(0.0, 1.0);
+    Some((harmonic, norm_h))
+}
+
 fn draw_harmonics(painter: &Painter, rect: Rect, harmonics: &[f32], sel: usize, frames: usize) {
     panel(painter, rect);
     let painter = painter.with_clip_rect(rect);
@@ -1251,6 +1297,7 @@ fn draw_harmonics(painter: &Painter, rect: Rect, harmonics: &[f32], sel: usize, 
     }
     painter.line_segment([pos2(plot.min.x, plot.max.y), pos2(plot.max.x, plot.max.y)], Stroke::new(1.0, Color32::from_white_alpha(40)));
     text(&painter, pos2(rect.min.x + 10.0, rect.min.y + 6.0), Align2::LEFT_TOP, "HARMONICS", 9.5, LABEL);
+    text(&painter, pos2(rect.max.x - 10.0, rect.min.y + 6.0), Align2::RIGHT_TOP, "drag to edit", 9.5, Color32::from_rgb(84, 90, 116));
     for h in [1usize, 8, 16, 24, 32, 40, 48] {
         if h <= n {
             text(&painter, pos2(plot.min.x + (h as f32 - 0.5) * bw, rect.max.y - 4.0), Align2::CENTER_BOTTOM, h, 8.5, Color32::from_rgb(84, 90, 116));
@@ -1364,5 +1411,45 @@ mod tests {
         assert_eq!(m, 49, "a press near the top of a black key hits the black key");
         let (m, _) = key_at(&keys, pos2(keys.iter().find(|k| k.0 == 49).unwrap().1.center().x, 60.0)).unwrap();
         assert_ne!(m, 49, "below the black key it is a white key");
+    }
+
+    #[test]
+    fn harmonic_at_maps_pixel_to_bar_and_height() {
+        let rect = Rect::from_min_size(pos2(100.0, 200.0), vec2(480.0, 100.0));
+        let plot = harmonics_plot(rect);
+        // Midpoint of harmonic 1
+        let (h1, h_val) = harmonic_at(rect, pos2(plot.min.x + 2.0, plot.center().y), 48).unwrap();
+        assert_eq!(h1, 1);
+        assert!((h_val - 0.5).abs() < 0.05);
+
+        // Harmonic 24
+        let bw = plot.width() / 48.0;
+        let (h24, _) = harmonic_at(rect, pos2(plot.min.x + 23.5 * bw, plot.min.y), 48).unwrap();
+        assert_eq!(h24, 24);
+
+        // Outside returns None
+        assert!(harmonic_at(rect, pos2(50.0, 50.0), 48).is_none());
+    }
+
+    #[test]
+    fn set_harmonic_amplitude_updates_harmonic_and_keeps_others() {
+        let mut table = Wavetable::new(4);
+        // Initially sine waves: harmonic 1 has amp 0.9, others 0.0
+        let a_init = harmonic_amplitudes(table.frame(0), 8);
+        assert!((a_init[0] - 0.9).abs() < 0.02);
+        assert!(a_init[1] < 0.01 && a_init[2] < 0.01);
+
+        // Set harmonic 3 to 0.2 (keeps waveform within [-1.0, 1.0] without clipping)
+        table.set_harmonic_amplitude(0, 3, 0.2);
+        let a_edit = harmonic_amplitudes(table.frame(0), 8);
+        assert!((a_edit[0] - 0.9).abs() < 0.02, "harmonic 1 preserved: {}", a_edit[0]);
+        assert!(a_edit[1] < 0.02, "harmonic 2 still 0: {}", a_edit[1]);
+        assert!((a_edit[2] - 0.2).abs() < 0.03, "harmonic 3 set: {}", a_edit[2]);
+
+        // Zero out harmonic 1
+        table.set_harmonic_amplitude(0, 1, 0.0);
+        let a_zero = harmonic_amplitudes(table.frame(0), 8);
+        assert!(a_zero[0] < 0.02, "harmonic 1 zeroed: {}", a_zero[0]);
+        assert!((a_zero[2] - 0.2).abs() < 0.03, "harmonic 3 preserved: {}", a_zero[2]);
     }
 }

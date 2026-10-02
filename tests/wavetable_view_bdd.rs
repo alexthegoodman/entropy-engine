@@ -12,7 +12,7 @@ use cucumber::{given, then, when, World as _};
 use entropy_engine::audio::wavetable::{BrushTool, Stamp, Wavetable, WavetableParams, WavetableVoice, TABLE_SIZE};
 use entropy_engine::entropy_gui::context::{Modifiers, PenState, PointerState};
 use entropy_engine::entropy_gui::draw_list::DrawCommand;
-use entropy_engine::entropy_gui::geometry::{pos2, vec2, Pos2, Rect};
+use entropy_engine::entropy_gui::geometry::{pos2, Pos2, Rect};
 use entropy_engine::entropy_gui::widgets_wavetable::{harmonic_amplitudes, harmonics_plot, Camera};
 use entropy_engine::entropy_gui::{ViewTool, WavetableEvent, WavetableOptions, WavetableResponse, WavetableView};
 use image::RgbaImage;
@@ -452,6 +452,18 @@ fn drag_cycle(world: &mut WtWorld, phase: f32, value: f32, n: usize) {
     world.drag(to, n);
 }
 
+#[when(expr = "I press harmonic {int} at height {float}")]
+fn press_harmonic(world: &mut WtWorld, harmonic: usize, height: f32) {
+    let p = world.resp().harmonic_point(harmonic, height);
+    world.press(p, false);
+}
+
+#[when(expr = "I drag harmonic {int} to height {float} over {int} frames")]
+fn drag_harmonic(world: &mut WtWorld, harmonic: usize, height: f32, n: usize) {
+    let to = world.resp().harmonic_point(harmonic, height);
+    world.drag(to, n);
+}
+
 fn key_point(world: &mut WtWorld, midi: u8, where_: &str) -> Pos2 {
     let r = world.resp().key(midi).unwrap_or_else(|| panic!("no key {midi}"));
     let y = match where_ {
@@ -622,6 +634,16 @@ fn first_bar(world: &mut WtWorld) {
     // And the maths behind the bars agree with what a saw is.
     let a = harmonic_amplitudes(world.table.frame(31), 8);
     assert!(a[0] > a[1] && a[1] > a[2], "a saw's harmonics fall: {a:?}");
+}
+
+#[then(expr = "harmonic {int} of frame {int} has amplitude above {float}")]
+fn harmonic_has_amplitude_above(world: &mut WtWorld, harmonic: usize, frame: usize, expected: f32) {
+    let a = harmonic_amplitudes(world.table.frame(frame), harmonic.max(8));
+    assert!(
+        a[harmonic - 1] > expected,
+        "harmonic {harmonic} amplitude was {} (expected > {expected})",
+        a[harmonic - 1]
+    );
 }
 
 #[then("the cycle strip shows a wave that crosses zero")]

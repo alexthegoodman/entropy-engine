@@ -105,6 +105,7 @@ impl<'open> Window<'open> {
         if let Some(open) = self.open.as_mut() {
             if self.decorations && ctx.escape_closes_window(id) {
                 **open = false;
+                ctx.remove_occluders(id);
                 ctx.leave_layer(previous_layer);
                 return None;
             }
@@ -175,6 +176,7 @@ impl<'open> Window<'open> {
             painter.text(close_rect.center(), Align2::CENTER_CENTER, "\u{2715}", FontId::proportional(12.0), close_color);
             if close_resp.clicked() {
                 **open_ref = false;
+                ctx.remove_occluders(id);
             }
         }
 
@@ -183,7 +185,10 @@ impl<'open> Window<'open> {
         let inner = add_contents(&mut ui);
 
         let response = interact(ctx, new_rect, id, Sense::hover());
-        ctx.add_occluder(id, new_rect);
+        let is_open = self.open.as_deref().copied().unwrap_or(true);
+        if is_open {
+            ctx.add_occluder(id, new_rect);
+        }
         ctx.leave_layer(previous_layer);
         Some(InnerResponse { inner: Some(inner), response })
     }
