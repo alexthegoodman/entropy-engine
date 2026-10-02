@@ -7,9 +7,11 @@ Latest Docs:
 
 ## 1. Scope and intent
 
-Add a BitTorrent-inspired, swarming content-distribution layer to Entropy Engine, with two
-first-party surfaces:
+Add a BitTorrent-inspired, swarming content-distribution layer to Entropy Engine, with three
+first-party surfaces, shipped in this order:
 
+- a **P2P forum** (the MVP) - rooms of text posts, the first thing to exercise discovery and
+  replication with real users;
 - a **P2P file browser** that lists, previews, downloads, and re-serves shared content;
 - a **P2P media player** that streams video/audio from peers while it plays, with seeking.
 
@@ -46,9 +48,9 @@ Three mechanisms keep the network curated. Each can be tightened or loosened ind
 
 2. **Curated catalog + content hashing.** Every shared item has a content id,
    `SHA-256(canonical(info_document))`, and every piece is `SHA-256`-verified against that document
-   (section 4). The set of content ids that may circulate is the **catalog**: peers only announce,
-   request, or serve content ids they learned from the catalog (a bundled allowlist plus the public
-   announcement table, section 6). Adding or removing content is a curation act, not a network act.
+   (section 4). The set of content ids that may circulate is the **room index** (the catalog, section
+   6): peers only announce, request, or serve content ids they learned from that signed index. Adding
+   or removing content is a curation act, not a network act.
 
 3. **Enforcement at the socket.** `rustp2p` exposes a `DataInterceptor` trait whose `pre_handle`
    returns `true` to drop an incoming packet before delivery. We install an interceptor that drops
@@ -57,8 +59,9 @@ Three mechanisms keep the network curated. Each can be tightened or loosened ind
    a convention peers could ignore.
 
 Consequence: publish and curate are the same operation. There is no untrusted upload path in the
-first release; content enters the catalog through the curator's own tooling, which produces the info
-document, publishes its id to the announcement table, and seeds it.
+first release; content enters a room's index through the room maintainer's tooling, which produces
+the info document, signs the index entry, and seeds the content. Replicating that signed index is
+something every member does; authoring it is not.
 
 ## 3. Architecture constraints in Entropy
 
@@ -175,29 +178,72 @@ This is a deliberately small, BitTorrent-shaped vocabulary. The scheduler (secti
   and that are in the catalog. It never serves arbitrary filesystem paths (the same rule the DAW
   collaboration doc states: a peer cannot name another machine's path).
 
-## 6. Discovery and NAT
+## 6. Discovery: rooms, index, and a minimal rendezvous node
 
 NAT traversal is delegated to `rustp2p`, whose docs state UDP hole punching works with both cone
 NAT and symmetric NAT, and TCP hole punching covers NAT1. Peers bootstrap from a configured initial
-peer list (`Builder::peers([...])`) and discover further peers through the swarm.
+peer list and discover further peers through the swarm.
 
-- **No relay/proxy for file data.** The user's hard constraint: we do not rely on a relay, a proxy,
-  or a CDN, and we never transfer or store large assets through one. Piece data always flows over
-  direct, hole-punched peer connections. The KCP backend exposes `RouteKey`/`send_to_route` and
-  `RecvMetadata` relay info; the QUIC backend exposes `LinkMode`/`LinkInfo` (direct vs relayed).
-  Either way the rule is the same: file bytes are confined to direct routes, and piece data that
-  arrived relayed is dropped. This is a real verification task, not an assumption - see phase 8.
+Discovery itself is scoped to **rooms**. A room is a `GroupCode` (the network-isolation secret from
+section 2) plus a small, signed, content-addressed **index**. Members join a room by its code, store
+only that room's index, and seed it to other members. This keeps the replicated state tiny and
+bounded per room, and it is what makes the network self-managing: the index is a union of signed
+entries that merge cleanly, and a room survives without any server as long as one member is online.
 
-- **Announcement table (the cloud "database table").** At most one small, publicly reachable store
-  tracks *announcements*: per content id, which peers claim to hold it and their observed endpoint
-  (`node id` / address). Peers write a row when they seed and read rows to find download sources.
-  This is coordination metadata only - a few hundred bytes of content id and endpoint, never the
-  file bytes, never a secret. Because it is public, we must manage what goes into it: only curated
-  content ids are published there, and nothing sensitive. It is the practical equivalent of a
-  private BitTorrent tracker, but with no heavyweight auth in front of it.
+### The two layers: durable index vs live availability
 
-- **Group code.** The `GroupCode` is the gate that keeps an uninvited node from joining the swarm
-  at all, independent of the announcement table. A node without the code cannot reach peers.
+Keep these separate. "What exists in the room" and "who has it right now" are different facts, and
+distributed systems handle the second one badly.
+
+1. **Durable index (append-only, signed).** Each entry is `{ content_id, title, description, media
+   metadata }` - the "p2p link" is just the content id, nothing more. A room has a maintainer key
+   that signs entries; peers replicate and seed the signed log, they do not author it (this keeps
+   "anyone can add themselves" from becoming "anyone can inject"). Deletion is a tombstone entry,
+   not a removal, so re-served stale copies cannot resurrect dead content. **The index never stores
+   peer endpoints** - addresses rot under NAT/roaming. Who holds a content id is a live question,
+   answered by the layer below, never persisted.
+
+2. **Live availability (rendezvous).** A short-TTL table of "peer P announced it seeds content C".
+   Fed by heartbeats and announces and expiring on silence, this is where "no seeders" becomes
+   visible: when liveness probes for C come up empty, the room marks C unavailable, and only then
+   may it tombstone C from the index. A room self-manages here, not in the durable layer.
+
+### The always-on node is tiny
+
+Cold start still needs at least one reachable address (you cannot discover peers without knowing any
+peer first). So we keep one small always-on node, but its job is deliberately minimal because this
+is a free product and its cost must stay low. It touches only metadata, never file bytes, so its
+bandwidth scales with the number of peers announcing, not the volume of content.
+
+Three endpoints, nothing else:
+
+| Endpoint | Job |
+| --- | --- |
+| `get_index(room)` | Serve the current signed room index to new/rejoining members (read-only). |
+| `put_announce(room, content_id, proof)` | Accept "I seed C" into the short-TTL live table (write). |
+| `get_peers(room, content_id)` | Rendezvous: return who holds C right now. |
+
+The index is small (titles + descriptions + hashes, ~1 KB/item) and announces are a few hundred
+bytes, so the whole node stays inside a free tier until real scale. Two ways to run it:
+
+- **Edge/serverless (preferred for a free product):** Cloudflare Workers free tier + R2 (zero egress)
+  for the durable index, Workers KV or Durable Objects for the live TTL table. Zero fixed cost, no
+  VPS to patch. This is the "publicly available database table" from the earlier discussion.
+- **One cheap VPS:** a single process with SQLite. The engine already carries `tiny_http` (the MCP
+  server uses it) and `reqwest`, so a `tracker` binary is nearly free to write.
+
+The node is public, so it is rate-limited and content-agnostic: it serves a signed index it did not
+author and a TTL'd peer table it does not trust.
+
+### No relay/proxy for file data
+
+A separate hard constraint: we do not rely on a relay, proxy, or CDN, and we never transfer or store
+large assets through one. Piece data always flows over direct, hole-punched peer connections. The
+KCP backend exposes `RouteKey`/`send_to_route` and `RecvMetadata` relay info; the QUIC backend
+exposes `LinkMode`/`LinkInfo` (direct vs relayed). Either way the rule is the same: file bytes are
+confined to direct routes, and piece data that arrived relayed is dropped. The rendezvous node is
+announcements only, never a data path. This is a real verification task, not an assumption - see
+phase 8.
 
 ## 7. Piece scheduling
 
@@ -241,14 +287,14 @@ can be added later without changing the wire format.
 A new addon, `p2p_file_browser_addon.ts`, following the existing media player's structure
 (`apps/media_player_addon.ts`):
 
-- Lists the catalog (announcement table + local store): name, size, type, media metadata, seed/peer
+- Lists the room index (rendezvous + local store): name, size, type, media metadata, seed/peer
   count, local availability.
 - Actions per item: **download** (rarest-first to completion, then seed), **play** (stream via the
   player, section 10), **open folder**, and **seed/stop seeding** for local files.
 - Shows per-item progress: pieces fetched, verified, remaining, per-peer contribution, and transfer
   rate. Reuses the `Widget.treeView` / `Widget.card` / `Widget.progress`-style primitives already
   in `entropy_gui`.
-- The "browser" is also the entry point for curation: the curator's tooling publishes here.
+- The "browser" is also the entry point for curation: the room maintainer's tooling publishes here.
 
 ## 10. The P2P media player
 
@@ -287,14 +333,15 @@ Playback behavior:
 | --- | --- |
 | `mod.rs` | The `P2pService` handle: owns the tokio task set, the event outbound channel, and the poll surface drained by `about_to_wait`. |
 | `meta.rs` | Info document schema, canonical serialization (MessagePack), content id derivation. |
-| `allow.rs` | The catalog allowlist policy (which content ids may circulate); transport-agnostic. |
+| `index.rs` | The room's durable index: append-only signed entries, merge, tombstones, maintainer-signature verification. |
+| `allow.rs` | The allowlist policy derived from the room index (which content ids may circulate); transport-agnostic. |
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
 | `transport.rs` | The `P2pTransport` trait: peer addressing, datagram send/recv, reliable stream open, peer events, relay-route detection. The stable seam all upper layers code against. |
 | `transport/rustp2p.rs` | KCP backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. Candidate for the first backend. |
 | `transport/quic.rs` | QUIC backend wrapping `rustp2p-quic` (`quinn` streams + encrypted datagrams over `rustp2p-core` NAT traversal); reports `LinkMode` (direct/relay) for the no-relay rule. Candidate for the first backend. |
 | `transport/lan.rs` | *Future* backend: mDNS/DNS-SD discovery + direct subnet transport, same trait. |
-| `announce.rs` | Announcement-table client (publish/read seed rows); enforces "only curated ids" on write. |
+| `rendezvous.rs` | Client for the minimal always-on node: `get_index` / `put_announce` / `get_peers`, and the short-TTL live-availability table. |
 
 `src/deno/p2p_ops.rs` adds the non-blocking ops (`op_p2p_start`, `op_p2p_stop`,
 `op_p2p_add_content`, `op_p2p_remove_content`, `op_p2p_download`, `op_p2p_poll`, `op_p2p_stream`,
@@ -366,18 +413,23 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    A localhost pair is the same shape as the DAW collab doc's two-process test.
 5. **Scheduler.** Rarest-first vs sequential-ahead correctness on a small synthetic swarm. Tests:
    completes, no piece fetched twice from the same peer, seek reprioritizes.
-6. **Allowlist and interceptor.** Catalog + `DataInterceptor` drops non-catalog traffic; group code
-   isolates two swarms. Tests: unknown content id dropped, wrong group code cannot join, only
-   curated ids reach the piece store.
-7. **Announcement table.** Publish/read seed rows; verify only curated ids are written and no bytes
-   or secrets touch the table.
+6. **Room index and interceptor.** Signed append-only index + `DataInterceptor` drops non-index
+   traffic; group code isolates two rooms. Tests: unknown content id dropped, wrong group code
+   cannot join, only indexed ids reach the piece store, tombstone prevents resurrection.
+7. **Minimal rendezvous node.** `get_index` / `put_announce` / `get_peers` over a short-TTL live
+   table. Verify only maintainer-signed entries enter the index, no bytes or secrets touch the node,
+   and liveness expires "no seeder" entries.
 8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
-   punching; assert piece data never traverses a relayed route (via `RecvMetadata` relay info) and
-   measure first-play and seek latency on real Wi-Fi/LAN before claiming anything.
-9. **P2P file browser addon.** Catalog, download, seed, progress. Live BDD with two windows.
-10. **P2P media player addon.** Stream + seek + rebuffer. Live BDD against a seeded local file and
+   punching; assert piece data never traverses a relayed route (via `RecvMetadata`/`LinkMode` relay
+   info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything.
+9. **P2P forum addon (first product surface).** Room join, post/compose, index replication,
+   availability display ("no seeders"), and moderation via the maintainer key. Live BDD with two
+   windows. This is the MVP that ships before files or media and proves the discovery layer with
+   real users.
+10. **P2P file browser addon.** Room index, download, seed, progress. Live BDD with two windows.
+11. **P2P media player addon.** Stream + seek + rebuffer. Live BDD against a seeded local file and
     a second peer. This is where the spool-then-play choice is exercised end to end.
-11. **Byte-source decoder (optional).** Remove the disk copy; benchmark memory and start latency.
+12. **Byte-source decoder (optional).** Remove the disk copy; benchmark memory and start latency.
 
 ## 14. Decisions to discuss
 
@@ -386,17 +438,23 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
   younger), both behind the `P2pTransport` trait; LAN (mDNS) is a future backend. The phase-1 spike
   picks one. The original "use QUIC" requirement is now satisfiable natively via `rustp2p-quic`
   rather than by hand-rolling a QUIC + rendezvous stack.
-- **Trust model.** Group code + PSK + curated catalog + content hashing (no per-peer identity), as
-  the user suggested ("authentication is a step too far"). Decide whether any curator signature on
-  the info document is worth adding now or later.
+- **Trust model.** Group code + PSK + maintainer-signed room index + content hashing (no per-peer
+  identity), as the user suggested ("authentication is a step too far"). Decide whether any
+  additional signature on the info document is worth adding now or later.
 - **Canonical encoding.** MessagePack (`rmp-serde`) vs canonical JSON; locks the content id forever.
 - **Piece length** default (256 KiB vs 1 MiB) and whether it is per-content.
-- **Announcement table.** Who hosts it, its shape, and how writes are kept to curated ids only
-  given it is publicly reachable.
+- **Rendezvous node hosting.** Confirm the serverless-first choice (Workers + R2 + KV/Durable
+  Objects) vs a single VPS; who runs it, and the rate limits for a public, content-agnostic node.
+- **Room index write authority.** Confirm the maintainer-key model: one key per room signs index
+  entries, and everyone else only replicates. Decide how the maintainer key is rotated or shared,
+  and whether rooms ever allow multi-maintainer signing.
+- **Forum-first MVP.** Confirm the forum addon ships before the file browser/media player as the
+  first surface that exercises discovery with real users.
 - **Relayed control traffic.** Confirm the boundary: small control/signaling may use `rustp2p`'s
   relayed routes, but piece data must be direct-only. Decide the exact enforcement (drop vs
   re-route).
 - **Streaming decode.** Confirm spool-to-temp-file first, defer the custom byte-source.
 - **Seeding policy.** Does the browser auto-seed completed downloads by default, and with what
-  upload caps.
+  upload caps. Does every room member seed the room index as a condition of joining, and what
+  happens when a room's only seeder goes offline.
 
