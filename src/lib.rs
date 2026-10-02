@@ -55,6 +55,8 @@ pub mod procedural_heightmaps;
 pub mod game_ui;
 pub mod deno;
 pub mod mcp;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod p2p;
 pub mod audio;
 pub mod guitar;
 pub mod guitar_live;
