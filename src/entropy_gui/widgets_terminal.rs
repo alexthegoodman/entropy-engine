@@ -1,7 +1,9 @@
 //! `TerminalView` - a real terminal display widget. It draws a `TerminalScreen` (a grid of
 //! styled runs produced by the `vt100` parser in `terminal_ops`) in the engine's monospace face
 //! (Cascadia Mono / Consolas / DejaVu Sans Mono), so interactive TUI programs like Claude Code or
-//! Codex render correctly with colour and cursor positioning.
+//! Codex render correctly with colour and cursor positioning. A named (proportional) font can be
+//! requested via `font_family`, in which case characters still land on fixed-width cells and will
+//! misalign - that's intentional, for previewing the tradeoff.
 
 use serde::{Deserialize, Serialize};
 
@@ -136,6 +138,7 @@ impl TerminalTheme {
 pub struct TerminalView<'a> {
     id: &'a str,
     screen: &'a TerminalScreen,
+    font_family: Option<String>,
     font_size: f32,
     is_running: bool,
     theme: TerminalTheme,
@@ -148,12 +151,22 @@ impl<'a> TerminalView<'a> {
         Self {
             id,
             screen,
+            font_family: None,
             font_size: 13.5,
             is_running: false,
             theme: TerminalTheme::neon(),
             height: None,
             auto_scroll: true,
         }
+    }
+
+    /// Render the grid in a named (possibly proportional) font instead of the engine's
+    /// monospace face. Characters still land on fixed-width cells, so proportional fonts will
+    /// misalign - useful for previewing the tradeoff.
+    pub fn font_family(mut self, family: impl Into<String>) -> Self {
+        let family = family.into();
+        self.font_family = if family.is_empty() { None } else { Some(family) };
+        self
     }
 
     pub fn font_size(mut self, size: f32) -> Self {
@@ -189,7 +202,10 @@ impl<'a> TerminalView<'a> {
         let (rect, response) = ui.allocate_response(size, Sense::click_and_drag());
         let widget_id = Id::new(self.id).with("term_view");
 
-        let font = FontId::monospace(self.font_size);
+        let font = match &self.font_family {
+            Some(family) => FontId::named(family, self.font_size),
+            None => FontId::monospace(self.font_size),
+        };
         let cell_w = Painter::measure_text(ui.ctx(), font, " ").x.max(4.0);
         let line_h = (self.font_size * 1.25).max(cell_w);
 

@@ -2155,6 +2155,7 @@ globalThis.Entropy = {
                     screen: config?.screen || { rows: 0, cols: 0, cursorRow: 0, cursorCol: 0, cursorVisible: false, lines: [] },
                     isRunning: config?.isRunning ?? false,
                     fontSize: config?.fontSize ?? 13.5,
+                    fontFamily: config?.fontFamily,
                     theme: config?.theme ?? "neon",
                     height: config?.height,
                     autoScroll: config?.autoScroll ?? true,

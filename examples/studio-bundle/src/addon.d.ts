@@ -1590,6 +1590,8 @@ export interface TerminalViewConfig {
   screen: TerminalScreen;
   isRunning?: boolean;
   fontSize?: number;
+  /** Render the grid in a named font instead of the monospace face. Proportional fonts will misalign cells. */
+  fontFamily?: string;
   theme?: "neon" | "obsidian" | "violet" | "amber" | string;
   height?: number;
   autoScroll?: boolean;

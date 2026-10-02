@@ -21,8 +21,8 @@ use vt100::Parser;
 use crate::deno::addon_ops::{AddonContext, UiWidget};
 use crate::entropy_gui::widgets_terminal::{TerminalRun, TerminalScreen};
 
-const DEFAULT_ROWS: u16 = 30;
-const DEFAULT_COLS: u16 = 100;
+const DEFAULT_ROWS: u16 = 50;
+const DEFAULT_COLS: u16 = 200;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +42,7 @@ pub struct TerminalWidgetConfig {
     pub screen: TerminalScreen,
     pub is_running: Option<bool>,
     pub font_size: Option<f32>,
+    pub font_family: Option<String>,
     pub theme: Option<String>,
     pub height: Option<f32>,
     pub auto_scroll: Option<bool>,

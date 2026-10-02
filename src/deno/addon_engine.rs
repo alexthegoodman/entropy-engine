@@ -6886,6 +6886,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     if let Some(size) = config.font_size {
                         view = view.font_size(size);
                     }
+                    if let Some(ref family) = config.font_family {
+                        view = view.font_family(family.as_str());
+                    }
                     if let Some(running) = config.is_running {
                         view = view.is_running(running);
                     }

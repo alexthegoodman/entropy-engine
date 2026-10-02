@@ -41,6 +41,13 @@ interface TerminalStatus {
 const THEMES = ["neon", "obsidian", "violet", "amber"];
 const THEME_LABELS = ["Neon", "Obsidian", "Violet", "Amber"];
 
+// Font choice: the first entry is the engine's monospace face (empty family name), the rest are
+// the catalog's proportional fonts. Picking a proportional font is expected to misalign the cell
+// grid - it's an opt-in preview, not the recommended setting.
+const MONO_FONT_LABEL = "Monospace";
+const FALLBACK_FONTS = ["Quicksand", "Figtree", "Lexend", "Exo", "Play", "Montserrat", "Outfit", "Zain", "Teachers"];
+let fontOptions: string[] = [MONO_FONT_LABEL];
+
 // The workspace palette: the tracks widget's navy greys, with amber for time (playhead, play) and
 // one lighter step per layer so the header, toolbars and views read as separate surfaces.
 type RGBA = [number, number, number, number];
@@ -75,6 +82,7 @@ let commandInput = "";
 const cmdHistory: string[] = [];
 let historyIndex = -1;
 let fontSize = 14.0;
+let selectedFont = "";
 let selectedTheme = "neon";
 let autoScroll = true;
 let frameCounter = 0;
@@ -204,6 +212,17 @@ function setupUI() {
         currentCwd = "";
     }
 
+    try {
+        const catalog = Entropy.Terminal.listFonts?.();
+        if (Array.isArray(catalog) && catalog.length > 0) {
+            fontOptions = [MONO_FONT_LABEL, ...catalog];
+        } else {
+            fontOptions = [MONO_FONT_LABEL, ...FALLBACK_FONTS];
+        }
+    } catch {
+        fontOptions = [MONO_FONT_LABEL, ...FALLBACK_FONTS];
+    }
+
     refreshStatus();
 
     tabId = Entropy.UI.createTab({
@@ -280,6 +299,7 @@ function renderUI(win: string) {
                 screen,
                 isRunning,
                 fontSize,
+                fontFamily: selectedFont,
                 theme: selectedTheme,
                 autoScroll,
             });
@@ -315,6 +335,20 @@ function renderUI(win: string) {
                     accent: UI.amber,
                     onChange: (idx: string) => { selectedTheme = THEMES[parseInt(idx, 10)] ?? "neon"; },
                 });
+                W.label(w, { text: "Font", bold: true, color: UI.dim, fontSize: 12 });
+                W.dropdown(w, {
+                    id: "term_font",
+                    label: "",
+                    options: fontOptions,
+                    selectedIndex: Math.max(0, fontOptions.indexOf(selectedFont)),
+                    onChange: (idx: string) => {
+                        const i = parseInt(idx, 10);
+                        selectedFont = i === 0 ? "" : (fontOptions[i] ?? "");
+                    },
+                });
+                if (selectedFont !== "") {
+                    W.label(w, { text: "Proportional font: cell grid will misalign.", color: UI.warn, fontSize: 11 });
+                }
                 W.horizontal(w, (r: string) => {
                     W.button(r, { text: "A-", id: "font_down", tooltip: "Smaller text", onClick: () => { fontSize = Math.max(9.0, fontSize - 1.0); } });
                     W.label(r, { text: `${fontSize}pt`, monospace: true });
