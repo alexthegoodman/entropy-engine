@@ -6880,20 +6880,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                 }
                 UiWidget::Terminal { id: term_id, config } => {
-                    use crate::entropy_gui::widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
-                    let converted_lines: Vec<TerminalLine> = config.lines.iter().map(|l| {
-                        TerminalLine::new(
-                            l.id,
-                            TerminalLineKind::from_str(&l.kind),
-                            &l.text,
-                            &l.timestamp,
-                        )
-                    }).collect();
+                    use crate::entropy_gui::widgets_terminal::{TerminalTheme, TerminalView};
 
-                    let mut view = TerminalView::new(term_id.as_str(), &converted_lines);
-                    if let Some(ref family) = config.font_family {
-                        view = view.font_family(family);
-                    }
+                    let mut view = TerminalView::new(term_id.as_str(), &config.screen);
                     if let Some(size) = config.font_size {
                         view = view.font_size(size);
                     }

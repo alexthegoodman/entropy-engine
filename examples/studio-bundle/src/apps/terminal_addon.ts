@@ -2,15 +2,15 @@
 import type { IconName, IconStyle } from "../addon";
 
 // Terminal Addon for Entropy Engine
-// A developer terminal restyled to match the DAW's app chrome: a header bar, a
-// session/view bar, a split main (output) + side (quick actions) layout, and a
-// bottom command bar + status bar. One-click MCP connections and CLI installers
-// live in the side inspector; appearance controls are tucked into a folding card.
+// A real interactive terminal in the DAW's app-chrome style. Commands run on a native
+// pseudo-terminal (ConPTY/pty), so TUI programs like Claude Code and Codex see a real terminal:
+// their ANSI output is parsed into a grid and drawn in the engine's monospace face, and the
+// command box sends keystrokes to them while they run.
 
 const addonInfo = {
     name: "terminal",
-    version: "1.1.0",
-    description: "Terminal - developer terminal with one-click MCP connections, CLI installers, catalog typography, and real process execution.",
+    version: "1.2.0",
+    description: "Terminal - a real interactive terminal with one-click MCP connections, CLI installers, and TUI support (claude, codex, etc.).",
     author: ["Entropy Team", "Google DeepMind"],
     capabilities: {
         ui: true,
@@ -20,11 +20,13 @@ const addonInfo = {
 
 const addon = Entropy.AddonAtom.register(addonInfo);
 
-interface TerminalLine {
-    id: number;
-    kind: string;
-    text: string;
-    timestamp: string;
+interface TerminalScreen {
+    rows: number;
+    cols: number;
+    cursorRow: number;
+    cursorCol: number;
+    cursorVisible: boolean;
+    lines: { text: string; fg: [number, number, number] | null; bg: [number, number, number] | null; bold: boolean; italic: boolean; underline: boolean; reverse: boolean }[][];
 }
 
 interface TerminalStatus {
@@ -32,21 +34,9 @@ interface TerminalStatus {
     exitCode: number | null;
     cwd: string;
     pid: number | null;
-    lines: TerminalLine[];
+    screen: TerminalScreen;
+    text: string;
 }
-
-// Curated fonts from the ~60 catalog fonts in src/fonts/
-const POPULAR_FONTS = [
-    "Quicksand",
-    "Figtree",
-    "Lexend",
-    "Exo",
-    "Play",
-    "Montserrat",
-    "Outfit",
-    "Zain",
-    "Teachers",
-];
 
 const THEMES = ["neon", "obsidian", "violet", "amber"];
 const THEME_LABELS = ["Neon", "Obsidian", "Violet", "Amber"];
@@ -75,7 +65,8 @@ const withIcon = (name: IconName, text: string, style?: IconStyle): string => En
 const W = Entropy.UI.Widget;
 
 // State
-let lines: TerminalLine[] = [];
+let screen: TerminalScreen = { rows: 0, cols: 0, cursorRow: 0, cursorCol: 0, cursorVisible: false, lines: [] };
+let terminalText = "";
 let isRunning = false;
 let exitCode: number | null = null;
 let currentCwd = "";
@@ -83,7 +74,6 @@ let currentPid: number | null = null;
 let commandInput = "";
 const cmdHistory: string[] = [];
 let historyIndex = -1;
-let selectedFont = "Quicksand";
 let fontSize = 14.0;
 let selectedTheme = "neon";
 let autoScroll = true;
@@ -95,7 +85,8 @@ function refreshStatus() {
     try {
         const status = Entropy.Terminal.poll("main") as TerminalStatus;
         if (status) {
-            lines = status.lines || [];
+            screen = status.screen || screen;
+            terminalText = status.text || "";
             isRunning = status.isRunning;
             exitCode = status.exitCode;
             currentCwd = status.cwd || currentCwd;
@@ -132,6 +123,21 @@ function runCommand(cmd: string) {
     }
 }
 
+function sendInput(text: string) {
+    if (!isRunning) return;
+    try {
+        Entropy.Terminal.writeInput(text + "\r", "main");
+        commandInput = "";
+    } catch (e) {
+        Entropy.UI.toast?.({
+            id: "term-send-err",
+            message: `Could not send input: ${e instanceof Error ? e.message : String(e)}`,
+            kind: "error",
+            durationMs: 3000,
+        });
+    }
+}
+
 function stopRunningProcess() {
     try {
         Entropy.Terminal.kill("main");
@@ -155,15 +161,15 @@ function stopRunningProcess() {
 function clearTerminal() {
     try {
         Entropy.Terminal.clear("main");
-        lines = [];
         refreshStatus();
     } catch {
-        lines = [];
+        // ignore
     }
 }
 
 function copyAllOutput() {
-    if (lines.length === 0) {
+    const text = terminalText || "";
+    if (text.trim().length === 0) {
         Entropy.UI.toast?.({
             id: "term-copy-empty",
             message: "Terminal output is currently empty.",
@@ -172,11 +178,10 @@ function copyAllOutput() {
         });
         return;
     }
-    const fullText = lines.map((l) => `${l.timestamp ? `[${l.timestamp}] ` : ""}${l.text}`).join("\n");
-    Entropy.Clipboard.writeText(fullText);
+    Entropy.Clipboard.writeText(text);
     Entropy.UI.toast?.({
         id: "term-copy-ok",
-        message: `Copied ${lines.length} lines of terminal output to clipboard!`,
+        message: "Copied terminal output to clipboard!",
         kind: "success",
         durationMs: 3000,
     });
@@ -256,7 +261,7 @@ function renderUI(win: string) {
             });
         });
 
-    // ---- View bar: the working directory on the left, the session on the right ----
+    // ---- View bar: the working directory on the left ----
     W.bar(win, { id: "term_view", height: 40, fill: UI.nav, border: UI.line, paddingX: 12 },
         (left: string) => {
             W.label(left, { text: icon("folder"), fontSize: 12, color: UI.dim });
@@ -264,17 +269,16 @@ function renderUI(win: string) {
         },
         undefined,
         (right: string) => {
-            W.label(right, { text: `${lines.length} line${lines.length === 1 ? "" : "s"}`, color: UI.dim, fontSize: 12 });
+            W.label(right, { text: `${screen.cols}×${screen.rows}`, color: UI.dim, fontSize: 12 });
         });
 
-    // ---- Main: the terminal output as the hero, quick actions in the side inspector ----
+    // ---- Main: the terminal as the hero, quick actions in the side inspector ----
     W.split(win, { id: "term_split", sideWidth: 300, reserveBottom: 80, sideFill: UI.panel, divider: UI.line, mainFill: UI.view, scrollSide: true },
         (main: string) => {
             W.terminal(main, {
                 id: "main_terminal_view",
-                lines,
+                screen,
                 isRunning,
-                fontFamily: selectedFont,
                 fontSize,
                 theme: selectedTheme,
                 autoScroll,
@@ -294,13 +298,13 @@ function renderUI(win: string) {
             W.label(side, { text: "Installers & Tools", bold: true, color: UI.dim, fontSize: 12 });
             W.button(side, { text: withIcon("download-simple", "Install Claude Code"), id: "install_claude", tooltip: "npm install -g @anthropic-ai/claude-code", onClick: () => runCommand("npm install -g @anthropic-ai/claude-code") });
             W.button(side, { text: withIcon("download-simple", "Install Antigravity CLI"), id: "install_agy", tooltip: "npm install -g antigravity-cli", onClick: () => runCommand("npm install -g antigravity-cli") });
-            W.button(side, { text: withIcon("gauge", "System Check"), id: "system_check", tooltip: "Report node, npm, git and cargo versions", onClick: () => runCommand("node -v; npm -v; git --version; cargo --version") });
+            W.button(side, { text: withIcon("gauge", "System Check"), id: "system_check", tooltip: "Report node, npm, git and cargo versions", onClick: () => runCommand("node -v & npm -v & git --version & cargo --version") });
             W.button(side, { text: withIcon("git-branch", "Git Status"), id: "git_status", tooltip: "git status -s", onClick: () => runCommand("git status -s") });
             W.button(side, { text: withIcon("hammer", "Monorepo Build"), id: "monorepo_build", tooltip: "npm run build", onClick: () => runCommand("npm run build") });
 
             W.separator(side);
 
-            // Appearance: theme, font and size, folded away so the workspace stays clean.
+            // Appearance: theme and size, folded away so the workspace stays clean.
             W.collapsingHeader(side, "Appearance", (w: string) => {
                 W.label(w, { text: "Theme", bold: true, color: UI.dim, fontSize: 12 });
                 W.segmented(w, {
@@ -311,16 +315,8 @@ function renderUI(win: string) {
                     accent: UI.amber,
                     onChange: (idx: string) => { selectedTheme = THEMES[parseInt(idx, 10)] ?? "neon"; },
                 });
-                W.label(w, { text: "Font", bold: true, color: UI.dim, fontSize: 12 });
-                W.dropdown(w, {
-                    id: "term_font",
-                    label: "",
-                    options: POPULAR_FONTS,
-                    selectedIndex: Math.max(0, POPULAR_FONTS.indexOf(selectedFont)),
-                    onChange: (idx: string) => { selectedFont = POPULAR_FONTS[parseInt(idx, 10)] ?? "Quicksand"; },
-                });
                 W.horizontal(w, (r: string) => {
-                    W.button(r, { text: "A-", id: "font_down", tooltip: "Smaller text", onClick: () => { fontSize = Math.max(10.0, fontSize - 1.0); } });
+                    W.button(r, { text: "A-", id: "font_down", tooltip: "Smaller text", onClick: () => { fontSize = Math.max(9.0, fontSize - 1.0); } });
                     W.label(r, { text: `${fontSize}pt`, monospace: true });
                     W.button(r, { text: "A+", id: "font_up", tooltip: "Larger text", onClick: () => { fontSize = Math.min(24.0, fontSize + 1.0); } });
                 });
@@ -328,12 +324,12 @@ function renderUI(win: string) {
 
             W.collapsingHeader(side, "Getting Started", (w: string) => {
                 W.label(w, { text: "MCP bridges your AI coding assistant (Claude Code or Antigravity) into Entropy Engine." });
-                W.label(w, { text: "Quick Actions run common developer commands without typing terminal syntax." });
-                W.label(w, { text: "Commands run in real background OS processes, streaming live stdout and stderr." });
+                W.label(w, { text: "Type a command like claude or codex and press Run - it runs here interactively." });
+                W.label(w, { text: "While a program runs, the command box sends keystrokes to it (try /help or /exit)." });
             }, "term_help", false);
         });
 
-    // ---- Command bar: prompt + input on the left, Run / Stop on the right ----
+    // ---- Command bar: prompt + input on the left, history / Stop / Run-Send on the right ----
     const cmdWidth = Math.max(160, (Entropy.UI.getViewportWidth?.() ?? 900) - 300);
     W.bar(win, { id: "term_input", height: 52, fill: UI.toolbar, border: UI.line, borderTop: true, paddingX: 12 },
         (left: string) => {
@@ -369,20 +365,28 @@ function renderUI(win: string) {
                 });
             }
             W.button(right, {
-                text: isNarrow ? icon("paper-plane-right") : withIcon("paper-plane-right", "Run"),
+                text: isRunning
+                    ? (isNarrow ? icon("paper-plane-right") : withIcon("paper-plane-right", "Send"))
+                    : (isNarrow ? icon("play") : withIcon("play", "Run")),
                 id: "run_command",
                 accent: UI.amber,
                 minWidth: isNarrow ? 44 : 84,
-                disabled: commandInput.trim().length === 0,
-                tooltip: "Run the command",
-                onClick: () => runCommand(commandInput),
+                disabled: !isRunning && commandInput.trim().length === 0,
+                tooltip: isRunning ? "Send the typed text to the running program" : "Run the command",
+                onClick: () => {
+                    if (isRunning) {
+                        sendInput(commandInput);
+                    } else {
+                        runCommand(commandInput);
+                    }
+                },
             });
         });
 
     // ---- Status bar: a hint on the left, the MCP endpoint on the right ----
     W.bar(win, { id: "term_status", height: 28, fill: UI.nav, border: UI.line, borderTop: true, paddingX: 12 },
         (left: string) => {
-            W.label(left, { text: isRunning ? "Command running in the background..." : "Type a command, or use a Quick Action on the right.", color: UI.dim, fontSize: 12 });
+            W.label(left, { text: isRunning ? "Program running - type and press Send, or /exit to quit." : "Type a command (e.g. claude or codex), or use a Quick Action on the right.", color: UI.dim, fontSize: 12 });
         },
         undefined,
         (right: string) => {

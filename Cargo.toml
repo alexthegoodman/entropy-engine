@@ -157,6 +157,10 @@ name = "terminal_bdd"
 harness = false
 
 [[test]]
+name = "terminal_interactive_bdd"
+harness = false
+
+[[test]]
 name = "daw_prediction_bdd"
 harness = false
 
@@ -288,6 +292,13 @@ vst3-host = { version = "0.9.0", default-features = false }
 cpal = "0.16"
 # Lock-free single-producer single-consumer queue between the input callback and the router.
 rtrb = "0.3"
+# Real interactive terminal: portable-pty opens a native pseudo-terminal (ConPTY on Windows,
+# posix_openpt on Unix) so TUI programs like Claude Code / Codex see a real terminal, and vt100
+# parses their ANSI output into a grid the TerminalView widget can draw.
+portable-pty = "0.9"
+# vt100 0.15 (not 0.16): 0.16 needs unicode-width ^0.2.1, which conflicts with ratatui's exact
+# =0.2.0 pin (via yumon-pet). 0.15 uses unicode-width 0.1.x, which coexists.
+vt100 = "0.15"
 
 [target.'cfg(not(any(target_os = "windows", target_arch = "wasm32")))'.dependencies]
 # Video playback/export everywhere Media Foundation isn't (src/openh264_codec): Cisco's OpenH264

@@ -107,7 +107,7 @@ pub use widgets_heatmap::{
     format_value, text_color_for_bg, HeatmapColorMap, HeatmapEvent, HeatmapHover, HeatmapOptions,
     HeatmapResponse, HeatmapView,
 };
-pub use widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
+pub use widgets_terminal::{TerminalRun, TerminalScreen, TerminalTheme, TerminalView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

@@ -1553,11 +1553,26 @@ interface ClipboardAPI {
   writeText: (text: string) => boolean;
 }
 
-export interface TerminalLine {
-  id: number;
-  kind: "command" | "stdout" | "stderr" | "system" | "success" | "error" | string;
+/** One run of same-styled characters on a terminal row. `fg`/`bg` are `[r, g, b]` in 0-255, or
+ * `null` for the theme's default colour. */
+export interface TerminalRun {
   text: string;
-  timestamp: string;
+  fg: [number, number, number] | null;
+  bg: [number, number, number] | null;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  reverse: boolean;
+}
+
+/** The rendered terminal screen, as produced by the vt100 parser. */
+export interface TerminalScreen {
+  rows: number;
+  cols: number;
+  cursorRow: number;
+  cursorCol: number;
+  cursorVisible: boolean;
+  lines: TerminalRun[][];
 }
 
 export interface TerminalStatus {
@@ -1565,14 +1580,15 @@ export interface TerminalStatus {
   exitCode: number | null;
   cwd: string;
   pid: number | null;
-  lines: TerminalLine[];
+  screen: TerminalScreen;
+  /** The visible screen as plain text (no colour), for copying and assertions. */
+  text: string;
 }
 
 export interface TerminalViewConfig {
   id?: string;
-  lines: TerminalLine[];
+  screen: TerminalScreen;
   isRunning?: boolean;
-  fontFamily?: string;
   fontSize?: number;
   theme?: "neon" | "obsidian" | "violet" | "amber" | string;
   height?: number;
@@ -1580,15 +1596,15 @@ export interface TerminalViewConfig {
 }
 
 export interface TerminalAPI {
-  /** Execute an OS command in the background for a session (default "main"). Returns process PID. */
+  /** Execute an OS command on a real pseudo-terminal for a session (default "main"). Returns process PID. */
   execute: (command: string, options?: { sessionId?: string; cwd?: string; shell?: "powershell" | "cmd" | "sh" | string }) => number;
-  /** Poll the status and accumulated output lines of a terminal session. */
+  /** Poll the status and rendered screen of a terminal session. */
   poll: (sessionId?: string) => TerminalStatus;
-  /** Terminate the running background command tree in a session. */
+  /** Terminate the running command tree in a session. */
   kill: (sessionId?: string) => void;
-  /** Send standard input to the running process in a session. */
+  /** Send raw keystrokes to the running process in a session (no newline is added - send "\r" yourself). */
   writeInput: (input: string, sessionId?: string) => void;
-  /** Clear the line history of a terminal session. */
+  /** Clear the terminal screen of a session. */
   clear: (sessionId?: string) => void;
   /** Get the current working directory of a terminal session. */
   getCwd: (sessionId?: string) => string;

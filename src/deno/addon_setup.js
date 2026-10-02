@@ -2146,15 +2146,14 @@ globalThis.Entropy = {
                     });
                 }
             },
-            // High-performance virtualized Terminal widget supporting ~60 catalog fonts,
-            // color-coded output, timestamps, and background execution status.
+            // Real terminal display: draws the grid produced by the vt100 parser (terminal_ops.rs)
+            // in the engine's monospace face, so interactive TUI programs render correctly.
             terminal: (windowId, config) => {
                 const id = nextWidgetId(windowId, "terminal", config?.id);
                 ops.op_ui_widget_terminal(windowId, {
                     id,
-                    lines: config?.lines || [],
+                    screen: config?.screen || { rows: 0, cols: 0, cursorRow: 0, cursorCol: 0, cursorVisible: false, lines: [] },
                     isRunning: config?.isRunning ?? false,
-                    fontFamily: config?.fontFamily ?? "Quicksand",
                     fontSize: config?.fontSize ?? 13.5,
                     theme: config?.theme ?? "neon",
                     height: config?.height,

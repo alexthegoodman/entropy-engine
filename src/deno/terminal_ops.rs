@@ -1,30 +1,28 @@
 //! Terminal operations and session management for Entropy Engine.
-//! Provides real OS process spawning, background stdout/stderr streaming,
-//! non-blocking polling, working directory tracking, and UI widget integration.
+//!
+//! Spawns real OS processes attached to a native pseudo-terminal (ConPTY on Windows, posix_openpt
+//! on Unix) so interactive TUI programs - Claude Code, Codex, vim, etc. - see a real terminal:
+//! `isTTY` is true, ANSI/VT output is parsed into a grid by `vt100`, and keystrokes are forwarded
+//! through the pty master. The `TerminalView` widget draws that grid.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
-use chrono::Local;
 use deno_core::op2;
 use deno_core::OpState;
 use lazy_static::lazy_static;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
+use vt100::Parser;
 
 use crate::deno::addon_ops::{AddonContext, UiWidget};
-use crate::entropy_gui::widgets_terminal::{TerminalLine, TerminalLineKind, TerminalTheme, TerminalView};
+use crate::entropy_gui::widgets_terminal::{TerminalRun, TerminalScreen};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct TerminalLineConfig {
-    pub id: u64,
-    pub kind: String,
-    pub text: String,
-    pub timestamp: String,
-}
+const DEFAULT_ROWS: u16 = 30;
+const DEFAULT_COLS: u16 = 100;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -33,16 +31,16 @@ pub struct TerminalStatusConfig {
     pub exit_code: Option<i32>,
     pub cwd: String,
     pub pid: Option<u32>,
-    pub lines: Vec<TerminalLineConfig>,
+    pub screen: TerminalScreen,
+    pub text: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalWidgetConfig {
     pub id: String,
-    pub lines: Vec<TerminalLineConfig>,
+    pub screen: TerminalScreen,
     pub is_running: Option<bool>,
-    pub font_family: Option<String>,
     pub font_size: Option<f32>,
     pub theme: Option<String>,
     pub height: Option<f32>,
@@ -51,18 +49,21 @@ pub struct TerminalWidgetConfig {
 
 struct RunningProcess {
     pid: u32,
-    stdin_tx: Option<std::sync::mpsc::Sender<String>>,
+    writer_tx: mpsc::Sender<Vec<u8>>,
     start_time: Instant,
 }
 
 pub struct TerminalSession {
     pub session_id: String,
     pub cwd: PathBuf,
-    pub lines: Vec<TerminalLineConfig>,
-    pub history: Vec<String>,
     pub exit_code: Option<i32>,
-    pub line_counter: u64,
+    pub parser: Arc<Mutex<Parser>>,
+    pub history: Vec<String>,
     running: Option<RunningProcess>,
+    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    /// The pty master must stay alive for the lifetime of the child: dropping it closes the
+    /// pseudo-terminal and kills the process (Windows ConPTY reports STATUS_DLL_INIT_FAILED).
+    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
 }
 
 impl TerminalSession {
@@ -70,23 +71,25 @@ impl TerminalSession {
         Self {
             session_id: session_id.into(),
             cwd: initial_cwd,
-            lines: Vec::new(),
-            history: Vec::new(),
             exit_code: None,
-            line_counter: 0,
+            parser: Arc::new(Mutex::new(Parser::new(DEFAULT_ROWS, DEFAULT_COLS, 0))),
+            history: Vec::new(),
             running: None,
+            child: None,
+            master: None,
         }
     }
 
-    pub fn push_line(&mut self, kind: impl Into<String>, text: impl Into<String>) {
-        self.line_counter += 1;
-        let timestamp = Local::now().format("%H:%M:%S").to_string();
-        self.lines.push(TerminalLineConfig {
-            id: self.line_counter,
-            kind: kind.into(),
-            text: text.into(),
-            timestamp,
-        });
+    /// Feed raw bytes into the terminal parser (used by built-ins and the reader thread).
+    fn feed(&self, bytes: &[u8]) {
+        if let Ok(mut parser) = self.parser.lock() {
+            parser.process(bytes);
+        }
+    }
+
+    fn write_line(&self, kind: &str, text: &str) {
+        let _ = kind;
+        self.feed(format!("{text}\r\n").as_bytes());
     }
 }
 
@@ -131,18 +134,18 @@ impl TerminalManager {
         }
 
         session.history.push(trimmed.to_string());
-        session.push_line("command", format!("> {trimmed}"));
+        session.write_line("command", &format!("> {trimmed}"));
 
         // Built-in commands
         let lower = trimmed.to_ascii_lowercase();
         if lower == "clear" || lower == "cls" {
-            session.lines.clear();
+            session.feed(b"\x1b[2J\x1b[H\x1b[3J");
             return Ok(0);
         }
 
         if lower == "pwd" {
             let cwd_str = session.cwd.display().to_string();
-            session.push_line("system", cwd_str);
+            session.write_line("system", &cwd_str);
             return Ok(0);
         }
 
@@ -160,144 +163,163 @@ impl TerminalManager {
                     Ok(canonical) => {
                         session.cwd = canonical;
                         let msg = format!("Working directory: {}", session.cwd.display());
-                        session.push_line("system", msg);
+                        session.write_line("system", &msg);
                     }
                     Err(e) => {
                         let err_msg = format!("Cannot change directory to '{target}': {e}");
-                        session.push_line("error", err_msg);
+                        session.write_line("error", &err_msg);
                     }
                 }
             }
             return Ok(0);
         }
 
-        // Prevent overlapping runs in same session
+        // Prevent overlapping runs in the same session.
         if session.running.is_some() {
             return Err("A process is already running in this terminal session. Stop it first.".to_string());
         }
 
-        // Determine OS shell
-        #[cfg(target_os = "windows")]
-        let (shell_bin, shell_args) = if shell == Some("cmd") {
-            ("cmd.exe", vec!["/C".to_string(), trimmed.to_string()])
-        } else {
-            // Default to PowerShell on Windows
-            ("powershell.exe", vec!["-NoProfile".to_string(), "-Command".to_string(), trimmed.to_string()])
-        };
+        // ---- Spawn on a real pseudo-terminal ----
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: DEFAULT_ROWS,
+                cols: DEFAULT_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Could not open a pseudo-terminal: {e}"))?;
 
-        #[cfg(not(target_os = "windows"))]
-        let (shell_bin, shell_args) = if let Some(sh) = shell {
-            (sh, vec!["-c".to_string(), trimmed.to_string()])
-        } else {
-            ("sh", vec!["-c".to_string(), trimmed.to_string()])
-        };
-
-        let cwd = session.cwd.clone();
-        let mut cmd = std::process::Command::new(shell_bin);
-        cmd.args(&shell_args);
-        cmd.current_dir(&cwd);
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-        cmd.stdin(std::process::Stdio::piped());
-
-        let mut child = cmd.spawn().map_err(|e| format!("Could not spawn process: {e}"))?;
-        let pid = child.id();
-
-        let (stdin_tx, stdin_rx) = std::sync::mpsc::channel::<String>();
-        session.running = Some(RunningProcess {
-            pid,
-            stdin_tx: Some(stdin_tx),
-            start_time: Instant::now(),
-        });
-        session.exit_code = None;
-
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let mut stdin = child.stdin.take();
-
-        let mgr_clone = Arc::clone(manager_arc);
-        let session_id_str = session_id.to_string();
-
-        // Stdin forwarding thread
-        if let Some(mut cin) = stdin {
-            std::thread::spawn(move || {
-                while let Ok(msg) = stdin_rx.recv() {
-                    let _ = cin.write_all(msg.as_bytes());
-                    let _ = cin.flush();
-                }
-            });
-        }
-
-        // Stdout reader thread
-        if let Some(out) = stdout {
-            let mgr_out = Arc::clone(&mgr_clone);
-            let s_id = session_id_str.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(out);
-                for line in reader.lines() {
-                    match line {
-                        Ok(l) => {
-                            if let Ok(mut lock) = mgr_out.lock() {
-                                if let Some(sess) = lock.sessions.get_mut(&s_id) {
-                                    sess.push_line("stdout", l);
-                                }
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        // Stderr reader thread
-        if let Some(err) = stderr {
-            let mgr_err = Arc::clone(&mgr_clone);
-            let s_id = session_id_str.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(err);
-                for line in reader.lines() {
-                    match line {
-                        Ok(l) => {
-                            if let Ok(mut lock) = mgr_err.lock() {
-                                if let Some(sess) = lock.sessions.get_mut(&s_id) {
-                                    sess.push_line("stderr", l);
-                                }
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        // Child process wait thread
-        let mgr_wait = Arc::clone(&mgr_clone);
-        let s_id_wait = session_id_str;
-        std::thread::spawn(move || {
-            let start = Instant::now();
-            let status = child.wait();
-            let elapsed = start.elapsed().as_secs_f32();
-
-            if let Ok(mut lock) = mgr_wait.lock() {
-                if let Some(sess) = lock.sessions.get_mut(&s_id_wait) {
-                    sess.running = None;
-                    match status {
-                        Ok(st) => {
-                            let code = st.code().unwrap_or(0);
-                            sess.exit_code = Some(code);
-                            if code == 0 {
-                                sess.push_line("success", format!("Process completed with code 0 ({elapsed:.2}s)"));
-                            } else {
-                                sess.push_line("error", format!("Process exited with code {code} ({elapsed:.2}s)"));
-                            }
-                        }
-                        Err(e) => {
-                            sess.exit_code = Some(1);
-                            sess.push_line("error", format!("Process wait error: {e} ({elapsed:.2}s)"));
-                        }
-                    }
+        // A shell runs the typed command so built-ins, globbing and PATH shims (npm/Volta `.cmd`)
+        // resolve. Default to cmd.exe on Windows: PowerShell resolves Volta's `.ps1` shims, which
+        // are blocked by the execution policy here, whereas cmd runs the `.cmd` shims.
+        let (shell_bin, shell_args): (&'static str, Vec<String>) = {
+            #[cfg(target_os = "windows")]
+            {
+                if shell == Some("powershell") {
+                    ("powershell.exe", vec!["-NoLogo".to_string(), "-NoProfile".to_string(), "-Command".to_string(), trimmed.to_string()])
+                } else {
+                    ("cmd.exe", vec!["/c".to_string(), trimmed.to_string()])
                 }
             }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let sh = shell.unwrap_or("sh");
+                (sh, vec!["-c".to_string(), trimmed.to_string()])
+            }
+        };
+
+        let mut cmd = CommandBuilder::new(shell_bin);
+        cmd.args(&shell_args);
+        cmd.cwd(&session.cwd);
+        // Inherit the full process environment. portable-pty's CommandBuilder builds its base env
+        // from the Windows registry (system + user), so dynamic PATH entries injected by version
+        // managers (Volta, nvm) are missing and `node`/`claude`/`codex` shims are not found. The
+        // process env has them.
+        for (key, value) in std::env::vars() {
+            cmd.env(key, value);
+        }
+        // Encourage VT colour output even where a CLI would otherwise probe for a terminal.
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("FORCE_COLOR", "1");
+
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Could not spawn process: {e}"))?;
+        let pid = child.process_id().unwrap_or(0);
+
+        let portable_pty::PtyPair { master, slave } = pair;
+        drop(slave);
+        let reader = master
+            .try_clone_reader()
+            .map_err(|e| format!("Could not read from the terminal: {e}"))?;
+        let writer = master
+            .take_writer()
+            .map_err(|e| format!("Could not write to the terminal: {e}"))?;
+
+        // Reader thread: feed the pty's VT output into the parser, and answer ConPTY's
+        // device-status/cursor-position queries (CSI 5n / CSI 6n) which vt100 itself ignores but
+        // the shell needs answered before it proceeds.
+        let (writer_tx, writer_rx) = mpsc::channel::<Vec<u8>>();
+        let resp_tx = writer_tx.clone();
+        let parser = Arc::clone(&session.parser);
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = &buf[..n];
+                        if chunk.windows(4).any(|w| w == b"\x1b[6n") {
+                            let (row, col) = parser.lock().map(|p| p.screen().cursor_position()).unwrap_or((0, 0));
+                            let _ = resp_tx.send(format!("\x1b[{};{}R", row + 1, col + 1).into_bytes());
+                        }
+                        if chunk.windows(4).any(|w| w == b"\x1b[5n") {
+                            let _ = resp_tx.send(b"\x1b[0n".to_vec());
+                        }
+                        if let Ok(mut p) = parser.lock() {
+                            p.process(chunk);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Writer thread: forward outbound keystrokes to the pty master.
+        std::thread::spawn(move || {
+            let mut writer = writer;
+            while let Ok(data) = writer_rx.recv() {
+                let _ = writer.write_all(&data);
+                let _ = writer.flush();
+            }
+        });
+
+        session.running = Some(RunningProcess {
+            pid,
+            writer_tx,
+            start_time: Instant::now(),
+        });
+        session.child = Some(child);
+        session.master = Some(master);
+        session.exit_code = None;
+
+        // Wait thread: poll the child and settle the session when it exits.
+        let mgr_clone = Arc::clone(manager_arc);
+        let s_id = session_id.to_string();
+        std::thread::spawn(move || loop {
+            let done = {
+                let mut lock = mgr_clone.lock().unwrap();
+                if let Some(sess) = lock.sessions.get_mut(&s_id) {
+                    match sess.child.as_mut().map(|c| c.try_wait()) {
+                        None => true,
+                        Some(Ok(Some(status))) => {
+                            sess.exit_code = Some(status.exit_code() as i32);
+                            sess.running = None;
+                            sess.child = None;
+                            sess.master = None;
+                            true
+                        }
+                        Some(Ok(None)) => false,
+                        Some(Err(_)) => {
+                            sess.exit_code = Some(1);
+                            sess.running = None;
+                            sess.child = None;
+                            sess.master = None;
+                            true
+                        }
+                    }
+                } else {
+                    true
+                }
+            };
+            if done {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         });
 
         Ok(pid)
@@ -306,21 +328,18 @@ impl TerminalManager {
     pub fn kill(&mut self, session_id: &str) -> Result<(), String> {
         let session = self.sessions.get_mut(session_id).ok_or("Session not found")?;
         if let Some(proc) = session.running.take() {
+            let _ = session.child.as_mut().map(|c| c.kill());
+            session.child = None;
+            session.master = None;
             #[cfg(target_os = "windows")]
             {
-                // Kill process tree on Windows
+                // Kill the whole tree (a shell may have spawned the interactive program).
                 let _ = std::process::Command::new("taskkill")
                     .args(["/F", "/T", "/PID", &proc.pid.to_string()])
                     .output();
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = std::process::Command::new("kill")
-                    .args(["-9", &proc.pid.to_string()])
-                    .output();
-            }
             session.exit_code = Some(-1);
-            session.push_line("system", "Process terminated by user.");
+            session.write_line("system", "Process terminated by user.");
             Ok(())
         } else {
             Ok(())
@@ -330,25 +349,24 @@ impl TerminalManager {
     pub fn write_input(&mut self, session_id: &str, input: &str) -> Result<(), String> {
         let session = self.sessions.get_mut(session_id).ok_or("Session not found")?;
         if let Some(ref proc) = session.running {
-            if let Some(ref tx) = proc.stdin_tx {
-                let mut data = input.to_string();
-                if !data.ends_with('\n') {
-                    data.push('\n');
-                }
-                tx.send(data).map_err(|e| format!("Stdin send failed: {e}"))?;
-            }
+            let data = input.as_bytes().to_vec();
+            proc.writer_tx
+                .send(data)
+                .map_err(|e| format!("Stdin send failed: {e}"))?;
         }
         Ok(())
     }
 
     pub fn poll_status(&self, session_id: &str) -> TerminalStatusConfig {
         if let Some(sess) = self.sessions.get(session_id) {
+            let (screen, text) = build_screen(&sess.parser);
             TerminalStatusConfig {
                 is_running: sess.running.is_some(),
                 exit_code: sess.exit_code,
                 cwd: sess.cwd.display().to_string(),
                 pid: sess.running.as_ref().map(|r| r.pid),
-                lines: sess.lines.clone(),
+                screen,
+                text,
             }
         } else {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -357,10 +375,111 @@ impl TerminalManager {
                 exit_code: None,
                 cwd: cwd.display().to_string(),
                 pid: None,
-                lines: Vec::new(),
+                screen: TerminalScreen::empty(DEFAULT_ROWS, DEFAULT_COLS),
+                text: String::new(),
             }
         }
     }
+}
+
+/// Map a `vt100::Color` to 24-bit RGB; `Default` becomes `None` (use the theme).
+fn color_to_rgb(c: vt100::Color) -> Option<[u8; 3]> {
+    match c {
+        vt100::Color::Default => None,
+        vt100::Color::Idx(i) => Some(xterm_color(i)),
+        vt100::Color::Rgb(r, g, b) => Some([r, g, b]),
+    }
+}
+
+/// The standard xterm 256-colour palette.
+fn xterm_color(i: u8) -> [u8; 3] {
+    const CUBE: [u8; 6] = [0, 95, 135, 175, 215, 255];
+    const BASIC: [[u8; 3]; 16] = [
+        [0, 0, 0],
+        [205, 0, 0],
+        [0, 205, 0],
+        [205, 205, 0],
+        [0, 0, 238],
+        [205, 0, 205],
+        [0, 205, 205],
+        [229, 229, 229],
+        [127, 127, 127],
+        [255, 0, 0],
+        [0, 255, 0],
+        [255, 255, 0],
+        [92, 92, 255],
+        [255, 0, 255],
+        [0, 255, 255],
+        [255, 255, 255],
+    ];
+    let i = i as usize;
+    if i < 16 {
+        BASIC[i]
+    } else if i < 232 {
+        let n = i - 16;
+        [CUBE[n / 36], CUBE[(n / 6) % 6], CUBE[n % 6]]
+    } else {
+        let v = (8 + (i - 232) * 10) as u8;
+        [v, v, v]
+    }
+}
+
+/// Read the parser's screen into a serializable grid plus its plain text. Public so the BDD
+/// tests can feed a parser directly and assert on the produced runs/colours.
+pub fn build_screen(parser: &Arc<Mutex<Parser>>) -> (TerminalScreen, String) {
+    let guard = parser.lock().unwrap();
+    let screen = guard.screen();
+    let (rows, cols) = screen.size();
+    let (cursor_row, cursor_col) = screen.cursor_position();
+    let cursor_visible = !screen.hide_cursor();
+
+    let mut lines: Vec<Vec<TerminalRun>> = Vec::with_capacity(rows as usize);
+    for r in 0..rows {
+        let mut runs: Vec<TerminalRun> = Vec::new();
+        for c in 0..cols {
+            let cell = screen.cell(r, c);
+            let (text, fg, bg, bold, italic, underline, reverse) = match cell {
+                Some(cell) => {
+                    let text = cell.contents().to_string();
+                    let text = if text.is_empty() { " ".to_string() } else { text };
+                    (
+                        text,
+                        color_to_rgb(cell.fgcolor()),
+                        color_to_rgb(cell.bgcolor()),
+                        cell.bold(),
+                        cell.italic(),
+                        cell.underline(),
+                        cell.inverse(),
+                    )
+                }
+                None => (" ".to_string(), None, None, false, false, false, false),
+            };
+
+            let same_style = runs.last().map(|prev: &TerminalRun| {
+                prev.fg == fg && prev.bg == bg && prev.bold == bold && prev.italic == italic && prev.underline == underline && prev.reverse == reverse
+            }).unwrap_or(false);
+
+            if same_style {
+                runs.last_mut().unwrap().text.push_str(&text);
+            } else {
+                runs.push(TerminalRun { text, fg, bg, bold, italic, underline, reverse });
+            }
+        }
+        lines.push(runs);
+    }
+
+    let text = screen.contents();
+    (
+        TerminalScreen {
+            rows,
+            cols,
+            cursor_row,
+            cursor_col,
+            cursor_visible,
+            lines,
+        },
+        text,
+    )
 }
 
 lazy_static! {
@@ -393,7 +512,8 @@ pub fn op_terminal_poll(#[string] session_id: String) -> TerminalStatusConfig {
             exit_code: None,
             cwd: String::new(),
             pid: None,
-            lines: Vec::new(),
+            screen: TerminalScreen::empty(DEFAULT_ROWS, DEFAULT_COLS),
+            text: String::new(),
         }
     }
 }
@@ -420,7 +540,7 @@ pub fn op_terminal_write_input(#[string] session_id: String, #[string] input: St
 pub fn op_terminal_clear(#[string] session_id: String) {
     if let Ok(mut mgr) = GLOBAL_TERMINAL_MANAGER.lock() {
         let sess = mgr.get_or_create(&session_id);
-        sess.lines.clear();
+        sess.feed(b"\x1b[2J\x1b[H\x1b[3J");
     }
 }
 
