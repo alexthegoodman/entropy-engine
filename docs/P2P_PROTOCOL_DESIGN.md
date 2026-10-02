@@ -16,12 +16,19 @@ deliberately *not* BitTorrent and does not interoperate with it. The reason for 
 of using the real protocol is control: we want to decide what may enter and circulate on our
 network, which the open BitTorrent/DHT/magnet system is designed *not* to let a single party do.
 
-Transport is handled by [`rustp2p`](https://docs.rs/rustp2p/latest/rustp2p/) (0.4.1, Apache-2.0), a
-small Rust library that provides the hard part - NAT traversal via UDP/TCP hole punching, a reliable
-transport (KCP) over UDP, optional encryption (AES-GCM / ChaCha20-Poly1305), network isolation via
-group codes, and automatic route selection between peers. Using it lets us spend our effort on the
-content model, piece scheduling, and the two surfaces, instead of reimplementing NAT traversal. It
-is *not* QUIC; see the decision note in section 14 on how that trade is made.
+Transport is handled by two crates from the same maintainers:
+
+- [`rustp2p`](https://docs.rs/rustp2p/latest/rustp2p/) (0.4.1, Apache-2.0) - NAT traversal via
+  UDP/TCP hole punching, a reliable KCP transport over UDP, optional AES-GCM/ChaCha20-Poly1305
+  encryption, and group-code network isolation.
+- [`rustp2p-quic`](https://docs.rs/rustp2p-quic/latest/rustp2p_quic/) (0.1.1, Apache-2.0) - a
+  PeerId-based QUIC overlay: `quinn` streams and encrypted QUIC datagrams layered on
+  `rustp2p-core`'s hole-punched transport and relay forwarding, with NAT introspection (`NatInfo`)
+  and direct-vs-relay link reporting (`LinkMode`).
+
+Together they give us the proven NAT traversal *and* the original "use QUIC" requirement without
+hand-rolling either. Which crate is the first backend is an open decision (section 14); both sit
+behind the same `P2pTransport` seam, so the choice is reversible.
 
 ## 2. The control model (the reason this is not BitTorrent)
 
@@ -82,11 +89,10 @@ and allowlist layers never know which backend is underneath. The trait exposes o
 layers need: addressing a peer by a stable id, sending/receiving best-effort datagrams (control
 messages), opening a reliable ordered bidirectional stream (piece data), and a small event surface
 (peer connected/disconnected, and whether a received message arrived via a relayed route). The
-first and only backend in the initial release is `rustp2p`; a `quinn`-based QUIC backend
-(direct-connect, no hole punching) and a LAN/mDNS backend are future implementations of the *same*
-trait, not rewrites of the layers above it. This is what lets us start with the proven
-NAT-traversal library today without marrying it: if `rustp2p` under-delivers, we swap the backend,
-not the product.
+initial release ships one primary backend, chosen in the phase-1 spike between `rustp2p` (KCP) and
+`rustp2p-quic` (QUIC overlay); a LAN/mDNS backend is a future implementation of the *same* trait.
+This is what lets us start with the maintainers' proven NAT-traversal stack today without marrying
+it: if either crate under-delivers, we swap the backend, not the product.
 
 ## 4. Wire protocol
 
@@ -174,10 +180,10 @@ peer list (`Builder::peers([...])`) and discover further peers through the swarm
 
 - **No relay/proxy for file data.** The user's hard constraint: we do not rely on a relay, a proxy,
   or a CDN, and we never transfer or store large assets through one. Piece data always flows over
-  direct, hole-punched peer connections. `rustp2p`'s route selection may use relayed paths for
-  small control/signaling traffic internally; we use the `RouteKey`/`send_to_route` API and
-  `RecvMetadata` relay info to ensure file bytes are confined to direct routes and to drop piece
-  data that arrived relayed. This is a real verification task, not an assumption - see phase 8.
+  direct, hole-punched peer connections. The KCP backend exposes `RouteKey`/`send_to_route` and
+  `RecvMetadata` relay info; the QUIC backend exposes `LinkMode`/`LinkInfo` (direct vs relayed).
+  Either way the rule is the same: file bytes are confined to direct routes, and piece data that
+  arrived relayed is dropped. This is a real verification task, not an assumption - see phase 8.
 
 - **Announcement table (the cloud "database table").** At most one small, publicly reachable store
   tracks *announcements*: per content id, which peers claim to hold it and their observed endpoint
@@ -282,8 +288,8 @@ Playback behavior:
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
 | `transport.rs` | The `P2pTransport` trait: peer addressing, datagram send/recv, reliable stream open, peer events, relay-route detection. The stable seam all upper layers code against. |
-| `transport/rustp2p.rs` | First backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. |
-| `transport/quic.rs` | *Future* backend: `quinn`-based QUIC, direct-connect only (no hole punching), same trait. |
+| `transport/rustp2p.rs` | KCP backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. Candidate for the first backend. |
+| `transport/quic.rs` | QUIC backend wrapping `rustp2p-quic` (`quinn` streams + encrypted datagrams over `rustp2p-core` NAT traversal); reports `LinkMode` (direct/relay) for the no-relay rule. Candidate for the first backend. |
 | `transport/lan.rs` | *Future* backend: mDNS/DNS-SD discovery + direct subnet transport, same trait. |
 | `announce.rs` | Announcement-table client (publish/read seed rows); enforces "only curated ids" on write. |
 
@@ -301,6 +307,8 @@ network tasks send events to a channel the render thread drains each frame.
 | `p2p_file_browser_addon.ts` | Catalog UI, download/seed actions, progress display. |
 | `p2p_media_player_addon.ts` | Streaming playback UI, buffer/seek/stall states, delegating to `Entropy.Video`. |
 
+Note: the best initial app experience for this is actually probably a messenger or forum, rather than files and media. Let's discuss before implementing.
+
 ## 12. Dependencies
 
 - `rustp2p` 0.4.1 (Apache-2.0) pulls in, transitively: `tokio` ^1.42 (the engine pins 1.41, so a
@@ -309,10 +317,16 @@ network tasks send events to a channel the render thread drains each frame.
   None of these conflict with what the engine already carries; `sha2`, `bytes`, and `futures` are
   already present.
 - `rustp2p-reliable` for the KCP stream layer (piece data), if the base crate does not re-export it.
-- `rustp2p` and its tree are contained inside the `transport/rustp2p.rs` backend; nothing above the
-  `P2pTransport` trait imports it.
-- `quinn`/`rustls`/`rcgen` are not needed for the first release, but return with the future
-  `transport/quic.rs` backend. Keeping the trait seam is what makes that a swap, not a rewrite.
+- `rustp2p-quic` 0.1.1 (Apache-2.0) pulls in `quinn` ^0.11 (already in the engine's lock file
+  transitively), `rustls` ^0.23, `rcgen` ^0.13, `x25519-dalek` ^2, `prost` (protobuf), `sha2` ^0.10,
+  and `rustp2p-core` ^0.1. It adds a protobuf build dependency (`prost-build` +
+  `protoc-bin-vendored`), which lengthens builds and should be checked in the spike.
+- Version-skew note: the KCP crate uses `rust-p2p-core` (hyphenated) while the QUIC crate uses
+  `rustp2p-core` (no hyphen); the two trees are separate, and their compatibility must be verified
+  in the spike.
+- Both `rustp2p` and `rustp2p-quic` are contained inside their `transport/*` backends; nothing above
+  the `P2pTransport` trait imports either. Keeping the trait seam is what makes choosing or swapping
+  a backend cheap.
 
 **Caveat to resolve before depending on it:** `rustp2p` is not new - 0.1.1 shipped in September 2024
 and it has been in active development since (24 versions, ~20k downloads; 0.4.1 published
@@ -323,16 +337,23 @@ before committing the architecture to it. The plan assumes that spike passes; if
 fallback is the original `quinn`-based QUIC transport with a small, hand-rolled hole-punch
 rendezvous, which is more work.
 
+`rustp2p-quic` is a separate, younger crate: 0.1.1 published 2026-08-11, single maintainer
+(`xmh0511`), though much better documented than `rustp2p` (docs.rs scores it ~93%). It is the more
+"modern" of the two (native `quinn` + QUIC datagrams) but also the less battle-tested. The phase-1
+spike evaluates both side by side; either can be the first backend, and the `P2pTransport` seam is
+what makes the call reversible.
+
 ## 13. Delivery sequence and acceptance checks
 
 Phased, each phase gated on the one before it, in the BDD style the repo already uses
 (`tests/*_bdd.rs`, `tests/*.feature`).
 
-1. **Evaluation spike.** Define the `P2pTransport` trait, then build `rustp2p` in-tree as its first
-   backend; exercise `Builder`, `GroupCode`, encryption, the `DataInterceptor`,
-   `send_to_route`/`RouteKey`, and KCP streams on Windows and Linux. Confirm hole punching claims
-   and the route/relay controls before any product code. A pass proves the trait seam holds; a fail
-   just replaces the backend, not the trait.
+1. **Evaluation spike.** Define the `P2pTransport` trait, then build both `rustp2p` (KCP) and
+   `rustp2p-quic` (QUIC overlay) in-tree as candidate backends. Exercise `GroupCode`, encryption,
+   the `DataInterceptor`, and the relay/direct-route controls (`RouteKey`/`RecvMetadata` for KCP,
+   `LinkMode`/`LinkInfo` for QUIC) on Windows and Linux. Confirm hole punching claims, stream
+   throughput, and that file-sized transfers stay on direct routes. Pick the first backend from the
+   results. A pass proves the trait seam holds; a fail just replaces a backend, not the trait.
 2. **Content model.** Info document, canonical MessagePack encoding, content ids, piece hashing.
    Tests: deterministic ids, version rejection.
 3. **Local piece store.** Split/verify/assemble a file, resume from a partial bitmap, promote to
@@ -357,10 +378,11 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 
 ## 14. Decisions to discuss
 
-- **Transport backend (resolved).** Use `rustp2p` as the first backend, behind the `P2pTransport`
-  trait. QUIC (`quinn`, direct-connect) and LAN (mDNS) are future backends of the same trait. The
-  original "use QUIC" requirement is satisfied as a pluggable backend rather than the initial
-  transport, since `rustp2p`'s hole punching is what makes a no-relay network possible at all.
+- **Transport backend (open, decided by the spike).** Two candidate first backends from the same
+  maintainers: `rustp2p` (KCP, battle-tested) and `rustp2p-quic` (QUIC overlay, more modern but
+  younger), both behind the `P2pTransport` trait; LAN (mDNS) is a future backend. The phase-1 spike
+  picks one. The original "use QUIC" requirement is now satisfiable natively via `rustp2p-quic`
+  rather than by hand-rolling a QUIC + rendezvous stack.
 - **Trust model.** Group code + PSK + curated catalog + content hashing (no per-peer identity), as
   the user suggested ("authentication is a step too far"). Decide whether any curator signature on
   the info document is worth adding now or later.
@@ -375,4 +397,3 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 - **Seeding policy.** Does the browser auto-seed completed downloads by default, and with what
   upload caps.
 
-Note: the best initial app experience for this is actually probably a messenger or forum, rather than files and media.
