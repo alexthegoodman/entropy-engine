@@ -526,8 +526,8 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
   timpani is in contact for ~8 ms, a stick on the rack tom ~6 ms, the kick beater ~19 ms (a mass on
   the head's point stiffness, `pi sqrt(m / K)`). What the tip changes is the sharp start of the force,
   which is the top of the spectrum.
-- **Glides.** A floor tom tuned to 82 Hz, struck at mid-radius, starts 63 cents sharp at 6 m/s, 16 at
-  3 m/s and not measurably at 0.5 m/s; tuned slack (65 Hz) it glides 163 cents, tight (110 Hz) 14.
+- **Glides.** A floor tom tuned to 82 Hz, struck at mid-radius, starts 91 cents sharp at 6 m/s, 25 at
+  3 m/s and not measurably at 0.5 m/s; tuned slack (65 Hz) it glides 165 cents, tight (110 Hz) 16.
 - **A resonant head only needs the modes the air can move.** On a tom or kick nothing but the air
   inside drives it, so it keeps only the orders the cavity's modes have (up to 4), no high band. A
   snare's snare side, touched by wires at points all over, keeps every mode, both members of each
@@ -593,8 +593,8 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
 - **Pieces sleep.** A piece with nothing striking it, its output under -100 dB of full scale and its
   energy under 1e-10 J for 50 ms stops being computed until something strikes it or sound louder
   than 0.02 Pa reaches it. Drums sleep within a few seconds of a hit; cymbals ring 13-16 s first.
-- **Built off the audio thread.** A kit takes 1.6 s to build the first time (the pieces are built in
-  parallel; the drums' radiation integrals and the plates' couplings dominate) and 0.15 s after (the
+- **Built off the audio thread.** A kit takes 0.96 s to build the first time (the pieces are built in
+  parallel; the drums' radiation integrals and the plates' couplings dominate) and 0.09 s after (the
   cache). The engine builds it on a thread when the track becomes a kit or the song loads, and puts
   it on the track's bus when it is ready; hits sent before that are dropped (`played: false`). A
   retuned kit is built while the old one keeps playing. The DAW commits a tuning knob only once it
@@ -629,14 +629,14 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
   2 cm in for 17 ms, and the head starts about 400 cents sharp. That is what uniform-tension
   stretching gives for that deflection; a real pillowed kick is loaded unevenly around the beater.
 - **Sympathy, measured** (the snare's wire landings in the second after one hit on another piece;
-  default kit): rack tom 12 at 2 m/s, 152 at 4, 322 at 6; kick 0 at 2, 12 at 4, 76 at 6; floor tom
-  only at 6 m/s (24); a crash 8 at 2 m/s, 388 at 6. The rack tom is closest and tuned nearest the
-  snare; the floor tom is far and low. A stick on the snare itself at 0.3 m/s lands the wires 119
-  times.
+  default kit): rack tom 12 at 2 m/s, 152 at 4, 327 at 6; kick 0 at 2, 12 at 4, 76 at 6; floor tom
+  only at 6 m/s (24); a crash 86 at 6 m/s (and the splash 115; the ride none). The rack tom is closest
+  and tuned nearest the snare; the floor tom is far and low. A stick on the snare itself at 0.3 m/s
+  lands the wires 119 times.
 - **Where the time goes.** A groove (kick, snare, the ride on every beat and a crash) runs the audio
-  thread 100% of real time with every piece on it, and 68% with two workers on this four-core
-  container (69% with one, 75% with three: more threads to wake than work to share). The ride's von
-  Karman coupling on its own thread is the critical path.
+  thread about 52% of real time with every piece on it, and 36-39% with workers (more threads to wake
+  than work to share); all seven pieces struck at once take about 96% on one thread (43% with two
+  workers). The ride's von Karman coupling on its own thread is the critical path.
 - **Resting a cymbal's coupling needs its peak, not a reading.** The stretching energy `U` swings
   through zero every cycle; gated on a single reading at 1e-4 of the modes' energy, a crash's
   coupling rested at 0.45 s - at a zero crossing - and its low bands lost 15 dB. Gated on the peak of
@@ -650,8 +650,9 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
   energy above 4 kHz than felt's (`analyzeHit`'s `above4kDb`).
 - **The mix's defaults come from measured peaks.** At 6 m/s, against the snare, the kick peaks 15 dB
   lower, the toms 18-21 dB, the crash 19 dB, the ride (at its edge) 27 dB, the splash 13 dB. The
-  default microphones (kick 3, snare 1, rack 2, floor 2.5, crash 2, ride 3, splash 1.5) bring them
-  within a few dB, as a kit is mic'd; what the pieces hear of each other is unchanged by them.
+  default microphones (kick 3, snare 1, rack 3, floor 4, crash 4, ride 6, splash 3) bring them within
+  a few dB, as a kit is mic'd; what the pieces hear of each other is unchanged by them. The snare
+  itself peaks at +5.8 dBFS at 6 m/s (the kit's `KIT_GAIN` of 0.35 leaves it just over full scale).
 
 ### Known limits (the kit)
 
@@ -659,13 +660,13 @@ Phases 4 and 5 are not started; Phase 6 did not need them (see the plan's note).
 - Sympathy is a uniform pressure on each head: the pressure gradient across a head (which would
   drive its `m = 1` modes directly) and the doubling of pressure at a large surface are left out,
   and cymbals don't listen.
-- Hits sent while a kit is first built (1.6 s cold) are dropped; the DAW prepares the kit when a track
+- Hits sent while a kit is first built (0.96 s cold) are dropped; the DAW prepares the kit when a track
   becomes a kit or a song loads, so this only bites at the very start.
 - The view draws the lowest 64 modes of each face (the visible pattern); the Chladni pattern of a
   hit's first milliseconds, when the high band carries much of the motion, is smoother than the
   head's.
-- The live BDD (`tests/daw_matter_live.rs`) needs a desktop session and an audio device; it has not
-  been run in the container this was built in.
+- The live BDD (`tests/daw_matter_live.rs`) needs a desktop session and an audio device; it passes on
+  a desktop with an audio device.
 
 ## How it is verified (no audio device needed)
 
@@ -762,10 +763,10 @@ clear, a coated and a rough head, rubber on glass from squeak to slide, a wet fi
 a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` times them.
 ## Known limits
 
-- **Cost.** Per ringing drum, in release builds on one core: snare 13%, kick 7%, floor tom 5.5%, rack
-  tom 4%, timpani 2%. A whole kit ringing at once is about 30%, well over the plan's 5%. Next: skip
-  heads and modes that have gone silent, share the wires' contact solves, and let a kit's drums share
-  one voice.
+- **Cost.** Per ringing drum, in release builds on one core (median of three, i5-12500): snare 6.6%,
+  kick 4.0%, floor tom 3.3%, rack tom 2.1%, timpani 1.1%. A whole kit ringing at once is about 96% on
+  one thread (43% with two workers), well over the plan's 5%. Next: skip heads and modes that have
+  gone silent, share the wires' contact solves, and let a kit's drums share one voice.
 - **Build time.** A new drum takes 0.2-0.8 s to build (radiation integrals, the high band's zero
   searches), off the audio thread; the same description is then cached.
 - The snare's shell and rim have no modes yet: no rimshot, cross-stick or shell ring. The wires don't
@@ -778,7 +779,9 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
 - Strikes are along the head's normal only; a glancing blow and a buried beater (held against the
   head) are not modelled yet.
 - A 25 m/s stick at the rim peaks at several hundred pascals at 1 m: physical for the speed (90 km/h),
-  but the DAW will need gain staging (full scale is 20 Pa).
+  but the DAW will need gain staging (full scale is 20 Pa). At that speed the tension modulation still
+  returns more work than the striker put in: the stick leaves at 32.9 m/s, faster than the 25 it
+  arrived at (the contact-coupled modes' stretch does not cover the rim, as it does the kick).
 
 ## Decisions the cymbal measurements made
 
@@ -878,9 +881,9 @@ a rod on a steel sheet and on a ride to `test-artifacts/matter/`; `rub_cost` tim
 
 ## Known limits (cymbals)
 
-- **Cost.** Per ringing cymbal after a hard hit, one core, release: crash 56% (72 nonlinear modes,
-  22.5k coupling coefficients), ride 63%, splash 29%. Far over budget for a kit; the nonlinear
-  evaluation is 90% of it.
+- **Cost.** Per ringing cymbal after a hard hit, one core, release (median of three, i5-12500): crash
+  32% (72 nonlinear modes, 22.5k coupling coefficients), ride 36%, splash 15%. Far over budget for a
+  kit; the nonlinear evaluation is most of it.
 - **The cascade stops at the nonlinear set's top (2 kHz).** Energy climbs through the set and piles
   up below 2 kHz; the complete band above (to 5 kHz) and the sampled band (to 16 kHz) are linear and
   get only what the stick puts in. The crash's rising wash above a few kHz needs the set to reach

@@ -109,8 +109,9 @@ export interface MatterSettings {
 
 /** Microphone levels that bring the pieces near each other at the same stroke: the kick and the
  *  toms radiate far less than the snare for the same stick speed (measured peaks at 6 m/s: kick
- *  -15 dB, toms -18 to -21 dB, ride -27 dB against the snare), and a kit is mic'd to taste. */
-export const DEFAULT_MIX: Record<MatterPiece, number> = { kick: 3, snare: 1, "rack-tom": 2, "floor-tom": 2.5, crash: 2, ride: 3, splash: 1.5 };
+ *  -15 dB, toms -18 to -21 dB, ride -27 dB against the snare), and a kit is mic'd to taste. The
+ *  cymbals and toms are lifted so they stay present in the mix (they still sit below the snare). */
+export const DEFAULT_MIX: Record<MatterPiece, number> = { kick: 3, snare: 1, "rack-tom": 3, "floor-tom": 4, crash: 4, ride: 6, splash: 3 };
 
 export const DEFAULT_KIT: MatterKit = { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true, brushes: false, quality: "live" };
 
