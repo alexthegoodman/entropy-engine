@@ -9,4 +9,5 @@
 //! backends being evaluated side by side. Only the chosen backend survives past the spike.
 
 pub mod meta;
+pub mod pieces;
 pub mod transport;

@@ -7,16 +7,17 @@ Latest Docs:
 
 ## Status (2026-10-02)
 
-Phase 1 (evaluation spike) and phase 2 (content model) are done. `src/p2p/` now holds the
-`P2pTransport` trait seam (`transport.rs`), both candidate backends (`transport/rustp2p.rs`,
-`transport/quic.rs`), and the content model (`meta.rs`). The spike runs as
-`cargo run --bin p2p_spike`; the content-model tests run as `cargo test --lib p2p::meta`.
+Phase 1 (evaluation spike), phase 2 (content model), and phase 3 (local piece store) are done.
+`src/p2p/` now holds the `P2pTransport` trait seam (`transport.rs`), both candidate backends
+(`transport/rustp2p.rs`, `transport/quic.rs`), the content model (`meta.rs`), and the piece store
+(`pieces.rs`). The spike runs as `cargo run --bin p2p_spike`; the content-model and piece-store
+tests run as `cargo test --lib p2p`.
 
 **Decision: KCP (`rustp2p`) is the first backend.** QUIC (`rustp2p-quic`) stays in-tree as a
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Next up: phase 3 (local piece store), then phase 4 (two-process localhost session).
+Next up: phase 4 (two-process localhost session), then phase 5 (scheduler).
 
 ## 1. Scope and intent
 
@@ -419,7 +420,7 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    results. A pass proves the trait seam holds; a fail just replaces a backend, not the trait.
 2. **Content model.** *(DONE)* Info document, canonical MessagePack encoding, content ids, piece hashing.
    Tests: deterministic ids, version rejection.
-3. **Local piece store.** Split/verify/assemble a file, resume from a partial bitmap, promote to
+3. **Local piece store.** *(DONE)* Split/verify/assemble a file, resume from a partial bitmap, promote to
    seed. Tests: corrupt piece rejected, resume exact, idempotent.
 4. **Two-process localhost session.** Two peers, one seeded, one downloads over loopback with no
    NAT. Tests: full transfer, out-of-order pieces, duplicate/retried requests, disconnect/reconnect.
