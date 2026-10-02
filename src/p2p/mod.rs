@@ -8,4 +8,5 @@
 //! the `P2pTransport` seam, and `transport/{rustp2p,quic}.rs` are the two candidate
 //! backends being evaluated side by side. Only the chosen backend survives past the spike.
 
+pub mod meta;
 pub mod transport;

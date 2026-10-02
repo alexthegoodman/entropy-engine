@@ -5,6 +5,19 @@ Latest Docs:
 - https://docs.rs/rustp2p/latest/rustp2p/
 - https://docs.rs/rustp2p-quic/latest/rustp2p_quic/
 
+## Status (2026-10-02)
+
+Phase 1 (evaluation spike) and phase 2 (content model) are done. `src/p2p/` now holds the
+`P2pTransport` trait seam (`transport.rs`), both candidate backends (`transport/rustp2p.rs`,
+`transport/quic.rs`), and the content model (`meta.rs`). The spike runs as
+`cargo run --bin p2p_spike`; the content-model tests run as `cargo test --lib p2p::meta`.
+
+**Decision: KCP (`rustp2p`) is the first backend.** QUIC (`rustp2p-quic`) stays in-tree as a
+fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
+"Phase-1 spike findings" note under section 13 for the evidence.
+
+Next up: phase 3 (local piece store), then phase 4 (two-process localhost session).
+
 ## 1. Scope and intent
 
 Add a BitTorrent-inspired, swarming content-distribution layer to Entropy Engine, with three
@@ -398,13 +411,13 @@ what makes the call reversible.
 Phased, each phase gated on the one before it, in the BDD style the repo already uses
 (`tests/*_bdd.rs`, `tests/*.feature`).
 
-1. **Evaluation spike.** Define the `P2pTransport` trait, then build both `rustp2p` (KCP) and
+1. **Evaluation spike.** *(DONE)* Define the `P2pTransport` trait, then build both `rustp2p` (KCP) and
    `rustp2p-quic` (QUIC overlay) in-tree as candidate backends. Exercise `GroupCode`, encryption,
    the `DataInterceptor`, and the relay/direct-route controls (`RouteKey`/`RecvMetadata` for KCP,
    `LinkMode`/`LinkInfo` for QUIC) on Windows and Linux. Confirm hole punching claims, stream
    throughput, and that file-sized transfers stay on direct routes. Pick the first backend from the
    results. A pass proves the trait seam holds; a fail just replaces a backend, not the trait.
-2. **Content model.** Info document, canonical MessagePack encoding, content ids, piece hashing.
+2. **Content model.** *(DONE)* Info document, canonical MessagePack encoding, content ids, piece hashing.
    Tests: deterministic ids, version rejection.
 3. **Local piece store.** Split/verify/assemble a file, resume from a partial bitmap, promote to
    seed. Tests: corrupt piece rejected, resume exact, idempotent.
@@ -431,17 +444,45 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
     a second peer. This is where the spool-then-play choice is exercised end to end.
 12. **Byte-source decoder (optional).** Remove the disk copy; benchmark memory and start latency.
 
+### Phase-1 spike findings (recorded so we know what the spike actually taught us)
+
+The spike (`cargo run --bin p2p_spike`) passed all hard checks on loopback for both backends:
+KCP datagram round-trip under group code + PSK + interceptor, wrong-group-code isolation, and
+interceptor drop; QUIC bootstrap discovery, datagram round-trip, and a stream echo. Three things
+matter for the design:
+
+1. **`DataInterceptor` runs pre-decryption.** `rustp2p` invokes `pre_handle` on the raw frame
+   before the PSK decrypt step, so the interceptor sees only plaintext frame metadata
+   (`src_id`/`dest_id`/`group_code`/`ttl`/`protocol`), *not* the content id inside the encrypted
+   payload. Section 2.3's "drop non-catalog content ids at the socket" therefore does not hold as
+   written: content-id filtering must happen post-decrypt in the network service (after
+   `recv_from`); the interceptor is only a peer/metadata choke point. Also note the crate treats a
+   `pre_handle` return of `true` as *keep*, the opposite of its docs.rs comment.
+2. **KCP has no wait-for-peer primitive.** The first `send_to` right after `start()` can fail with
+   "node route not found" because route discovery is async; the network service must retry until
+   the route is up (the spike does this in `send_until_received`).
+3. **Feature asymmetry.** `GroupCode` and `DataInterceptor` are KCP-only. QUIC is always
+   TLS-encrypted and uses `Identity`/`PeerId` plus a punch whitelist for trust, so section 2's
+   control model maps cleanly onto KCP and awkwardly onto QUIC. This is the main reason KCP is
+   the first backend; QUIC is retained as a fallback because `open_bi`/`accept_bi` + `link_mode`
+   give a cleaner stream API if we later need it.
+
 ## 14. Decisions to discuss
 
-- **Transport backend (open, decided by the spike).** Two candidate first backends from the same
-  maintainers: `rustp2p` (KCP, battle-tested) and `rustp2p-quic` (QUIC overlay, more modern but
-  younger), both behind the `P2pTransport` trait; LAN (mDNS) is a future backend. The phase-1 spike
-  picks one. The original "use QUIC" requirement is now satisfiable natively via `rustp2p-quic`
-  rather than by hand-rolling a QUIC + rendezvous stack.
+- **Transport backend (decided: KCP first, QUIC kept).** *(Decided 2026-10-02)* Two candidate first
+  backends from the same maintainers: `rustp2p` (KCP, battle-tested) and `rustp2p-quic` (QUIC
+  overlay, more modern but younger), both behind the `P2pTransport` trait; LAN (mDNS) is a future
+  backend. The phase-1 spike picked **KCP** (it natively implements the curated-control model:
+  group code + PSK + interceptor); **QUIC stays in-tree as a fallback** because of the finding that
+  its control model maps poorly onto section 2. The original "use QUIC" requirement is now
+  satisfiable natively via `rustp2p-quic` if we switch.
 - **Trust model.** Group code + PSK + maintainer-signed room index + content hashing (no per-peer
   identity), as the user suggested ("authentication is a step too far"). Decide whether any
   additional signature on the info document is worth adding now or later.
-- **Canonical encoding.** MessagePack (`rmp-serde`) vs canonical JSON; locks the content id forever.
+- **Canonical encoding.** *(Decided 2026-10-02)* MessagePack (`rmp-serde`), with sorted keys (a
+  `serde_json::Map`, i.e. a `BTreeMap`, serialized to MessagePack) so the encoding is deterministic;
+  `None` fields are omitted and the `pieces` field is a base64 string (no binary/array ambiguity).
+  This locks the content id forever; the golden bytes/hash are frozen in `meta.rs` tests.
 - **Piece length** default (256 KiB vs 1 MiB) and whether it is per-content.
 - **Rendezvous node hosting.** Confirm the serverless-first choice (Workers + R2 + KV/Durable
   Objects) vs a single VPS; who runs it, and the rate limits for a public, content-agnostic node.

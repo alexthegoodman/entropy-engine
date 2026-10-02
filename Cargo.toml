@@ -291,6 +291,9 @@ rustp2p = { version = "0.4.1", features = ["use-kcp", "aes-gcm-ring"] }
 rustp2p-reliable = "0.1.2"
 rustp2p-quic = "0.1.1"
 bytes = "1"
+# Phase-2 content model (src/p2p/meta.rs): canonical MessagePack encoding + SHA-256 ids.
+rmp-serde = "1"
+sha2 = "0.10"
 deno_core = "0.332.0"
 deno_error = "0.5.5"
 # deno_core = "0.382.0"
