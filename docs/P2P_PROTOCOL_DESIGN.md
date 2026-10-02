@@ -4,8 +4,8 @@ Status: design proposal, not implemented. Nothing in this document has been buil
 
 ## 1. Scope and intent
 
-Add a BitTorrent-inspired, swarming content-distribution layer to Entropy Engine, built on QUIC,
-with two first-party surfaces:
+Add a BitTorrent-inspired, swarming content-distribution layer to Entropy Engine, with two
+first-party surfaces:
 
 - a **P2P file browser** that lists, previews, downloads, and re-serves shared content;
 - a **P2P media player** that streams video/audio from peers while it plays, with seeking.
@@ -16,36 +16,39 @@ deliberately *not* BitTorrent and does not interoperate with it. The reason for 
 of using the real protocol is control: we want to decide what may enter and circulate on our
 network, which the open BitTorrent/DHT/magnet system is designed *not* to let a single party do.
 
-QUIC is the transport because it gives us multiplexed streams and unreliable datagrams over one
-connection, mandatory TLS 1.3, connection migration, and 0-RTT resume - all of which map directly
-onto the parts of BitTorrent we want (many concurrent piece requests on one socket, cheap
-presence/gossip messages, and encrypted, authenticated links) without BitTorrent's TCP-per-peer
-connection sprawl or unencrypted legacy.
+Transport is handled by [`rustp2p`](https://docs.rs/rustp2p/latest/rustp2p/) (0.4.1, Apache-2.0), a
+small Rust library that provides the hard part - NAT traversal via UDP/TCP hole punching, a reliable
+transport (KCP) over UDP, optional encryption (AES-GCM / ChaCha20-Poly1305), network isolation via
+group codes, and automatic route selection between peers. Using it lets us spend our effort on the
+content model, piece scheduling, and the two surfaces, instead of reimplementing NAT traversal. It
+is *not* QUIC; see the decision note in section 14 on how that trade is made.
 
 ## 2. The control model (the reason this is not BitTorrent)
 
-Three independent gates keep the network curated. Each can be relaxed independently later, but the
-first release enforces all three.
+Three mechanisms keep the network curated. Each can be tightened or loosened independently later.
 
-1. **Signed content.** Every shared item is described by a canonical, canonicalized metadata blob
-   (an "info document", the analogue of BitTorrent's info-dict). Its content id is
-   `SHA-256(info_document)`. Only items whose info document verifies against a trusted curator key
-   (or a configured key ring) may be announced, requested, or served. A peer that receives a
-   request or announcement for an unsigned/unknown id ignores it. This is the primary lever: adding
-   or removing content is a curation act, not a network act.
+1. **Network isolation via group code.** `rustp2p` segments the network by a shared `GroupCode`
+   (a short shared secret). Peers without the code never form a swarm with peers that have it, so
+   "joining our network" means knowing the code. This replaces heavy per-peer identity: there is
+   deliberately *no* per-peer keypair, no curator-issued identity, and no PKI in the first release.
+   The user has flagged full authentication as "probably a step too far"; a shared group code plus
+   PSK encryption (`Algorithm::AesGcm(password)`) is the lightweight stand-in.
 
-2. **Peer membership.** Joining the swarm requires a signed peer identity (Ed25519) issued by the
-   same curator, or an invite secret that derives one. Peers authenticate each other on connect and
-   refuse unknown identities. Random internet nodes cannot simply point at the tracker and join.
+2. **Curated catalog + content hashing.** Every shared item has a content id,
+   `SHA-256(canonical(info_document))`, and every piece is `SHA-256`-verified against that document
+   (section 4). The set of content ids that may circulate is the **catalog**: peers only announce,
+   request, or serve content ids they learned from the catalog (a bundled allowlist plus the public
+   announcement table, section 6). Adding or removing content is a curation act, not a network act.
 
-3. **Curated discovery.** Discovery goes through a small, explicit bootstrap/tracker list (see
-   section 6), never an open DHT crawl. There is no way to enumerate the network from the outside;
-   you can only learn about content you are already allowed to see. A DHT may come later, but only
-   as an optimization gated by the same signed catalog, not as an open index.
+3. **Enforcement at the socket.** `rustp2p` exposes a `DataInterceptor` trait whose `pre_handle`
+   returns `true` to drop an incoming packet before delivery. We install an interceptor that drops
+   any packet that is not for a known, catalog-listed content id (or is not group-valid). This is a
+   single choke point that makes "what is allowed on the network" a real, enforced rule rather than
+   a convention peers could ignore.
 
-Consequence: "publish" and "curate" are the same operation. There is no untrusted upload path in
-the first release; content enters the catalog through the curator's own tooling, which produces the
-info document, signs it, seeds it, and distributes it to the tracker.
+Consequence: publish and curate are the same operation. There is no untrusted upload path in the
+first release; content enters the catalog through the curator's own tooling, which produces the info
+document, publishes its id to the announcement table, and seeds it.
 
 ## 3. Architecture constraints in Entropy
 
@@ -57,19 +60,33 @@ uses for MCP (`src/mcp/mod.rs`) and the DAW collaboration proposal (`docs/DAW_CO
   must never block that thread.
 - A Tokio runtime already exists (`#[tokio::main]` in `src/bin/example.rs` and `editor.rs`), and
   `tokio` is already a `full` dependency.
-- The established bridge pattern is a background thread/task that sends messages over an
-  `mpsc` channel, drained once per frame in `Editor::about_to_wait` (`src/startup.rs`), exactly how
+- The established bridge pattern is a background thread/task that sends messages over an `mpsc`
+  channel, drained once per frame in `Editor::about_to_wait` (`src/startup.rs`), exactly how
   `mcp_rx` is drained today.
 
-Therefore the P2P layer is a **Rust-side, async "network service"** that owns all sockets and piece
-storage and exposes a small, non-blocking, poll-based surface to addons:
+`rustp2p`'s `EndPoint` is `Send + Sync` and async, so it fits this model directly: it lives on a
+tokio task owned by a Rust-side "network service", and only a small, bounded event queue is handed
+back to the addon. Therefore:
 
 - Deno ops are "start" and "poll" shaped (like `Net.fetchText`/`pollText`, `Vst3.scan`/`scanPoll`,
   `Video.export`/`pollExport`). Nothing blocks the frame.
-- The network service runs its own tokio tasks for connections, piece transfer, and disk writes.
+- The network service runs its own tokio tasks for the endpoint, piece transfer, and disk writes.
 - Progress/events flow back to the addon as a bounded event queue, drained from `onUpdate`.
 
 This mirrors the DAW collaboration document's rule: network I/O stays off the UI and audio threads.
+
+### Transport abstraction
+
+The transport sits behind a narrow seam, the `P2pTransport` trait, so the content, piece, scheduler,
+and allowlist layers never know which backend is underneath. The trait exposes only what those
+layers need: addressing a peer by a stable id, sending/receiving best-effort datagrams (control
+messages), opening a reliable ordered bidirectional stream (piece data), and a small event surface
+(peer connected/disconnected, and whether a received message arrived via a relayed route). The
+first and only backend in the initial release is `rustp2p`; a `quinn`-based QUIC backend
+(direct-connect, no hole punching) and a LAN/mDNS backend are future implementations of the *same*
+trait, not rewrites of the layers above it. This is what lets us start with the proven
+NAT-traversal library today without marrying it: if `rustp2p` under-delivers, we swap the backend,
+not the product.
 
 ## 4. Wire protocol
 
@@ -91,46 +108,46 @@ An **info document** is a canonicalized, versioned structure:
 ```
 
 - Canonical serialization (sorted keys, no trailing data) must be defined and frozen in `schema 1`;
-  the content id depends on it. `serde_json` with a hand-rolled canonicalizer, or a binary encoding
-  (`bincode`, already in the tree), are both candidates; the exact choice is a decision to make
-  before any content ships, because ids are only as stable as the encoding.
-- The signed envelope wraps the info document with a curator signature:
-
-```jsonc
-{ "info": "<info document>", "curator": "<key id>", "signature": "base64(Ed25519 over canonical info bytes)" }
-```
-
-A **content id** is `SHA-256(canonical(info_document))`. This is the stable handle peers use in all
-have/want/request messages. Piece hashes are flat in the first release; a Merkle tree is a later
-option if we want per-piece streaming verification of huge files without shipping the full list up
-front (the list is tiny - 32 bytes per 256 KiB, ~17 KiB per GiB - so flat is fine for now).
+  the content id depends on it. `rustp2p` itself serializes with `rmp-serde` (MessagePack), so
+  MessagePack is the natural candidate for the canonical encoding too; a hand-rolled canonical JSON
+  is the alternative. The exact choice is a decision to make before any content ships, because ids
+  are only as stable as the encoding.
+- A **content id** is `SHA-256(canonical(info_document))`. This is the stable handle peers use in
+  all have/want/request messages. Piece hashes are flat in the first release; a Merkle tree is a
+  later option if we want per-piece streaming verification of huge files without shipping the full
+  list up front (the list is tiny - 32 bytes per 256 KiB, ~17 KiB per GiB - so flat is fine for now).
+- The info document itself can optionally carry a curator signature, but per the relaxed control
+  model the *primary* integrity mechanism is the piece hashes plus "the id must be in the catalog";
+  a signature is a cheap later addition, not a first-release requirement.
 
 ### 4.2 Transport framing
 
-One QUIC connection per peer, two channels:
+`rustp2p` gives us a datagram-oriented API (`send_to`/`recv_from` over a `NodeID`) plus an optional
+reliable KCP stream layer (`rustp2p-reliable`). We use both:
 
-- **Bidirectional streams**: reliable, ordered. One stream per piece request carries the request
-  header and the piece bytes, then closes. A few control streams (handshake, metadata fetch,
-  request/response for the info document) are opened on demand.
-- **Unreliable datagrams**: presence, `HAVE` gossip, bitfield deltas, and piece-request cancellation.
-  These are best-effort and re-derivable; losing one costs a redundant request, not correctness.
+- **Reliable KCP streams** for piece data and anything larger than one datagram: one logical stream
+  per piece request carries the request header and the piece bytes. This is the analogue of the
+  QUIC bidirectional stream in the original design.
+- **Datagrams** (`send_to`/`recv_from`) for control messages: `have`, `want`, `cancel`, presence.
+  These are small, best-effort, and re-derivable; losing one costs a redundant request, not
+  correctness.
 
 Messages are length-prefixed and version-tagged. The envelope is `{ protocol, message, payload }`,
-where `payload` is either compact JSON or, for binary-heavy messages, a fixed binary layout. The
-info document and piece data are binary; control messages are JSON for debuggability.
+serialized with `rmp-serde` (MessagePack), where `payload` is a compact binary or JSON-compatible
+structure depending on the message. Piece bytes are raw after their fixed header.
 
 ### 4.3 Message set (initial)
 
 | Message | Channel | Direction | Purpose |
 | --- | --- | --- | --- |
-| `hello` | stream | both | peer id, protocol version, supported schemas, curator key ids |
-| `get_info` / `info` | stream | req/resp | fetch an info document + signature by content id |
+| `hello` | stream | both | protocol version, supported schemas, group membership |
+| `get_info` / `info` | stream | req/resp | fetch an info document by content id |
 | `have` | datagram | both | "I hold piece N of content C" (coalesced) |
 | `bitfield` | stream | both | full piece map on connect (batched `have`) |
 | `want` | datagram | both | "send me pieces X..Y of content C" (informed by scheduler) |
 | `piece` | stream | resp | piece bytes + content id + index |
 | `cancel` | datagram | both | stop a pending piece request |
-| `have_all` / `done` | both | both | completion signals, for seed accounting |
+| `done` | datagram | both | completion signal, for seed accounting |
 
 This is a deliberately small, BitTorrent-shaped vocabulary. The scheduler (section 7) is what turns
 `have`/`want` into a usable download and stream.
@@ -145,25 +162,33 @@ This is a deliberately small, BitTorrent-shaped vocabulary. The scheduler (secti
   re-shareable. A hash mismatch is dropped and the peer is penalized (see 8).
 - A completed and verified file can be atomically "promoted" to a seed position and listed by the
   browser.
-- Serving is read-only over the curated catalog: a peer serves pieces only for content ids whose
-  info document it holds and whose signature verifies. It never serves arbitrary filesystem paths
-  (the same rule the DAW collaboration doc states: a peer cannot name another machine's path).
+- Serving is read-only over the curated catalog: a peer serves pieces only for content ids it holds
+  and that are in the catalog. It never serves arbitrary filesystem paths (the same rule the DAW
+  collaboration doc states: a peer cannot name another machine's path).
 
 ## 6. Discovery and NAT
 
-- **Tracker.** A small HTTP/JSON tracker (or a QUIC-based tracker) holds, per content id, a set of
-  recent peer endpoints, like a private BitTorrent tracker. The curator controls what it lists, so
-  listing something is also a curation act. This is the simplest correct starting point and it
-  reinforces the control model. It can be the same tiny_http approach already used for MCP, or a
-  separate small service.
-- **Bootstrap list.** Peers ship with a configured, explicit list of tracker/bootstrap endpoints;
-  there is no open crawl. Manual "join by address/code" is kept for the same reasons the DAW
-  collaboration doc keeps it (VLANs, multicast-blocked routers, firewalls).
-- **NAT traversal is the hard, honest part.** QUIC alone does not punch a hole between two
-  NATed peers. However, we will not rely on a relay or proxy server at all. If necessary, we can keep
-  one database table in the cloud for tracking uploads, but it will be publicly available so we need to manage what is put in.
-  The idea of doing authentication is probably a step too far, but definitely a CDN or transferring large assets over relay is forbidden.
-  We can discuss this though and do what is necessary, so long as we don't transfer or store large files over the proxy / relay.
+NAT traversal is delegated to `rustp2p`, whose docs state UDP hole punching works with both cone
+NAT and symmetric NAT, and TCP hole punching covers NAT1. Peers bootstrap from a configured initial
+peer list (`Builder::peers([...])`) and discover further peers through the swarm.
+
+- **No relay/proxy for file data.** The user's hard constraint: we do not rely on a relay, a proxy,
+  or a CDN, and we never transfer or store large assets through one. Piece data always flows over
+  direct, hole-punched peer connections. `rustp2p`'s route selection may use relayed paths for
+  small control/signaling traffic internally; we use the `RouteKey`/`send_to_route` API and
+  `RecvMetadata` relay info to ensure file bytes are confined to direct routes and to drop piece
+  data that arrived relayed. This is a real verification task, not an assumption - see phase 8.
+
+- **Announcement table (the cloud "database table").** At most one small, publicly reachable store
+  tracks *announcements*: per content id, which peers claim to hold it and their observed endpoint
+  (`node id` / address). Peers write a row when they seed and read rows to find download sources.
+  This is coordination metadata only - a few hundred bytes of content id and endpoint, never the
+  file bytes, never a secret. Because it is public, we must manage what goes into it: only curated
+  content ids are published there, and nothing sensitive. It is the practical equivalent of a
+  private BitTorrent tracker, but with no heavyweight auth in front of it.
+
+- **Group code.** The `GroupCode` is the gate that keeps an uninvited node from joining the swarm
+  at all, independent of the announcement table. A node without the code cannot reach peers.
 
 ## 7. Piece scheduling
 
@@ -183,28 +208,31 @@ can be added later without changing the wire format.
 
 ## 8. Security and abuse controls
 
-- **Identity and transport.** Ed25519 peer identities; QUIC with TLS 1.3. Certificates are either
-  self-signed and pinned by peer id (libp2p-QUIC style) or issued by the curator. Curator-issued is
-  cleaner for the control story and is the recommendation.
-- **Verification everywhere.** Every piece is SHA-256 checked against a signature-verified info
-  document before it is trusted or re-shared.
-- **Rate and size limits.** Cap per-connection streams, in-flight piece requests, message sizes,
-  and the number of concurrent pieces; enforce backpressure so a slow disk or player never
-  unboundedly buffers.
+- **Isolation and transport.** A shared `GroupCode` isolates the swarm; `rustp2p` optional
+  encryption (AES-GCM or ChaCha20-Poly1305) protects traffic with a PSK. There is no per-peer PKI
+  in the first release - the group code and PSK are the trust root, and the `DataInterceptor` is the
+  enforcement point.
+- **Verification everywhere.** Every piece is SHA-256 checked against the info document before it
+  is trusted or re-shared.
+- **Socket-level filtering.** The `DataInterceptor` drops packets not for a catalog-listed content
+  id. This is defense in depth on top of the catalog, and also rejects unsolicited/garbage traffic.
+- **Rate and size limits.** Cap per-peer in-flight piece requests, message sizes, and the number of
+  concurrent pieces; enforce backpressure so a slow disk or player never unboundedly buffers.
 - **Penalties.** Peers that send bad hashes, oversized pieces, or protocol-invalid messages are
-  disconnected and, on repeat, temporarily banned by the tracker (a "trust score" the curator can
-  act on).
+  disconnected and temporarily ignored. A formal ban list can be added later; the interceptor is
+  where it would live.
 - **No arbitrary fetch.** The network service only writes to `p2p/<content_id>/` and only for
-  signature-verified content. It does not expose a generic "fetch this URL/this path" primitive.
-- **Consent.** Hosting/uploading (serving pieces, running a relay, opening a listening socket) is
-  opt-in and surfaced in the UI before the socket opens - same stance as the DAW collaboration doc.
+  catalog-listed, hash-verified content. It does not expose a generic "fetch this URL/this path"
+  primitive.
+- **Consent.** Hosting/uploading (serving pieces, opening a listening socket) is opt-in and surfaced
+  in the UI before the socket opens - same stance as the DAW collaboration doc.
 
 ## 9. The P2P file browser
 
 A new addon, `p2p_file_browser_addon.ts`, following the existing media player's structure
 (`apps/media_player_addon.ts`):
 
-- Lists the catalog from the tracker + local store: name, size, type, media metadata, seed/peer
+- Lists the catalog (announcement table + local store): name, size, type, media metadata, seed/peer
   count, local availability.
 - Actions per item: **download** (rarest-first to completion, then seed), **play** (stream via the
   player, section 10), **open folder**, and **seed/stop seeding** for local files.
@@ -249,12 +277,15 @@ Playback behavior:
 | Module | Responsibility |
 | --- | --- |
 | `mod.rs` | The `P2pService` handle: owns the tokio task set, the event outbound channel, and the poll surface drained by `about_to_wait`. |
-| `meta.rs` | Info document schema, canonical serialization, signing/verification, content id derivation. |
-| `identity.rs` | Peer keypairs, curator keys, certificate handling, connect-time authentication. |
+| `meta.rs` | Info document schema, canonical serialization (MessagePack), content id derivation. |
+| `allow.rs` | The catalog allowlist policy (which content ids may circulate); transport-agnostic. |
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
-| `transport.rs` | QUIC endpoint (`quinn`), stream + datagram framing, connection management, backpressure. |
-| `tracker.rs` | Tracker client (announce/peers); the tracker itself can be a separate small service. |
+| `transport.rs` | The `P2pTransport` trait: peer addressing, datagram send/recv, reliable stream open, peer events, relay-route detection. The stable seam all upper layers code against. |
+| `transport/rustp2p.rs` | First backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. |
+| `transport/quic.rs` | *Future* backend: `quinn`-based QUIC, direct-connect only (no hole punching), same trait. |
+| `transport/lan.rs` | *Future* backend: mDNS/DNS-SD discovery + direct subnet transport, same trait. |
+| `announce.rs` | Announcement-table client (publish/read seed rows); enforces "only curated ids" on write. |
 
 `src/deno/p2p_ops.rs` adds the non-blocking ops (`op_p2p_start`, `op_p2p_stop`,
 `op_p2p_add_content`, `op_p2p_remove_content`, `op_p2p_download`, `op_p2p_poll`, `op_p2p_stream`,
@@ -272,45 +303,74 @@ network tasks send events to a channel the render thread drains each frame.
 
 ## 12. Dependencies
 
-- `quinn` 0.11 and `rustls` 0.23 are **already in the lock file** (transitively via the existing
-  HTTP stack), so adding QUIC is effectively free from a dependency-resolution standpoint.
-- `rcgen` for self-signed cert generation (small, new), or reuse an existing TLS identity if
-  curator-issued certs are chosen instead.
-- `sha2` (already transitive) and `ed25519-dalek` (new) for hashing and signatures; `bincode`
-  (already transitive) as the canonical binary encoding candidate.
+- `rustp2p` 0.4.1 (Apache-2.0) pulls in, transitively: `tokio` ^1.42 (the engine pins 1.41, so a
+  minor bump), `tokio-util`, `kcp`, `dashmap`, `flume`, `crossbeam-queue`, `rmp-serde`
+  (MessagePack), `sha2` ^0.10, `futures`, `rand` ^0.9, and optionally `ring`/`openssl` for crypto.
+  None of these conflict with what the engine already carries; `sha2`, `bytes`, and `futures` are
+  already present.
+- `rustp2p-reliable` for the KCP stream layer (piece data), if the base crate does not re-export it.
+- `rustp2p` and its tree are contained inside the `transport/rustp2p.rs` backend; nothing above the
+  `P2pTransport` trait imports it.
+- `quinn`/`rustls`/`rcgen` are not needed for the first release, but return with the future
+  `transport/quic.rs` backend. Keeping the trait seam is what makes that a swap, not a rewrite.
+
+**Caveat to resolve before depending on it:** `rustp2p` is not new - 0.1.1 shipped in September 2024
+and it has been in active development since (24 versions, ~20k downloads; 0.4.1 published
+2026-02-09). It is still worth a short evaluation spike, though, because docs.rs scores it only
+~47% documented, the maintainer set is small (`xmh0511` plus `vnt-dev`, both tied to the vnt P2P
+project), and we must verify the hole-punching and interceptor/route APIs on our actual targets
+before committing the architecture to it. The plan assumes that spike passes; if it does not, the
+fallback is the original `quinn`-based QUIC transport with a small, hand-rolled hole-punch
+rendezvous, which is more work.
 
 ## 13. Delivery sequence and acceptance checks
 
 Phased, each phase gated on the one before it, in the BDD style the repo already uses
 (`tests/*_bdd.rs`, `tests/*.feature`).
 
-1. **Content model.** Info document, canonical encoding, signing, content ids. Tests: deterministic
-   ids, signature rejection, version rejection.
-2. **Local piece store.** Split/verify/assemble a file, resume from a partial bitmap, promote to
+1. **Evaluation spike.** Define the `P2pTransport` trait, then build `rustp2p` in-tree as its first
+   backend; exercise `Builder`, `GroupCode`, encryption, the `DataInterceptor`,
+   `send_to_route`/`RouteKey`, and KCP streams on Windows and Linux. Confirm hole punching claims
+   and the route/relay controls before any product code. A pass proves the trait seam holds; a fail
+   just replaces the backend, not the trait.
+2. **Content model.** Info document, canonical MessagePack encoding, content ids, piece hashing.
+   Tests: deterministic ids, version rejection.
+3. **Local piece store.** Split/verify/assemble a file, resume from a partial bitmap, promote to
    seed. Tests: corrupt piece rejected, resume exact, idempotent.
-3. **Two-process localhost session.** Two peers, one seeded, one downloads via QUIC over loopback.
-   Tests: full transfer, out-of-order pieces, duplicate/retried requests, disconnect/reconnect.
+4. **Two-process localhost session.** Two peers, one seeded, one downloads over loopback with no
+   NAT. Tests: full transfer, out-of-order pieces, duplicate/retried requests, disconnect/reconnect.
    A localhost pair is the same shape as the DAW collab doc's two-process test.
-4. **Scheduler.** Rarest-first vs sequential-ahead correctness on a small synthetic swarm. Tests:
+5. **Scheduler.** Rarest-first vs sequential-ahead correctness on a small synthetic swarm. Tests:
    completes, no piece fetched twice from the same peer, seek reprioritizes.
-5. **Trackers and membership.** Curated tracker, signed peer identities, join by code. Tests:
-   unknown peer refused, unsigned content ignored, tracker lists only curated items.
-6. **P2P file browser addon.** Catalog, download, seed, progress. Live BDD with two windows.
-7. **P2P media player addon.** Stream + seek + rebuffer. Live BDD against a seeded local file and
-   a second peer. This is where the spool-then-play choice is exercised end to end.
-8. **Relay fallback and NAT.** Relay for NATed peers; measure first-play latency and seek latency on
-   a real Wi-Fi/LAN before claiming anything.
-9. **Byte-source decoder (optional).** Remove the disk copy; benchmark memory and start latency.
+6. **Allowlist and interceptor.** Catalog + `DataInterceptor` drops non-catalog traffic; group code
+   isolates two swarms. Tests: unknown content id dropped, wrong group code cannot join, only
+   curated ids reach the piece store.
+7. **Announcement table.** Publish/read seed rows; verify only curated ids are written and no bytes
+   or secrets touch the table.
+8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
+   punching; assert piece data never traverses a relayed route (via `RecvMetadata` relay info) and
+   measure first-play and seek latency on real Wi-Fi/LAN before claiming anything.
+9. **P2P file browser addon.** Catalog, download, seed, progress. Live BDD with two windows.
+10. **P2P media player addon.** Stream + seek + rebuffer. Live BDD against a seeded local file and
+    a second peer. This is where the spool-then-play choice is exercised end to end.
+11. **Byte-source decoder (optional).** Remove the disk copy; benchmark memory and start latency.
 
 ## 14. Decisions to discuss
 
-- **Curator model:** single key vs a key ring vs a quorum; how content is proposed and approved.
-- **Canonical encoding:** canonical JSON vs binary (`bincode`/CBOR); locks the content id forever.
+- **Transport backend (resolved).** Use `rustp2p` as the first backend, behind the `P2pTransport`
+  trait. QUIC (`quinn`, direct-connect) and LAN (mDNS) are future backends of the same trait. The
+  original "use QUIC" requirement is satisfied as a pluggable backend rather than the initial
+  transport, since `rustp2p`'s hole punching is what makes a no-relay network possible at all.
+- **Trust model.** Group code + PSK + curated catalog + content hashing (no per-peer identity), as
+  the user suggested ("authentication is a step too far"). Decide whether any curator signature on
+  the info document is worth adding now or later.
+- **Canonical encoding.** MessagePack (`rmp-serde`) vs canonical JSON; locks the content id forever.
 - **Piece length** default (256 KiB vs 1 MiB) and whether it is per-content.
-- **Tracker:** reuse tiny_http style service vs a standalone process; who runs it in production.
-- **Certificates:** curator-issued vs self-signed-pinned-by-peer-id.
-- **Relay vs hole punching** in the first release (recommend relay first; it is more work but
-  predictable, and hole punching can follow).
-- **Streaming decode:** confirm spool-to-temp-file first, defer the custom byte-source.
-- **Seeding policy:** does the browser auto-seed completed downloads by default, and with what
+- **Announcement table.** Who hosts it, its shape, and how writes are kept to curated ids only
+  given it is publicly reachable.
+- **Relayed control traffic.** Confirm the boundary: small control/signaling may use `rustp2p`'s
+  relayed routes, but piece data must be direct-only. Decide the exact enforcement (drop vs
+  re-route).
+- **Streaming decode.** Confirm spool-to-temp-file first, defer the custom byte-source.
+- **Seeding policy.** Does the browser auto-seed completed downloads by default, and with what
   upload caps.
