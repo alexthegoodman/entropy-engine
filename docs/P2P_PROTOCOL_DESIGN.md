@@ -457,4 +457,8 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 - **Seeding policy.** Does the browser auto-seed completed downloads by default, and with what
   upload caps. Does every room member seed the room index as a condition of joining, and what
   happens when a room's only seeder goes offline.
+ 
 
+Note: the centralized server for tracking minimal things can just be a Rust server as a /bin/ file.
+We will eventually deploy the Rust server to a DigitalOcean droplet. Let's avoid authentication if possible, just public data.
+Note: we will likely want a way to test (both manually and via BDD) with fake peer nodes, so we can verify everything before deployment.
