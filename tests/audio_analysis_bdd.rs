@@ -8,6 +8,7 @@
 use cucumber::{given, then, when, World as _};
 use entropy_engine::audio::analysis::to_db;
 use entropy_engine::audio::{AudioEngine, NoteParams, MASTER_SOURCE};
+use rodio::{Sink, Source};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +17,8 @@ struct EngineWorld {
     engine: Option<Arc<AudioEngine>>,
     /// Muted flag per track, since `ensure_track_bus` takes the full state each call.
     muted: std::collections::HashMap<String, bool>,
+    /// Raw sinks created via `AudioEngine::new_sink`, kept alive so they keep playing.
+    sinks: Vec<Sink>,
 }
 
 impl std::fmt::Debug for EngineWorld {
@@ -72,6 +75,19 @@ fn play_kick(world: &mut EngineWorld, ms: u32, track: String) {
 #[when(expr = "I let the audio run for {int} ms")]
 fn run_audio(_world: &mut EngineWorld, ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
+}
+
+#[when(expr = "I play a {int} Hz sine through a raw sink for {int} ms")]
+fn play_raw_sink(world: &mut EngineWorld, hz: u32, ms: u32) {
+    // Exactly what `media_player::MediaPlayer` does to play decoded audio, but with a synthetic
+    // tone instead of a decode thread: the sink is created via `new_sink` (which must route
+    // through the master bus) and kept alive so the master tap can be read back.
+    let source = rodio::source::SineWave::new(hz as f32)
+        .take_duration(Duration::from_millis(ms as u64))
+        .amplify(0.5);
+    let sink = world.engine().new_sink();
+    sink.append(source);
+    world.sinks.push(sink);
 }
 
 #[when(expr = "I mute {string}")]

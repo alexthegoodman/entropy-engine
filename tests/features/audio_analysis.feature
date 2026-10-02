@@ -62,3 +62,9 @@ Feature: The audio engine can be listened to without touching the signal
     And I let the audio run for 150 ms
     Then meter "a" reads a peak above -12 dBFS on "drums"
     And meter "b" reads a peak above -12 dBFS on "drums"
+
+  Scenario: A source played through a raw sink is heard by the master
+    Given the real audio engine
+    When I play a 440 Hz sine through a raw sink for 1200 ms
+    And I let the audio run for 400 ms
+    Then the "master" spectrum peaks within 3 Hz of 440 Hz

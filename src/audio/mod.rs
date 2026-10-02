@@ -2023,11 +2023,14 @@ impl AudioEngine {
         sink.detach();
     }
 
-    /// A `Sink` connected to this engine's mixer, kept undetached so the caller can drive
-    /// it directly (`play`/`pause`/`set_volume`/`stop`) - used by `media_player::MediaPlayer`
-    /// for decoded video audio, unlike the fire-and-forget synth sinks above.
+    /// A `Sink` connected to the master bus, kept undetached so the caller can drive it
+    /// directly (`play`/`pause`/`set_volume`/`set_speed`/`stop`) - used by
+    /// `media_player::MediaPlayer` for decoded video audio, unlike the fire-and-forget synth
+    /// sinks above. Routing it through the master bus (rather than the raw output mixer) means
+    /// the media player's audio is summed with the track buses and heard by the master tap and
+    /// analyzer, exactly like every other source in the mix.
     pub fn new_sink(&self) -> Sink {
-        Sink::connect_new(&self.output_mixer)
+        Sink::connect_new(&self.master_mixer)
     }
 
     /// Legacy entry point kept for existing callers; forwards into `play_note`
