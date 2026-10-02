@@ -7,8 +7,9 @@
 //!   drum hits, and decoding a whole song to f32 stereo costs about 60 MB. The decode stops early
 //!   (an mp3 is not read to the end), and `DecodedSample::truncated` says so. A rack pad can still
 //!   use the first twelve seconds of a song by trimming.
-//! - Everything is resampled to `ENGINE_SAMPLE_RATE` with linear interpolation. That is adequate
-//!   for drum hits; a 48 kHz source loses a little top end and is not low-passed first.
+//! - Everything is resampled to `ENGINE_SAMPLE_RATE` with a windowed-sinc kernel that low-passes
+//!   at the lower of the two Nyquist rates, so a 48 kHz source is filtered before it is folded
+//!   down to 44.1 kHz instead of aliasing its top end.
 //! - Listing folders is read-only and limited to allowed roots (the user's Music folder, plus any
 //!   folder chosen through a native dialog), and only audio files can be decoded. An addon can ask
 //!   what audio is there; it cannot read arbitrary files or walk the whole disk.
@@ -142,7 +143,61 @@ pub fn decode_file(path: &Path, max_seconds: f64) -> Result<DecodedSample, Strin
     })
 }
 
-/// Linear-interpolation resample of stereo frames from `from` Hz to `to` Hz.
+/// Kernel taps on each side of the centre, so `2 * SINC_HALF + 1` taps in all. Chosen long enough
+/// that the transition band is narrower than the 22.05 -> 24 kHz gap a 48 kHz -> 44.1 kHz fold has
+/// to work in, so the top couple of kilohertz is attenuated instead of folded back down.
+const SINC_HALF: usize = 96;
+/// Kaiser window shape parameter, ~-80 dB stopband.
+const SINC_BETA: f64 = 10.0;
+/// Fractional positions the kernel is evaluated at. Each output frame uses the nearest phase, so
+/// the windowed-sinc weights are computed once instead of a sine per tap per frame.
+const SINC_OVERSAMPLE: usize = 256;
+
+/// Normalised sinc, `sin(pi x) / (pi x)`, 1 at the origin.
+fn sinc(x: f64) -> f64 {
+    if x == 0.0 {
+        1.0
+    } else {
+        let px = std::f64::consts::PI * x;
+        px.sin() / px
+    }
+}
+
+/// Zeroth-order modified Bessel function of the first kind, for the Kaiser window.
+fn bessel_i0(x: f64) -> f64 {
+    let mut sum = 1.0;
+    let mut term = 1.0;
+    let xh = x * 0.5;
+    let mut k = 1.0;
+    loop {
+        term *= xh * xh / (k * k);
+        let next = sum + term;
+        if next == sum {
+            return next;
+        }
+        sum = next;
+        k += 1.0;
+    }
+}
+
+/// Kaiser window, `|x| <= 1`, peaking at 1 in the middle. Its main lobe is narrower than a
+/// Blackman-Harris window's at the same length, so the passband stays flat close to Nyquist.
+/// `i0_beta` is `bessel_i0(SINC_BETA)`, precomputed once for the whole kernel.
+fn kaiser(x: f64, i0_beta: f64) -> f64 {
+    let t = x * x;
+    if t > 1.0 {
+        return 0.0;
+    }
+    bessel_i0(SINC_BETA * (1.0 - t).sqrt()) / i0_beta
+}
+
+/// Windowed-sinc resample of stereo frames from `from` Hz to `to` Hz.
+///
+/// Linear interpolation is replaced because it passes everything through untouched: a 48 kHz
+/// source folded down to 44.1 kHz aliases whatever sits above 22.05 kHz back into the passband,
+/// and a pitched-up sample interpolates linearly between its own samples instead of band-limiting.
+/// The windowed-sinc kernel low-passes at half the lower of the two rates before resampling, so
+/// downsampling stops at the output Nyquist and upsampling interpolates band-limited.
 pub fn resample(src: Vec<[f32; 2]>, from: u32, to: u32) -> Vec<[f32; 2]> {
     if from == to || src.len() < 2 {
         return src;
@@ -150,15 +205,55 @@ pub fn resample(src: Vec<[f32; 2]>, from: u32, to: u32) -> Vec<[f32; 2]> {
     let ratio = from as f64 / to as f64;
     let n = (src.len() as f64 / ratio).floor() as usize;
     let last = src.len() - 1;
-    (0..n)
-        .map(|i| {
-            let p = i as f64 * ratio;
-            let i0 = (p as usize).min(last);
-            let f = (p - i0 as f64) as f32;
-            let (a, b) = (src[i0], src[(i0 + 1).min(last)]);
-            [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]
-        })
-        .collect()
+
+    // Cutoff in cycles per input sample: half the output rate when the target is lower than the
+    // source (downsampling), otherwise the source's own Nyquist (upsampling has nothing to remove).
+    let fc = 0.5 * (to as f64 / from as f64).min(1.0);
+
+    // Evaluate the kernel at every oversampled phase once. `taps[phase][t]` is the weight of the
+    // input sample `SINC_HALF - t` whole taps from the fractional position `phase / SINC_OVERSAMPLE`.
+    let n_taps = 2 * SINC_HALF + 1;
+    let i0_beta = bessel_i0(SINC_BETA);
+    let mut taps = vec![0.0f64; SINC_OVERSAMPLE * n_taps];
+    for phase in 0..SINC_OVERSAMPLE {
+        let frac = phase as f64 / SINC_OVERSAMPLE as f64;
+        for t in 0..n_taps {
+            let d = frac - t as f64 + SINC_HALF as f64;
+            let x = d / SINC_HALF as f64;
+            taps[phase * n_taps + t] = 2.0 * fc * sinc(2.0 * fc * d) * kaiser(x, i0_beta);
+        }
+    }
+
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let p = i as f64 * ratio;
+        let base = p.floor() as isize;
+        let frac = p - base as f64;
+        let phase = ((frac * SINC_OVERSAMPLE as f64).round() as usize) % SINC_OVERSAMPLE;
+        let row = &taps[phase * n_taps..(phase + 1) * n_taps];
+
+        let mut acc = [0.0f64; 2];
+        let mut wsum = 0.0f64;
+        for t in 0..n_taps {
+            let idx = base + (t as isize - SINC_HALF as isize);
+            if idx < 0 || idx as usize > last {
+                continue;
+            }
+            let w = row[t];
+            let s = src[idx as usize];
+            acc[0] += w * s[0] as f64;
+            acc[1] += w * s[1] as f64;
+            wsum += w;
+        }
+        // Normalising by the taps actually used keeps DC gain flat when the kernel runs off the
+        // start or end of the buffer instead of fading the whole signal in and out.
+        if wsum != 0.0 {
+            acc[0] /= wsum;
+            acc[1] /= wsum;
+        }
+        out.push([acc[0] as f32, acc[1] as f32]);
+    }
+    out
 }
 
 // --- Cache --------------------------------------------------------------------------------------
@@ -630,5 +725,52 @@ mod tests {
         assert!(list_dir(&outside).is_err(), "a sibling folder is not covered");
         let escape = dir.join("Kicks").join("..").join("..").join(outside.file_name().unwrap());
         assert!(list_dir(&escape).is_err(), "a .. escape is resolved before it is checked");
+    }
+
+    /// A stereo sine at `hz`, both channels identical, `frames` long at `rate`.
+    fn sine_frames(hz: f64, frames: usize, rate: u32) -> Vec<[f32; 2]> {
+        (0..frames)
+            .map(|i| {
+                let v = (2.0 * std::f64::consts::PI * hz * i as f64 / rate as f64).sin() as f32;
+                [v, v]
+            })
+            .collect()
+    }
+
+    fn rms(frames: &[[f32; 2]]) -> f64 {
+        (frames.iter().map(|f| (f[0] as f64).powi(2)).sum::<f64>() / frames.len() as f64).sqrt()
+    }
+
+    #[test]
+    fn resample_low_passes_content_above_the_target_nyquist() {
+        // 23 kHz sits above 44.1 kHz's Nyquist (22.05 kHz) but below 48 kHz's (24 kHz), so it is
+        // exactly the band that must be filtered out before a 48 kHz -> 44.1 kHz fold, or it would
+        // alias back down to ~21.1 kHz.
+        let src = sine_frames(23_000.0, 48_000, 48_000);
+        let out = resample(src, 48_000, 44_100);
+        assert!(rms(&out) < 0.03, "23 kHz should be attenuated in a 48k -> 44.1k fold, got rms {}", rms(&out));
+    }
+
+    #[test]
+    fn resample_preserves_in_band_level() {
+        let src = sine_frames(1_000.0, 48_000, 48_000);
+        let out = resample(src, 48_000, 44_100);
+        // Measure the interior: the first and last SINC_HALF frames run the kernel off the buffer
+        // edge, which is a boundary artifact rather than the filter's steady-state response.
+        let interior = &out[1_000..out.len() - 1_000];
+        let peak = interior.iter().fold(0.0f32, |m, f| m.max(f[0].abs()));
+        assert!((peak - 1.0).abs() < 0.02, "1 kHz should survive a 48k -> 44.1k fold at full scale, got {peak}");
+    }
+
+    #[test]
+    fn resample_upsampling_keeps_a_tone_at_its_frequency() {
+        // Upsampling has no band to remove, but it must still band-limit instead of joining samples
+        // with straight lines: a 10 kHz sine is far from Nyquist in both directions.
+        let src = sine_frames(10_000.0, 22_050, 22_050);
+        let out = resample(src, 22_050, 44_100);
+        assert!((out.len() as i64 - 44_100).abs() < 2, "one second at 22.05 kHz doubles to {}", out.len());
+        let interior = &out[1_000..out.len() - 1_000];
+        let peak = interior.iter().fold(0.0f32, |m, f| m.max(f[0].abs()));
+        assert!((peak - 1.0).abs() < 0.02, "upsampling should not change the level, got {peak}");
     }
 }

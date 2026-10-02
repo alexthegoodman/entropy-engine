@@ -414,9 +414,9 @@ pub fn render_pattern_to_wav(
 }
 
 /// `render_pattern_to_wav` plus sample hits (a drum rack's pads). A sample is rendered by the same
-/// `SampleVoice` the live path plays, at the engine rate, and is resampled by linear interpolation
-/// if `sample_rate` differs. Like the synth events it carries no bus effects: a sample's gain is
-/// whatever the caller folded in.
+/// `SampleVoice` the live path plays, at the engine rate, and is resampled by a windowed-sinc
+/// kernel if `sample_rate` differs. Like the synth events it carries no bus effects: a sample's
+/// gain is whatever the caller folded in.
 pub fn render_events_to_wav(
     events: &[NoteEvent],
     sample_events: &[SampleEvent],
