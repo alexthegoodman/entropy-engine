@@ -532,6 +532,7 @@ export interface ScopedAPI {
   System: SystemAPI;
   Clipboard: ClipboardAPI;
   Terminal: TerminalAPI;
+  Prediction: PredictionAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -1514,6 +1515,36 @@ export interface TerminalAPI {
   setCwd: (newCwd: string, sessionId?: string) => string;
   /** List all ~60 available font family names in the engine's font catalog. */
   listFonts: () => string[];
+}
+
+/** A predicted next action from the MoE UI prediction model. */
+export interface PredictedAction {
+  action_id: number;
+  name: string;
+  display_name: string;
+  category: string;
+  icon: string;
+  params: number[];
+  confidence: number;
+}
+
+/** Action definition metadata in the DAW action vocabulary. */
+export interface DawActionDef {
+  id: number;
+  name: string;
+  display_name: string;
+  category: string;
+  icon: string;
+  param_count: number;
+  default_params: number[];
+}
+
+/** Interface for DAW next-action prediction powered by Yumon Pet MoE model. */
+export interface PredictionAPI {
+  /** Predict next DAW actions from a context window of recent action IDs. */
+  predictNextActions: (contextIds?: number[], steps?: number) => PredictedAction[];
+  /** Returns the full semantic action vocabulary with display names, categories, icons, and default parameters. */
+  getActionVocab: () => DawActionDef[];
 }
 
 /** One audio input device, from `Guitar.listInputs`. */
@@ -3945,6 +3976,7 @@ export interface EntropyAPI {
   System: SystemAPI;
   Clipboard: ClipboardAPI;
   Terminal: TerminalAPI;
+  Prediction: PredictionAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

@@ -155,3 +155,5 @@ At a high level, the system operates as:
 The model's responsibility ends at proposing semantic actions and their likely parameters.
 
 Application code remains responsible for authorization, validation, rendering, and execution. This boundary is important because it allows the predictive system to remain probabilistic while actual application behavior remains deterministic and governed by existing business rules.
+
+Note: The model.bin will be downloaded from a CDN rather than embedding a single version in the git history or binary. (even though it is a small binary)

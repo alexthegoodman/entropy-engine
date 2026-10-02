@@ -340,6 +340,15 @@ const terminalAPI = {
     listFonts: () => ops.op_terminal_list_fonts(),
 };
 
+const predictionAPI = {
+    predictNextActions: (contextIds = [], steps = 5) => {
+        return ops.op_prediction_next_actions(contextIds, steps);
+    },
+    getActionVocab: () => {
+        return ops.op_prediction_action_vocab();
+    },
+};
+
 const wavetableAPI = {
     // Creates the table if there is none (a stack of sines) and describes it:
     // {ok, frames, tableSize, revision, version, canUndo, canRedo}. options: {preset, frames}.
@@ -1207,6 +1216,7 @@ globalThis.Entropy = {
                 System: systemAPI,
                 Clipboard: clipboardAPI,
                 Terminal: terminalAPI,
+                Prediction: predictionAPI,
                 Guitar: guitarAPI,
                 IO: {
                     // Pretty-printing is opt-in: large saved states (for example canvas artwork)

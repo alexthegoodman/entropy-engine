@@ -449,6 +449,17 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 | `Composer.enableOverride` / `disableOverride` / `enableGameComposerOverride` / `disableGameComposerOverride` | Lets one addon temporarily take over rendering/control from Studio's default composition. |
 | `Composer.setGlobalSettings` / `getGlobalSettings` | Reads/writes app-wide settings (currently: global landscape size/height/offset) shared across addons. |
 
+<a id="prediction--moe-next-actions"></a>
+<details>
+<summary><strong>Prediction (MoE next-action model)</strong></summary>
+
+Mixture-of-Experts inference for predicting user next actions from a recent semantic action history sequence (e.g. for the DAW Suggested Next Steps panel).
+
+| Call | What it does |
+|---|---|
+| `Entropy.Prediction.predictNextActions(contextActionIds, steps)` | Runs MoE inference over recent action IDs and returns predicted continuation actions with metadata and confidence scores. |
+| `Entropy.Prediction.getActionVocab()` | Returns the complete semantic DAW action vocabulary with action IDs, names, display names, categories, and Phosphor icons. |
+
 </details>
 
 <a id="utilities--misc"></a>

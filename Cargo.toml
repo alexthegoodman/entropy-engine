@@ -2,14 +2,31 @@
 name = "entropy-engine"
 version = "0.1.0"
 edition = "2024"
+autobins = false
 
 [patch.crates-io]
 vst3-host = { path = "vendor/vst3-host" }
 
 [[bin]]
+name = "example"
+path = "src/bin/example.rs"
+test = false
+
+[[bin]]
 name = "game"
 path = "src/bin/game.rs"
 test = false
+
+[[bin]]
+name = "editor"
+path = "src/bin/editor.rs"
+test = false
+
+[[bin]]
+name = "game_addon"
+path = "src/bin/game_addon.rs"
+test = false
+
 
 [[test]]
 name = "browser_bdd"
@@ -131,6 +148,10 @@ harness = false
 name = "terminal_bdd"
 harness = false
 
+[[test]]
+name = "daw_prediction_bdd"
+harness = false
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
@@ -193,6 +214,7 @@ hound = "3.5"
 ordered-float = "5.1.0"
 burn = { version = "0.20", features = ["ndarray", "autodiff"] }
 fastrand = "2"
+yumon-pet = { path = "../yumon-pet", default-features = false }
 
 # entropy_gui (the in-house immediate-mode GUI kit that replaces egui) dependencies
 etagere = "0.2"

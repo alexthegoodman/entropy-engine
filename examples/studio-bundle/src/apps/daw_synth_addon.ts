@@ -634,6 +634,7 @@ function addTrack(kind: "synth" | "drum", channel?: number, name?: string): Trac
     const track = newTrack(kind, channel ?? nextFreeChannel(project.tracks), name);
     project.tracks.push(track);
     project.activeTrackId = track.id;
+    recordDawAction(DAW_ACTION.AddTrack, [kind === "synth" ? 0 : 1], track.name);
     return track;
 }
 
@@ -3757,6 +3758,7 @@ function play() {
     transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
     pendingNotes = [];
     syncTempoEffects();
+    recordDawAction(DAW_ACTION.Play, [], "Play transport");
 }
 
 function stop() {
@@ -3765,6 +3767,7 @@ function stop() {
     for (const track of project.tracks) if (isPianoTrack(track)) { addon.Audio.pianoAllNotesOff(track.id); pianoHeld[track.id]={}; delete pianoLatch[track.id]; }
     pendingNotes = [];
     updateCuts(null);
+    recordDawAction(DAW_ACTION.Stop, [], "Stop transport");
 }
 
 function seekToStep(step: number) {
@@ -3780,6 +3783,7 @@ function seekToStep(step: number) {
 
 function rewind() {
     seekToStep(0);
+    recordDawAction(DAW_ACTION.Rewind, [], "Rewind to start");
 }
 
 // Changing tempo mid-run would jump the playhead (its position is elapsed time over step
@@ -3794,6 +3798,7 @@ function setBpm(bpm: number) {
     project.bpm = clamped;
     if (transport.playing) transport.startedAt = nowSeconds() - pos * stepDuration();
     syncTempoEffects();
+    recordDawAction(DAW_ACTION.SetBpm, [clamped], `${clamped} BPM`);
 }
 
 // --- Offline WAV export -----------------------------------------------------
@@ -4950,6 +4955,7 @@ function saveVersionNow(label?: string) {
     if (kept) {
         historySelection = kept.id;
         toast(name ? `Saved version "${name}".` : `Saved. A version from ${formatClock(kept.at)} is in History.`);
+        recordDawAction(DAW_ACTION.SaveProject, [], name ? `Saved version "${name}"` : "Saved project");
     } else {
         toast("Saved. Nothing changed since the last version.");
     }
@@ -5470,7 +5476,10 @@ let rollSize = 0;
 
 function setDawView(view: string) {
     const next = DAW_VIEWS.find(v => v.id === view);
-    if (next) dawView = next.id;
+    if (next) {
+        dawView = next.id;
+        recordDawAction(next.id === "mixer" ? DAW_ACTION.OpenMixer : (next.id === "roll" ? DAW_ACTION.OpenPianoRoll : DAW_ACTION.SelectTrack), [], `Switched to ${next.label}`);
+    }
 }
 
 function openMoves() {
@@ -5535,6 +5544,472 @@ function positionReadout(): string {
     const mm = Math.floor(seconds / 60);
     const ss = (seconds % 60).toFixed(1).padStart(4, "0");
     return `Bar ${bar}  Beat ${beat}   ${mm}:${ss}`;
+}
+
+// --- MoE UI Prediction Model & Suggested Next Steps -----------------------
+
+const DAW_ACTION = {
+    AddTrack: 0,
+    RemoveTrack: 1,
+    SelectTrack: 2,
+    SetBpm: 3,
+    Play: 4,
+    Stop: 5,
+    Rewind: 6,
+    Seek: 7,
+    AddNote: 8,
+    RemoveNote: 9,
+    SelectPattern: 10,
+    NewPattern: 11,
+    PlaceClip: 12,
+    RemoveClip: 13,
+    LoadInstrument: 14,
+    LoadPreset: 15,
+    SetVolume: 16,
+    SetPan: 17,
+    MuteTrack: 18,
+    SoloTrack: 19,
+    SetReverb: 20,
+    SetEq: 21,
+    OpenMixer: 22,
+    OpenPianoRoll: 23,
+    PlayNotePreview: 24,
+    SetScale: 25,
+    SetRootNote: 26,
+    ExportWav: 27,
+    SaveProject: 28,
+    Undo: 29,
+    ToggleAnalyzer: 30,
+    SetCharacterKnob: 31,
+} as const;
+
+interface ActionHistoryEntry {
+    id: string;
+    actionId: number;
+    name: string;
+    displayName: string;
+    category: string;
+    icon: IconName;
+    params: number[];
+    timestamp: number;
+    detail?: string;
+}
+
+const MAX_PREDICTION_HISTORY = 12;
+const actionHistory: ActionHistoryEntry[] = [];
+let predictedNextSteps: PredictedAction[] = [];
+let isPredicting = false;
+let predictionError: string | null = null;
+let predictionsVisible = false;
+let predictionsWindowId: string | null = null;
+
+const ACTION_VOCAB_FALLBACK: Record<number, { name: string; displayName: string; category: string; icon: IconName }> = {
+    0: { name: "add_track", displayName: "Add Track", category: "Track", icon: "plus-circle" },
+    1: { name: "remove_track", displayName: "Remove Track", category: "Track", icon: "trash" },
+    2: { name: "select_track", displayName: "Select Track", category: "Track", icon: "cursor" },
+    3: { name: "set_bpm", displayName: "Set BPM", category: "Transport", icon: "metronome" },
+    4: { name: "play", displayName: "Play", category: "Transport", icon: "play" },
+    5: { name: "stop", displayName: "Stop", category: "Transport", icon: "stop" },
+    6: { name: "rewind", displayName: "Rewind", category: "Transport", icon: "skip-back" },
+    7: { name: "seek", displayName: "Seek", category: "Transport", icon: "crosshair" },
+    8: { name: "add_note", displayName: "Add Note", category: "Piano Roll", icon: "music-notes" },
+    9: { name: "remove_note", displayName: "Remove Note", category: "Piano Roll", icon: "eraser" },
+    10: { name: "select_pattern", displayName: "Select Pattern", category: "Pattern", icon: "squares-four" },
+    11: { name: "new_pattern", displayName: "New Pattern", category: "Pattern", icon: "file-plus" },
+    12: { name: "place_clip", displayName: "Place Clip", category: "Arrangement", icon: "waveform" },
+    13: { name: "remove_clip", displayName: "Remove Clip", category: "Arrangement", icon: "scissors" },
+    14: { name: "load_instrument", displayName: "Load Instrument", category: "Instrument", icon: "piano-keys" },
+    15: { name: "load_preset", displayName: "Load Preset", category: "Instrument", icon: "sliders" },
+    16: { name: "set_volume", displayName: "Set Volume", category: "Mixer", icon: "speaker-high" },
+    17: { name: "set_pan", displayName: "Set Pan", category: "Mixer", icon: "arrows-left-right" },
+    18: { name: "mute_track", displayName: "Mute Track", category: "Mixer", icon: "speaker-slash" },
+    19: { name: "solo_track", displayName: "Solo Track", category: "Mixer", icon: "star" },
+    20: { name: "set_reverb", displayName: "Set Reverb", category: "Effects", icon: "waves" },
+    21: { name: "set_eq", displayName: "Set EQ", category: "Effects", icon: "equalizer" },
+    22: { name: "open_mixer", displayName: "Open Mixer", category: "View", icon: "faders" },
+    23: { name: "open_piano_roll", displayName: "Open Piano Roll", category: "View", icon: "keyboard" },
+    24: { name: "play_note_preview", displayName: "Preview Note", category: "Theory", icon: "headphones" },
+    25: { name: "set_scale", displayName: "Set Scale", category: "Theory", icon: "scales" },
+    26: { name: "set_root_note", displayName: "Set Root Note", category: "Theory", icon: "tuning-fork" },
+    27: { name: "export_wav", displayName: "Export WAV", category: "Project", icon: "download-simple" },
+    28: { name: "save_project", displayName: "Save Project", category: "Project", icon: "floppy-disk" },
+    29: { name: "undo", displayName: "Undo", category: "Project", icon: "arrow-u-up-left" },
+    30: { name: "toggle_analyzer", displayName: "Toggle Analyzer", category: "View", icon: "chart-bar" },
+    31: { name: "set_character_knob", displayName: "Set Character", category: "Effects", icon: "knob" },
+};
+
+function getActionMeta(actionId: number) {
+    return ACTION_VOCAB_FALLBACK[actionId] || {
+        name: `action_${actionId}`,
+        displayName: `Action #${actionId}`,
+        category: "General",
+        icon: "sparkle" as IconName,
+    };
+}
+
+function recordDawAction(actionId: number, params: number[] = [], detail?: string, autoPredict = true) {
+    const meta = getActionMeta(actionId);
+    const entry: ActionHistoryEntry = {
+        id: Entropy.generateUUID(),
+        actionId,
+        name: meta.name,
+        displayName: meta.displayName,
+        category: meta.category,
+        icon: meta.icon,
+        params,
+        timestamp: Date.now(),
+        detail,
+    };
+    actionHistory.push(entry);
+    if (actionHistory.length > MAX_PREDICTION_HISTORY) {
+        actionHistory.shift();
+    }
+    if (autoPredict && predictionsVisible) {
+        refreshPredictions();
+    }
+}
+
+function refreshPredictions(steps = 5) {
+    if (!addon.Prediction) {
+        predictionError = "Prediction engine not available";
+        return;
+    }
+    isPredicting = true;
+    predictionError = null;
+    try {
+        const contextIds = actionHistory.map(a => a.actionId);
+        const preds = addon.Prediction.predictNextActions(contextIds, steps);
+        predictedNextSteps = preds || [];
+    } catch (e: any) {
+        predictionError = String(e?.message || e || "Prediction failed");
+    } finally {
+        isPredicting = false;
+    }
+}
+
+function setPredictionsVisible(v: boolean) {
+    predictionsVisible = v;
+    if (v && predictedNextSteps.length === 0) {
+        refreshPredictions();
+    }
+    if (predictionsWindowId) Entropy.UI.setWindowVisible(predictionsWindowId, v);
+}
+
+function executePredictedAction(step: PredictedAction, index?: number) {
+    const actId = step.action_id;
+    let detail = "";
+    switch (actId) {
+        case DAW_ACTION.AddTrack: {
+            const kind = (step.params && step.params[0] > 0.5) ? "drum" : "synth";
+            const t = addTrack(kind);
+            detail = `Added ${kind} track "${t.name}"`;
+            break;
+        }
+        case DAW_ACTION.RemoveTrack: {
+            if (project.tracks.length > 1) {
+                const removed = project.tracks.pop();
+                if (removed) {
+                    if (project.activeTrackId === removed.id) {
+                        project.activeTrackId = project.tracks[0].id;
+                    }
+                    detail = `Removed track "${removed.name}"`;
+                }
+            }
+            break;
+        }
+        case DAW_ACTION.SelectTrack: {
+            const tracks = project.tracks;
+            if (tracks.length > 1) {
+                const curIdx = tracks.findIndex(t => t.id === project.activeTrackId);
+                const nextIdx = (curIdx + 1) % tracks.length;
+                project.activeTrackId = tracks[nextIdx].id;
+                detail = `Selected track "${tracks[nextIdx].name}"`;
+            }
+            break;
+        }
+        case DAW_ACTION.SetBpm: {
+            const newBpm = (step.params && step.params[0] >= 20) ? step.params[0] : 128;
+            setBpm(newBpm);
+            syncBpmDraft();
+            detail = `Set tempo to ${Math.round(newBpm)} BPM`;
+            break;
+        }
+        case DAW_ACTION.Play: {
+            play();
+            detail = "Started playback";
+            break;
+        }
+        case DAW_ACTION.Stop: {
+            stop();
+            detail = "Stopped playback";
+            break;
+        }
+        case DAW_ACTION.Rewind: {
+            rewind();
+            detail = "Rewound to start";
+            break;
+        }
+        case DAW_ACTION.Seek: {
+            const targetStep = (step.params && step.params[0]) || 0;
+            seekToStep(targetStep);
+            detail = `Seeked to step ${targetStep}`;
+            break;
+        }
+        case DAW_ACTION.AddNote: {
+            const t = getActiveTrack();
+            if (t) {
+                const pat = activePattern(t);
+                const row = Math.round((step.params && step.params[0]) ?? 4);
+                const startStep = Math.round((step.params && step.params[1]) ?? ((pat.notes.length * 4) % pat.lengthSteps));
+                const len = Math.max(1, Math.round((step.params && step.params[2]) ?? 4));
+                const vel = (step.params && step.params[3]) ?? 0.8;
+                pat.notes.push({ row, step: startStep, length: len, velocity: vel });
+                detail = `Added note row ${row} at step ${startStep}`;
+            }
+            break;
+        }
+        case DAW_ACTION.RemoveNote: {
+            const t = getActiveTrack();
+            if (t) {
+                const pat = activePattern(t);
+                if (pat.notes.length > 0) {
+                    pat.notes.pop();
+                    detail = `Removed note from ${pat.name}`;
+                }
+            }
+            break;
+        }
+        case DAW_ACTION.SelectPattern: {
+            const t = getActiveTrack();
+            if (t && t.patterns.length > 1) {
+                const curIdx = t.patterns.findIndex(p => p.id === t.activePatternId);
+                const nextIdx = (curIdx + 1) % t.patterns.length;
+                t.activePatternId = t.patterns[nextIdx].id;
+                detail = `Selected pattern "${t.patterns[nextIdx].name}"`;
+            }
+            break;
+        }
+        case DAW_ACTION.NewPattern: {
+            const t = getActiveTrack();
+            if (t) {
+                const stepsCount = Math.round((step.params && step.params[0]) ?? 16);
+                const newPat = newPattern(nextPatternName(t.patterns), stepsCount);
+                t.patterns.push(newPat);
+                t.activePatternId = newPat.id;
+                detail = `Created pattern "${newPat.name}"`;
+            }
+            break;
+        }
+        case DAW_ACTION.PlaceClip: {
+            const t = getActiveTrack();
+            if (t) {
+                const pat = activePattern(t);
+                const bar = barSteps(project.stepsPerBeat);
+                const nextBar = (t.clips.length * bar);
+                t.clips.push({ id: Entropy.generateUUID(), trackId: t.id, patternId: pat.id, startStep: nextBar, lengthSteps: pat.lengthSteps });
+                detail = `Placed clip for "${pat.name}" at bar ${Math.floor(nextBar / bar) + 1}`;
+            }
+            break;
+        }
+        case DAW_ACTION.OpenMixer: {
+            setDawView("mixer");
+            detail = "Switched to Mixer view";
+            break;
+        }
+        case DAW_ACTION.OpenPianoRoll: {
+            setDawView("roll");
+            detail = "Switched to Piano Roll view";
+            break;
+        }
+        case DAW_ACTION.ToggleAnalyzer: {
+            setAnalyzerVisible(!analyzerVisible);
+            detail = "Toggled Analyzer";
+            break;
+        }
+        case DAW_ACTION.SaveProject: {
+            libraryAction("save a version", () => saveVersionNow());
+            detail = "Saved project version";
+            break;
+        }
+        default: {
+            detail = `Executed ${step.display_name}`;
+            break;
+        }
+    }
+
+    recordDawAction(actId, step.params || [], detail, false);
+
+    if (typeof index === "number" && index >= 0 && index < predictedNextSteps.length) {
+        predictedNextSteps.splice(index, 1);
+    }
+    refreshPredictions();
+}
+
+function executeNextStep() {
+    if (predictedNextSteps.length > 0) {
+        executePredictedAction(predictedNextSteps[0], 0);
+    }
+}
+
+function executeAllSteps() {
+    const stepsToRun = [...predictedNextSteps];
+    for (const step of stepsToRun) {
+        executePredictedAction(step);
+    }
+    refreshPredictions();
+}
+
+function skipPredictedAction(index: number) {
+    if (index >= 0 && index < predictedNextSteps.length) {
+        predictedNextSteps.splice(index, 1);
+    }
+}
+
+function seedSampleWorkflow() {
+    actionHistory.length = 0;
+    recordDawAction(DAW_ACTION.SetBpm, [128, 0, 0, 0], "128 BPM", false);
+    recordDawAction(DAW_ACTION.AddTrack, [0, 0, 0, 0], "Synth Track", false);
+    recordDawAction(DAW_ACTION.SelectTrack, [0, 0, 0, 0], "Lead Synth", false);
+    recordDawAction(DAW_ACTION.AddNote, [4, 0, 4, 0.8], "C4 Note", false);
+    refreshPredictions();
+}
+
+function clearActionHistory() {
+    actionHistory.length = 0;
+    predictedNextSteps = [];
+    refreshPredictions();
+}
+
+function renderPredictionsWindow(win: string) {
+    const W = Entropy.UI.Widget;
+
+    // Header controls
+    W.horizontal(win, (row: string) => {
+        W.label(row, { text: withIcon("sparkle", "Suggested Next Steps"), bold: true, fontSize: 14 });
+        W.label(row, { text: "·", color: UI.dim });
+        W.label(row, { text: "MoE Active Predictor (4 Experts)", color: UI.amber, fontSize: 12 });
+        W.button(row, {
+            text: withIcon("arrows-clockwise", "Refresh Plan"),
+            id: "prediction_refresh_btn",
+            tooltip: "Re-predict continuation from current action history",
+            onClick: () => { refreshPredictions(); }
+        });
+        W.button(row, {
+            text: withIcon("trash", "Clear"),
+            id: "prediction_clear_btn",
+            tooltip: "Clear recent action history context",
+            frame: false,
+            onClick: () => { clearActionHistory(); }
+        });
+    });
+
+    W.separator(win);
+
+    // Section 1: Model Context (Recent Action History)
+    W.group(win, (g: string) => {
+        W.horizontal(g, (hdr: string) => {
+            W.label(hdr, { text: withIcon("clock-counter-clockwise", "Model Context"), bold: true });
+            W.label(hdr, { text: `(${actionHistory.length} recent actions observed)`, color: UI.dim, fontSize: 12 });
+        });
+
+        if (actionHistory.length === 0) {
+            W.group(g, (empty: string) => {
+                W.label(empty, { text: "No action history yet. Take actions in the DAW or load a sample workflow:", color: UI.dim });
+                W.button(empty, {
+                    text: withIcon("play-circle", "Seed Sample Workflow (BPM › Track › Note)"),
+                    id: "prediction_seed_sample_btn",
+                    accent: UI.amber,
+                    onClick: () => { seedSampleWorkflow(); }
+                });
+            });
+        } else {
+            for (let i = 0; i < actionHistory.length; i++) {
+                const item = actionHistory[i];
+                W.horizontal(g, (chip: string) => {
+                    W.label(chip, { text: `#${i + 1}`, color: UI.dim, monospace: true, fontSize: 11 });
+                    W.label(chip, { text: withIcon(item.icon, item.displayName), bold: true });
+                    W.label(chip, { text: `[${item.category}]`, color: UI.amber, fontSize: 11 });
+                    if (item.detail) {
+                        W.label(chip, { text: item.detail, color: UI.dim, fontSize: 12 });
+                    }
+                });
+            }
+        }
+    });
+
+    W.separator(win);
+
+    // Section 2: Suggested Next Steps (Predictions)
+    W.group(win, (g: string) => {
+        W.horizontal(g, (hdr: string) => {
+            W.label(hdr, { text: withIcon("sparkle", "Suggested Next Steps"), bold: true });
+            if (predictedNextSteps.length > 0) {
+                W.label(hdr, { text: `(${predictedNextSteps.length} steps planned)`, color: UI.amber, fontSize: 12 });
+            }
+        });
+
+        if (isPredicting) {
+            W.label(g, { text: "Predicting likely continuation from action context...", color: UI.dim });
+        } else if (predictionError) {
+            W.label(g, { text: `Prediction note: ${predictionError}`, color: UI.warn });
+        } else if (predictedNextSteps.length === 0) {
+            W.label(g, { text: "No predicted steps right now. Perform an action or click Refresh Plan.", color: UI.dim });
+        } else {
+            for (let i = 0; i < predictedNextSteps.length; i++) {
+                const step = predictedNextSteps[i];
+                W.group(g, (card: string) => {
+                    W.horizontal(card, (top: string) => {
+                        W.label(top, { text: `Step ${i + 1}:`, bold: true, color: UI.amber, fontSize: 13 });
+                        const stepIcon = (step.icon as IconName) || "sparkle";
+                        W.label(top, { text: withIcon(stepIcon, step.display_name), bold: true });
+                        W.label(top, { text: `[${step.category}]`, color: UI.dim, fontSize: 11 });
+                        const pct = Math.round(step.confidence * 100);
+                        W.label(top, { text: `${pct}% match`, color: pct >= 60 ? rgb(60, 210, 130) : UI.amber, fontSize: 11 });
+                    });
+
+                    W.horizontal(card, (actions: string) => {
+                        W.button(actions, {
+                            text: withIcon("check", `Execute: ${step.display_name}`),
+                            id: `pred_exec_${i}`,
+                            accent: UI.amber,
+                            tooltip: `Perform ${step.display_name} in DAW`,
+                            onClick: () => { executePredictedAction(step, i); }
+                        });
+                        W.button(actions, {
+                            text: "Skip",
+                            id: `pred_skip_${i}`,
+                            frame: false,
+                            tooltip: "Skip this predicted step",
+                            onClick: () => { skipPredictedAction(i); }
+                        });
+                    });
+                });
+            }
+
+            W.horizontal(g, (bot: string) => {
+                W.button(bot, {
+                    text: withIcon("play-circle", "Run Next Step"),
+                    id: "pred_run_next_btn",
+                    accent: UI.amber,
+                    tooltip: "Execute the first predicted action",
+                    onClick: () => { executeNextStep(); }
+                });
+                W.button(bot, {
+                    text: withIcon("fast-forward", "Execute All Steps"),
+                    id: "pred_run_all_btn",
+                    tooltip: "Batch execute all predicted steps in sequence",
+                    onClick: () => { executeAllSteps(); }
+                });
+                W.button(bot, {
+                    text: withIcon("arrows-clockwise", "Alternative Continuation"),
+                    id: "pred_refresh_plan_btn",
+                    frame: false,
+                    tooltip: "Request alternative continuation",
+                    onClick: () => { refreshPredictions(); }
+                });
+            });
+        }
+    });
 }
 
 addon.onInit(async () => {
@@ -5695,6 +6170,14 @@ addon.onInit(async () => {
                 W.button(center, { text: "+", id: "bpm_up", tooltip: "Faster: 1 BPM up", onClick: () => { nudgeBpm(1); } });
             },
             (right: string) => {
+                W.button(right, {
+                    text: isNarrow ? icon("sparkle") : withIcon("sparkle", "Next Steps"),
+                    id: "toggle_predictions",
+                    frame: false,
+                    selected: predictionsVisible,
+                    tooltip: predictionsVisible ? "Hide Suggested Next Steps" : "Suggested Next Steps: AI predicted workflow and recent action history",
+                    onClick: () => { setPredictionsVisible(!predictionsVisible); }
+                });
                 W.button(right, {
                     text: icon("chart-bar"),
                     id: "toggle_analyzer",
@@ -6784,6 +7267,18 @@ addon.onInit(async () => {
         onClose: () => { guitarVisible = false; }
     });
     Entropy.UI.setWindowVisible(guitarWindowId, guitarVisible);
+
+    // Suggested Next Steps floating window (MoE model predictions and recent action context).
+    predictionsWindowId = createDawWindow({
+        title: "Suggested Next Steps",
+        width: 640,
+        height: Math.max(520, Math.min(760, screenH - 72)),
+        x: Math.max(16, Math.round((screenW - 640) / 2)),
+        y: 56,
+        onRender: () => renderPredictionsWindow(predictionsWindowId!),
+        onClose: () => { predictionsVisible = false; }
+    });
+    Entropy.UI.setWindowVisible(predictionsWindowId, predictionsVisible);
 
     const onFrame = () => {
         pollGuitar();

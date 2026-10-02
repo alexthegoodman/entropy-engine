@@ -84,6 +84,9 @@ use crate::deno::terminal_ops::{
     op_terminal_clear, op_terminal_get_cwd, op_terminal_set_cwd, op_terminal_list_fonts,
     op_ui_widget_terminal,
 };
+use crate::deno::prediction_ops::{
+    op_prediction_next_actions, op_prediction_action_vocab,
+};
 use crate::deno::addon_ops::{
     AddonContext,
     AddonMetadata,
@@ -341,6 +344,8 @@ extension!(
         op_terminal_set_cwd,
         op_terminal_list_fonts,
         op_ui_widget_terminal,
+        op_prediction_next_actions,
+        op_prediction_action_vocab,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_spectrogram,
