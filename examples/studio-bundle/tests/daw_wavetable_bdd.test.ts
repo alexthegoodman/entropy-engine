@@ -146,6 +146,8 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                 }],
                 [/^the engine table of "(.+)" was edited by "(.+)" then "(.+)"$/, (name, a, b) => expect(table(name).edits.slice(-2)).toEqual([a, b])],
                 [/^the engine table of "(.+)" was edited by "(.+)"$/, (name, a) => expect(table(name).edits.at(-1)).toBe(a)],
+                [/^the engine table of "(.+)" has (\d+) frames$/, (name, n) => expect(table(name).frames).toBe(+n)],
+                [/^the tool reports (\d+) frames$/, n => expect(w.lastToolResult.frames).toBe(+n)],
 
                 [/^I advance (\d+) milliseconds$/, ms => world.advance(+ms)],
                 [/^I call the tool "(.+)" with (\{.*\})$/, (name, json) => callTool(name, JSON.parse(json))],

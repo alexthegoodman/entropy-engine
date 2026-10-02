@@ -86,6 +86,7 @@ import {
 } from "./daw_space";
 import type { IconName, IconStyle } from "../addon";
 import {
+    WT_FRAME_CHOICES,
     WT_OPS,
     WT_PRESETS,
     WT_WAVEFORM,
@@ -665,17 +666,20 @@ function trackWavetable(track: Track): WavetableSettings {
     if (!wtLoaded[track.id]) {
         wtLoaded[track.id] = true;
         const preset = WT_PRESETS.some(p => p.id === wt.preset) ? wt.preset : "saw";
-        addon.Wavetable.ensure(track.id, { preset: wt.data ? undefined : preset });
+        addon.Wavetable.ensure(track.id, { preset: wt.data ? undefined : preset, frames: wt.frames });
         if (wt.data) {
             const r = addon.Wavetable.importData(track.id, wt.data);
             if (!r.ok) {
                 wtStatus = `${track.name}: the saved wavetable could not be read (${r.error}), so it starts from ${preset}.`;
-                addon.Wavetable.ensure(track.id, { preset });
+                addon.Wavetable.ensure(track.id, { preset, frames: wt.frames });
                 wt.data = undefined;
             }
         } else {
             wt.data = addon.Wavetable.exportData(track.id) ?? undefined;
         }
+        // An imported table keeps the count it was saved with, which can differ from the setting.
+        const frames = addon.Wavetable.info(track.id).frames;
+        if (frames) wt.frames = frames;
     }
     return wt;
 }
@@ -799,6 +803,22 @@ function runWavetableOp(track: Track, op: string, arg?: number) {
     const r = addon.Wavetable.op(track.id, op, arg);
     wtStatus = r.ok ? "" : (r.error ?? `${op} did not work`);
     if (r.ok) saveTrackWavetable(track);
+}
+
+// The table's frame count (16/32/64). A sculpt is a fixed set of frames with no meaning under a
+// different count, so changing the count regenerates the table from the preset it started as; the
+// motion, voice and preset are kept. Any note already sounding keeps its old table until it ends.
+function setWavetableFrames(track: Track, frames: number) {
+    const wt = trackWavetable(track);
+    if (wt.frames === frames) return;
+    const preset = WT_PRESETS.some(p => p.id === wt.preset) ? wt.preset : "saw";
+    wt.frames = frames;
+    wt.frame = Math.min(wt.frame, frames - 1);
+    wt.instrumentPreset = undefined;
+    addon.Wavetable.remove(track.id);
+    addon.Wavetable.ensure(track.id, { preset, frames });
+    wtStatus = "";
+    saveTrackWavetable(track);
 }
 
 // --- Bowed-string (physmod) tracks (see daw_physmod.ts and src/audio/physmod/) -------------------
@@ -2811,6 +2831,15 @@ function renderWavetableWindow(win: string) {
             Entropy.UI.Widget.button(row, {
                 text: radio(wt.preset === p.id) + p.label, id: "wt_preset_" + p.id,
                 onClick: () => { loadWavetablePreset(track, p.id); }
+            });
+        }
+    });
+    Entropy.UI.Widget.horizontal(left, (row: string) => {
+        Entropy.UI.Widget.label(row, { text: "Frames", bold: true });
+        for (const f of WT_FRAME_CHOICES) {
+            Entropy.UI.Widget.button(row, {
+                text: radio(wt.frames === f) + String(f), id: "wt_frames_" + f,
+                onClick: () => { setWavetableFrames(track, f); }
             });
         }
     });
@@ -7857,13 +7886,14 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_wavetable",
-        description: "Design the sound of a wavetable synth track: a track whose waveform is \"wavetable\" (daw_set_track_params with waveform \"wavetable\" makes one). Its sound is a table of 32 frames, each one cycle of a wave; a note plays one frame's wave at its pitch and moves through the frames as it sounds, so the table is a timbre that changes over time. The human sculpts the same table in the Wavetable window as terrain (phase across, frame into the screen, level up), and every action here edits that same table. Actions: \"info\" (settings, and the harmonics of one frame), \"preset\" (start from sine, saw, square, pwm, vowels, bell, terrain or glass: saw and square brighten across the frames, vowels moves through formants), \"instrument\" (a full patch: table, motion and the track's own filter/envelope in one step - bass, motion FX like a riser or a siren, simple strings/horns, pads and leads; see instrumentPreset for the list and what each one does), \"op\" (normalize, smooth, invert, reverse, flip_frames, randomize), \"sculpt\" (brush dabs: raise, lower, smooth or level at a frame and a phase; radius is in world units, 0.16 default, amount 0.3 is a firm dab and 1 or more saturates), \"params\" (position 0-1 across the frames, lfoRate/lfoDepth, sweep/sweepTime, velToPosition, unison 1-7, detuneCents, spread), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so you can check a change worked without listening). Position 0 is the first frame. Sculpt then \"hear\" is the way to verify an edit.",
+        description: "Design the sound of a wavetable synth track: a track whose waveform is \"wavetable\" (daw_set_track_params with waveform \"wavetable\" makes one). Its sound is a table of frames (16, 32 or 64), each one cycle of a wave; a note plays one frame's wave at its pitch and moves through the frames as it sounds, so the table is a timbre that changes over time. The human sculpts the same table in the Wavetable window as terrain (phase across, frame into the screen, level up), and every action here edits that same table. Actions: \"info\" (settings, and the harmonics of one frame), \"preset\" (start from sine, saw, square, pwm, vowels, bell, terrain or glass: saw and square brighten across the frames, vowels moves through formants), \"instrument\" (a full patch: table, motion and the track's own filter/envelope in one step - bass, motion FX like a riser or a siren, simple strings/horns, pads and leads; see instrumentPreset for the list and what each one does), \"frames\" (rebuild the table at 16, 32 or 64 frames, regenerated from the preset it started as), \"op\" (normalize, smooth, invert, reverse, flip_frames, randomize), \"sculpt\" (brush dabs: raise, lower, smooth or level at a frame and a phase; radius is in world units, 0.16 default, amount 0.3 is a firm dab and 1 or more saturates), \"params\" (position 0-1 across the frames, lfoRate/lfoDepth, sweep/sweepTime, velToPosition, unison 1-7, detuneCents, spread), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so you can check a change worked without listening). Position 0 is the first frame. Sculpt then \"hear\" is the way to verify an edit.",
         parameters: {
             type: "object",
             properties: {
                 trackId: { type: "string" },
-                action: { type: "string", enum: ["info", "preset", "instrument", "op", "sculpt", "params", "hear"] },
+                action: { type: "string", enum: ["info", "preset", "instrument", "frames", "op", "sculpt", "params", "hear"] },
                 preset: { type: "string", enum: WT_PRESETS.map(p => p.id), description: "For action preset." },
+                frames: { type: "number", enum: WT_FRAME_CHOICES, description: "For action frames: the new frame count (16, 32 or 64)." },
                 instrumentPreset: {
                     type: "string", enum: WT_INSTRUMENT_PRESETS.map(p => p.id),
                     description: "For action instrument. " + WT_INSTRUMENT_PRESETS.map(p => `${p.id} (${p.folder}): ${p.hint}`).join(" "),
@@ -7910,15 +7940,21 @@ addon.onInit(async () => {
 
         switch (args.action) {
             case "info": {
-                const frame = Math.max(0, Math.min(31, Math.round(args.frame ?? 0)));
-                const h = addon.Wavetable.harmonics(track.id, frame, 16);
                 const info = addon.Wavetable.info(track.id);
+                const frame = Math.max(0, Math.min((info.frames ?? 32) - 1, Math.round(args.frame ?? 0)));
+                const h = addon.Wavetable.harmonics(track.id, frame, 16);
                 return done({ frames: info.frames, frame, harmonics: h.harmonics?.map(v => Math.round(v * 1000) / 1000), peak: h.peak, canUndo: info.canUndo });
             }
             case "preset": {
                 if (!WT_PRESETS.some(p => p.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + WT_PRESETS.map(p => p.id).join(", ") };
                 loadWavetablePreset(track, args.preset);
                 return done();
+            }
+            case "frames": {
+                const f = Math.round(args.frames ?? 32);
+                if (!(WT_FRAME_CHOICES as readonly number[]).includes(f)) return { success: false, error: "frames must be one of " + WT_FRAME_CHOICES.join(", ") };
+                setWavetableFrames(track, f);
+                return done({ frames: wt.frames });
             }
             case "instrument": {
                 if (!WT_INSTRUMENT_PRESETS.some(p => p.id === args.instrumentPreset)) {

@@ -130,6 +130,37 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And I click "wt_op_invert"
     Then the engine table of "Lead" was edited by "op normalize" then "op invert"
 
+  Scenario: A new wavetable track starts at 32 frames and offers 16, 32 and 64
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    Then I see the label "Frames"
+    And the engine table of "Lead" has 32 frames
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"info"}
+    Then the tool reports 32 frames
+
+  Scenario: The Frames buttons rebuild the table at the chosen count and save it
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I click "wt_frames_64"
+    Then the engine table of "Lead" has 64 frames
+    And the engine table of "Lead" started as "saw"
+    When I click "wt_frames_16"
+    Then the engine table of "Lead" has 16 frames
+    And the saved project has the table of "Lead" as it is in the engine
+
+  Scenario: The AI tool rebuilds the table at the chosen frame count and refuses anything else
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"frames","frames":64}
+    Then the tool succeeded
+    And the tool reports 64 frames
+    And the engine table of "Lead" has 64 frames
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"frames","frames":48}
+    Then the tool failed saying "frames must be one of"
+    And the engine table of "Lead" has 64 frames
+
   Scenario: Two wavetable tracks keep two tables
     Given the DAW is open
     And "Lead" is a wavetable track

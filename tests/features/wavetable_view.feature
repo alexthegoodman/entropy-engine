@@ -18,6 +18,15 @@ Feature: A wavetable is terrain you sculpt with a mouse or a pen
     And the ridge of frame 31 is pink at its crest
     And I save the picture "terrain-sine"
 
+  Scenario: The terrain still reads well at 64 frames
+    Given a wavetable of 64 "saw" frames
+    And frame 32 is selected
+    When a frame is drawn
+    Then the terrain is not blank
+    And the ridge of frame 0 is teal at its crest
+    And the ridge of frame 63 is pink at its crest
+    And I save the picture "terrain-64-frames"
+
   Scenario: A ridge hides what is behind it, like a solid
     Given a wavetable of 32 "sine" frames
     And frame 0 has a tall hump at phase 0.5

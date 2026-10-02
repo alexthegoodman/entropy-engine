@@ -21,6 +21,10 @@ export const WT_PRESETS: WtPreset[] = [
     { id: "glass", label: "Glass" },
 ];
 
+/** Frame counts the editor offers. The engine accepts 2 to 64 (and an imported table keeps the
+ *  count it was saved with), but the editor's picker offers these three. */
+export const WT_FRAME_CHOICES = [16, 32, 64] as const;
+
 /** A full patch on top of a table preset: the table it starts from, the motion/voice settings
  *  that make it read as "bass" or "strings" rather than a bare waveform, and the filter/envelope
  *  a track's Voice panel would otherwise leave at its plain defaults. Deliberately named "Simple
@@ -140,6 +144,9 @@ export interface WavetableSettings {
     instrumentPreset?: string;
     /** The whole table as base64 (see Wavetable.exportData); absent until the first save. */
     data?: string;
+    /** How many frames the table has (one of WT_FRAME_CHOICES). Changing it regenerates the table
+     *  from the preset it started as, since a sculpt cannot be resampled across a frame count. */
+    frames: number;
     /** Where the note rests in the table, 0..1 across the frames. */
     position: number;
     lfoRate: number;
@@ -164,7 +171,7 @@ export interface WavetableSettings {
 export function defaultWavetable(preset = "saw"): WavetableSettings {
     return {
         preset, position: 0.35, lfoRate: 0, lfoDepth: 0, sweep: 0, sweepTime: 0.6, velToPosition: 0,
-        unison: 1, detuneCents: 14, spread: 0.6,
+        unison: 1, detuneCents: 14, spread: 0.6, frames: 32,
         tool: "raise", radius: 0.16, strength: 0.5, frame: 0, audition: true, auditionNote: 48,
     };
 }
@@ -200,6 +207,7 @@ export function repairWavetable(saved: unknown): WavetableSettings {
         unison: Math.round(num(s.unison, d.unison, 1, 7)),
         detuneCents: num(s.detuneCents, d.detuneCents, 0, 60),
         spread: num(s.spread, d.spread, 0, 1),
+        frames: Math.round(num(s.frames, d.frames, 2, 64)),
         tool: (WT_TOOLS as readonly string[]).includes(s.tool) ? s.tool : d.tool,
         radius: num(s.radius, d.radius, 0.04, 0.6),
         strength: num(s.strength, d.strength, 0.05, 1),
@@ -283,7 +291,7 @@ export function noteConfig(
 /** The bit of a table an AI tool reports: enough to describe it without sending 65,000 numbers. */
 export function describeSettings(wt: WavetableSettings): Record<string, unknown> {
     return {
-        preset: wt.preset, instrumentPreset: wt.instrumentPreset, position: wt.position, lfoRate: wt.lfoRate, lfoDepth: wt.lfoDepth, sweep: wt.sweep,
+        preset: wt.preset, instrumentPreset: wt.instrumentPreset, frames: wt.frames, position: wt.position, lfoRate: wt.lfoRate, lfoDepth: wt.lfoDepth, sweep: wt.sweep,
         sweepTime: wt.sweepTime, velToPosition: wt.velToPosition, unison: wt.unison, detuneCents: wt.detuneCents, spread: wt.spread,
     };
 }

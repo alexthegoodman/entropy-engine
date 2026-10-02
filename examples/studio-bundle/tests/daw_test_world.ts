@@ -100,7 +100,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // notes, `heldNotes` the notes started with a gate (by voice id), and `wavetableExports` what
         // the WAV export was handed.
         wavetableViews: new Map<string, any>(),
-        tables: new Map<string, { data: string; preset: string; edits: string[] }>(),
+        tables: new Map<string, { data: string; preset: string; edits: string[]; frames: number }>(),
         wavetableNotes: [] as { id: string; cfg: any }[],
         heldNotes: new Map<number, { id: string; cfg: any; released: boolean; position: number }>(),
         nextVoice: 1,
@@ -375,16 +375,17 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         // restored as an opaque string. The stand-in refuses data that did not come from `exportData`,
         // like the real one refuses a string that is not a table.
         Wavetable: {
-            ensure: (id: string, options?: { preset?: string }) => {
+            ensure: (id: string, options?: { preset?: string; frames?: number }) => {
                 const known = ["sine", "saw", "square", "pwm", "vowels", "bell", "terrain", "glass"];
                 if (options?.preset && !known.includes(options.preset)) return { ok: false, error: `no preset called ${options.preset}` };
+                const frames = options?.frames ?? 32;
                 const t = w.tables.get(id);
-                if (!t) w.tables.set(id, { data: `table:${options?.preset ?? "sine"}`, preset: options?.preset ?? "sine", edits: [] });
-                else if (options?.preset) { t.data = `table:${options.preset}`; t.preset = options.preset; t.edits.push(`preset ${options.preset}`); }
-                return { ok: true, id, frames: 32, canUndo: false, canRedo: false };
+                if (!t) w.tables.set(id, { data: `table:${options?.preset ?? "sine"}`, preset: options?.preset ?? "sine", edits: [], frames });
+                else { t.frames = frames; if (options?.preset) { t.data = `table:${options.preset}`; t.preset = options.preset; t.edits.push(`preset ${options.preset}`); } }
+                return { ok: true, id, frames, canUndo: false, canRedo: false };
             },
             remove: (id: string) => { w.removedTables.push(id); return w.tables.delete(id); },
-            info: (id: string) => w.tables.has(id) ? { ok: true, id, frames: 32, canUndo: w.tables.get(id)!.edits.length > 0, canRedo: false, activity: null, activeVoices: 0 } : { ok: false, error: `no wavetable called ${id}` },
+            info: (id: string) => w.tables.has(id) ? { ok: true, id, frames: w.tables.get(id)!.frames, canUndo: w.tables.get(id)!.edits.length > 0, canRedo: false, activity: null, activeVoices: 0 } : { ok: false, error: `no wavetable called ${id}` },
             op: (id: string, name: string, arg?: number) => {
                 const t = w.tables.get(id);
                 if (!t) return { ok: false, error: `no wavetable called ${id}` };
@@ -403,7 +404,7 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             importData: (id: string, data: string) => {
                 if (!data.startsWith("table:")) return { ok: false, error: "not a wavetable (missing WVT1 header)" };
                 const t = w.tables.get(id);
-                if (!t) w.tables.set(id, { data, preset: "custom", edits: ["imported"] });
+                if (!t) w.tables.set(id, { data, preset: "custom", edits: ["imported"], frames: 32 });
                 else { t.data = data; t.edits.push("imported"); }
                 return { ok: true };
             },
