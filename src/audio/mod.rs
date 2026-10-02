@@ -557,7 +557,7 @@ pub fn render_mix_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav_with_progress(events, sample_events, wavetable_events, physmod_events, brass_events, piano_events, matter_events, water_events, vst3_tracks, routing, sample_rate, output_path, |_| Ok(()))
+    render_mix_to_wav_with_progress(events, sample_events, wavetable_events, physmod_events, brass_events, piano_events, matter_events, water_events, vst3_tracks, routing, sample_rate, 16, output_path, |_| Ok(()))
 }
 
 /// Offline bounce with coarse instrument progress and incremental WAV-writing progress.
@@ -574,6 +574,7 @@ pub fn render_mix_to_wav_with_progress(
     vst3_tracks: &[vst3::Vst3RenderTrack],
     routing: &MixRouting,
     sample_rate: u32,
+    bit_depth: u32,
     output_path: &Path,
     mut progress: impl FnMut(f32) -> Result<(), String>,
 ) -> Result<(f64, Vec<String>), String> {
@@ -770,27 +771,70 @@ pub fn render_mix_to_wav_with_progress(
     let peak = master.iter().fold(0.0f32, |m, &v| m.max(v.abs()));
     let scale = if peak > 1.0 { 0.98 / peak } else { 1.0 };
 
-    let spec = hound::WavSpec {
-        channels: 2,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
-    for (i, &sample) in master.iter().enumerate() {
-        if i % 8192 == 0 {
-            progress(0.9 + 0.09 * i as f32 / std::cmp::Ord::max(master.len(), 1) as f32)?;
+    // Write the PCM WAV at the chosen bit depth. 32-bit float is lossless within float precision
+    // and skips the integer-quantisation step. 24-bit requires hand-packing because hound's typed
+    // write_sample rounds f32->i32 symmetrically, dropping the sign-extended byte automatically.
+    match bit_depth {
+        32 => {
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            };
+            let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
+            for (i, &sample) in master.iter().enumerate() {
+                if i % 8192 == 0 {
+                    progress(0.9 + 0.09 * i as f32 / std::cmp::Ord::max(master.len(), 1) as f32)?;
+                }
+                writer.write_sample((sample * scale).clamp(-1.0, 1.0)).map_err(|e| e.to_string())?;
+            }
+            writer.finalize().map_err(|e| e.to_string())?;
         }
-        let v = (sample * scale).clamp(-1.0, 1.0);
-        writer
-            .write_sample((v * i16::MAX as f32) as i16)
-            .map_err(|e| e.to_string())?;
+        24 => {
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate,
+                bits_per_sample: 24,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
+            const MAX24: f32 = (1 << 23) as f32 - 1.0;
+            for (i, &sample) in master.iter().enumerate() {
+                if i % 8192 == 0 {
+                    progress(0.9 + 0.09 * i as f32 / std::cmp::Ord::max(master.len(), 1) as f32)?;
+                }
+                let v = (sample * scale).clamp(-1.0, 1.0);
+                writer.write_sample((v * MAX24) as i32).map_err(|e| e.to_string())?;
+            }
+            writer.finalize().map_err(|e| e.to_string())?;
+        }
+        _ => {
+            // 16-bit signed integer (default)
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
+            for (i, &sample) in master.iter().enumerate() {
+                if i % 8192 == 0 {
+                    progress(0.9 + 0.09 * i as f32 / std::cmp::Ord::max(master.len(), 1) as f32)?;
+                }
+                let v = (sample * scale).clamp(-1.0, 1.0);
+                writer
+                    .write_sample((v * i16::MAX as f32) as i16)
+                    .map_err(|e| e.to_string())?;
+            }
+            writer.finalize().map_err(|e| e.to_string())?;
+        }
     }
-    writer.finalize().map_err(|e| e.to_string())?;
 
     progress(1.0)?;
     Ok((total_frames as f64 / sample_rate as f64, vst3_warnings))
 }
+
 
 // --- Generic, shareable audio effects (Entropy.AudioEffect) -----------------------------------
 //
@@ -2108,7 +2152,7 @@ mod export_progress_tests {
         let routing = MixRouting::default();
         render_mix_to_wav(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &original).unwrap();
         let mut updates = Vec::new();
-        render_mix_to_wav_with_progress(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, &tracked, |p| {
+        render_mix_to_wav_with_progress(&events, &[], &[], &[], &[], &[], &[], &[], &[], &routing, 44_100, 16, &tracked, |p| {
             updates.push(p);
             Ok(())
         }).unwrap();
@@ -2123,7 +2167,7 @@ mod export_progress_tests {
     #[test]
     fn cancellation_before_writing_does_not_create_an_output() {
         let path = std::env::temp_dir().join(format!("entropy-wav-cancel-{}.wav", uuid::Uuid::new_v4()));
-        let result = render_mix_to_wav_with_progress(&[], &[], &[], &[], &[], &[], &[], &[], &[], &MixRouting::default(), 44_100, &path, |p| {
+        let result = render_mix_to_wav_with_progress(&[], &[], &[], &[], &[], &[], &[], &[], &[], &MixRouting::default(), 44_100, 16, &path, |p| {
             if p >= 0.6 { Err("cancelled".into()) } else { Ok(()) }
         });
         assert_eq!(result.unwrap_err(), "cancelled");

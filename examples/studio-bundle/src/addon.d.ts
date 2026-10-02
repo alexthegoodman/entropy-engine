@@ -1234,6 +1234,10 @@ export interface RenderWavOptions {
   background?: boolean;
   /** Write to a fresh file in the system temp directory instead of showing a save dialog. */
   tempFile?: boolean;
+  /** Output sample rate in Hz. 44100 (CD quality) or 48000 (pro audio). Defaults to 44100. */
+  sampleRate?: 44100 | 48000;
+  /** PCM bit depth: 16 (CD quality, default), 24 (lossless headroom), or 32 (IEEE float). */
+  bitDepth?: 16 | 24 | 32;
 }
 
 export type MusicVideoStyle = "bars" | "radial" | "wave" | "particles" | "rings" | "horizon";

@@ -2185,6 +2185,10 @@ const musicVideo = {
 };
 const MUSIC_VIDEO_TOAST = "daw-music-video";
 
+// WAV export settings panel (small floating window with sample-rate and bit-depth pickers).
+let wavSettingsWindowId: string | null = null;
+let wavSettingsVisible = false;
+
 function visualizerPrefs(): VisualizerPrefs {
     if (!project.visualizer) project.visualizer = defaultVisualizer();
     return project.visualizer;
@@ -2365,6 +2369,44 @@ function renderVisualizerWindow(win: string) {
             }
             W.button(right, { text: "Reset Look", id: "music_video_reset", tooltip: "Back to the default style and colours (keeps the title and artist)", onClick: () => editVisualizer(v => ({ ...defaultVisualizer(), title: v.title, artist: v.artist })) });
         });
+    });
+}
+
+// --- WAV export settings -----------------------------------------------------------------------
+// A small floating panel for the two user-facing export controls: sample rate and bit depth.
+
+function setWavSettingsVisible(visible: boolean) {
+    wavSettingsVisible = visible;
+    if (wavSettingsWindowId) Entropy.UI.setWindowVisible(wavSettingsWindowId, visible);
+}
+
+function renderWavSettingsWindow(win: string) {
+    W.group(win, { id: "wav_settings_root", padding: 16 }, (g: string) => {
+        W.label(g, { text: "WAV Export Settings", bold: true, fontSize: 13 });
+        W.label(g, { text: "These settings apply to the next Export WAV. Music video audio always exports at 44100 Hz / 16-bit regardless of these settings.", color: UI.dim, fontSize: 11, wrap: 300 });
+        W.dropdown(g, {
+            label: "Sample rate",
+            id: "wav_sample_rate",
+            options: ["44100 Hz (CD quality)", "48000 Hz (pro audio / video)"],
+            selectedIndex: wavPrefs.sampleRate === 48000 ? 1 : 0,
+            onChange: (idx: string) => {
+                wavPrefs.sampleRate = parseInt(idx, 10) === 1 ? 48000 : 44100;
+                saveWavPrefs(wavPrefs);
+            }
+        });
+        W.dropdown(g, {
+            label: "Bit depth",
+            id: "wav_bit_depth",
+            options: ["16-bit integer (CD quality, default)", "24-bit integer (lossless headroom)", "32-bit float (maximum precision)"],
+            selectedIndex: wavPrefs.bitDepth === 24 ? 1 : wavPrefs.bitDepth === 32 ? 2 : 0,
+            onChange: (idx: string) => {
+                const i = parseInt(idx, 10);
+                wavPrefs.bitDepth = i === 1 ? 24 : i === 2 ? 32 : 16;
+                saveWavPrefs(wavPrefs);
+            }
+        });
+        const label = `${wavPrefs.sampleRate === 48000 ? "48 kHz" : "44.1 kHz"}, ${wavPrefs.bitDepth}-bit${wavPrefs.bitDepth === 32 ? " float" : " int"}, stereo`;
+        W.label(g, { text: label, color: UI.amber, fontSize: 12 });
     });
 }
 
@@ -4046,6 +4088,46 @@ function buildVst3Events(): { path: string; state: string | null; notes: any[]; 
 }
 
 type WavResult = { success: boolean; path?: string; durationSeconds?: number; error?: string; vst3Warnings?: string[] };
+
+// --- WAV export settings -----------------------------------------------------
+//
+// These are DAW-wide preferences (not per song), persisted separately in the
+// addon store under "wav-prefs.json" so they survive song switches.
+
+type WavSampleRate = 44100 | 48000;
+type WavBitDepth = 16 | 24 | 32;
+
+interface WavExportPrefs {
+    sampleRate: WavSampleRate;
+    bitDepth: WavBitDepth;
+}
+
+const WAV_PREFS_KEY = "wav-prefs.json";
+
+function defaultWavPrefs(): WavExportPrefs {
+    return { sampleRate: 44100, bitDepth: 16 };
+}
+
+function loadWavPrefs(): WavExportPrefs {
+    try {
+        const raw = addon.IO.store.read(WAV_PREFS_KEY);
+        if (!raw) return defaultWavPrefs();
+        const parsed = JSON.parse(raw) as Partial<WavExportPrefs>;
+        return {
+            sampleRate: parsed.sampleRate === 48000 ? 48000 : 44100,
+            bitDepth: (parsed.bitDepth === 24 || parsed.bitDepth === 32) ? parsed.bitDepth : 16,
+        };
+    } catch {
+        return defaultWavPrefs();
+    }
+}
+
+function saveWavPrefs(prefs: WavExportPrefs): void {
+    try { addon.IO.store.write(WAV_PREFS_KEY, JSON.stringify(prefs)); } catch { /* non-fatal */ }
+}
+
+let wavPrefs: WavExportPrefs = loadWavPrefs();
+
 let wavExport: { video: boolean; complete: (result: WavResult) => void; lastPercent: number } | null = null;
 const WAV_EXPORT_TOAST = "daw-wav-export";
 
@@ -4113,7 +4195,13 @@ function renderSongWav(options?: { tempFile?: boolean; background?: boolean }) {
     const waterEvents = buildWaterEvents();
     const vst3Events = buildVst3Events();
     const pianoEvents = buildPianoEvents();
-    return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, options, pianoEvents);
+    // Music-video bounces go to a temp file at the engine's native rate; user-facing exports
+    // pick up whatever sample rate and bit depth the user last configured.
+    const exportOptions = {
+        ...options,
+        ...(options?.tempFile ? {} : { sampleRate: wavPrefs.sampleRate, bitDepth: wavPrefs.bitDepth }),
+    };
+    return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, exportOptions, pianoEvents);
 }
 
 // --- Arrangement editing -----------------------------------------------------
@@ -6224,6 +6312,14 @@ addon.onInit(async () => {
                     tooltip: "Render the whole song to a WAV file",
                     onClick: () => { exportPatternToWav(); }
                 });
+                W.button(right, {
+                    text: icon("gear"),
+                    id: "export_wav_settings",
+                    frame: false,
+                    selected: wavSettingsVisible,
+                    tooltip: `WAV export settings: ${wavPrefs.sampleRate === 48000 ? "48 kHz" : "44.1 kHz"}, ${wavPrefs.bitDepth}-bit${wavPrefs.bitDepth === 32 ? " float" : " int"}`,
+                    onClick: () => { setWavSettingsVisible(!wavSettingsVisible); }
+                });
                 W.levelMeter(right, { id: "meter_master", source: "master", width: 16, height: 32 });
             });
     };
@@ -7097,6 +7193,18 @@ addon.onInit(async () => {
         onClose: () => { visualizerVisible = false; }
     });
     Entropy.UI.setWindowVisible(visualizerWindowId, visualizerVisible);
+
+    // WAV export settings: a small panel for sample rate and bit depth. Starts hidden.
+    wavSettingsWindowId = createDawWindow({
+        title: "WAV Export Settings",
+        width: 360,
+        height: 240,
+        x: Math.max(16, screenW - 400),
+        y: 56,
+        onRender: () => renderWavSettingsWindow(wavSettingsWindowId!),
+        onClose: () => { wavSettingsVisible = false; }
+    });
+    Entropy.UI.setWindowVisible(wavSettingsWindowId, wavSettingsVisible);
 
     // Reverb & EQ, hidden until asked for: tall enough for the 3D room, the EQ and the knobs.
     spaceWindowHeight = Math.max(640, Math.min(920, screenH - 72));

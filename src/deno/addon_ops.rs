@@ -3480,6 +3480,15 @@ pub struct RenderWavOptions {
     /// Return immediately; use pollWavExport for progress and the final result.
     #[serde(default)]
     pub background: bool,
+    /// Output sample rate in Hz. 44100 and 48000 are supported; defaults to 44100 if absent or
+    /// if an unsupported value is given. The music-video path always uses the WAV's own rate, so
+    /// this field has no effect when `temp_file` is true.
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    /// PCM bit depth: 16, 24, or 32. 16-bit signed integer, 24-bit signed integer, or 32-bit
+    /// IEEE float. Defaults to 16 if absent or if an unsupported value is given.
+    #[serde(default)]
+    pub bit_depth: Option<u32>,
 }
 
 #[op2]
@@ -3530,6 +3539,20 @@ pub fn op_audio_render_pattern_wav(
             error: Some("Export cancelled".to_string()),
             vst3_warnings: Vec::new(),
         };
+    };
+
+    // Resolve export settings before moving options into the closure. Music-video bounces always
+    // write at the native engine rate (44100); user-initiated exports honour the chosen rate.
+    let is_temp = options.as_ref().is_some_and(|o| o.temp_file);
+    let export_sample_rate: u32 = if is_temp {
+        44100
+    } else {
+        let requested = options.as_ref().and_then(|o| o.sample_rate).unwrap_or(44100);
+        if requested == 48000 { 48000 } else { 44100 }
+    };
+    let export_bit_depth: u32 = {
+        let requested = options.as_ref().and_then(|o| o.bit_depth).unwrap_or(16);
+        match requested { 24 => 24, 32 => 32, _ => 16 }
     };
 
     let status = Arc::new(Mutex::new(WavExportStatus::default()));
@@ -3639,7 +3662,7 @@ pub fn op_audio_render_pattern_wav(
             water: &water_routes,
             vst3: &vst3_routes,
         };
-        let outcome = crate::audio::render_mix_to_wav_with_progress(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &piano_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, 44100, &staging_path, |progress| {
+        let outcome = crate::audio::render_mix_to_wav_with_progress(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &brass_hits, &piano_hits, &matter_hits, &water_notes, &vst3_tracks, &routing, export_sample_rate, export_bit_depth, &staging_path, |progress| {
             if thread_cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err("Export cancelled".to_string());
             }
