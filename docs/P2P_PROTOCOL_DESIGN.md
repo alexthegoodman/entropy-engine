@@ -1,6 +1,9 @@
 # Entropy P2P network design
 
-Status: design proposal, not implemented. Nothing in this document has been built or tested yet.
+Latest Docs:
+
+- https://docs.rs/rustp2p/latest/rustp2p/
+- https://docs.rs/rustp2p-quic/latest/rustp2p_quic/
 
 ## 1. Scope and intent
 
