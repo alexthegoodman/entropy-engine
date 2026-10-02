@@ -2381,9 +2381,11 @@ function setWavSettingsVisible(visible: boolean) {
 }
 
 function renderWavSettingsWindow(win: string) {
-    W.group(win, { id: "wav_settings_root", padding: 16 }, (g: string) => {
+    const W = Entropy.UI.Widget;
+
+    W.group(win, (g: string) => {
         W.label(g, { text: "WAV Export Settings", bold: true, fontSize: 13 });
-        W.label(g, { text: "These settings apply to the next Export WAV. Music video audio always exports at 44100 Hz / 16-bit regardless of these settings.", color: UI.dim, fontSize: 11, wrap: 300 });
+        W.label(g, { text: "These settings apply to the next Export WAV. Music video audio always exports at 44100 Hz / 16-bit regardless of these settings.", color: UI.dim, fontSize: 11, wrap: true });
         W.dropdown(g, {
             label: "Sample rate",
             id: "wav_sample_rate",
