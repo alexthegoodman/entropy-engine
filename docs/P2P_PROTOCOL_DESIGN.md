@@ -374,3 +374,5 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 - **Streaming decode.** Confirm spool-to-temp-file first, defer the custom byte-source.
 - **Seeding policy.** Does the browser auto-seed completed downloads by default, and with what
   upload caps.
+
+Note: the best initial app experience for this is actually probably a messenger or forum, rather than files and media.
