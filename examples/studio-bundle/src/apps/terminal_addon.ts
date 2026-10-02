@@ -9,7 +9,10 @@ const addonInfo = {
     version: "1.0.0",
     description: "Terminal - developer terminal with convenience buttons for MCP connections, CLI installers, custom typography, and real process execution.",
     author: ["Entropy Team", "Google DeepMind"],
-    capabilities: { ui: true },
+    capabilities: { 
+        ui: true,
+        needsViewport: false
+    },
 };
 
 const addon = Entropy.AddonAtom.register(addonInfo);
