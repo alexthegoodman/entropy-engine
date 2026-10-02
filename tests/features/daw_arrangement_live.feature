@@ -53,3 +53,11 @@ Feature: The running DAW arranges a song on sixteen channels
     And I send the widget event "TABBAR_SELECTED|inspector_tab|moves"
     And I advance 6 frames
     Then I capture "arrangement-09-moves"
+
+    When I send the widget event "TABBAR_SELECTED|daw_view|roll"
+    And I advance 6 frames
+    Then I capture "arrangement-10-piano-roll"
+
+    When I call the tool "daw_export_wav" with {"path":"{export}"}
+    And I advance 10 frames
+    Then I capture "arrangement-11-exported"

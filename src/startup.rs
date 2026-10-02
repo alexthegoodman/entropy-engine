@@ -304,6 +304,20 @@ fn browser_bdd_actions_from_feature(source: &str) -> VecDeque<BrowserBddAction> 
     actions
 }
 
+/// Expands the `{music}` and `{export}` placeholders a feature file may use, so a feature can name
+/// a generated file without knowing where the run put it. `{music}` is the sample browser's folder
+/// (`ENTROPY_MUSIC_DIR`); `{export}` is the scripted WAV export destination (`ENTROPY_DAW_BDD_EXPORT`).
+fn substitute_feature_placeholders(text: &str) -> String {
+    let mut out = text.to_string();
+    if let Ok(dir) = std::env::var("ENTROPY_MUSIC_DIR") {
+        out = out.replace("{music}", &dir);
+    }
+    if let Ok(path) = std::env::var("ENTROPY_DAW_BDD_EXPORT") {
+        out = out.replace("{export}", &path);
+    }
+    out
+}
+
 impl BrowserBddDriver {
     fn from_environment() -> Option<Self> {
         let daw = std::env::var_os("ENTROPY_DAW_BDD_RESULT").is_some();
@@ -582,16 +596,12 @@ impl BrowserBddDriver {
             BrowserBddAction::Wait(_) => {}
             BrowserBddAction::Event { control_id, value } => {
                 let event = value.as_ref().map_or_else(|| control_id.clone(), |value| format!("{control_id}|{value}"));
-                // `{music}` stands for the folder the sample browser was pointed at (ENTROPY_MUSIC_DIR),
-                // so a feature can name a generated file without knowing where the run put it.
-                let event = match std::env::var("ENTROPY_MUSIC_DIR") {
-                    Ok(dir) => event.replace("{music}", &dir),
-                    Err(_) => event,
-                };
+                let event = substitute_feature_placeholders(&event);
                 Self::queue_event(window, event);
                 self.outcomes.push(serde_json::json!({ "kind": "control", "id": control_id, "outcome": "queued" }));
             }
             BrowserBddAction::Tool { name, args } => {
+                let args = substitute_feature_placeholders(&args);
                 let reply = window.pipeline.export_editor.as_mut().and_then(|editor| editor.addon_engine.call_tool(&name, &args));
                 let parsed = reply.as_deref().map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap_or_else(|_| serde_json::Value::String(text.to_string())));
                 let failed = match &parsed {

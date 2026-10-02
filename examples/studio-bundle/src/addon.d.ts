@@ -852,6 +852,8 @@ export interface ScopedAPI {
     musicDir: () => string | null;
     /** A native folder dialog; the chosen folder becomes readable by `listDir`. Null if cancelled. */
     pickSampleFolder: () => string | null;
+    /** A native folder dialog for any purpose (e.g. an export destination). Null if cancelled. */
+    pickFolder: () => string | null;
     /** Folders first, then audio files, directly inside `path`. Read-only, and refused outside the
      * Music folder and folders chosen with `pickSampleFolder`. */
     listDir: (path: string) => ListDirResult;
@@ -1234,6 +1236,10 @@ export interface RenderWavOptions {
   background?: boolean;
   /** Write to a fresh file in the system temp directory instead of showing a save dialog. */
   tempFile?: boolean;
+  /** Write to this exact path instead of showing a save dialog (scripted exports and tests). */
+  path?: string;
+  /** Write into this folder instead of showing a save dialog; the file lands at `<folder>/<suggestedName>`. */
+  folder?: string;
   /** Output sample rate in Hz. 44100 (CD quality) or 48000 (pro audio). Defaults to 44100. */
   sampleRate?: 44100 | 48000;
   /** PCM bit depth: 16 (CD quality, default), 24 (lossless headroom), or 32 (IEEE float). */

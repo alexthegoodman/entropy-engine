@@ -1406,6 +1406,8 @@ globalThis.Entropy = {
                     musicDir: () => ops.op_io_music_dir() || null,
                     // A native folder dialog; the chosen folder becomes readable by listDir. Null if cancelled.
                     pickSampleFolder: () => ops.op_io_pick_sample_folder() || null,
+                    // A native folder dialog for any purpose (e.g. an export destination). Null if cancelled.
+                    pickFolder: () => ops.op_io_pick_folder() || null,
                     // Folders first, then audio files, directly inside `path`: {ok, error?, entries:
                     // [{name, path, isDir, size, audioCount, dirCount}]}. Read-only, and refused
                     // outside the Music folder and folders chosen with pickSampleFolder.

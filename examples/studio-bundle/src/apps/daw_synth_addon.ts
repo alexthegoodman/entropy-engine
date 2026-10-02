@@ -2407,6 +2407,17 @@ function renderWavSettingsWindow(win: string) {
                 saveWavPrefs(wavPrefs);
             }
         });
+        W.spacer(g, 8);
+        W.label(g, { text: "Destination folder", bold: true, fontSize: 12.5 });
+        if (wavPrefs.folder) {
+            W.label(g, { text: wavPrefs.folder, color: UI.amber, fontSize: 12, wrap: true });
+        } else {
+            W.label(g, { text: "Ask where to save each time.", color: UI.dim, fontSize: 12 });
+        }
+        W.horizontal(g, (row: string) => {
+            W.button(row, { text: withIcon("folder-open", "Choose..."), id: "wav_folder_pick", onClick: () => { const dir = addon.IO.pickFolder(); if (dir) { wavPrefs.folder = dir; saveWavPrefs(wavPrefs); } } });
+            W.button(row, { text: "Clear", id: "wav_folder_clear", frame: false, disabled: !wavPrefs.folder, onClick: () => { wavPrefs.folder = ""; saveWavPrefs(wavPrefs); } });
+        });
         const label = `${wavPrefs.sampleRate === 48000 ? "48 kHz" : "44.1 kHz"}, ${wavPrefs.bitDepth}-bit${wavPrefs.bitDepth === 32 ? " float" : " int"}, stereo`;
         W.label(g, { text: label, color: UI.amber, fontSize: 12 });
     });
@@ -4102,12 +4113,14 @@ type WavBitDepth = 16 | 24 | 32;
 interface WavExportPrefs {
     sampleRate: WavSampleRate;
     bitDepth: WavBitDepth;
+    /** Empty means ask for a destination each export; a folder writes straight into it. */
+    folder: string;
 }
 
 const WAV_PREFS_KEY = "wav-prefs.json";
 
 function defaultWavPrefs(): WavExportPrefs {
-    return { sampleRate: 44100, bitDepth: 16 };
+    return { sampleRate: 44100, bitDepth: 16, folder: "" };
 }
 
 function loadWavPrefs(): WavExportPrefs {
@@ -4118,6 +4131,7 @@ function loadWavPrefs(): WavExportPrefs {
         return {
             sampleRate: parsed.sampleRate === 48000 ? 48000 : 44100,
             bitDepth: (parsed.bitDepth === 24 || parsed.bitDepth === 32) ? parsed.bitDepth : 16,
+            folder: typeof parsed.folder === "string" ? parsed.folder : "",
         };
     } catch {
         return defaultWavPrefs();
@@ -4174,8 +4188,21 @@ function pollWavExport() {
     }
 }
 
-function exportPatternToWav(): WavResult {
+function exportPatternToWav(path?: string): WavResult {
     const lost = Object.keys(sampleMissing).length;
+    // A scripted path (the live BDD driver) writes straight to that file and blocks for the
+    // result, so the caller can read the WAV back; a user-initiated export goes through the
+    // background bounce and reports via the toast.
+    if (path) {
+        const result = renderSongWav({ path, background: false });
+        const vst3Failed = result.vst3Warnings?.length ?? 0;
+        lastExportStatus = result.success
+            ? `Exported ${(result.durationSeconds ?? 0).toFixed(2)}s to ${result.path}`
+                + (vst3Failed > 0 ? ` (${vst3Failed} VST3 track${vst3Failed === 1 ? "" : "s"} could not be rendered: ${result.vst3Warnings!.join("; ")})` : "")
+                + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
+            : `Export failed: ${result.error}`;
+        return result;
+    }
     return startWavExport(false, result => {
         const vst3Failed = result.vst3Warnings?.length ?? 0;
         lastExportStatus = result.success
@@ -4186,8 +4213,9 @@ function exportPatternToWav(): WavResult {
     });
 }
 
-/** Bounces the whole song offline. Asks where to save unless `tempFile` (the music video export). */
-function renderSongWav(options?: { tempFile?: boolean; background?: boolean }) {
+/** Bounces the whole song offline. Asks where to save unless `tempFile` (the music video export)
+ * or `path` (a scripted export to a known file, no dialog). */
+function renderSongWav(options?: { tempFile?: boolean; background?: boolean; path?: string }) {
     const events = buildPatternEvents();
     const sampleEvents = buildSampleEvents();
     const wavetableEvents = buildWavetableEvents();
@@ -4198,10 +4226,13 @@ function renderSongWav(options?: { tempFile?: boolean; background?: boolean }) {
     const vst3Events = buildVst3Events();
     const pianoEvents = buildPianoEvents();
     // Music-video bounces go to a temp file at the engine's native rate; user-facing exports
-    // pick up whatever sample rate and bit depth the user last configured.
+    // pick up whatever sample rate and bit depth the user last configured. A configured export
+    // folder writes straight into it instead of asking for a destination; an explicit `path`
+    // (a scripted export) always wins.
     const exportOptions = {
         ...options,
         ...(options?.tempFile ? {} : { sampleRate: wavPrefs.sampleRate, bitDepth: wavPrefs.bitDepth }),
+        ...(!options?.tempFile && !options?.path && wavPrefs.folder ? { folder: wavPrefs.folder } : {}),
     };
     return addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events, buildTrackBuses(), brassEvents, matterEvents, waterEvents, exportOptions, pianoEvents);
 }
@@ -7196,11 +7227,11 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(visualizerWindowId, visualizerVisible);
 
-    // WAV export settings: a small panel for sample rate and bit depth. Starts hidden.
+    // WAV export settings: a small panel for sample rate, bit depth and destination folder. Starts hidden.
     wavSettingsWindowId = createDawWindow({
         title: "WAV Export Settings",
         width: 360,
-        height: 240,
+        height: 340,
         x: Math.max(16, screenW - 400),
         y: 56,
         onRender: () => renderWavSettingsWindow(wavSettingsWindowId!),
@@ -8733,9 +8764,10 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
 
     addon.registerTool({
         name: "daw_export_wav",
-        description: "Render the whole arrangement (all unmuted tracks, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, then starts a background bounce. Audio progress and completion appear in the DAW; success here means the job started.",
-        parameters: { type: "object", properties: {} }
-    }, () => {
-        return exportPatternToWav();
+        description: "Render the whole arrangement (all unmuted tracks, respecting solo/gain/velocity) to a WAV file. Without a path, opens a native save dialog on the host machine, then starts a background bounce. With a path, writes straight to that file and blocks until it is done - audio progress and completion appear in the DAW; success here means the job started.",
+        parameters: { type: "object", properties: { path: { type: "string", description: "Optional destination. When given, the export writes to this exact path (no dialog) and blocks until finished." } } }
+    }, (args: any) => {
+        const path = typeof args?.path === "string" && args.path.length > 0 ? args.path : undefined;
+        return exportPatternToWav(path);
     });
 });

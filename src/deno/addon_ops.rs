@@ -3473,6 +3473,15 @@ fn wav_export_error(error: impl Into<String>) -> RenderPatternWavResult {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderWavOptions {
+    /// Write to this exact path instead of asking where to save (scripted exports and tests);
+    /// the parent directory is created if needed. Takes precedence over `folder` and `temp_file`.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Write into this directory instead of asking where to save (the DAW's export-folder setting):
+    /// the file lands at `<folder>/<suggested_name>`, and the directory is created if needed. Takes
+    /// precedence over `temp_file`.
+    #[serde(default)]
+    pub folder: Option<String>,
     /// Write to a fresh file in the system temp directory instead of asking where to save (the
     /// DAW's music-video export bounces this way, then hands the path to `exportMusicVideo`).
     #[serde(default)]
@@ -3522,7 +3531,43 @@ pub fn op_audio_render_pattern_wav(
     if state.try_borrow::<WavExportJob>().is_some() {
         return wav_export_error("An audio export is already pending; poll its result first");
     }
-    let file_path = if options.as_ref().is_some_and(|o| o.temp_file) {
+    let file_path = if let Some(path) = options.as_ref().and_then(|o| o.path.clone()) {
+        if !path.to_ascii_lowercase().ends_with(".wav") {
+            return RenderPatternWavResult {
+                success: false,
+                path: None,
+                duration_seconds: 0.0,
+                error: Some("Export path must end in .wav".to_string()),
+                vst3_warnings: Vec::new(),
+            };
+        }
+        let explicit = std::path::PathBuf::from(path);
+        if let Some(parent) = explicit.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return RenderPatternWavResult {
+                    success: false,
+                    path: None,
+                    duration_seconds: 0.0,
+                    error: Some(format!("Couldn't create {}: {e}", parent.display())),
+                    vst3_warnings: Vec::new(),
+                };
+            }
+        }
+        Some(explicit)
+    } else if let Some(folder) = options.as_ref().and_then(|o| o.folder.clone()) {
+        let dir = std::path::PathBuf::from(&folder);
+        let explicit = dir.join(&suggested_name);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return RenderPatternWavResult {
+                success: false,
+                path: None,
+                duration_seconds: 0.0,
+                error: Some(format!("Couldn't create {}: {e}", dir.display())),
+                vst3_warnings: Vec::new(),
+            };
+        }
+        Some(explicit)
+    } else if options.as_ref().is_some_and(|o| o.temp_file) {
         Some(std::env::temp_dir().join(format!("entropy-bounce-{}.wav", Uuid::new_v4())))
     } else {
         rfd::FileDialog::new()
@@ -3882,6 +3927,15 @@ pub fn op_io_pick_sample_folder(_state: &mut OpState) -> String {
     if crate::audio::samples::allow_root(&dir).is_err() {
         return String::new();
     }
+    dir.to_string_lossy().into_owned()
+}
+
+/// Opens a native folder dialog for any purpose (e.g. a WAV export destination). No root fencing:
+/// the chosen folder is used as-is. "" if cancelled.
+#[op2]
+#[string]
+pub fn op_io_pick_folder(_state: &mut OpState) -> String {
+    let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder").pick_folder() else { return String::new() };
     dir.to_string_lossy().into_owned()
 }
 
