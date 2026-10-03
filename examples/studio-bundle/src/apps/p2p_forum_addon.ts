@@ -14,7 +14,10 @@ function update(time: number) {
     if (lastPolledAt >= 0 && time >= lastPolledAt && (time - lastPolledAt) < POLL_INTERVAL) {
         return;
     }
+    
     lastPolledAt = time;
+
+    Entropy.println("P2P Polling...");
     client.poll();
 }
 
@@ -24,7 +27,9 @@ function join(config?: any) {
         try { parsed = peers.trim() ? JSON.parse(peers) : []; } catch { client.error = "Peers must be a JSON array of {id,address}"; return; }
         config = { room, maintainer, nodeId, port: Number(port), groupCode, tracker: tracker.trim() || null, peers: parsed, advertiseAddress: advertiseAddress.trim() || null };
     }
+    
     joining = client.start(config); started = joining;
+    
     if (joining) {
         addon.IO.save(config);
         client.poll();
@@ -33,8 +38,10 @@ function join(config?: any) {
 
 function publish(args?: any) {
     if (publishing) return;
+    
     const submittedTitle = args?.title ?? title, submittedBody = args?.body ?? body;
     const success = client.command({ action: "publish", title: submittedTitle, body: submittedBody, parent: args?.parent ?? replyTo });
+    
     if (success) {
         publishing = { previous: client.state.lastPublication ?? null, title: submittedTitle, body: submittedBody };
         client.poll();

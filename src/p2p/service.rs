@@ -22,7 +22,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     sync::{mpsc, watch},
@@ -31,6 +31,7 @@ use tokio::{
 
 pub const MAX_POST_BYTES: usize = 16 * 1024;
 const MAX_TASKS: usize = 16;
+pub const MIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -110,6 +111,8 @@ pub struct P2pService {
     stop: watch::Sender<bool>,
     view: watch::Receiver<ServiceView>,
     worker: Option<std::thread::JoinHandle<()>>,
+    last_poll: Option<Instant>,
+    min_poll_interval: Duration,
 }
 impl P2pService {
     /// Returns immediately. Startup failures are delivered by poll just like network errors.
@@ -156,7 +159,13 @@ impl P2pService {
             stop,
             view,
             worker: Some(worker),
+            last_poll: None,
+            min_poll_interval: MIN_POLL_INTERVAL,
         })
+    }
+    pub fn with_min_poll_interval(mut self, interval: Duration) -> Self {
+        self.min_poll_interval = interval;
+        self
     }
     pub fn command(&self, command: Command) -> Result<()> {
         if let Command::Publish { title, body, .. } = &command {
@@ -177,7 +186,14 @@ impl P2pService {
         self.view.borrow().clone()
     }
     pub fn poll(&mut self) -> Option<ServiceView> {
+        let now = Instant::now();
+        if let Some(last) = self.last_poll {
+            if now.duration_since(last) < self.min_poll_interval {
+                return None;
+            }
+        }
         if self.view.has_changed().unwrap_or(true) {
+            self.last_poll = Some(now);
             Some(self.view.borrow_and_update().clone())
         } else {
             None
@@ -733,3 +749,52 @@ fn handle(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_poll_throttling() {
+        let (commands, _rx) = mpsc::channel(32);
+        let (stop, _stopped) = watch::channel(false);
+        let (view_tx, view) = watch::channel(ServiceView::default());
+
+        let mut service = P2pService {
+            commands,
+            stop,
+            view,
+            worker: None,
+            last_poll: None,
+            min_poll_interval: Duration::from_millis(500),
+        };
+
+        view_tx.send_modify(|v| v.running = true);
+
+        // First poll succeeds and clones
+        let first = service.poll();
+        assert!(first.is_some());
+        assert!(first.unwrap().running);
+
+        // Immediate next poll within 500ms is throttled, returning None
+        view_tx.send_modify(|v| {
+            v.posts.push(PostView {
+                title: "hello".into(),
+                ..Default::default()
+            })
+        });
+        assert!(service.poll().is_none());
+
+        // Fast-forward last_poll to simulate 501ms passing
+        service.last_poll = Some(Instant::now() - Duration::from_millis(501));
+
+        // Now poll succeeds and retrieves the unconsumed change
+        let second = service.poll();
+        assert!(second.is_some());
+        assert_eq!(second.unwrap().posts.len(), 1);
+
+        // Immediate subsequent poll is throttled again
+        assert!(service.poll().is_none());
+    }
+}
+
