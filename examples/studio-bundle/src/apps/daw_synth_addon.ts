@@ -5942,6 +5942,7 @@ function refreshPredictions(alternative = 0) {
         return;
     }
     try {
+        // Entropy.println("refresh: " + JSON.stringify(actionHistory.toRequest()) + " " + JSON.stringify(predictionContext()) + " " + JSON.stringify(PREDICTION_STEPS) + " " + JSON.stringify(alternative));
         predictedNextSteps = addon.Prediction.predictPlan({
             history: actionHistory.toRequest(),
             current: predictionContext(),
@@ -5950,6 +5951,7 @@ function refreshPredictions(alternative = 0) {
         }) ?? [];
         predictionError = null;
     } catch (e) {
+        Entropy.println("ERROR: " + errorText(e));
         predictedNextSteps = [];
         predictionError = errorText(e);
     }
