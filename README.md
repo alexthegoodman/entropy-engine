@@ -467,6 +467,27 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 
 Mixture-of-Experts inference (`src/prediction`) over the DAW's recorded actions, for the Suggested Next Steps panel. Each history entry is an action name, its parameters in natural units and the app context after it (instrument family, view, transport, pattern and song fill). Plans come back with predicted parameters, one per parameter spec, so the panel can draw knobs, dropdowns and toggles for each step. The model is optional: it is looked for in `checkpoints/prediction` (`metadata.json` + `model.bin`) or `ENTROPY_PREDICTION_DIR`; with none installed, plans are empty and `status()` says why. A checkpoint trained on another vocabulary version is refused. Train one with the `gen_daw_data` and `train_prediction` bins.
 
+Example Training Run output:
+```
+Running `target\release\train_prediction.exe`
+Loading sessions from data/daw_sequences.json
+20000 sessions, 58972 windows of 48 steps
+Eval: 1000 held-out sessions, 2048 windows
+
+Model config: PredictionModelConfig { vocab_size: 75, num_families: 10, num_views: 3, embed_dim: 128, n_layers: 4, attn_heads: 4, ff_dim: 256, max_seq_len: 48, num_experts: 4, top_k: 1, dropout_rate: 0.05, prediction_depth: 5, aux_loss_weight: 0.01, z_loss_weight: 0.001, param_loss_weight: 0.5 }
+
+Training for 20 epochs, 1842 batches/epoch, batch_size=32
+Epoch 1/20 [00:04:24] ████████████████████████████████████████ 1842/1842 loss=0.8496                                                                                                                                                                       Epoch 1 train loss 0.8496 (action 0.8192, param 0.0324)
+  Eval loss 0.7352  top-1 72.6%  top-3 93.9%  param mse 0.0215
+  Saved best checkpoint (0.7352)
+Epoch 2/20 [00:03:29] ████████████████████████████████████████ 1842/1842 loss=0.6729                                                                                                                                                                       Epoch 2 train loss 0.6729 (action 0.6521, param 0.0201)
+  Eval loss 0.7003  top-1 73.4%  top-3 94.5%  param mse 0.0196
+  Saved best checkpoint (0.7003)
+Epoch 3/20 [00:03:19] ████████████████████████████████████████ 1842/1842 loss=0.6381                                                                                                                                                                       Epoch 3 train loss 0.6381 (action 0.6182, param 0.0187)
+  Eval loss 0.6743  top-1 74.0%  top-3 94.7%  param mse 0.0188
+  Saved best checkpoint (0.6743)
+```
+
 | Call | What it does |
 |---|---|
 | `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. `[]` with no model installed; throws when one is installed but unusable. |
