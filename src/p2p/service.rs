@@ -357,7 +357,7 @@ fn send(
     msg: Msg,
     reliable: bool,
 ) {
-    if tasks.len() >= MAX_TASKS || !allow.permits(&msg) {
+    if tasks.len() >= MAX_TASKS || !allow.permits(&msg) || peer == transport.local_id() {
         return;
     }
     tasks.spawn(async move {
@@ -388,6 +388,8 @@ async fn run(
 ) -> Result<()> {
     let mut local = Local::open(dir, &config)?;
     let allow = Allowlist::new(local.index.clone());
+    let mut peers = config.peers.clone();
+    peers.retain(|p| p.id != config.node_id && !(p.address.ip().is_loopback() && p.address.port() == config.port));
     let backend = Arc::new(
         KcpTransport::start(KcpConfig {
             node_id: config.node_id,
@@ -395,12 +397,11 @@ async fn run(
             tcp_port: 0,
             group_code: config.group_code.clone(),
             psk_password: String::new(),
-            bootstrap: config
-                .peers
+            bootstrap: peers
                 .iter()
                 .map(|p| format!("udp://{}", p.address))
                 .collect(),
-            allow_src: config.peers.iter().map(|p| u32::from(p.id)).collect(),
+            allow_src: peers.iter().map(|p| u32::from(p.id)).collect(),
         })
         .await?,
     );
@@ -442,7 +443,6 @@ async fn run(
         }
         infos.insert(item.content, info);
     }
-    let mut peers = config.peers.clone();
     let mut hints = BTreeMap::<ContentId, Vec<Announcement>>::new();
     let mut wanted = BTreeSet::<ContentId>::new();
     let mut pending = BTreeMap::<ContentId, Download>::new();
@@ -614,7 +614,8 @@ async fn run(
                         let before = peers.len();
                         for hint in new_hints.values().flatten() {
                             let Ok(id) = hint.peer.parse::<Ipv4Addr>() else { continue };
-                            if id != config.node_id && peers.len() < 64 && !peers.iter().any(|p|p.id == id) {
+                            let is_self_socket = hint.address.ip().is_loopback() && hint.address.port() == config.port;
+                            if id != config.node_id && !is_self_socket && peers.len() < 64 && !peers.iter().any(|p|p.id == id) {
                                 peers.push(PeerConfig { id, address: hint.address });
                             }
                         }

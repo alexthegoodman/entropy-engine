@@ -78,8 +78,11 @@ function render(win: string) {
 
 addon.onInit(() => {
     const saved = addon.IO.load();
-    if (saved) { room = saved.room; maintainer = saved.maintainer; groupCode = saved.groupCode; tracker = saved.tracker || ""; nodeId = saved.nodeId; port = String(saved.port); peers = JSON.stringify(saved.peers); advertiseAddress = saved.advertiseAddress || ""; }
+    if (saved) { room = saved.room; maintainer = saved.maintainer; groupCode = saved.groupCode; tracker = saved.tracker || ""; nodeId = saved.nodeId; port = String(saved.port); peers = Array.isArray(saved.peers) ? JSON.stringify(saved.peers) : ""; advertiseAddress = saved.advertiseAddress || ""; }
     const win = Entropy.UI.createTab({ title: "P2P Forum", onRender: () => render(win) });
+    // A persisted config (the fake demo seeds one on first launch) joins immediately, so a single
+    // launch drops you into a ready room. Leaving still returns to the manual join form.
+    if (saved && saved.room && saved.maintainer) join(saved);
 });
 addon.onCleanup(() => client.stop());
 // Live BDD uses the same handlers as the widgets. Keys never cross this API.

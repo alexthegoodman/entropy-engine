@@ -11,6 +11,7 @@
 //! QUIC remains available behind the same transport seam.
 
 pub mod allow;
+pub mod demo;
 pub mod index;
 pub mod meta;
 pub mod pieces;

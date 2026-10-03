@@ -7,6 +7,7 @@ autobins = false
 [patch.crates-io]
 vst3-host = { path = "vendor/vst3-host" }
 rustp2p = { path = "vendor/rustp2p" }
+rust-p2p-core = { path = "vendor/rust-p2p-core" }
 
 [[bin]]
 name = "example"

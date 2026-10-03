@@ -9407,8 +9407,6 @@ dependencies = [
 [[package]]
 name = "rust-p2p-core"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dfa68be529297ba55f104f0248bad42ba0c634aa8e44ce015d4f42be9cbe0af"
 dependencies = [
  "async-broadcast",
  "async-lock",

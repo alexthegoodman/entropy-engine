@@ -1,0 +1,62 @@
+[package]
+name = "rust-p2p-core"
+version = "0.4.1"
+edition = "2021"
+license = "Apache-2.0"
+readme = "README.md"
+description = "Simple, fast and easy Nat traversal for peer-to-peer"
+repository = "https://github.com/rustp2p/rustp2p"
+
+[dependencies]
+log = { workspace = true }
+parking_lot = { workspace = true }
+bytes = { workspace = true }
+dashmap = { workspace = true }
+async-trait = { workspace = true }
+rand = { workspace = true }
+crossbeam-utils = { workspace = true }
+crossbeam-queue = { workspace = true }
+tachyonix = { workspace = true }
+tokio = { workspace = true }
+
+async-broadcast = "0.7"
+
+socket2 = { version = "0.5", features = ["all"] }
+futures = "0.3"
+stun-format = { version = "1.0", features = ["fmt", "rfc3489"] }
+serde = { version = "1.0", features = ["derive"] }
+async-scoped = { version = "0.9", features = ["use-tokio"] }
+async-lock = "3.4"
+libc = "0.2"
+dyn-clone = "1.0"
+
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.60.2", features = ["Win32_Foundation",
+    "Win32_NetworkManagement",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming", ] }
+
+
+[dev-dependencies]
+tokio = { version = "1.42", features = ["full"] }
+bytes = "1.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "=4.0.32", features = ["derive"] }
+log = "0.4.22"
+env_logger = "0.11.5"
+
+[features]
+sendmmsg=[]
+
+[[example]]
+name = "server"
+path = "examples/server.rs"
+
+[[example]]
+name = "client"
+path = "examples/client.rs"

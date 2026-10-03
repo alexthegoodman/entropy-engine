@@ -54,9 +54,54 @@ See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#deb
 Review Windows committed memory versus its commit limit and available RAM before any run.
 Start with one GUI plus a headless peer before returning to the two-window acceptance test.
 
-## Local setup reference (launch paused)
+## Quick start: fake forum demo
 
-Run from `entropy-engine/`:
+One example launches into a ready room: on first run it seeds a signed room with a handful of fake
+posts and a few fake peer nodes, so no `p2p_room_setup`, no tracker process, no second window and no
+environment variables are needed. From `entropy-engine/`:
+
+```powershell
+deno bundle examples/studio-bundle/src/apps/p2p_forum_addon.ts --output examples/studio-bundle/dist/p2p_forum.js
+cargo build --jobs 1 --bin example
+.\target\debug\example.exe p2p-forum
+```
+
+The `deno bundle` line is only needed after editing the addon; the committed `dist/p2p_forum.js`
+already carries the auto-join. The demo folder (`../p2p-forum-data`) is seeded once, the first time
+the example runs with the default data directory. `seed_forum` (`src/p2p/demo.rs`) writes a signed
+`room.msgpack`, the post bodies into the local piece store, and a `p2p-forum.json` config listing
+three fake peer nodes. The addon reads that config on init and joins immediately.
+
+What the fake data is:
+
+- The fake peer nodes are loopback sockets that are never running; they exist only so the room and
+  its member list look populated.
+- The posts are signed by throwaway author keys (`SigningKey::from_seed`) whose private keys are not
+  kept. Their bodies are written straight into the piece store, so every post appears already seeded.
+- The tracker is unset, so the header shows "Tracker offline"; local publishing and the seeded
+  content still work without it.
+- Your own profile is real: posts you publish are signed and persisted under `p2p-room/`, and survive
+  restarts. **Leave room** returns to the manual join form.
+
+To reset the demo, close the window and delete `../p2p-forum-data`; the next launch reseeds a fresh
+room.
+
+## Transitioning away from the fake demo
+
+The fake scenario is scaffolding, not product. Once a real tracker and genuine peers are available,
+drop the auto-seed and drive the forum from real rooms. Planned steps:
+
+1. Gate the auto-seed behind an explicit opt-in flag (e.g. `ENTROPY_P2P_DEMO`) instead of "default
+   data dir is unset and unseeded", so a real profile is never silently created.
+2. Restore the manual join form as the primary path and keep `p2p_room_setup` for provisioning real
+   isolated profiles (Alice, Bob, reader, maintainer).
+3. Run the real tracker (`src/bin/tracker.rs`) for the room and let configured peers bootstrap from
+   verified tracker hints instead of the fake loopback peer list.
+4. Delete `seed_forum` (and its `demo_posts`) once the real flow is the default demo path; the
+   acceptance tests already exercise the genuine multi-node path.
+
+The real, non-fake run is the multi-node setup below (unchanged from the previous reference, still
+paused):
 
 ```powershell
 deno bundle examples/studio-bundle/src/apps/p2p_forum_addon.ts --output examples/studio-bundle/dist/p2p_forum.js
