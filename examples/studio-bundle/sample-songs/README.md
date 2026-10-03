@@ -21,7 +21,7 @@ These files are standalone DAW project JSON files. The DAW bundles them as templ
 | `rooftop-pursuit-score.json` | Film score: action chase, 140 BPM, F minor to F# minor | Col legno ticks, spiccato violins, a rock kit played like taiko, rough trombone stabs and drainpipe drips |
 | `lanterns-over-the-sound-score.json` | Film score: end credits, 76 BPM, D major | A brook, glass-harp arpeggios, a hymn from solo cello to tutti, a muted distant trumpet |
 
-All sounds use built-in voices and pads; no external samples or plugins are needed. To rebuild the JSON after changing the arrangements, run `node sample-songs/generate.mjs` from `examples/studio-bundle`.
+Every drum part is played by the Matter physically modeled kit (the old drum rack is gone from the samples). Matter has no hi-hat, so hat parts play on the ride at low velocity and claps on the snare edge. All sounds use built-in voices; no external samples or plugins are needed. To rebuild the JSON after changing the arrangements, run `node sample-songs/generate.mjs` from `examples/studio-bundle`.
 
 ## Listening guide for the five new songs
 
@@ -35,7 +35,7 @@ Each new song is 64 bars (about 1:47 to 2:25), with 9-11 tracks and named four-b
 - **Bars 49-60:** full return with a countermelody, wider chords and Matter tom fills.
 - **Bars 61-64:** tonic coda and room for decay. Black Glass deliberately leaves a final Phrygian semitone hanging.
 
-The two pauses use saved bus cuts, including effect tails. The keys are synthesized triangle patches, not sampled pianos. Synthwave intentionally emphasizes oscillator and wavetable voices; the other pieces pair them with modeled strings or brass. Matter provides physical cymbal and tom accents alongside the electronic drum rack.
+The two pauses use saved bus cuts, including effect tails. The keys are synthesized triangle patches, not sampled pianos. Synthwave intentionally emphasizes oscillator and wavetable voices; the other pieces pair them with modeled strings or brass. Matter provides the whole kit, with physical cymbal and tom accents.
 
 ## Film scores: physically modeled only
 

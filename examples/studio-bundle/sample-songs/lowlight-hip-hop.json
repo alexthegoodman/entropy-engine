@@ -184,51 +184,14 @@
     {
       "id": "hiphop-drums",
       "name": "Dusty Kit",
-      "kind": "drum",
+      "kind": "synth",
       "channel": 0,
       "colorIndex": 0,
-      "rootNote": 60,
+      "rootNote": 0,
       "scale": "chromatic",
-      "rows": 5,
-      "rack": [
-        {
-          "name": "Kick",
-          "voice": "kick",
-          "freq": 55,
-          "midi": 36,
-          "sample": null
-        },
-        {
-          "name": "Snare",
-          "voice": "snare",
-          "freq": 200,
-          "midi": 38,
-          "sample": null
-        },
-        {
-          "name": "Hihat",
-          "voice": "hihat",
-          "freq": 1000,
-          "midi": 42,
-          "sample": null
-        },
-        {
-          "name": "Clap",
-          "voice": "clap",
-          "freq": 200,
-          "midi": 39,
-          "sample": null
-        },
-        {
-          "name": "Tom",
-          "voice": "tom",
-          "freq": 110,
-          "midi": 45,
-          "sample": null
-        }
-      ],
+      "rows": 11,
       "voice": {
-        "waveform": "kick",
+        "waveform": "matter",
         "cutoff": 4000,
         "resonance": 1,
         "attack": 0.005,
@@ -277,55 +240,55 @@
               "velocity": 0.83
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 0,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 2,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 4,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 8,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 10,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 12,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 3,
+              "row": 2,
               "step": 8,
               "length": 1,
               "velocity": 0.37
@@ -374,55 +337,55 @@
               "velocity": 0.83
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 0,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 2,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 4,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 8,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 10,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 12,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 3,
+              "row": 2,
               "step": 8,
               "length": 1,
               "velocity": 0.6
@@ -459,31 +422,31 @@
               "velocity": 0.83
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 2,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 10,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 4,
+              "row": 3,
               "step": 14,
               "length": 1,
               "velocity": 0.5
@@ -538,61 +501,61 @@
               "velocity": 0.83
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 0,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 2,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 4,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 8,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 10,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 12,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 4,
+              "row": 3,
               "step": 11,
               "length": 1,
               "velocity": 0.8
             },
             {
-              "row": 4,
+              "row": 3,
               "step": 15,
               "length": 1,
               "velocity": 0.8
@@ -600,7 +563,45 @@
           ]
         }
       ],
-      "activePatternId": "hiphop-drums-verse"
+      "activePatternId": "hiphop-drums-verse",
+      "character": {
+        "pump": 0,
+        "bounce": 0,
+        "gate": 0,
+        "gatePattern": "sixteenths",
+        "acid": 0,
+        "grit": 0,
+        "space": 0.15,
+        "humanize": 0.03,
+        "acidBase": null
+      },
+      "matter": {
+        "preset": "studio",
+        "kit": {
+          "kick": 55,
+          "snare": 220,
+          "rackTom": 140,
+          "floorTom": 82,
+          "kickMuffling": 1,
+          "snares": true,
+          "snareTension": 0.15,
+          "sympathetic": true,
+          "brushes": false
+        },
+        "mix": {
+          "kick": 3,
+          "snare": 1,
+          "rack-tom": 2,
+          "floor-tom": 2.5,
+          "crash": 2,
+          "ride": 3,
+          "splash": 1.5
+        },
+        "hands": "sticks",
+        "beater": "felt",
+        "dynamics": 6,
+        "physicsView": false
+      }
     },
     {
       "id": "hiphop-bass",

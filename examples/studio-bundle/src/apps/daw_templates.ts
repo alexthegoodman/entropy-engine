@@ -12,7 +12,7 @@ export interface TemplateCollection {
 export const TEMPLATE_COLLECTIONS: TemplateCollection[] = [
     { id: "start", label: "Start here", blurb: "An empty song, or a short demo to take apart." },
     { id: "beats", label: "Beats and dance", blurb: "32-bar grooves with a drum breakdown: EDM, house and hip hop." },
-    { id: "cinematic", label: "Cinematic sketches", blurb: "32-bar scores for modeled strings and brass over a drum rack." },
+    { id: "cinematic", label: "Cinematic sketches", blurb: "32-bar scores for modeled strings and brass over a Matter drum kit." },
     { id: "showcase", label: "Showcase", blurb: "64-bar productions using every kind of voice, with bus cuts before each drop." },
     { id: "film", label: "Film scores", blurb: "Full cues played only by physically modeled instruments: bowed strings, brass, the Matter kit and Water." },
 ];

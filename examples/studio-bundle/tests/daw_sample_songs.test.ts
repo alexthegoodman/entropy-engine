@@ -165,7 +165,7 @@ describe('bundled DAW sample songs', () => {
 
   it('gives every song a drum breakdown with fewer kick hits than its main groove', () => {
     for (const song of [neon, house, hiphop]) {
-      const drums = song.tracks.find(t => t.kind === 'drum')!;
+      const drums = song.tracks.find(t => t.voice.waveform === 'matter')!;
       const breakdown = drums.patterns.find(p => /break/i.test(p.name))!;
       const main = drums.patterns.find(p => /drop|open groove|hook/i.test(p.name))!;
       expect(breakdown.notes.filter(n => n.row === 0).length)

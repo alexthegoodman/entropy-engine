@@ -84,14 +84,14 @@ const scores = [
 function compose(s) {
   const tracks = [], arrangement = [];
   function instrument(role, name, waveform, gain, extras = {}, patch = {}) {
-    const t = { id: `${s.slug}-${role}`, name, kind: role === 'drums' ? 'drum' : 'synth',
+    const t = { id: `${s.slug}-${role}`, name, kind: 'synth',
       channel: tracks.length, colorIndex: tracks.length, rootNote: 24, scale: 'chromatic', rows: 73,
       voice: voice(waveform, patch), gain, muted: false, solo: false,
       patterns: [], activePatternId: '', ...extras };
-    if (t.kind === 'drum') Object.assign(t, { rows: 5, rack: rack() });
     tracks.push(t); return t;
   }
-  const drum = instrument('drums', s.style === 'trap' ? 'Half-time / rolls' : 'Pocket / fills', 'kick', 0.34);
+  // The drum parts are played by the Matter kit below: kick 0, snare 1, hat -> ride 6, clap -> snare edge 2, tom -> rack tom 3.
+  const drum = {}, DRUM_ROW = [0, 1, 6, 2, 3];
   const bass = instrument('bass', 'Foundation', s.bassWave, 0.19, {},
     { cutoff: s.style === 'funk' ? 950 : 550, sustain: 0.72, release: 0.09 });
   const keys = instrument('keys', s.style === 'funk' ? 'Velvet electric keys' : 'Warm chord bed', 'triangle', 0.085, {},
@@ -119,8 +119,8 @@ function compose(s) {
   const fx = instrument('fx', 'Air / transition swells', 'noise', 0.023, {},
     { cutoff: 2800, attack: 1.5, decay: 0.2, sustain: 0.6, release: 0.5, reverbMix: 0.1 });
   // Matter adds physical cymbals/toms to the electronic kit, with discrete hits at structural moments.
-  const matter = instrument('matter', 'Matter / impacts and toms', 'matter', 0.23,
-    { rows: 9, matter: { preset: 'studio', kit: { kick: 55, snare: 220, rackTom: 140, floorTom: 82,
+  const matter = instrument('matter', 'Matter drum kit', 'matter', 0.34,
+    { rows: 11, rootNote: 0, matter: { preset: 'studio', kit: { kick: 55, snare: 220, rackTom: 140, floorTom: 82,
       kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true },
       mix: { kick: 3, snare: 1, 'rack-tom': 2, 'floor-tom': 2.5, crash: 2, ride: 3, splash: 1.5 },
       hands: 'sticks', beater: 'felt', dynamics: 5, physicsView: false } });
@@ -137,7 +137,8 @@ function compose(s) {
     const harmony = phrase === 8 || phrase === 9 || phrase === 11 ? s.bridge : s.chords;
     const buckets = new Map(tracks.map(t => [t, []]));
     const hit = (t, midi, step, length = 1, velocity = 0.65, extra = {}) => {
-      buckets.get(t).push({ row: t === drum || t === matter ? midi : midi - t.rootNote,
+      if (t === drum) { t = matter; midi = DRUM_ROW[midi]; }
+      buckets.get(t).push({ row: t === matter ? midi : midi - t.rootNote,
         step, length: Math.min(length, 64-step), velocity: +velocity.toFixed(3), ...extra });
     };
     for (let bar = 0; bar < 4; bar++) {

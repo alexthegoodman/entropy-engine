@@ -47,8 +47,31 @@ const beat = (kick, snare, hats, extras = []) => [
 const clip = (t, p, start, bars) => ({ id: `${t.id}-${p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${start}`,
   trackId: t.id, patternId: p.id, startStep: start * 16, lengthSteps: bars * 16 });
 const place = (t, spans) => spans.map(([pattern, start, bars]) => clip(t, t.patterns[pattern], start, bars));
-const song = (bpm, bars, tracks, spans) => ({ bpm, stepsPerBeat: 4, songBars: bars, snap: 'bar',
-  arrangement: tracks.flatMap((t, i) => place(t, spans[i])), tracks, activeTrackId: tracks[0].id });
+// The drum rack's five rows (kick, snare, hat, clap, tom) land on Matter's rows: kick 0, snare 1,
+// hat -> ride 6, clap -> snare edge 2, tom -> rack tom 3. Matter has no hi-hat, so the ride stands in.
+const MATTER_ROW = [0, 1, 6, 2, 3];
+const matterKits = {
+  studio: { preset: 'studio', hands: 'sticks', beater: 'felt', dynamics: 6,
+    kit: { kick: 55, snare: 220, rackTom: 140, floorTom: 82, kickMuffling: 1, snares: true, snareTension: 0.15, sympathetic: true, brushes: false } },
+  march: { preset: 'rock', hands: 'sticks', beater: 'felt', dynamics: 7,
+    kit: { kick: 48, snare: 190, rackTom: 115, floorTom: 70, kickMuffling: 1, snares: true, snareTension: 0.2, sympathetic: true, brushes: false } },
+  war: { preset: 'mallets', hands: 'mallets', beater: 'felt', dynamics: 8,
+    kit: { kick: 42, snare: 160, rackTom: 100, floorTom: 58, kickMuffling: 0.35, snares: false, snareTension: 0.15, sympathetic: true, brushes: false } },
+};
+const toMatter = (t, kit) => {
+  const k = matterKits[kit];
+  const { rack: _rack, ...rest } = t;
+  return { ...rest, kind: 'synth', rootNote: 0, rows: 11, voice: { ...t.voice, waveform: 'matter' },
+    patterns: t.patterns.map(p => ({ ...p, notes: p.notes.map(n => ({ ...n, row: MATTER_ROW[n.row] })) })),
+    character: { pump: 0, bounce: 0, gate: 0, gatePattern: 'sixteenths', acid: 0, grit: 0, space: 0.15, humanize: 0.03, acidBase: null },
+    matter: { preset: k.preset, kit: { ...k.kit }, mix: { kick: 3, snare: 1, 'rack-tom': 2, 'floor-tom': 2.5, crash: 2, ride: 3, splash: 1.5 },
+      hands: k.hands, beater: k.beater, dynamics: k.dynamics, physicsView: false } };
+};
+const song = (bpm, bars, tracks, spans, kit = 'studio') => {
+  const arrangement = tracks.flatMap((t, i) => place(t, spans[i]));
+  return { bpm, stepsPerBeat: 4, songBars: bars, snap: 'bar', arrangement,
+    tracks: tracks.map(t => t.kind === 'drum' ? toMatter(t, kit) : t), activeTrackId: tracks[0].id };
+};
 
 // EDM: strings enter one register at a time; an eight-bar drum break clears space before the drop.
 {
@@ -194,7 +217,7 @@ const song = (bpm, bars, tracks, spans) => ({ bpm, stepsPerBeat: 4, songBars: ba
     [...cycle(8, progression).map(([p,b]) => [p,b+8,1]),...cycle(8, progression).map(([p,b]) => [p,b+24,1])],
     [[2,0,4],[0,4,12],[2,16,4],[0,20,4],[1,24,8]],
   ];
-  writeFileSync(join(here, 'the-beacon-cinematic.json'), JSON.stringify(song(104, 32, tracks, spans), null, 2) + '\n');
+  writeFileSync(join(here, 'the-beacon-cinematic.json'), JSON.stringify(song(104, 32, tracks, spans, 'march'), null, 2) + '\n');
 }
 
 // Shadow Passage: a sparse, stalking ostinato and muted horn lead build to a low-brass reveal.
@@ -237,7 +260,7 @@ const song = (bpm, bars, tracks, spans) => ({ bpm, stepsPerBeat: 4, songBars: ba
     [...cycle(8,progression).map(([p,b]) => [p,b+24,1])],
     [[0,0,8],[1,8,8],[2,16,4],[1,20,12]],
   ];
-  writeFileSync(join(here, 'shadow-passage-cinematic.json'), JSON.stringify(song(88, 32, tracks, spans), null, 2) + '\n');
+  writeFileSync(join(here, 'shadow-passage-cinematic.json'), JSON.stringify(song(88, 32, tracks, spans, 'war'), null, 2) + '\n');
 }
 
 // Homeward Light: a gentle string theme with a chorale horn, then a fuller final reprise.

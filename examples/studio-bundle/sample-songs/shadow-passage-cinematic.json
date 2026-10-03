@@ -1084,51 +1084,14 @@
     {
       "id": "shadow-drums",
       "name": "Distant Impacts",
-      "kind": "drum",
+      "kind": "synth",
       "channel": 4,
       "colorIndex": 4,
-      "rootNote": 60,
+      "rootNote": 0,
       "scale": "chromatic",
-      "rows": 5,
-      "rack": [
-        {
-          "name": "Kick",
-          "voice": "kick",
-          "freq": 55,
-          "midi": 36,
-          "sample": null
-        },
-        {
-          "name": "Snare",
-          "voice": "snare",
-          "freq": 200,
-          "midi": 38,
-          "sample": null
-        },
-        {
-          "name": "Hihat",
-          "voice": "hihat",
-          "freq": 1000,
-          "midi": 42,
-          "sample": null
-        },
-        {
-          "name": "Clap",
-          "voice": "clap",
-          "freq": 200,
-          "midi": 39,
-          "sample": null
-        },
-        {
-          "name": "Tom",
-          "voice": "tom",
-          "freq": 110,
-          "midi": 45,
-          "sample": null
-        }
-      ],
+      "rows": 11,
       "voice": {
-        "waveform": "kick",
+        "waveform": "matter",
         "cutoff": 4000,
         "resonance": 1,
         "attack": 0.005,
@@ -1165,13 +1128,13 @@
               "velocity": 0.95
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
@@ -1208,31 +1171,31 @@
               "velocity": 0.83
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 2,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 6,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 10,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.47
             },
             {
-              "row": 4,
+              "row": 3,
               "step": 15,
               "length": 1,
               "velocity": 0.52
@@ -1245,13 +1208,13 @@
           "steps": 16,
           "notes": [
             {
-              "row": 2,
+              "row": 6,
               "step": 14,
               "length": 1,
               "velocity": 0.63
             },
             {
-              "row": 4,
+              "row": 3,
               "step": 15,
               "length": 1,
               "velocity": 0.38
@@ -1259,7 +1222,45 @@
           ]
         }
       ],
-      "activePatternId": "shadow-drums-heartbeat"
+      "activePatternId": "shadow-drums-heartbeat",
+      "character": {
+        "pump": 0,
+        "bounce": 0,
+        "gate": 0,
+        "gatePattern": "sixteenths",
+        "acid": 0,
+        "grit": 0,
+        "space": 0.15,
+        "humanize": 0.03,
+        "acidBase": null
+      },
+      "matter": {
+        "preset": "mallets",
+        "kit": {
+          "kick": 42,
+          "snare": 160,
+          "rackTom": 100,
+          "floorTom": 58,
+          "kickMuffling": 0.35,
+          "snares": false,
+          "snareTension": 0.15,
+          "sympathetic": true,
+          "brushes": false
+        },
+        "mix": {
+          "kick": 3,
+          "snare": 1,
+          "rack-tom": 2,
+          "floor-tom": 2.5,
+          "crash": 2,
+          "ride": 3,
+          "splash": 1.5
+        },
+        "hands": "mallets",
+        "beater": "felt",
+        "dynamics": 8,
+        "physicsView": false
+      }
     }
   ],
   "activeTrackId": "shadow-viola"

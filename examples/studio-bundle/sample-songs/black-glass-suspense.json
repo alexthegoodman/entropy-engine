@@ -19,13 +19,6 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-1-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-1",
-      "startStep": 64,
-      "lengthSteps": 64
-    },
-    {
       "id": "black-glass-suspense-keys-1-clip",
       "trackId": "black-glass-suspense-keys",
       "patternId": "black-glass-suspense-keys-1",
@@ -54,10 +47,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-2-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-2",
-      "startStep": 128,
+      "id": "black-glass-suspense-matter-1-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-1",
+      "startStep": 64,
       "lengthSteps": 64
     },
     {
@@ -82,10 +75,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-3-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-3",
-      "startStep": 192,
+      "id": "black-glass-suspense-matter-2-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-2",
+      "startStep": 128,
       "lengthSteps": 64
     },
     {
@@ -117,10 +110,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-4-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-4",
-      "startStep": 256,
+      "id": "black-glass-suspense-matter-3-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-3",
+      "startStep": 192,
       "lengthSteps": 64
     },
     {
@@ -159,10 +152,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-5-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-5",
-      "startStep": 320,
+      "id": "black-glass-suspense-matter-4-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-4",
+      "startStep": 256,
       "lengthSteps": 64
     },
     {
@@ -208,10 +201,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-6-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-6",
-      "startStep": 384,
+      "id": "black-glass-suspense-matter-5-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-5",
+      "startStep": 320,
       "lengthSteps": 64
     },
     {
@@ -275,13 +268,6 @@
       "trackId": "black-glass-suspense-matter",
       "patternId": "black-glass-suspense-matter-6",
       "startStep": 384,
-      "lengthSteps": 64
-    },
-    {
-      "id": "black-glass-suspense-drums-7-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-7",
-      "startStep": 448,
       "lengthSteps": 64
     },
     {
@@ -383,13 +369,6 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-10-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-10",
-      "startStep": 640,
-      "lengthSteps": 64
-    },
-    {
       "id": "black-glass-suspense-keys-10-clip",
       "trackId": "black-glass-suspense-keys",
       "patternId": "black-glass-suspense-keys-10",
@@ -411,10 +390,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-11-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-11",
-      "startStep": 704,
+      "id": "black-glass-suspense-matter-10-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-10",
+      "startStep": 640,
       "lengthSteps": 64
     },
     {
@@ -453,10 +432,10 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-12-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-12",
-      "startStep": 768,
+      "id": "black-glass-suspense-matter-11-clip",
+      "trackId": "black-glass-suspense-matter",
+      "patternId": "black-glass-suspense-matter-11",
+      "startStep": 704,
       "lengthSteps": 64
     },
     {
@@ -523,13 +502,6 @@
       "lengthSteps": 64
     },
     {
-      "id": "black-glass-suspense-drums-13-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-13",
-      "startStep": 832,
-      "lengthSteps": 64
-    },
-    {
       "id": "black-glass-suspense-bass-13-clip",
       "trackId": "black-glass-suspense-bass",
       "patternId": "black-glass-suspense-bass-13",
@@ -590,13 +562,6 @@
       "trackId": "black-glass-suspense-matter",
       "patternId": "black-glass-suspense-matter-13",
       "startStep": 832,
-      "lengthSteps": 64
-    },
-    {
-      "id": "black-glass-suspense-drums-14-clip",
-      "trackId": "black-glass-suspense-drums",
-      "patternId": "black-glass-suspense-drums-14",
-      "startStep": 896,
       "lengthSteps": 64
     },
     {
@@ -686,2972 +651,11 @@
   ],
   "tracks": [
     {
-      "id": "black-glass-suspense-drums",
-      "name": "Pocket / fills",
-      "kind": "drum",
-      "channel": 0,
-      "colorIndex": 0,
-      "rootNote": 24,
-      "scale": "chromatic",
-      "rows": 5,
-      "voice": {
-        "waveform": "kick",
-        "cutoff": 3800,
-        "resonance": 0.7,
-        "attack": 0.008,
-        "decay": 0.18,
-        "sustain": 0.55,
-        "release": 0.18,
-        "delayTime": 0,
-        "delayFeedback": 0.25,
-        "delayMix": 0,
-        "reverbRoomSize": 18,
-        "reverbTime": 1.8,
-        "reverbDamping": 0.65,
-        "reverbMix": 0
-      },
-      "gain": 0.34,
-      "muted": false,
-      "solo": false,
-      "patterns": [
-        {
-          "id": "black-glass-suspense-drums-1",
-          "name": "Footsteps",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-2",
-          "name": "Wrong reflection",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-3",
-          "name": "The lock",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-4",
-          "name": "Behind the wall",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-5",
-          "name": "Alarm",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-6",
-          "name": "Pursuit",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 4,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.48
-            },
-            {
-              "row": 4,
-              "step": 61,
-              "length": 0.5,
-              "velocity": 0.57
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 4,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.66
-            },
-            {
-              "row": 4,
-              "step": 63,
-              "length": 0.5,
-              "velocity": 0.75
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-7",
-          "name": "No exit",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 4,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.48
-            },
-            {
-              "row": 4,
-              "step": 61,
-              "length": 0.5,
-              "velocity": 0.57
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 4,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.66
-            },
-            {
-              "row": 4,
-              "step": 63,
-              "length": 0.5,
-              "velocity": 0.75
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-10",
-          "name": "Something moves",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-11",
-          "name": "Run",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-12",
-          "name": "The reveal",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 4,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.48
-            },
-            {
-              "row": 4,
-              "step": 61,
-              "length": 0.5,
-              "velocity": 0.57
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 4,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.66
-            },
-            {
-              "row": 4,
-              "step": 63,
-              "length": 0.5,
-              "velocity": 0.75
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-13",
-          "name": "Glass breaks",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 4,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.48
-            },
-            {
-              "row": 4,
-              "step": 61,
-              "length": 0.5,
-              "velocity": 0.57
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 4,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.66
-            },
-            {
-              "row": 4,
-              "step": 63,
-              "length": 0.5,
-              "velocity": 0.75
-            }
-          ]
-        },
-        {
-          "id": "black-glass-suspense-drums-14",
-          "name": "Escape",
-          "steps": 64,
-          "notes": [
-            {
-              "row": 0,
-              "step": 0,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 0,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 2,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 4,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 6,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 8,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 8,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 10,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 10,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 12,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 14,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 16,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 16,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 18,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 20,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 22,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 24,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 24,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 26,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 26,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 28,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 30,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 32,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 32,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 34,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 36,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 38,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 40,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 40,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 42,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 42,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 44,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 46,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 0,
-              "step": 48,
-              "length": 1,
-              "velocity": 0.88
-            },
-            {
-              "row": 2,
-              "step": 48,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 50,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 52,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 2,
-              "step": 54,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 1,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.76
-            },
-            {
-              "row": 2,
-              "step": 56,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 3,
-              "step": 56,
-              "length": 1,
-              "velocity": 0.44
-            },
-            {
-              "row": 0,
-              "step": 58,
-              "length": 1,
-              "velocity": 0.73
-            },
-            {
-              "row": 2,
-              "step": 58,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 2,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.49
-            },
-            {
-              "row": 4,
-              "step": 60,
-              "length": 0.5,
-              "velocity": 0.48
-            },
-            {
-              "row": 4,
-              "step": 61,
-              "length": 0.5,
-              "velocity": 0.57
-            },
-            {
-              "row": 2,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.34
-            },
-            {
-              "row": 4,
-              "step": 62,
-              "length": 0.5,
-              "velocity": 0.66
-            },
-            {
-              "row": 4,
-              "step": 63,
-              "length": 0.5,
-              "velocity": 0.75
-            }
-          ]
-        }
-      ],
-      "activePatternId": "black-glass-suspense-drums-1",
-      "rack": [
-        {
-          "name": "Kick",
-          "voice": "kick",
-          "freq": 50,
-          "midi": 36,
-          "sample": null
-        },
-        {
-          "name": "Snare",
-          "voice": "snare",
-          "freq": 200,
-          "midi": 38,
-          "sample": null
-        },
-        {
-          "name": "Hat",
-          "voice": "hihat",
-          "freq": 1000,
-          "midi": 42,
-          "sample": null
-        },
-        {
-          "name": "Clap",
-          "voice": "clap",
-          "freq": 200,
-          "midi": 39,
-          "sample": null
-        },
-        {
-          "name": "Tom",
-          "voice": "tom",
-          "freq": 98,
-          "midi": 45,
-          "sample": null
-        }
-      ]
-    },
-    {
       "id": "black-glass-suspense-bass",
       "name": "Foundation",
       "kind": "synth",
-      "channel": 1,
-      "colorIndex": 1,
+      "channel": 0,
+      "colorIndex": 0,
       "rootNote": 24,
       "scale": "chromatic",
       "rows": 25,
@@ -4394,8 +1398,8 @@
       "id": "black-glass-suspense-keys",
       "name": "Warm chord bed",
       "kind": "synth",
-      "channel": 2,
-      "colorIndex": 2,
+      "channel": 1,
+      "colorIndex": 1,
       "rootNote": 48,
       "scale": "chromatic",
       "rows": 25,
@@ -5636,8 +2640,8 @@
       "id": "black-glass-suspense-arp",
       "name": "Unreliable clock",
       "kind": "synth",
-      "channel": 3,
-      "colorIndex": 3,
+      "channel": 2,
+      "colorIndex": 2,
       "rootNote": 60,
       "scale": "chromatic",
       "rows": 25,
@@ -7428,8 +4432,8 @@
       "id": "black-glass-suspense-lead",
       "name": "Main theme",
       "kind": "synth",
-      "channel": 4,
-      "colorIndex": 4,
+      "channel": 3,
+      "colorIndex": 3,
       "rootNote": 60,
       "scale": "chromatic",
       "rows": 25,
@@ -7916,8 +4920,8 @@
       "id": "black-glass-suspense-counter",
       "name": "Bowed answer",
       "kind": "synth",
-      "channel": 5,
-      "colorIndex": 5,
+      "channel": 4,
+      "colorIndex": 4,
       "rootNote": 48,
       "scale": "chromatic",
       "rows": 25,
@@ -8146,8 +5150,8 @@
       "id": "black-glass-suspense-wide",
       "name": "Finale halo",
       "kind": "synth",
-      "channel": 6,
-      "colorIndex": 6,
+      "channel": 5,
+      "colorIndex": 5,
       "rootNote": 48,
       "scale": "chromatic",
       "rows": 25,
@@ -8595,8 +5599,8 @@
       "id": "black-glass-suspense-horn",
       "name": "Low brass horizon",
       "kind": "synth",
-      "channel": 7,
-      "colorIndex": 7,
+      "channel": 6,
+      "colorIndex": 6,
       "rootNote": 36,
       "scale": "chromatic",
       "rows": 25,
@@ -8913,8 +5917,8 @@
       "id": "black-glass-suspense-cello",
       "name": "Col legno footsteps",
       "kind": "synth",
-      "channel": 8,
-      "colorIndex": 8,
+      "channel": 7,
+      "colorIndex": 7,
       "rootNote": 48,
       "scale": "chromatic",
       "rows": 25,
@@ -10470,8 +7474,8 @@
       "id": "black-glass-suspense-fx",
       "name": "Air / transition swells",
       "kind": "synth",
-      "channel": 9,
-      "colorIndex": 9,
+      "channel": 8,
+      "colorIndex": 8,
       "rootNote": 72,
       "scale": "chromatic",
       "rows": 25,
@@ -10528,13 +7532,13 @@
     },
     {
       "id": "black-glass-suspense-matter",
-      "name": "Matter / impacts and toms",
+      "name": "Matter drum kit",
       "kind": "synth",
-      "channel": 10,
-      "colorIndex": 10,
-      "rootNote": 24,
+      "channel": 9,
+      "colorIndex": 9,
+      "rootNote": 0,
       "scale": "chromatic",
-      "rows": 9,
+      "rows": 11,
       "voice": {
         "waveform": "matter",
         "cutoff": 3800,
@@ -10551,20 +7555,1291 @@
         "reverbDamping": 0.65,
         "reverbMix": 0
       },
-      "gain": 0.23,
+      "gain": 0.34,
       "muted": false,
       "solo": false,
       "patterns": [
+        {
+          "id": "black-glass-suspense-matter-1",
+          "name": "Footsteps",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-2",
+          "name": "Wrong reflection",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-3",
+          "name": "The lock",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-4",
+          "name": "Behind the wall",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-5",
+          "name": "Alarm",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
         {
           "id": "black-glass-suspense-matter-6",
           "name": "Pursuit",
           "steps": 64,
           "notes": [
             {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
               "row": 5,
               "step": 0,
               "length": 1,
               "velocity": 0.68
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.48
+            },
+            {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 3,
+              "step": 61,
+              "length": 0.5,
+              "velocity": 0.57
+            },
+            {
+              "row": 3,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.66
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 63,
+              "length": 0.5,
+              "velocity": 0.75
             }
           ]
         },
@@ -10574,10 +8849,660 @@
           "steps": 64,
           "notes": [
             {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
               "row": 5,
               "step": 0,
               "length": 1,
               "velocity": 0.68
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.48
+            },
+            {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 3,
+              "step": 61,
+              "length": 0.5,
+              "velocity": 0.57
+            },
+            {
+              "row": 3,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.66
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 63,
+              "length": 0.5,
+              "velocity": 0.75
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-10",
+          "name": "Something moves",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            }
+          ]
+        },
+        {
+          "id": "black-glass-suspense-matter-11",
+          "name": "Run",
+          "steps": 64,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
             }
           ]
         },
@@ -10587,10 +9512,280 @@
           "steps": 64,
           "notes": [
             {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
               "row": 5,
               "step": 0,
               "length": 1,
               "velocity": 0.68
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
             },
             {
               "row": 3,
@@ -10599,16 +9794,58 @@
               "velocity": 0.6
             },
             {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.48
+            },
+            {
               "row": 3,
               "step": 60,
               "length": 1,
               "velocity": 0.68
             },
             {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 3,
+              "step": 61,
+              "length": 0.5,
+              "velocity": 0.57
+            },
+            {
+              "row": 3,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.66
+            },
+            {
               "row": 4,
               "step": 62,
               "length": 1,
               "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 63,
+              "length": 0.5,
+              "velocity": 0.75
             }
           ]
         },
@@ -10618,10 +9855,280 @@
           "steps": 64,
           "notes": [
             {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
               "row": 5,
               "step": 0,
               "length": 1,
               "velocity": 0.68
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
             },
             {
               "row": 3,
@@ -10630,16 +10137,58 @@
               "velocity": 0.6
             },
             {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.48
+            },
+            {
               "row": 3,
               "step": 60,
               "length": 1,
               "velocity": 0.68
             },
             {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 3,
+              "step": 61,
+              "length": 0.5,
+              "velocity": 0.57
+            },
+            {
+              "row": 3,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.66
+            },
+            {
               "row": 4,
               "step": 62,
               "length": 1,
               "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 63,
+              "length": 0.5,
+              "velocity": 0.75
             }
           ]
         },
@@ -10649,10 +10198,280 @@
           "steps": 64,
           "notes": [
             {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
               "row": 5,
               "step": 0,
               "length": 1,
               "velocity": 0.68
+            },
+            {
+              "row": 6,
+              "step": 0,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 2,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 4,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 6,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 10,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 14,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 16,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 16,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 18,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 20,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 22,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 24,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 24,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 26,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 26,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 28,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 30,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 32,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 32,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 34,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 36,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 38,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 40,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 40,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 42,
+              "length": 1,
+              "velocity": 0.73
+            },
+            {
+              "row": 6,
+              "step": 42,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 44,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 46,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 0,
+              "step": 48,
+              "length": 1,
+              "velocity": 0.88
+            },
+            {
+              "row": 6,
+              "step": 48,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 50,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 6,
+              "step": 52,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 6,
+              "step": 54,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 1,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.76
+            },
+            {
+              "row": 2,
+              "step": 56,
+              "length": 1,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 56,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 0,
+              "step": 58,
+              "length": 1,
+              "velocity": 0.73
             },
             {
               "row": 3,
@@ -10661,21 +10480,63 @@
               "velocity": 0.6
             },
             {
+              "row": 6,
+              "step": 58,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.48
+            },
+            {
               "row": 3,
               "step": 60,
               "length": 1,
               "velocity": 0.68
             },
             {
+              "row": 6,
+              "step": 60,
+              "length": 0.5,
+              "velocity": 0.49
+            },
+            {
+              "row": 3,
+              "step": 61,
+              "length": 0.5,
+              "velocity": 0.57
+            },
+            {
+              "row": 3,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.66
+            },
+            {
               "row": 4,
               "step": 62,
               "length": 1,
               "velocity": 0.76
+            },
+            {
+              "row": 6,
+              "step": 62,
+              "length": 0.5,
+              "velocity": 0.34
+            },
+            {
+              "row": 3,
+              "step": 63,
+              "length": 0.5,
+              "velocity": 0.75
             }
           ]
         }
       ],
-      "activePatternId": "black-glass-suspense-matter-6",
+      "activePatternId": "black-glass-suspense-matter-1",
       "matter": {
         "preset": "studio",
         "kit": {
@@ -10708,7 +10569,6 @@
     {
       "id": "black-glass-suspense-breath-5",
       "trackIds": [
-        "black-glass-suspense-drums",
         "black-glass-suspense-bass",
         "black-glass-suspense-keys",
         "black-glass-suspense-arp",
@@ -10726,7 +10586,6 @@
     {
       "id": "black-glass-suspense-breath-11",
       "trackIds": [
-        "black-glass-suspense-drums",
         "black-glass-suspense-bass",
         "black-glass-suspense-keys",
         "black-glass-suspense-arp",
