@@ -34,6 +34,9 @@ const SERVE_SEND_ATTEMPTS: usize = 8;
 const SERVE_SEND_BACKOFF: Duration = Duration::from_millis(200);
 /// Grace a seeder gives in-flight piece sends before returning when it hits its serve limit.
 const SERVE_FLUSH_GRACE: Duration = Duration::from_millis(500);
+/// How long a freshly sent piece stream is held open so KCP completes delivery (handshake + ACK)
+/// before the stream is torn down.
+const SERVE_DELIVER_GRACE: Duration = Duration::from_millis(1000);
 
 #[derive(Debug)]
 pub enum SessionError {
@@ -135,7 +138,6 @@ impl Session {
                         Ok(env) => env.msg,
                         Err(_) => continue,
                     };
-                    eprintln!("DEBUG serve: from {} got {:?}", dg.peer, msg);
                     match msg {
                         Msg::Want { content: c, index } if c == content => {
                             let store = Arc::clone(&store);
@@ -185,7 +187,6 @@ impl Session {
 
         loop {
             if tokio::time::Instant::now() >= deadline {
-                eprintln!("DEBUG download: timeout, missing = {:?}", store.lock().await.missing());
                 return Err(SessionError::Timeout);
             }
 
@@ -197,7 +198,6 @@ impl Session {
                 break;
             }
             retries += 1;
-            eprintln!("DEBUG download: missing {:?} (retry {retries})", missing);
             for index in missing.into_iter().rev() {
                 let msg = wire::Envelope::new(Msg::Want { content, index }).encode();
                 let _ = self
@@ -209,7 +209,6 @@ impl Session {
             tokio::select! {
                 _ = tokio::time::sleep(DEFAULT_RETRY) => {}
                 ev = self.transport.next_event() => {
-                    eprintln!("DEBUG download: event = {:?}", ev.as_ref().map(|e| match e { TransportEvent::Datagram(_) => "Datagram", TransportEvent::IncomingChannel{..} => "IncomingChannel", _ => "Other" }));
                     match ev {
                         Some(TransportEvent::IncomingChannel { mut channel, .. }) => {
                             match tokio::time::timeout(PIECE_RECV_TIMEOUT, channel.recv()).await {
@@ -222,7 +221,6 @@ impl Session {
                                                 got: c,
                                             });
                                         }
-                                        eprintln!("DEBUG download: got piece {index} ({} bytes)", data.len());
                                         store.lock().await.write_piece(index, &data)?;
                                     }
                                 }
@@ -288,12 +286,14 @@ async fn serve_piece(
         match transport.open_channel(&peer).await {
             Ok(mut channel) => {
                 if channel.send(Bytes::from(msg.clone())).await.is_ok() {
-                    eprintln!("DEBUG serve: delivered piece {index} to {peer}");
+                    // KCP delivery is async (the stream's flush runs on its own task, and `poll_flush`
+                    // is a no-op), so hold the channel open briefly so the handshake + data + ACK
+                    // complete before the stream and its route-table entry are torn down.
+                    tokio::time::sleep(SERVE_DELIVER_GRACE).await;
                     return Ok(());
                 }
-                eprintln!("DEBUG serve: channel.send failed for piece {index}");
             }
-            Err(e) => eprintln!("DEBUG serve: open_channel failed for piece {index}: {e}"),
+            Err(_) => {}
         }
         tokio::time::sleep(SERVE_SEND_BACKOFF).await;
     }

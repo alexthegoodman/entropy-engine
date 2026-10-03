@@ -152,10 +152,13 @@ impl KcpTransport {
             .udp_port(cfg.udp_port)
             .tcp_port(cfg.tcp_port)
             .group_code(group_code)
-            .encryption(Algorithm::AesGcm(cfg.psk_password))
             .interceptor(AllowInterceptor {
                 allow_src: cfg.allow_src,
             });
+
+        if !cfg.psk_password.is_empty() {
+            builder = builder.encryption(Algorithm::AesGcm(cfg.psk_password));
+        }
 
         if !cfg.bootstrap.is_empty() {
             let mut peers = Vec::with_capacity(cfg.bootstrap.len());

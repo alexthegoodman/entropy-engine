@@ -195,7 +195,7 @@ async fn run_download(args: &Args) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() {
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error"))
         .try_init();
 
     let args = match parse_args() {

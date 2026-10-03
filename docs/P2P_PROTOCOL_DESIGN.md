@@ -7,17 +7,46 @@ Latest Docs:
 
 ## Status (2026-10-02)
 
-Phase 1 (evaluation spike), phase 2 (content model), and phase 3 (local piece store) are done.
-`src/p2p/` now holds the `P2pTransport` trait seam (`transport.rs`), both candidate backends
-(`transport/rustp2p.rs`, `transport/quic.rs`), the content model (`meta.rs`), and the piece store
-(`pieces.rs`). The spike runs as `cargo run --bin p2p_spike`; the content-model and piece-store
-tests run as `cargo test --lib p2p`.
+Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), and 4 (two-process localhost
+session) are done. `src/p2p/` now holds the `P2pTransport` trait seam (`transport.rs`), both
+candidate backends (`transport/rustp2p.rs`, `transport/quic.rs`), the content model (`meta.rs`), the
+piece store (`pieces.rs`), the wire protocol (`wire.rs`), and the seed/download session
+(`session.rs`). The spike runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire,
+and session unit tests run as `cargo test --lib p2p`; the two-process session runs as
+`cargo test --test p2p_session` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
 
 **Decision: KCP (`rustp2p`) is the first backend.** QUIC (`rustp2p-quic`) stays in-tree as a
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Next up: phase 4 (two-process localhost session), then phase 5 (scheduler).
+Next up: phase 5 (scheduler).
+
+### Phase-4 findings (recorded so we know what the session actually taught us)
+
+The two-process session (`tests/p2p_session.rs`) passes all three startup shapes - seed-first,
+leecher-first, and a seeder that dies mid-transfer and restarts. Two things matter for the design:
+
+1. **Route establishment is not the problem.** When a peer receives a `Want`, rustp2p's `handle()`
+   calls `route_table.add_route_if_absent(src_id, Route::from_default_rt(route_key, metric))`, so
+   the reverse route is learned from the inbound datagram and shared with the send path. Both
+   startup orders work, and the seeder restarts cleanly because the leecher's retry cadence
+   re-establishes the route. The design's `RouteKey`/`send_to_route` plumbing is therefore *not*
+   required for the Phase-4 loopback session; it stays a later tool for the no-relay enforcement
+   point (section 6/8).
+
+2. **KCP piece-streams are NOT encrypted, even with `Algorithm::AesGcm` set.** rustp2p 0.4.1 only
+   encrypts `MessageData` frames (`send_packet_to_route`/`try_send_packet_to_route` guard on
+   `is_user_data()`), never `KcpData` frames. With encryption enabled the receiver rejects every
+   piece stream with "inconsistent encryption status", so the session test runs with the PSK
+   disabled. Piece integrity still holds end-to-end via the SHA-256 piece hashes, but the
+   transport-encryption half of the section-2 control model does not cover the piece plane on KCP.
+   Options: fix/upstream the crate, carry pieces over the (encrypted) datagram plane, or lean on
+   the QUIC backend (always TLS-encrypted) if transport secrecy of pieces becomes a hard
+   requirement. This is a decision for a later phase, not a blocker for phase 5.
+
+Also recorded: the KCP stream's `flush()` is async and its `poll_flush` is a no-op, so a seeder must
+hold each piece stream open briefly after `send` (a short grace period) or the stream is torn down
+before the handshake + ACK complete.
 
 ## 1. Scope and intent
 
@@ -347,13 +376,15 @@ Playback behavior:
 | --- | --- |
 | `mod.rs` | The `P2pService` handle: owns the tokio task set, the event outbound channel, and the poll surface drained by `about_to_wait`. |
 | `meta.rs` | Info document schema, canonical serialization (MessagePack), content id derivation. |
+| `wire.rs` | The versioned `Envelope` and `Msg` set (hello/get_info/info/have/bitfield/want/cancel/done/piece), MessagePack-encoded; transport-agnostic. |
+| `session.rs` | The single-content seed/serve and download/resume loops over `P2pTransport` (phase 4); uses the `Want`/`Piece`/`Done` subset. |
 | `index.rs` | The room's durable index: append-only signed entries, merge, tombstones, maintainer-signature verification. |
 | `allow.rs` | The allowlist policy derived from the room index (which content ids may circulate); transport-agnostic. |
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
 | `transport.rs` | The `P2pTransport` trait: peer addressing, datagram send/recv, reliable stream open, peer events, relay-route detection. The stable seam all upper layers code against. |
-| `transport/rustp2p.rs` | KCP backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. Candidate for the first backend. |
-| `transport/quic.rs` | QUIC backend wrapping `rustp2p-quic` (`quinn` streams + encrypted datagrams over `rustp2p-core` NAT traversal); reports `LinkMode` (direct/relay) for the no-relay rule. Candidate for the first backend. |
+| `transport/rustp2p.rs` | KCP backend: `rustp2p` `Builder`/`EndPoint` construction (group code, PSK, initial peers), the `DataInterceptor` that consults `allow.rs`, and adaptation of datagrams + KCP streams onto `P2pTransport`. The first backend. |
+| `transport/quic.rs` | QUIC backend wrapping `rustp2p-quic` (`quinn` streams + encrypted datagrams over `rustp2p-core` NAT traversal); reports `LinkMode` (direct/relay) for the no-relay rule. In-tree fallback. |
 | `transport/lan.rs` | *Future* backend: mDNS/DNS-SD discovery + direct subnet transport, same trait. |
 | `rendezvous.rs` | Client for the minimal always-on node: `get_index` / `put_announce` / `get_peers`, and the short-TTL live-availability table. |
 
@@ -422,9 +453,11 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    Tests: deterministic ids, version rejection.
 3. **Local piece store.** *(DONE)* Split/verify/assemble a file, resume from a partial bitmap, promote to
    seed. Tests: corrupt piece rejected, resume exact, idempotent.
-4. **Two-process localhost session.** Two peers, one seeded, one downloads over loopback with no
+4. **Two-process localhost session.** *(DONE)* Two peers, one seeded, one downloads over loopback with no
    NAT. Tests: full transfer, out-of-order pieces, duplicate/retried requests, disconnect/reconnect.
-   A localhost pair is the same shape as the DAW collab doc's two-process test.
+   A localhost pair is the same shape as the DAW collab doc's two-process test. `src/p2p/session.rs`
+   + `src/bin/p2p_peer.rs` + `tests/p2p_session.rs` (three startup shapes: seed-first, leecher-first,
+   reconnect). See the "Phase-4 findings" note under the Status section.
 5. **Scheduler.** Rarest-first vs sequential-ahead correctness on a small synthetic swarm. Tests:
    completes, no piece fetched twice from the same peer, seek reprioritizes.
 6. **Room index and interceptor.** Signed append-only index + `DataInterceptor` drops non-index
