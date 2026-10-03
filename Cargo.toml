@@ -50,6 +50,15 @@ name = "p2p_peer"
 path = "src/bin/p2p_peer.rs"
 test = false
 
+[[bin]]
+name = "tracker"
+path = "src/bin/tracker.rs"
+test = false
+
+[[test]]
+name = "p2p_tracker_bdd"
+harness = false
+
 
 [[test]]
 name = "browser_bdd"

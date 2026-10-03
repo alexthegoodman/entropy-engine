@@ -682,7 +682,7 @@ and accepts live playback-window updates. See [the protocol design](docs/P2P_PRO
 
 ```bash
 cargo test -j 1 --lib p2p
-cargo test -j 1 --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
+cargo test -j 1 --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
 ```
 
 The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
@@ -692,7 +692,22 @@ the pinned room id and maintainer public key through trusted configuration. Each
 author conflicts, withdrawals, publication removals, content blocks, bans and publishing policy.
 Reliable `RoomRecords` messages validate and merge metadata before allowing payload transfers.
 Schema-1 room snapshots and wire protocol 1 are rejected; content metadata stays schema 1.
-The current snapshot limit remains 4,096 records / 4 MiB. The addon API and rendezvous are later phases.
+The current snapshot limit remains 4,096 records / 4 MiB. The addon API is a later phase.
+
+Phase 7 adds `tracker`, a standalone public metadata server for one configured room, and
+`p2p::rendezvous::RendezvousClient`, an async Rust client. Start a local tracker with public pins:
+
+```bash
+cargo run --bin tracker -- --room-id <64 hex digits> --maintainer-key <64 hex digits> --index ./tracker/room.msgpack --bind 127.0.0.1:47110
+```
+
+The client exposes `get_index`, `put_records`, `put_announce`, and `get_peers`; it verifies
+snapshots against caller-configured room/maintainer pins and bounds responses. See
+[tracker operation and HTTP API](docs/P2P_TRACKER.md) for signed announcements, limits and a
+Rust client example. `p2p_session` includes a three-process tracker/discovery/KCP file-transfer
+check. Payloads travel between peers; the tracker stores only public signed room metadata.
+Announcements expire after 90 seconds and disappear on restart; durable publications survive.
+DigitalOcean deployment, physical NAT/no-relay checks and service/addon integration remain later work.
 
 ## MCP
 

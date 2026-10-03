@@ -347,3 +347,101 @@ fn two_process_localhost_session_disconnect_and_reconnect() {
 
     kill(&mut seed_b);
 }
+
+// Tracker supplies only metadata/hints; real payload transfer still uses two KCP processes.
+#[test]
+fn three_process_tracker_discovery_and_direct_transfer() {
+    use entropy_engine::p2p::index::Member;
+    use entropy_engine::p2p::rendezvous::{Announcement, RendezvousClient, unix_seconds};
+    let f = Fixture::new("tracker", 19211, 19212);
+    let content_path = f.root.join("content.bin");
+    let out_path = f.root.join("out.bin");
+    fs::write(&content_path, &f.content).unwrap();
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut tracker = Guard(
+        Command::new(env!("CARGO_BIN_EXE_tracker"))
+            .args([
+                "--room-id",
+                &support::hex(&support::ROOM),
+                "--maintainer-key",
+                &support::hex(&support::maintainer().public_key()),
+                "--index",
+                f.root.join("tracker-index.msgpack").to_str().unwrap(),
+                "--bind",
+                "127.0.0.1:0",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    let stdout = tracker.0.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stdout).lines() {
+            if let Ok(line) = line {
+                let _ = tx.send(line);
+            }
+        }
+    });
+    let ready = rx.recv_timeout(Duration::from_secs(15)).unwrap();
+    let base = format!("http://{}", ready.strip_prefix("TRACKER_READY ").unwrap());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let client =
+        RendezvousClient::new(&base, support::ROOM, support::maintainer().public_key()).unwrap();
+    let info = InfoDocument::from_canonical(&fs::read(&f.info_path).unwrap()).unwrap();
+    rt.block_on(client.put_records(&support::index(&info)))
+        .unwrap();
+    let seed = spawn_peer(&f.seed_args(&content_path, None, 30_000));
+    wait_line(&seed, "SEED READY", Duration::from_secs(20));
+    let _seed_guard = Guard(seed.child);
+    let hint = Announcement::sign(
+        &Member::from_seed(&[3; 32]).unwrap(),
+        support::ROOM,
+        info.content_id(),
+        SEED_ID.into(),
+        format!("127.0.0.1:{}", f.seed_port).parse().unwrap(),
+        unix_seconds(),
+    );
+    rt.block_on(client.put_announce(&hint)).unwrap();
+    let hints = rt.block_on(client.get_peers(info.content_id())).unwrap();
+    assert_eq!(hints.len(), 1);
+    let mut args = f.leech_args(&out_path, 60_000);
+    let peer_pos = args.iter().position(|s| s == "--peer").unwrap() + 1;
+    args[peer_pos] = hints[0].peer.clone();
+    let bootstrap_pos = args.iter().position(|s| s == "--bootstrap").unwrap() + 1;
+    args[bootstrap_pos] = format!("udp://{}", hints[0].address);
+    // Bootstrap index is fetched/verified from HTTP; seed keeps its own signed fixture.
+    let downloaded_index = f.root.join("downloaded-index.msgpack");
+    fs::write(
+        &downloaded_index,
+        rt.block_on(client.get_index()).unwrap().to_bytes(),
+    )
+    .unwrap();
+    let index_pos = args.iter().position(|s| s == "--room-index").unwrap() + 1;
+    args[index_pos] = downloaded_index.to_string_lossy().into_owned();
+    let mut leech = spawn_peer(&args);
+    wait_line(&leech, "LEECH DONE", Duration::from_secs(60));
+    assert!(wait_exit(&mut leech, Duration::from_secs(10)).success());
+    assert_eq!(fs::read(out_path).unwrap(), f.content);
+    let names: Vec<_> = fs::read_dir(&f.root)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|s| s.starts_with("tracker-"))
+        .collect();
+    assert_eq!(names, vec!["tracker-index.msgpack"]);
+    let persisted = entropy_engine::p2p::index::RoomIndex::from_bytes(
+        support::ROOM,
+        support::maintainer().public_key(),
+        &fs::read(f.root.join("tracker-index.msgpack")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(persisted.to_bytes(), support::index(&info).to_bytes());
+}

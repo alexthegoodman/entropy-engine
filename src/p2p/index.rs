@@ -160,6 +160,9 @@ impl SigningKey {
     pub fn public_key(&self) -> PublicKey {
         self.0.public_key().as_ref().try_into().unwrap()
     }
+    pub(crate) fn sign_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        self.0.sign(bytes).as_ref().to_vec()
+    }
     pub fn sign(
         &self,
         room: RoomId,

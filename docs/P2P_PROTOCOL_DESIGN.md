@@ -8,12 +8,13 @@ Latest Docs:
 ## Status (2026-10-02)
 
 Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), 4 (two-process localhost
-session), 5 (scheduler), and 6 (room index and enforcement) are done. `src/p2p/` now holds the
+session), 5 (scheduler), 6 (room index and enforcement), and 7 (local rendezvous tracker/client) are done. `src/p2p/` now holds the
 `P2pTransport` trait seam (`transport.rs`), both candidate backends
 (`transport/rustp2p.rs`, `transport/quic.rs`), the
 content model (`meta.rs`), the piece store (`pieces.rs`), the wire protocol (`wire.rs`), the
 seed/download session (`session.rs`), the pure piece scheduler (`scheduler.rs`), the signed room
-index (`index.rs`), and catalog policy/transport filtering (`allow.rs`). The spike
+index (`index.rs`), catalog policy/transport filtering (`allow.rs`), the public metadata tracker
+(`tracker.rs`), and its async rendezvous client (`rendezvous.rs`). The spike
 runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire, and session unit tests
 run as `cargo test --lib p2p`; the two-process session runs as
 `cargo test --test p2p_session` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
@@ -22,8 +23,54 @@ run as `cargo test --lib p2p`; the two-process session runs as
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Phase 6 has been revised for ordinary member publishing (see below). Next up: phase 7
-(minimal rendezvous node), followed by the long-lived service and phase-9 forum.
+Phase 6 has been revised for ordinary member publishing (see below). Phase 7 implements local
+metadata rendezvous. Next up: long-lived service integration before the phase-9 forum, with
+phase-8 physical NAT/no-relay validation still pending and optionally delayed for logistics.
+
+### Phase-7 local rendezvous
+
+`cargo run --bin tracker -- --room-id <hex> --maintainer-key <hex> --index <path>` starts a
+standalone HTTP metadata server (default `127.0.0.1:47110`) for one configured room.
+`RendezvousClient` exposes `get_index`, `put_records`, `put_announce`, and `get_peers`.
+[Tracker operation and API](P2P_TRACKER.md) documents URL paths, signed claims and client usage.
+No new dependencies or payload/wire/index schema changes were required.
+
+- Room and maintainer pins are external operator/client configuration; HTTP cannot change them.
+  Uploads use canonical schema-2 snapshot batches. Verification and unions reuse `RoomIndex`,
+  including ordinary member publishing and pinned maintainer policy/moderation. Invalid batches
+  leave the committed state unchanged; duplicates are idempotent and concurrent uploads serialize.
+- Durable snapshots use a synced sibling `.pending` write followed by replacement before success.
+  Restart verifies the committed file; corrupt/mismatched records fail startup. Announcements,
+  peer addresses, private keys, group secrets and payload bytes are never persisted in snapshots.
+- JSON announcements are Ed25519 claims binding room/content, transport peer ID, socket,
+  issued-at Unix seconds and a discovery public key. The HTTP source IP must match the socket.
+  A signature proves a discovery key, not transport identity or seeding. Claims expire after
+  90 seconds, tolerate five seconds of future clock skew, and replays do not refresh a live lease.
+  Peer lists remain hints to validate through peer sessions.
+- Only currently eligible content can be announced. Withdrawals, bans, author conflicts and
+  maintainer moderation/policy prune ineligible hints. TTL expiry and restart remove availability,
+  never publications. A returning seeder announces again without republishing.
+- Bounds: existing 4 MiB / 4,096-record index; 2 KiB announcement; 4,096 live claims, 64 per
+  content and 128 per source IP; 120 connections per IP per 60-second window with 4,096 rate
+  buckets; 32 active connection/worker tasks; 8 KiB headers and ten-second read/write deadlines.
+  Full rate tables fail closed. The async client bounds responses, disables redirects and verifies
+  snapshot signatures and returned claim scopes. No unbounded application queues are introduced.
+- Snapshot work runs on bounded blocking workers and completes before graceful tracker shutdown.
+  This owns tracker tasks only; existing transport ownership/backpressure remains service work.
+  HTTP/1.1 uses Content-Length uploads and one request per connection; chunked uploads are rejected.
+  The local server uses plain HTTP and ignores forwarded headers. HTTPS/proxy source identity and
+  Internet deployment configuration remain deployment work.
+
+Acceptance uses `tests/features/p2p_tracker.feature` / `tests/p2p_tracker_bdd.rs` over real HTTP
+with synthetic keys, plus a three-process tracker/seed/leecher test in `tests/p2p_session.rs`.
+The harness uploads a signed seeder hint, fetches/verifies the index, supplies the discovered
+explicit loopback bootstrap address to the leecher, and verifies file bytes and the tracker's
+metadata-only snapshot. HTTP does not establish transport routes or perform NAT coordination.
+Windows/loopback acceptance: 18 tracker BDD scenarios / 54 steps, 26 room scenarios / 78 steps,
+9 scheduler scenarios / 27 steps, 3 synthetic swarm tests, 4 real process tests (including tracker
+discovery), 15 P2P unit tests, and `cargo check -j 1 --offline --all-targets` passed (existing
+warnings). Automatic heartbeat/index synchronization and persistent
+peer keys belong to the forthcoming service. DigitalOcean deployment, physical NAT, production load and hosting cost are unverified.
 
 ### Phase-6 member publishing and moderation (revised 2026-10-02)
 
@@ -583,7 +630,7 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    Revised Windows/loopback validation: 26 room scenarios / 78 steps, 9 scheduler scenarios,
    3 synthetic swarm tests, 3 real KCP process tests, 15 P2P unit tests and
    `cargo check -j 1 --offline --all-targets` passed. No new physical NAT or media playback test.
-7. **Minimal rendezvous node.** Rust tracker binary with `get_index` / `put_records` /
+7. **Minimal rendezvous node.** *(DONE locally)* Rust tracker binary with `get_index` / `put_records` /
    `put_announce` / `get_peers` and a short-TTL live table. Verify member publications and pinned
    maintainer authority independently; no payload bytes or secrets touch the node. Expiry changes
    availability, never durable publications. Test locally with fake peers before deployment.

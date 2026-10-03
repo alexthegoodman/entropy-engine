@@ -1,8 +1,8 @@
 # Entropy P2P diagram brief
 
-This describes the revised target architecture as of 2026-10-02. Phases 1-6, including
-member publishing and moderation, exist in Rust. Tracker, persistent service and product UI
-are still planned. Real NAT traversal and direct-only enforcement remain to be verified.
+This describes the revised target architecture as of 2026-10-02. Phases 1-7, including
+member publishing, moderation and local tracker/client, exist in Rust. Persistent service and
+product UI are still planned. Real NAT traversal and direct-only enforcement remain to be verified.
 
 ## Diagram-ready prompt
 
@@ -47,7 +47,7 @@ stale replicas. Removing one post does not block the same payload through anothe
 a content block does. Bans apply to keys, not real-world identities. Replicated state derives the
 catalog of content permitted to circulate.
 
-Above the peers show a **planned small Rust tracker**, run locally first and later on a
+Above the peers show an **implemented local Rust tracker**, run locally first and later on a
 DigitalOcean droplet. It contains two separate stores: durable verified public room records,
 and expiring peer/seeder announcements. Label its four API operations: `get_index`, `put_records`,
 `put_announce`, `get_peers`. The tracker verifies member signatures and pinned maintainer
@@ -76,8 +76,8 @@ For the later media player, show a muted path from verified pieces to a temporar
 and the existing audio/video decoder, with buffering, sequential lookahead and seek cancellation.
 This is planned playback integration, not an already verified progressive decoder path.
 
-Add a roadmap footer: "Implemented: phases 1-6. Next: tracker → persistent service → forum.
-Later: physical NAT verification, file browser, media player, incremental room synchronization."
+Add a roadmap footer: "Implemented locally: phases 1-7. Next: persistent service, then forum.
+Later: deployment, physical NAT verification, file browser, media player, incremental room synchronization."
 
 ## End-to-end story
 
