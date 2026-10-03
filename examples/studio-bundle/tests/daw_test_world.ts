@@ -183,6 +183,11 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             plan: [] as any[],
             requests: [] as any[],
             error: null as string | null,
+            // requestPlan tickets with the answer each was given when asked; `hold` keeps every
+            // ticket pending, as a slow inference would.
+            tickets: new Map<number, { plan: any[]; error: string | null }>(),
+            hold: false,
+            polls: 0,
             // What `Prediction.status` answers: a test sets `available: false` for a setup with no model.
             status: { available: true, checkpoint: "checkpoints/prediction", message: "Trained 20 epochs on 20000 sessions", vocab_version: 2, eval_top1: null, eval_top3: null } as any,
         },
@@ -529,6 +534,23 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
                 w.prediction.requests.push(JSON.parse(JSON.stringify(request)));
                 if (w.prediction.error) throw new Error(w.prediction.error);
                 return JSON.parse(JSON.stringify(w.prediction.plan));
+            },
+            // The worker path: the request is kept now and answered on the first poll after it
+            // (the next frame), or held "pending" while a test sets `w.prediction.hold`.
+            requestPlan: (request: any) => {
+                w.prediction.requests.push(JSON.parse(JSON.stringify(request)));
+                const ticket = w.prediction.requests.length;
+                w.prediction.tickets.set(ticket, { plan: JSON.parse(JSON.stringify(w.prediction.plan)), error: w.prediction.error });
+                return ticket;
+            },
+            pollPlan: (ticket: number) => {
+                const job = w.prediction.tickets.get(ticket);
+                if (!job) return { state: "unknown", plan: [], error: null, elapsed_ms: 0 };
+                if (w.prediction.hold) return { state: "pending", plan: [], error: null, elapsed_ms: 0 };
+                w.prediction.polls++;
+                return job.error
+                    ? { state: "error", plan: [], error: job.error, elapsed_ms: 1 }
+                    : { state: "done", plan: job.plan, error: null, elapsed_ms: 1 };
             },
         },
         Vst3: {

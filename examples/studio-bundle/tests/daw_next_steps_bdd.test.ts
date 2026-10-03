@@ -85,9 +85,29 @@ describe("Suggested Next Steps (production addon callbacks)", () => {
                     expect(w.prediction.requests.at(-1).history.map((e: any) => e.action)).toContain(m[1]);
                 } else if ((m = /^the model cannot load: "(.+)"$/.exec(step))) {
                     w.prediction.error = m[1];
-                } else if (step === "the DAW is open with Suggested Next Steps showing") {
+                } else if (step === "the DAW is open with Suggested Next Steps showing" || step === "the DAW is open") {
+                    // Next Steps is the inspector's default tab: opening the DAW shows it.
                     await world.open();
-                    click("toggle_predictions");
+                    world.advance(400);
+                    if (step !== "the DAW is open") expect(w.tabBars.get("inspector_tab")?.selected).toBe("next");
+                } else if ((m = /^the inspector's first tab is "(\w+)"$/.exec(step))) {
+                    world.renderOnly();
+                    expect(w.tabBars.get("inspector_tab").tabs[0].id).toBe(m[1]);
+                } else if ((m = /^the inspector is showing "(\w+)"$/.exec(step))) {
+                    world.renderOnly();
+                    expect(w.tabBars.get("inspector_tab")?.selected).toBe(m[1]);
+                } else if (step === "the inspector is hidden") {
+                    world.renderOnly();
+                    expect(w.tabBars.has("inspector_tab")).toBe(false);
+                } else if ((m = /^I pick the inspector tab "(\w+)"$/.exec(step))) {
+                    world.renderOnly();
+                    w.tabBars.get("inspector_tab").onSelect(m[1]);
+                    world.advance(400);
+                } else if (step === "the model is slow to answer") {
+                    w.prediction.hold = true;
+                } else if (step === "the model answers") {
+                    w.prediction.hold = false;
+                    world.advance(100);
                 } else if ((m = /^I open the "(\w+)" view$/.exec(step))) {
                     world.render();
                     w.tabBars.get("daw_view").onSelect(m[1]);

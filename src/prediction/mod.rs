@@ -9,6 +9,7 @@ pub mod nn;
 
 pub use daw_actions::{ActionStep, DawAction, StepContext, Trajectory};
 pub use model::{
-    ActionPredictor, AltAction, PredictedAction, PredictionMetadata, PredictionModel, PredictionModelConfig,
-    PredictionStatus, predict_next_actions, predict_plan, prediction_status, resolve_prediction_checkpoint_dir,
+    ActionPredictor, AltAction, InferenceBackend, LoadedPredictor, PlanPoll, PlanState, PredictedAction,
+    PredictionMetadata, PredictionModel, PredictionModelConfig, PredictionStatus, poll_plan, predict_next_actions,
+    predict_plan, prediction_status, request_plan, resolve_prediction_checkpoint_dir,
 };

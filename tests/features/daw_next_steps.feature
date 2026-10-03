@@ -96,3 +96,37 @@ Feature: Suggested Next Steps learns from what you do and lets you tweak every s
     And the DAW is open with Suggested Next Steps showing
     Then the panel shows "vocabulary v1"
     And the panel shows "train_prediction"
+
+  Scenario: Next Steps is the inspector's first tab and the one it opens on
+    Given the DAW is open
+    Then the inspector's first tab is "next"
+    And the inspector is showing "next"
+    And the panel shows "What the model sees"
+
+  Scenario: The Next Steps button brings the tab back, and hides the inspector when it is showing
+    Given the DAW is open
+    When I pick the inspector tab "sound"
+    And I press "toggle_predictions"
+    Then the inspector is showing "next"
+    When I press "toggle_predictions"
+    Then the inspector is hidden
+
+  Scenario: A slow plan never holds up a frame: the last plan stays until the new one arrives
+    Given the model will suggest "set_volume 1 0.3"
+    And the DAW is open with Suggested Next Steps showing
+    And the model is slow to answer
+    When I press "prediction_refresh_btn"
+    Then the panel shows "Planning..."
+    And step 1 has a knob "pred_0_gain" at 0.3
+    Given the model will suggest "set_reverb_preset 4"
+    And the model answers
+    When I press "prediction_refresh_btn"
+    Then step 1 has a dropdown "pred_0_preset" on "Hall"
+
+  Scenario: An applied step leaves the plan at once, before the next plan arrives
+    Given the model will suggest "set_volume 1 0.3; set_reverb_preset 4"
+    And the DAW is open with Suggested Next Steps showing
+    And the model is slow to answer
+    When I press "pred_apply_0"
+    Then the track "Bass" has gain 0.3
+    And step 1 has a dropdown "pred_0_preset" on "Hall"

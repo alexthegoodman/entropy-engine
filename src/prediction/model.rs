@@ -21,7 +21,7 @@ use super::{
 };
 use anyhow::Result;
 use burn::{
-    backend::Wgpu,
+    backend::{ndarray::NdArrayDevice, NdArray, Wgpu},
     module::Ignored,
     nn::{
         Dropout, DropoutConfig, Embedding, EmbeddingConfig, Linear, LinearConfig,
@@ -463,13 +463,17 @@ pub struct ActionPredictor<B: Backend = Wgpu> {
 
 impl ActionPredictor<Wgpu> {
     pub fn new(directory: &str) -> Result<Self> {
-        let device = burn::backend::wgpu::WgpuDevice::default();
-        let (model, config) = PredictionModel::<Wgpu>::load(directory, &device)?;
-        Ok(Self { model, config, device })
+        Self::load(directory, burn::backend::wgpu::WgpuDevice::default())
     }
 }
 
 impl<B: Backend> ActionPredictor<B> {
+    /// Loads a checkpoint onto `device` of any backend (the record format is backend-neutral).
+    pub fn load(directory: &str, device: B::Device) -> Result<Self> {
+        let (model, config) = PredictionModel::<B>::load(directory, &device)?;
+        Ok(Self { model, config, device })
+    }
+
     pub fn from_model(model: PredictionModel<B>, device: B::Device) -> Self {
         let config = model.config.0.clone();
         Self { model, config, device }
@@ -569,9 +573,9 @@ impl<B: Backend> ActionPredictor<B> {
 //
 // The model is optional: a setup without one (none trained yet, not downloaded, an old
 // vocabulary) keeps working. `prediction_status` says whether a usable checkpoint is there
-// without loading it, and `predict_plan` answers an empty plan when there is none. A checkpoint
-// that fails to load is not retried until its files change, and a panic inside Burn (no GPU
-// adapter, say) is caught and reported instead of taking the app down.
+// without loading it, and a plan is empty when there is none. A checkpoint that fails to load is
+// not retried until its files change, and a panic inside Burn (no GPU adapter, say) is caught and
+// reported instead of taking the app down.
 
 /// Overrides where the checkpoint is looked for.
 pub const CHECKPOINT_ENV: &str = "ENTROPY_PREDICTION_DIR";
@@ -627,7 +631,8 @@ pub fn resolve_prediction_checkpoint_dir() -> Result<PathBuf> {
     })
 }
 
-/// Whether a usable checkpoint is installed, without loading its weights.
+/// Whether a usable checkpoint is installed, without loading its weights. Never waits on a
+/// load or an inference in progress.
 pub fn prediction_status() -> PredictionStatus {
     let unavailable = |checkpoint: Option<&Path>, message: String| PredictionStatus {
         available: false,
@@ -648,10 +653,8 @@ pub fn prediction_status() -> PredictionStatus {
     if let Err(e) = check_compatible(&meta, &dir) {
         return unavailable(Some(&dir), e.to_string());
     }
-    if let Some(LoadState::Failed { dir: failed, stamp, error }) = lock_predictor().as_ref() {
-        if *failed == dir && *stamp == checkpoint_stamp(&dir) {
-            return unavailable(Some(&dir), error.clone());
-        }
+    if let Some(error) = load_failure(&dir, checkpoint_stamp(&dir)) {
+        return unavailable(Some(&dir), error);
     }
     PredictionStatus {
         available: true,
@@ -661,19 +664,6 @@ pub fn prediction_status() -> PredictionStatus {
         eval_top1: meta.eval_top1,
         eval_top3: meta.eval_top3,
     }
-}
-
-enum LoadState {
-    Loaded { predictor: ActionPredictor<Wgpu>, dir: PathBuf, stamp: Option<std::time::SystemTime> },
-    /// Not retried until the checkpoint's files change.
-    Failed { dir: PathBuf, stamp: Option<std::time::SystemTime>, error: String },
-}
-
-static PREDICTOR: std::sync::Mutex<Option<LoadState>> = std::sync::Mutex::new(None);
-
-/// The shared predictor's slot. A panic while it was held does not poison it for good.
-fn lock_predictor() -> std::sync::MutexGuard<'static, Option<LoadState>> {
-    PREDICTOR.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Newest modification time of the checkpoint's two files, so a retrain is picked up.
@@ -692,9 +682,274 @@ fn panic_text(panic: Box<dyn std::any::Any + Send>) -> String {
         .unwrap_or_else(|| "unknown panic".to_string())
 }
 
-/// Predicts a plan with the shared predictor, loading (or reloading, when the checkpoint on
-/// disk changes) as needed. With no checkpoint installed this is an empty plan, not an error;
-/// a checkpoint that is there but unusable (old vocabulary, failed load) is an error.
+// ── Inference backend ─────────────────────────────────────────────────────────
+
+/// Picks the Burn backend inference runs on: `cpu` (NdArray, the default) or `gpu` (Wgpu).
+pub const BACKEND_ENV: &str = "ENTROPY_PREDICTION_BACKEND";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InferenceBackend {
+    Cpu,
+    Gpu,
+}
+
+impl InferenceBackend {
+    pub fn from_env() -> Self {
+        match std::env::var(BACKEND_ENV).map(|v| v.to_ascii_lowercase()) {
+            Ok(v) if v == "gpu" || v == "wgpu" => Self::Gpu,
+            _ => Self::Cpu,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Gpu => "gpu",
+        }
+    }
+}
+
+/// A loaded predictor on either backend.
+pub enum LoadedPredictor {
+    Cpu(ActionPredictor<NdArray>),
+    Gpu(ActionPredictor<Wgpu>),
+}
+
+impl LoadedPredictor {
+    pub fn load(directory: &str, backend: InferenceBackend) -> Result<Self> {
+        Ok(match backend {
+            InferenceBackend::Cpu => Self::Cpu(ActionPredictor::load(directory, NdArrayDevice::Cpu)?),
+            InferenceBackend::Gpu => Self::Gpu(ActionPredictor::new(directory)?),
+        })
+    }
+
+    pub fn predict_plan(&self, history: &[ActionStep], current: Option<StepContext>, steps: usize, alternative: usize) -> Vec<PredictedAction> {
+        match self {
+            Self::Cpu(p) => p.predict_plan(history, current, steps, alternative),
+            Self::Gpu(p) => p.predict_plan(history, current, steps, alternative),
+        }
+    }
+}
+
+// ── The prediction worker ─────────────────────────────────────────────────────
+//
+// Loading and inference run on one long-lived thread that owns the predictor, so the UI thread
+// never waits on the model: it submits a request (`request_plan`, which returns a ticket at once)
+// and picks the result up on a later frame (`poll_plan`). A request that a newer one overtook
+// before it started is answered `Superseded` without running, so a burst of edits costs one
+// inference. `predict_plan` is the blocking form for tests and tools; it goes through the same
+// worker and is never superseded.
+
+/// The last load failure: (checkpoint dir, its stamp, the error). Only ever held for a moment,
+/// never across a load or an inference, so `prediction_status` cannot wait on the model.
+static LOAD_FAILURE: std::sync::Mutex<Option<(PathBuf, Option<std::time::SystemTime>, String)>> = std::sync::Mutex::new(None);
+
+fn load_failure(dir: &Path, stamp: Option<std::time::SystemTime>) -> Option<String> {
+    let guard = LOAD_FAILURE.lock().unwrap_or_else(|p| p.into_inner());
+    match guard.as_ref() {
+        Some((d, s, error)) if d == dir && *s == stamp => Some(error.clone()),
+        _ => None,
+    }
+}
+
+fn set_load_failure(failure: Option<(PathBuf, Option<std::time::SystemTime>, String)>) {
+    *LOAD_FAILURE.lock().unwrap_or_else(|p| p.into_inner()) = failure;
+}
+
+/// Where a submitted plan request is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanState {
+    /// Queued or running.
+    Pending,
+    Done,
+    Error,
+    /// A newer request arrived before this one started; it never ran.
+    Superseded,
+    /// No such ticket (never issued, or long since forgotten).
+    Unknown,
+}
+
+/// The answer to `poll_plan`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanPoll {
+    pub state: PlanState,
+    pub plan: Vec<PredictedAction>,
+    pub error: Option<String>,
+    /// Time the worker spent on the request (a first request includes loading the model).
+    pub elapsed_ms: f32,
+}
+
+impl PlanPoll {
+    fn state(state: PlanState) -> Self {
+        Self { state, plan: Vec::new(), error: None, elapsed_ms: 0.0 }
+    }
+}
+
+type PlanResult = std::result::Result<Vec<PredictedAction>, String>;
+
+enum Reply {
+    Ticket(u64),
+    Wait(std::sync::mpsc::Sender<PlanResult>),
+}
+
+struct PlanJob {
+    checkpoint_dir: Option<PathBuf>,
+    history: Vec<ActionStep>,
+    current: Option<StepContext>,
+    steps: usize,
+    alternative: usize,
+    reply: Reply,
+}
+
+/// Tickets are issued from 1 up; the newest one is the only async request worth running.
+static NEXT_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static LATEST_TICKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Results by ticket, the most recent `KEPT_RESULTS`, so polling a ticket again is safe.
+static RESULTS: std::sync::Mutex<std::collections::BTreeMap<u64, PlanPoll>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+const KEPT_RESULTS: usize = 32;
+
+fn set_result(ticket: u64, poll: PlanPoll) {
+    let mut results = RESULTS.lock().unwrap_or_else(|p| p.into_inner());
+    results.insert(ticket, poll);
+    while results.len() > KEPT_RESULTS {
+        results.pop_first();
+    }
+}
+
+fn worker() -> Option<&'static std::sync::Mutex<std::sync::mpsc::Sender<PlanJob>>> {
+    static WORKER: std::sync::OnceLock<Option<std::sync::Mutex<std::sync::mpsc::Sender<PlanJob>>>> = std::sync::OnceLock::new();
+    WORKER
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<PlanJob>();
+            std::thread::Builder::new()
+                .name("entropy-prediction".into())
+                .spawn(move || {
+                    let mut loaded: Option<LoadState> = None;
+                    while let Ok(job) = rx.recv() {
+                        run_job(&mut loaded, job);
+                    }
+                })
+                .ok()
+                .map(|_| std::sync::Mutex::new(tx))
+        })
+        .as_ref()
+}
+
+fn submit(job: PlanJob) -> std::result::Result<(), String> {
+    let worker = worker().ok_or_else(|| "the prediction worker thread could not start".to_string())?;
+    let tx = worker.lock().unwrap_or_else(|p| p.into_inner());
+    tx.send(job).map_err(|_| "the prediction worker has stopped".to_string())
+}
+
+struct LoadState {
+    predictor: LoadedPredictor,
+    dir: PathBuf,
+    stamp: Option<std::time::SystemTime>,
+    backend: InferenceBackend,
+}
+
+fn run_job(loaded: &mut Option<LoadState>, job: PlanJob) {
+    if let Reply::Ticket(ticket) = job.reply {
+        if ticket < LATEST_TICKET.load(std::sync::atomic::Ordering::Acquire) {
+            set_result(ticket, PlanPoll::state(PlanState::Superseded));
+            return;
+        }
+    }
+    let started = std::time::Instant::now();
+    let result = plan_on_worker(loaded, &job);
+    match job.reply {
+        Reply::Wait(tx) => {
+            let _ = tx.send(result);
+        }
+        Reply::Ticket(ticket) => {
+            let elapsed_ms = started.elapsed().as_secs_f32() * 1000.0;
+            let poll = match result {
+                Ok(plan) => PlanPoll { state: PlanState::Done, plan, error: None, elapsed_ms },
+                Err(error) => PlanPoll { state: PlanState::Error, plan: Vec::new(), error: Some(error), elapsed_ms },
+            };
+            set_result(ticket, poll);
+        }
+    }
+}
+
+/// Loads (or reloads, when the checkpoint on disk or the backend changes) and predicts. With no
+/// checkpoint installed this is an empty plan, not an error; a checkpoint that is there but
+/// unusable (old vocabulary, failed load) is an error.
+fn plan_on_worker(loaded: &mut Option<LoadState>, job: &PlanJob) -> PlanResult {
+    let dir = match &job.checkpoint_dir {
+        Some(d) => d.clone(),
+        None => match resolve_prediction_checkpoint_dir() {
+            Ok(dir) => dir,
+            Err(_) => return Ok(Vec::new()),
+        },
+    };
+    let stamp = checkpoint_stamp(&dir);
+    let backend = InferenceBackend::from_env();
+    if let Some(error) = load_failure(&dir, stamp) {
+        return Err(error);
+    }
+    let fresh = matches!(loaded, Some(s) if s.dir == dir && s.stamp == stamp && s.backend == backend);
+    if !fresh {
+        *loaded = None;
+        let result = std::panic::catch_unwind(|| LoadedPredictor::load(&dir.to_string_lossy(), backend))
+            .unwrap_or_else(|panic| Err(anyhow::anyhow!("the prediction model crashed while loading: {}", panic_text(panic))));
+        match result {
+            Ok(predictor) => {
+                set_load_failure(None);
+                *loaded = Some(LoadState { predictor, dir, stamp, backend });
+            }
+            Err(e) => {
+                let error = e.to_string();
+                set_load_failure(Some((dir, stamp, error.clone())));
+                return Err(error);
+            }
+        }
+    }
+    let Some(state) = loaded.as_ref() else { unreachable!("the predictor was loaded above") };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        state.predictor.predict_plan(&job.history, job.current, job.steps, job.alternative)
+    }))
+    .map_err(|panic| format!("the prediction model crashed: {}", panic_text(panic)))
+}
+
+/// Queues a plan request on the prediction worker and returns its ticket at once. Poll it with
+/// `poll_plan`; a newer request supersedes this one if it has not started yet.
+pub fn request_plan(
+    checkpoint_dir: Option<&str>,
+    history: Vec<ActionStep>,
+    current: Option<StepContext>,
+    steps: usize,
+    alternative: usize,
+) -> u64 {
+    let ticket = NEXT_TICKET.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    LATEST_TICKET.fetch_max(ticket, std::sync::atomic::Ordering::AcqRel);
+    set_result(ticket, PlanPoll::state(PlanState::Pending));
+    let job = PlanJob {
+        checkpoint_dir: checkpoint_dir.map(PathBuf::from),
+        history,
+        current,
+        steps,
+        alternative,
+        reply: Reply::Ticket(ticket),
+    };
+    if let Err(error) = submit(job) {
+        set_result(ticket, PlanPoll { state: PlanState::Error, plan: Vec::new(), error: Some(error), elapsed_ms: 0.0 });
+    }
+    ticket
+}
+
+/// Where request `ticket` is. Never blocks on the model.
+pub fn poll_plan(ticket: u64) -> PlanPoll {
+    RESULTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&ticket)
+        .cloned()
+        .unwrap_or_else(|| PlanPoll::state(PlanState::Unknown))
+}
+
+/// Predicts a plan and waits for it (tests, tools). Runs on the same worker as `request_plan`.
 pub fn predict_plan(
     checkpoint_dir: Option<&str>,
     history: &[ActionStep],
@@ -702,39 +957,19 @@ pub fn predict_plan(
     steps: usize,
     alternative: usize,
 ) -> Result<Vec<PredictedAction>> {
-    let dir = match checkpoint_dir {
-        Some(d) => PathBuf::from(d),
-        None => match resolve_prediction_checkpoint_dir() {
-            Ok(dir) => dir,
-            Err(_) => return Ok(Vec::new()),
-        },
-    };
-    let stamp = checkpoint_stamp(&dir);
-    let mut guard = lock_predictor();
-    let fresh = match guard.as_ref() {
-        Some(LoadState::Loaded { dir: d, stamp: s, .. }) => *d == dir && *s == stamp,
-        Some(LoadState::Failed { dir: d, stamp: s, error }) if *d == dir && *s == stamp => anyhow::bail!("{error}"),
-        _ => false,
-    };
-    if !fresh {
-        *guard = None;
-        let loaded = std::panic::catch_unwind(|| ActionPredictor::new(&dir.to_string_lossy())).unwrap_or_else(|panic| {
-            Err(anyhow::anyhow!("the prediction model crashed while loading: {}", panic_text(panic)))
-        });
-        match loaded {
-            Ok(predictor) => *guard = Some(LoadState::Loaded { predictor, dir, stamp }),
-            Err(e) => {
-                let error = e.to_string();
-                *guard = Some(LoadState::Failed { dir, stamp, error: error.clone() });
-                anyhow::bail!("{error}");
-            }
-        }
-    }
-    let Some(LoadState::Loaded { predictor, .. }) = guard.as_ref() else {
-        unreachable!("the predictor was loaded above")
-    };
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| predictor.predict_plan(history, current, steps, alternative)))
-        .map_err(|panic| anyhow::anyhow!("the prediction model crashed: {}", panic_text(panic)))
+    let (tx, rx) = std::sync::mpsc::channel();
+    submit(PlanJob {
+        checkpoint_dir: checkpoint_dir.map(PathBuf::from),
+        history: history.to_vec(),
+        current,
+        steps,
+        alternative,
+        reply: Reply::Wait(tx),
+    })
+    .map_err(anyhow::Error::msg)?;
+    rx.recv()
+        .map_err(|_| anyhow::anyhow!("the prediction worker stopped before answering"))?
+        .map_err(anyhow::Error::msg)
 }
 
 /// Older entry point: ids (and optional raw params) with no context.

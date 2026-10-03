@@ -347,6 +347,13 @@ const terminalAPI = {
     listFonts: () => ops.op_terminal_list_fonts(),
 };
 
+const planRequest = (request) => ({
+    history: request.history ?? [],
+    current: request.current ?? null,
+    steps: request.steps ?? 5,
+    alternative: request.alternative ?? 0,
+});
+
 const predictionAPI = {
     predictNextActions: (contextIds = [], steps = 5) => {
         return ops.op_prediction_next_actions(contextIds, steps);
@@ -355,15 +362,13 @@ const predictionAPI = {
         return ops.op_prediction_action_vocab();
     },
     // history: [{ action, params, context }], oldest first. [] when no model is installed; throws when
-    // one is installed but unusable (old vocabulary, failed load).
-    predictPlan: (request = {}) => {
-        return ops.op_prediction_plan({
-            history: request.history ?? [],
-            current: request.current ?? null,
-            steps: request.steps ?? 5,
-            alternative: request.alternative ?? 0,
-        });
-    },
+    // one is installed but unusable (old vocabulary, failed load). Blocks until the model answers:
+    // UIs use requestPlan/pollPlan instead.
+    predictPlan: (request = {}) => ops.op_prediction_plan(planRequest(request)),
+    // Queues the plan on the prediction worker thread and returns a ticket at once.
+    requestPlan: (request = {}) => ops.op_prediction_request_plan(planRequest(request)),
+    // { state: "pending" | "done" | "error" | "superseded" | "unknown", plan, error, elapsed_ms }.
+    pollPlan: (ticket) => ops.op_prediction_poll_plan(ticket),
     getChoiceLists: () => ops.op_prediction_choice_lists(),
     vocabVersion: () => ops.op_prediction_vocab_version(),
     // { available, checkpoint, message, vocab_version, eval_top1, eval_top3 } without loading the model.

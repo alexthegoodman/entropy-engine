@@ -465,7 +465,7 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 <details>
 <summary><strong>Prediction (MoE next-action model)</strong></summary>
 
-Mixture-of-Experts inference (`src/prediction`) over the DAW's recorded actions, for the Suggested Next Steps panel. Each history entry is an action name, its parameters in natural units and the app context after it (instrument family, view, transport, pattern and song fill). Plans come back with predicted parameters, one per parameter spec, so the panel can draw knobs, dropdowns and toggles for each step. The model is optional: it is looked for in `checkpoints/prediction` (`metadata.json` + `model.bin`) or `ENTROPY_PREDICTION_DIR`; with none installed, plans are empty and `status()` says why. A checkpoint trained on another vocabulary version is refused. Train one with the `gen_daw_data` and `train_prediction` bins.
+Mixture-of-Experts inference (`src/prediction`) over the DAW's recorded actions, for the Suggested Next Steps panel. Each history entry is an action name, its parameters in natural units and the app context after it (instrument family, view, transport, pattern and song fill). Plans come back with predicted parameters, one per parameter spec, so the panel can draw knobs, dropdowns and toggles for each step. The model is optional: it is looked for in `checkpoints/prediction` (`metadata.json` + `model.bin`) or `ENTROPY_PREDICTION_DIR`; with none installed, plans are empty and `status()` says why. A checkpoint trained on another vocabulary version is refused. Train one with the `gen_daw_data` and `train_prediction` bins. Loading and inference run on a dedicated worker thread; UIs use `requestPlan`/`pollPlan` so a frame never waits on the model. Inference runs on the CPU (Burn NdArray) by default; `ENTROPY_PREDICTION_BACKEND=gpu` switches to Wgpu. `cargo run --release --bin bench_prediction` times both.
 
 Example Training Run output:
 ```
@@ -490,7 +490,9 @@ Epoch 3/20 [00:03:19] ███████████████████�
 
 | Call | What it does |
 |---|---|
-| `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. `[]` with no model installed; throws when one is installed but unusable. |
+| `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. `[]` with no model installed; throws when one is installed but unusable. Blocks until the worker answers. |
+| `Entropy.Prediction.requestPlan({ history, current?, steps?, alternative? })` | Queues the same request on the prediction worker and returns a ticket at once. A newer request supersedes an older one that has not started. |
+| `Entropy.Prediction.pollPlan(ticket)` | `{ state, plan, error, elapsed_ms }`, `state` one of `pending`, `done`, `error`, `superseded`, `unknown`. Never waits; safe every frame. |
 | `Entropy.Prediction.getActionVocab()` | Every action: id, name, display name, category, Phosphor icon and parameter specs (`kind`: knob, int, choice, toggle, note, track; range, default, unit, choice list). |
 | `Entropy.Prediction.getChoiceLists()` | The option lists choice parameters index into (families, views, presets, scales, windows...), as `{ id, label }`. |
 | `Entropy.Prediction.vocabVersion()` | The vocabulary version this build speaks. |

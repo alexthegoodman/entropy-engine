@@ -70,3 +70,20 @@ Feature: DAW Next Actions UI Prediction Model
     And a history of "play; not_a_real_action 3; stop" on a "synth" track in the "mixer" view
     When I request a plan of 2 steps
     Then the plan should have 2 steps
+
+  Scenario: A queued plan comes back by polling, without the caller waiting on the model
+    Given a freshly initialised prediction checkpoint
+    And a history of "set_bpm 124; open_view 1; add_note 0 0 1 0.85" on a "drum_rack" track in the "roll" view
+    When I queue 1 plans of 5 steps back to back
+    Then queuing a plan took under 5 ms
+    When I poll the newest plan until it is finished
+    Then the plan should have 5 steps
+    And every step should carry one value per parameter, inside its range
+
+  Scenario: A burst of requests runs only the newest that has not started
+    Given a freshly initialised prediction checkpoint
+    And a history of "add_track 2; set_instrument 5; load_brass 1" on a "brass" track in the "arrange" view
+    When I queue 10 plans of 3 steps back to back
+    And I poll the newest plan until it is finished
+    Then the plan should have 3 steps
+    And at least 5 of the earlier plans were superseded without running

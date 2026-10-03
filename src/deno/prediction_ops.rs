@@ -10,7 +10,7 @@
 use deno_core::op2;
 use serde::{Deserialize, Serialize};
 use crate::prediction::daw_actions::{ParamKind, CHOICE_LISTS, DAW_VOCAB_VERSION, MAX_ACTION_PARAMS};
-pub use crate::prediction::{ActionStep, DawAction, PredictedAction, PredictionStatus, StepContext};
+pub use crate::prediction::{ActionStep, DawAction, PlanPoll, PlanState, PredictedAction, PredictionStatus, StepContext};
 
 /// One parameter of an action, as the UI builds a control for it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,14 +118,33 @@ pub fn history_steps(history: &[HistoryEntry]) -> Vec<ActionStep> {
         .collect()
 }
 
-/// Predicts a plan from a recorded history. Empty when no model is installed.
+fn plan_steps(request: &PlanRequest) -> usize {
+    (request.steps.filter(|&s| s > 0).unwrap_or(5) as usize).min(12)
+}
+
+/// Queues a plan on the prediction worker thread and returns its ticket without waiting.
+pub fn request_plan(request: &PlanRequest) -> u64 {
+    crate::prediction::request_plan(
+        None,
+        history_steps(&request.history),
+        request.current.map(Into::into),
+        plan_steps(request),
+        request.alternative.unwrap_or(0) as usize,
+    )
+}
+
+/// Where a queued plan is: pending, done (with the plan), error, superseded or unknown.
+pub fn poll_plan(ticket: u64) -> PlanPoll {
+    crate::prediction::poll_plan(ticket)
+}
+
+/// Predicts a plan from a recorded history and waits for it. Empty when no model is installed.
 pub fn predict_plan(request: &PlanRequest) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {
-    let steps = request.steps.filter(|&s| s > 0).unwrap_or(5) as usize;
     crate::prediction::predict_plan(
         None,
         &history_steps(&request.history),
         request.current.map(Into::into),
-        steps.min(12),
+        plan_steps(request),
         request.alternative.unwrap_or(0) as usize,
     )
     .map_err(|e| deno_error::JsErrorBox::generic(format!("Prediction failed: {e}")))
@@ -184,7 +203,20 @@ pub fn prediction_choice_lists() -> std::collections::BTreeMap<String, Vec<Choic
         .collect()
 }
 
-/// Predict a plan from a history of `{ action, params, context }` entries.
+/// Queue a plan on the prediction worker; returns a ticket for `op_prediction_poll_plan`.
+#[op2]
+pub fn op_prediction_request_plan(#[serde] request: PlanRequest) -> f64 {
+    request_plan(&request) as f64
+}
+
+#[op2]
+#[serde]
+pub fn op_prediction_poll_plan(ticket: f64) -> PlanPoll {
+    poll_plan(ticket.max(0.0) as u64)
+}
+
+/// Predict a plan from a history of `{ action, params, context }` entries. Blocks until the
+/// worker answers; the UI uses request/poll instead.
 #[op2]
 #[serde]
 pub fn op_prediction_plan(#[serde] request: PlanRequest) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {

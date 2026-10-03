@@ -13,8 +13,8 @@
 
 use cucumber::{World as _, given, then, when};
 use entropy_engine::deno::prediction_ops::{
-    ActionVocabEntry, ContextInput, HistoryEntry, PlanRequest, PredictedAction, predict_plan,
-    prediction_action_vocab, prediction_choice_lists,
+    ActionVocabEntry, ContextInput, HistoryEntry, PlanRequest, PlanState, PredictedAction, poll_plan,
+    predict_plan, prediction_action_vocab, prediction_choice_lists,
 };
 use entropy_engine::deno::prediction_ops::{PredictionStatus, prediction_status};
 use entropy_engine::prediction::daw_actions::{ACTION_VOCAB_SIZE, DAW_VOCAB_VERSION, NUM_FAMILIES, NUM_VIEWS};
@@ -32,6 +32,9 @@ pub struct PredictionWorld {
     plan: Vec<PredictedAction>,
     alternative: Vec<PredictedAction>,
     status: Option<PredictionStatus>,
+    /// Tickets from `request_plan`, oldest first, and how long queuing the last one took.
+    tickets: Vec<u64>,
+    queue_ms: f64,
 }
 
 impl std::fmt::Debug for PredictionWorld {
@@ -165,6 +168,54 @@ fn request_plan(world: &mut PredictionWorld, steps: u32) {
 #[when(expr = "I request alternative plan {int} of {int} steps")]
 fn request_alternative(world: &mut PredictionWorld, alternative: u32, steps: u32) {
     world.alternative = request(world, steps, alternative);
+}
+
+fn plan_request(world: &PredictionWorld, steps: u32) -> PlanRequest {
+    PlanRequest { history: world.history.clone(), current: Some(world.current), steps: Some(steps), alternative: Some(0) }
+}
+
+#[when(expr = "I queue {int} plans of {int} steps back to back")]
+fn queue_plans(world: &mut PredictionWorld, count: usize, steps: u32) {
+    for _ in 0..count {
+        let request = plan_request(world, steps);
+        let started = std::time::Instant::now();
+        world.tickets.push(entropy_engine::deno::prediction_ops::request_plan(&request));
+        world.queue_ms = started.elapsed().as_secs_f64() * 1000.0;
+    }
+}
+
+#[when("I poll the newest plan until it is finished")]
+fn poll_newest(world: &mut PredictionWorld) {
+    let ticket = *world.tickets.last().expect("no plan was queued");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    loop {
+        let poll = poll_plan(ticket);
+        match poll.state {
+            PlanState::Pending => {
+                assert!(std::time::Instant::now() < deadline, "plan {ticket} still pending after 120 s");
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            PlanState::Done => {
+                world.plan = poll.plan;
+                return;
+            }
+            other => panic!("plan {ticket} ended {other:?}: {:?}", poll.error),
+        }
+    }
+}
+
+#[then(expr = "queuing a plan took under {int} ms")]
+fn queue_fast(world: &mut PredictionWorld, ms: u32) {
+    assert!(world.queue_ms < ms as f64, "queuing took {:.3} ms", world.queue_ms);
+}
+
+#[then(expr = "at least {int} of the earlier plans were superseded without running")]
+fn superseded(world: &mut PredictionWorld, count: usize) {
+    let earlier = &world.tickets[..world.tickets.len() - 1];
+    let states: Vec<PlanState> = earlier.iter().map(|&t| poll_plan(t).state).collect();
+    assert!(states.iter().all(|s| matches!(s, PlanState::Done | PlanState::Superseded)), "{states:?}");
+    let n = states.iter().filter(|&&s| s == PlanState::Superseded).count();
+    assert!(n >= count, "only {n} superseded: {states:?}");
 }
 
 // ── Then ──────────────────────────────────────────────────────────────────────

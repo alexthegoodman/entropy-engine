@@ -1702,6 +1702,11 @@ export interface PredictionAPI {
   /** Predict a plan of next actions, with predicted parameters, from a recorded history.
    *  Empty when no model is installed; throws when one is installed but cannot be used. */
   predictPlan: (request: PredictionPlanRequest) => PredictedAction[];
+  /** Queues a plan on the prediction worker thread and returns its ticket at once. A newer request
+   *  supersedes this one if it has not started yet. */
+  requestPlan: (request: PredictionPlanRequest) => number;
+  /** Where a queued plan is. Never waits on the model; safe to call every frame. */
+  pollPlan: (ticket: number) => PredictionPlanPoll;
   /** Older entry point: action ids only, no parameters or context. */
   predictNextActions: (contextIds?: number[], steps?: number) => PredictedAction[];
   /** The full action vocabulary with display names, categories, icons and parameter specs. */
@@ -1712,6 +1717,16 @@ export interface PredictionAPI {
   vocabVersion: () => number;
   /** Whether a usable model is installed, without loading it. `message` says why not when it is not. */
   status: () => PredictionStatus;
+}
+
+export interface PredictionPlanPoll {
+  /** "superseded": a newer request arrived before this one started, so it never ran.
+   *  "unknown": no such ticket (or forgotten after 32 newer ones). */
+  state: "pending" | "done" | "error" | "superseded" | "unknown";
+  plan: PredictedAction[];
+  error: string | null;
+  /** Worker time spent on the request; a first request includes loading the model. */
+  elapsed_ms: number;
 }
 
 export interface PredictionStatus {

@@ -84,7 +84,7 @@ import {
     reverbPresetIndex,
     setBand,
 } from "./daw_space";
-import type { DawActionDef, IconName, IconStyle, PredictedAction, PredictionContext, PredictionParamSpec } from "../addon";
+import type { DawActionDef, IconName, IconStyle, PredictedAction, PredictionContext, PredictionParamSpec, PredictionPlanPoll } from "../addon";
 import type { Family, RecordedAction } from "./daw_predict";
 import {
     ActionHistory, FAMILIES, VIEWS, choiceIndex, familyIndex, formatParam, noteName, paintSteps, paramDecimals,
@@ -5703,16 +5703,17 @@ const SNAP_LABELS = ["Bar", "Beat", "Step"];
 const TRANSPORT_MODES: TransportMode[] = ["song", "pattern"];
 
 // The workspace: one view fills the main area (Arrange, Piano Roll or Mixer) and the inspector
-// beside it holds the active track's sound, character, effects and moves. Neither is saved with
-// the song; they are how this window is arranged, not part of the music.
+// beside it holds the suggested next steps and the active track's sound, character, effects and
+// moves. Neither is saved with the song; they are how this window is arranged, not part of the music.
 type DawView = "arrange" | "roll" | "mixer";
-type InspectorTab = "sound" | "character" | "fx" | "moves";
+type InspectorTab = "next" | "sound" | "character" | "fx" | "moves";
 const DAW_VIEWS: { id: DawView; label: string; icon: IconName; key: string }[] = [
     { id: "arrange", label: "Arrange", icon: "rows", key: "1" },
     { id: "roll", label: "Piano Roll", icon: "piano-keys", key: "2" },
     { id: "mixer", label: "Mixer", icon: "sliders-horizontal", key: "3" },
 ];
 const INSPECTOR_TABS: { id: InspectorTab; label: string }[] = [
+    { id: "next", label: "Next Steps" },
     { id: "sound", label: "Sound" },
     { id: "character", label: "Character" },
     { id: "fx", label: "FX" },
@@ -5720,7 +5721,7 @@ const INSPECTOR_TABS: { id: InspectorTab; label: string }[] = [
 ];
 let dawView: DawView = "arrange";
 let inspectorOpen = true;
-let inspectorTab: InspectorTab = "sound";
+let inspectorTab: InspectorTab = "next";
 // Scroll the arrangement along with the playhead while the song plays.
 let followPlayhead = true;
 // Piano roll row height: "Fit" stretches the rows to the room there is.
@@ -5808,6 +5809,10 @@ function positionReadout(): string {
 // Each suggested step is drawn with real controls built from the action's parameter specs - knobs,
 // dropdowns, toggles - so a step can be tweaked and applied without opening the menus it lives in.
 // Applying a step runs the same functions the DAW's own controls do.
+//
+// The panel is the inspector's first tab. Plans come from the prediction worker thread
+// (Prediction.requestPlan returns a ticket at once, Prediction.pollPlan picks the plan up on a
+// later frame), so loading the model or a slow inference never holds up a frame.
 
 interface PredictVocab {
     defs: Map<string, DawActionDef>;
@@ -5844,8 +5849,11 @@ let predictionError: string | null = null;
 // panel says so quietly and the history keeps recording, so suggestions start once one is there.
 let predictionUnavailable: string | null = null;
 let predictionStatus = "";
-let predictionsVisible = false;
-let predictionsWindowId: string | null = null;
+// The plan request in flight on the worker; a newer request replaces it (the worker skips the
+// older one if it has not started).
+let pendingPlan: { ticket: number; alternative: number } | null = null;
+// Whether the panel showed last frame, so opening it asks for a fresh plan.
+let nextStepsWasShowing = false;
 // A new plan is asked for once the history has been still for a moment, so a knob drag or a
 // painted stroke costs one inference, not one per frame.
 let predictionDueAt = 0;
@@ -5900,8 +5908,21 @@ function noteWindow(id: string, visible: boolean, was: boolean) {
     recordDawAction("toggle_window", [choiceOf("windows", id), visible ? 1 : 0], `${visible ? "Opened" : "Closed"} ${label}`);
 }
 
+/** The Suggested Next Steps panel is on screen: the inspector is open on its tab. */
+const nextStepsShowing = () => inspectorOpen && inspectorTab === "next";
+
 function schedulePrediction(delay = PREDICTION_SETTLE_MS) {
-    if (predictionsVisible) predictionDueAt = Date.now() + delay;
+    if (nextStepsShowing()) predictionDueAt = Date.now() + delay;
+}
+
+/** The header's Next Steps button: shows the panel, or hides the inspector when it is showing. */
+function toggleNextSteps() {
+    if (nextStepsShowing()) {
+        inspectorOpen = false;
+    } else {
+        inspectorOpen = true;
+        inspectorTab = "next";
+    }
 }
 
 // The view the history last recorded. Views are recorded where they settle, once a frame.
@@ -5914,18 +5935,51 @@ function noteViewChange() {
     recordDawAction("open_view", [viewIndex(dawView)], `Showing ${DAW_VIEWS.find(v => v.id === dawView)?.label ?? dawView}`);
 }
 
-/** Once a frame: records a settled view change and asks for the plan a recent change made due. */
+/** Once a frame: records a settled view change, asks for the plan a recent change (or opening the
+ *  panel) made due, and collects a plan the worker has finished. */
 function tickPredictions() {
     noteViewChange();
+    const showing = nextStepsShowing();
+    if (showing && !nextStepsWasShowing) refreshPredictions();
+    nextStepsWasShowing = showing;
     if (predictionDueAt && Date.now() >= predictionDueAt) {
         predictionDueAt = 0;
         refreshPredictions();
     }
+    collectPlan();
 }
 
+/** Takes the pending plan once the worker has it. Never waits: a pending plan stays pending. */
+function collectPlan() {
+    if (!pendingPlan) return;
+    let poll: PredictionPlanPoll;
+    try {
+        poll = addon.Prediction.pollPlan(pendingPlan.ticket);
+    } catch (e) {
+        poll = { state: "error", plan: [], error: errorText(e), elapsed_ms: 0 };
+    }
+    if (poll.state === "pending") return;
+    const { alternative } = pendingPlan;
+    pendingPlan = null;
+    if (poll.state === "done") {
+        predictedNextSteps = poll.plan ?? [];
+        predictionError = null;
+    } else if (poll.state === "error") {
+        Entropy.println("Prediction failed: " + poll.error);
+        predictedNextSteps = [];
+        predictionError = poll.error ?? "Prediction failed.";
+    } else {
+        // Superseded or forgotten: a newer request owns the panel.
+        return;
+    }
+    planSerial++;
+    planAlternative = alternative;
+}
+
+/** Asks the worker for a new plan. The current one stays on screen until the new one arrives. */
 function refreshPredictions(alternative = 0) {
     predictionDueAt = 0;
-    if (!addon.Prediction?.predictPlan) {
+    if (!addon.Prediction?.requestPlan) {
         predictionError = "The prediction engine is not available in this build.";
         return;
     }
@@ -5936,33 +5990,27 @@ function refreshPredictions(alternative = 0) {
         predictionUnavailable = errorText(e);
     }
     if (predictionUnavailable) {
+        pendingPlan = null;
         predictedNextSteps = [];
         predictionError = null;
         planSerial++;
         return;
     }
     try {
-        // Entropy.println("refresh: " + JSON.stringify(actionHistory.toRequest()) + " " + JSON.stringify(predictionContext()) + " " + JSON.stringify(PREDICTION_STEPS) + " " + JSON.stringify(alternative));
-        predictedNextSteps = addon.Prediction.predictPlan({
+        const ticket = addon.Prediction.requestPlan({
             history: actionHistory.toRequest(),
             current: predictionContext(),
             steps: PREDICTION_STEPS,
             alternative,
-        }) ?? [];
-        predictionError = null;
+        });
+        pendingPlan = { ticket, alternative };
     } catch (e) {
-        Entropy.println("ERROR: " + errorText(e));
+        Entropy.println("Prediction failed: " + errorText(e));
+        pendingPlan = null;
         predictedNextSteps = [];
         predictionError = errorText(e);
+        planSerial++;
     }
-    planSerial++;
-    planAlternative = alternative;
-}
-
-function setPredictionsVisible(v: boolean) {
-    predictionsVisible = v;
-    if (v) refreshPredictions();
-    if (predictionsWindowId) Entropy.UI.setWindowVisible(predictionsWindowId, v);
 }
 
 const editKey = (index: number) => `${planSerial}:${index}`;
@@ -6498,7 +6546,12 @@ function applySuggestion(index: number, refresh = true): boolean {
     }
     persist();
     predictionStatus = result.detail;
-    if (refresh) refreshPredictions();
+    if (refresh) {
+        // The rest of the plan stays up until the worker answers; the applied step goes now so it
+        // cannot be applied twice.
+        skipSuggestion(index);
+        refreshPredictions();
+    }
     return true;
 }
 
@@ -6510,6 +6563,8 @@ function applyAllSuggestions() {
         applied++;
     }
     predictionStatus = `Applied ${applied} of ${count} steps.`;
+    predictedNextSteps = predictedNextSteps.slice(applied);
+    planSerial++;
     refreshPredictions();
 }
 
@@ -6598,9 +6653,24 @@ function renderStepCard(parent: string, step: PredictedAction, i: number) {
             if (edited) W.label(top, { text: "edited", color: UI.amber, fontSize: 11 });
         });
         if (def && def.params.length > 0) {
-            W.horizontal(card, (row: string) => {
-                def.params.forEach((spec, pi) => renderStepControl(row, i, pi, spec, params[pi]));
+            // The inspector is narrow: knobs go three to a row, dropdowns and toggles one each.
+            let knobs: number[] = [];
+            const flushKnobs = () => {
+                if (knobs.length === 0) return;
+                const row = knobs;
+                knobs = [];
+                W.horizontal(card, (r: string) => { for (const pi of row) renderStepControl(r, i, pi, def.params[pi], params[pi]); });
+            };
+            def.params.forEach((spec, pi) => {
+                if (spec.kind === "choice" || spec.kind === "track" || spec.kind === "toggle") {
+                    flushKnobs();
+                    renderStepControl(card, i, pi, spec, params[pi]);
+                } else {
+                    knobs.push(pi);
+                    if (knobs.length === 3) flushKnobs();
+                }
             });
+            flushKnobs();
         }
         W.horizontal(card, (actions: string) => {
             W.button(actions, {
@@ -6612,26 +6682,28 @@ function renderStepCard(parent: string, step: PredictedAction, i: number) {
             if (edited) {
                 W.button(actions, { text: "Reset", id: `pred_reset_${i}`, frame: false, tooltip: "Back to the model's values", onClick: () => { delete stepEdits[editKey(i)]; } });
             }
-            const alts = (step.alternatives ?? []).filter(a => a.confidence >= 0.03).slice(0, 2);
-            if (alts.length > 0) {
-                W.label(actions, { text: "or", color: UI.dim, fontSize: 11 });
+        });
+        const alts = (step.alternatives ?? []).filter(a => a.confidence >= 0.03).slice(0, 2);
+        if (alts.length > 0) {
+            W.horizontal(card, (row: string) => {
+                W.label(row, { text: "or", color: UI.dim, fontSize: 11 });
                 for (const alt of alts) {
-                    W.button(actions, {
+                    W.button(row, {
                         text: `${alt.display_name} ${Math.round(alt.confidence * 100)}%`, id: `pred_alt_${i}_${alt.name}`, frame: false,
                         tooltip: `Make this step ${alt.display_name} instead`,
                         onClick: () => { swapStep(i, alt.name); }
                     });
                 }
-            }
-        });
+            });
+        }
     });
 }
 
-function renderPredictionsWindow(win: string) {
+/** The inspector's Next Steps tab: the suggested plan and the history the model reads. */
+function renderNextStepsTab(side: string) {
     const W = Entropy.UI.Widget;
 
-    W.horizontal(win, (row: string) => {
-        W.label(row, { text: withIcon("sparkle", "Suggested Next Steps"), bold: true, fontSize: 14 });
+    W.horizontal(side, (row: string) => {
         W.button(row, {
             text: withIcon("arrows-clockwise", planAlternative === 0 ? "Another plan" : `Plan ${planAlternative + 1}`),
             id: "prediction_refresh_btn",
@@ -6643,44 +6715,43 @@ function renderPredictionsWindow(win: string) {
             tooltip: "Forget the recorded actions and plan from the song as it is",
             onClick: () => { clearActionHistory(); }
         });
+        if (pendingPlan) W.label(row, { text: "Planning...", color: UI.dim, fontSize: 11 });
     });
 
     if (predictionUnavailable) {
-        W.label(win, { text: "Suggestions start once a prediction model is installed. Your actions are being recorded in the meantime.", wrap: true });
-        W.label(win, { text: predictionUnavailable, color: UI.dim, fontSize: 12, wrap: true });
+        W.label(side, { text: "Suggestions start once a prediction model is installed. Your actions are being recorded in the meantime.", wrap: true });
+        W.label(side, { text: predictionUnavailable, color: UI.dim, fontSize: 12, wrap: true });
     } else if (predictionError) {
-        W.label(win, { text: predictionError, color: UI.warn, wrap: true });
-        W.label(win, { text: "Generate data with gen_daw_data and train with train_prediction (entropy-engine), or set ENTROPY_PREDICTION_DIR to a checkpoint.", color: UI.dim, fontSize: 12, wrap: true });
+        W.label(side, { text: predictionError, color: UI.warn, wrap: true });
+        W.label(side, { text: "Generate data with gen_daw_data and train with train_prediction (entropy-engine), or set ENTROPY_PREDICTION_DIR to a checkpoint.", color: UI.dim, fontSize: 12, wrap: true });
     } else if (predictedNextSteps.length === 0) {
-        W.label(win, { text: "No plan yet: take an action in the DAW or ask for another plan.", color: UI.dim });
+        W.label(side, { text: pendingPlan ? "Working out a plan..." : "No plan yet: take an action in the DAW or ask for another plan.", color: UI.dim, wrap: true });
     } else {
-        predictedNextSteps.forEach((step, i) => renderStepCard(win, step, i));
-        W.horizontal(win, (bot: string) => {
-            W.button(bot, {
-                text: withIcon("fast-forward", "Apply all"), id: "pred_run_all_btn",
-                tooltip: "Apply every step in order, each with its settings", onClick: () => { applyAllSuggestions(); }
-            });
+        predictedNextSteps.forEach((step, i) => renderStepCard(side, step, i));
+        W.button(side, {
+            text: withIcon("fast-forward", "Apply all"), id: "pred_run_all_btn",
+            tooltip: "Apply every step in order, each with its settings", onClick: () => { applyAllSuggestions(); }
         });
     }
-    if (predictionStatus) W.label(win, { text: predictionStatus, color: UI.dim, fontSize: 12, wrap: true });
+    if (predictionStatus) W.label(side, { text: predictionStatus, color: UI.dim, fontSize: 12, wrap: true });
 
-    W.separator(win);
-    W.horizontal(win, (hdr: string) => {
+    W.separator(side);
+    W.horizontal(side, (hdr: string) => {
         W.label(hdr, { text: withIcon("clock-counter-clockwise", "What the model sees"), bold: true });
         W.label(hdr, { text: `${actionHistory.length} action${actionHistory.length === 1 ? "" : "s"}`, color: UI.dim, fontSize: 12 });
     });
     const entries = actionHistory.entries();
     if (entries.length === 0) {
-        W.label(win, { text: "Nothing yet. Paint notes, pick instruments, move clips or turn knobs: each becomes part of the context.", color: UI.dim, wrap: true });
+        W.label(side, { text: "Nothing yet. Paint notes, pick instruments, move clips or turn knobs: each becomes part of the context.", color: UI.dim, wrap: true });
     }
     for (const entry of entries.slice(-HISTORY_SHOWN).reverse()) {
         const def = actionDef(entry.action);
-        W.horizontal(win, (line: string) => {
+        W.horizontal(side, (line: string) => {
             W.label(line, { text: withIcon((def?.icon as IconName) || "sparkle", def?.display_name ?? entry.action), bold: entry.source === "suggestion" });
-            const text = historyLine(entry);
-            if (text) W.label(line, { text, color: UI.dim, fontSize: 12 });
             if (entry.source === "suggestion") W.label(line, { text: "suggested", color: UI.amber, fontSize: 11 });
         });
+        const text = historyLine(entry);
+        if (text) W.label(side, { text, color: UI.dim, fontSize: 12, wrap: true });
     }
 }
 
@@ -6851,9 +6922,9 @@ addon.onInit(async () => {
                     text: isNarrow ? icon("sparkle") : withIcon("sparkle", "Next Steps"),
                     id: "toggle_predictions",
                     frame: false,
-                    selected: predictionsVisible,
-                    tooltip: predictionsVisible ? "Hide Suggested Next Steps" : "Suggested Next Steps: AI predicted workflow and recent action history",
-                    onClick: () => { setPredictionsVisible(!predictionsVisible); }
+                    selected: nextStepsShowing(),
+                    tooltip: nextStepsShowing() ? "Hide the inspector" : "Suggested Next Steps: AI predicted workflow and recent action history, in the inspector",
+                    onClick: () => { toggleNextSteps(); }
                 });
                 W.button(right, {
                     text: icon("chart-bar"),
@@ -7708,12 +7779,11 @@ addon.onInit(async () => {
     };
 
     const renderInspector = (side: string, track: Track | undefined) => {
-        if (!track) {
-            W.label(side, { text: "Add a track to begin." });
-            return;
+        // Next Steps is about the song, not one track, so it shows with or without one.
+        if (track) {
+            W.label(side, { text: track.name, bold: true, fontSize: 17, color: trackRgba(track) });
+            W.label(side, { text: instrumentSummary(track), color: UI.dim, fontSize: 12, wrap: true });
         }
-        W.label(side, { text: track.name, bold: true, fontSize: 17, color: trackRgba(track) });
-        W.label(side, { text: instrumentSummary(track), color: UI.dim, fontSize: 12, wrap: true });
         W.tabBar(side, {
             id: "inspector_tab",
             tabs: INSPECTOR_TABS,
@@ -7723,7 +7793,9 @@ addon.onInit(async () => {
                 if (next) inspectorTab = next.id;
             }
         });
-        if (inspectorTab === "sound") renderSoundTab(side, track);
+        if (inspectorTab === "next") renderNextStepsTab(side);
+        else if (!track) W.label(side, { text: "Add a track to begin." });
+        else if (inspectorTab === "sound") renderSoundTab(side, track);
         else if (inspectorTab === "character") renderCharacterTab(side, track);
         else if (inspectorTab === "fx") renderFxTab(side, track);
         else renderMovesTab(side, track);
@@ -7988,18 +8060,6 @@ addon.onInit(async () => {
         onClose: () => { noteWindow("guitar", false, guitarVisible); guitarVisible = false; }
     });
     Entropy.UI.setWindowVisible(guitarWindowId, guitarVisible);
-
-    // Suggested Next Steps floating window (MoE model predictions and recent action context).
-    predictionsWindowId = createDawWindow({
-        title: "Suggested Next Steps",
-        width: 640,
-        height: Math.max(520, Math.min(760, screenH - 72)),
-        x: Math.max(16, Math.round((screenW - 640) / 2)),
-        y: 56,
-        onRender: () => renderPredictionsWindow(predictionsWindowId!),
-        onClose: () => { predictionsVisible = false; }
-    });
-    Entropy.UI.setWindowVisible(predictionsWindowId, predictionsVisible);
 
     const onFrame = () => {
         tickPredictions();

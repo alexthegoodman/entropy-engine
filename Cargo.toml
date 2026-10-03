@@ -216,6 +216,10 @@ path = "src/bin/gen_daw_data.rs"
 name = "train_prediction"
 path = "src/bin/train_prediction.rs"
 
+[[bin]]
+name = "bench_prediction"
+path = "src/bin/bench_prediction.rs"
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }

@@ -138,7 +138,8 @@ impl<B: Backend> SparseMoe<B> {
             logits.clone().detach().topk_with_indices(self.top_k, 1).1
         };
         // One host read of integer decisions; no dense expert output tensors.
-        let ids = choices.to_data().to_vec::<i32>().expect("router indices");
+        // Converted first: Wgpu's Int element is i32, NdArray's is i64.
+        let ids = choices.to_data().convert::<i64>().to_vec::<i64>().expect("router indices");
         let mut rows = vec![Vec::<i32>::new(); n];
         for (slot, expert) in ids.into_iter().enumerate() {
             rows[expert as usize].push((slot / self.top_k) as i32);

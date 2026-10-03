@@ -120,10 +120,10 @@ describe("Parameters from the model are made valid for their controls", () => {
     });
 });
 
-// The model's vocabulary lives in yumon-pet (Rust); the DAW maps its choice indices back to its own
+// The model's vocabulary lives in src/prediction/daw_actions.rs (Rust); the DAW maps its choice indices back to its own
 // ids. These read the Rust source so a renamed preset on either side fails here, not in a session.
 describe("The model's vocabulary matches the DAW", () => {
-    const rust = readFileSync(fileURLToPath(new URL("../../../../yumon-pet/src/brain/daw_actions.rs", import.meta.url)), "utf8");
+    const rust = readFileSync(fileURLToPath(new URL("../../../src/prediction/daw_actions.rs", import.meta.url)), "utf8");
     const list = (name: string): string[] => {
         const m = rust.match(new RegExp(`choice_list!\\(${name}, "[a-z_]+", \\[([\\s\\S]*?)\\]\\);`));
         if (!m) throw new Error(`no ${name} list in daw_actions.rs`);

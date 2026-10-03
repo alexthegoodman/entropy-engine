@@ -24,10 +24,11 @@ describe("The DAW workspace", () => {
         expect(w.tabConfig.scroll).toBe(false);
     });
 
-    it("opens on the arrangement with the inspector on Sound, and no piano roll on screen", async () => {
+    it("opens on the arrangement with the inspector on Next Steps, and no piano roll on screen", async () => {
         const { w, view, section } = await open();
         expect(view().selected).toBe("arrange");
-        expect(section().selected).toBe("sound");
+        expect(section().selected).toBe("next");
+        expect(section().tabs[0].id).toBe("next");
         expect(w.arrangement).not.toBeNull();
         expect(w.piano).toBeNull();
         expect(w.buttons.has("pattern_duplicate")).toBe(false);
