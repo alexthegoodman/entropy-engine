@@ -5713,11 +5713,11 @@ const DAW_VIEWS: { id: DawView; label: string; icon: IconName; key: string }[] =
     { id: "mixer", label: "Mixer", icon: "sliders-horizontal", key: "3" },
 ];
 const INSPECTOR_TABS: { id: InspectorTab; label: string }[] = [
-    { id: "next", label: "Next Steps" },
     { id: "sound", label: "Sound" },
     { id: "character", label: "Character" },
     { id: "fx", label: "FX" },
     { id: "moves", label: "Moves" },
+    { id: "next", label: "Suggest" }, // TODO: correct tests as needed (moved to last tab on purpose)
 ];
 let dawView: DawView = "arrange";
 let inspectorOpen = true;
@@ -5858,7 +5858,7 @@ let nextStepsWasShowing = false;
 // painted stroke costs one inference, not one per frame.
 let predictionDueAt = 0;
 const PREDICTION_SETTLE_MS = 350;
-const PREDICTION_STEPS = 5;
+const PREDICTION_STEPS = 3;
 const HISTORY_SHOWN = 10;
 
 function trackFamily(track: Track | undefined): Family {
@@ -6918,14 +6918,6 @@ addon.onInit(async () => {
                 W.button(center, { text: "+", id: "bpm_up", tooltip: "Faster: 1 BPM up", onClick: () => { nudgeBpm(1); } });
             },
             (right: string) => {
-                W.button(right, {
-                    text: isNarrow ? icon("sparkle") : withIcon("sparkle", "Next Steps"),
-                    id: "toggle_predictions",
-                    frame: false,
-                    selected: nextStepsShowing(),
-                    tooltip: nextStepsShowing() ? "Hide the inspector" : "Suggested Next Steps: AI predicted workflow and recent action history, in the inspector",
-                    onClick: () => { toggleNextSteps(); }
-                });
                 W.button(right, {
                     text: icon("chart-bar"),
                     id: "toggle_analyzer",
