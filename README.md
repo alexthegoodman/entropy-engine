@@ -459,8 +459,9 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 | `Composer.setRolePipeline(role, pipelineId)` | Assigns a custom render pipeline to a semantic role (e.g. "player", "terrain") instead of a specific mesh. |
 | `Composer.enableOverride` / `disableOverride` / `enableGameComposerOverride` / `disableGameComposerOverride` | Lets one addon temporarily take over rendering/control from Studio's default composition. |
 | `Composer.setGlobalSettings` / `getGlobalSettings` | Reads/writes app-wide settings (currently: global landscape size/height/offset) shared across addons. |
-
+</details>
 <a id="prediction--moe-next-actions"></a>
+
 <details>
 <summary><strong>Prediction (MoE next-action model)</strong></summary>
 
