@@ -1,4 +1,4 @@
-//! Long-lived room actor. Disk and network work run on a dedicated worker, never a frame/audio
+//! Long-lived room actor. Disk and network work run on a dedicated executor, never a frame/audio
 //! thread. The forum MVP uses one verified piece per UTF-8 post; larger assets use Session.
 use super::{
     allow::Allowlist,
@@ -8,6 +8,7 @@ use super::{
     rendezvous::{Announcement, RendezvousClient, hex, parse_hex, unix_seconds},
     transport::{
         P2pTransport, PeerId, TransportEvent,
+        quic::{QuicConfig, QuicTransport},
         rustp2p::{KcpConfig, KcpTransport},
     },
     wire::{ContentId, Envelope, Msg},
@@ -21,7 +22,7 @@ use std::{
     io::Write,
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 use tokio::{
@@ -32,6 +33,22 @@ use tokio::{
 pub const MAX_POST_BYTES: usize = 16 * 1024;
 const MAX_TASKS: usize = 16;
 pub const MIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+// The executor lives for the process lifetime. A UI-owned service must not drop a runtime
+// (which waits for shutdown), or rely on the UI thread to drive an ambient runtime.
+// Services share scheduling only; room state and command/snapshot channels remain independent.
+static ROOM_EXECUTOR: LazyLock<std::io::Result<tokio::runtime::Runtime>> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("p2p-room")
+        .enable_all()
+        .build()
+});
+
+struct RoomTask {
+    task: tokio::task::JoinHandle<()>,
+    finished: std::sync::mpsc::Receiver<()>,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -110,7 +127,7 @@ pub struct P2pService {
     commands: mpsc::Sender<Command>,
     stop: watch::Sender<bool>,
     view: watch::Receiver<ServiceView>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    worker: Option<RoomTask>,
     last_poll: Option<Instant>,
     min_poll_interval: Duration,
 }
@@ -137,28 +154,27 @@ impl P2pService {
         let (commands, rx) = mpsc::channel(32);
         let (stop, stopped) = watch::channel(false);
         let (view_tx, view) = watch::channel(ServiceView::default());
-        let worker = std::thread::Builder::new()
-            .name("p2p-room".into())
-            .spawn(move || {
-                let result = (|| -> Result<()> {
-                    let runtime = tokio::runtime::Builder::new_multi_thread()
-                        .worker_threads(2)
-                        .enable_all()
-                        .build()?;
-                    runtime.block_on(run(data_dir, config, rx, stopped, view_tx.clone()))
-                })();
-                view_tx.send_modify(|v| {
-                    v.running = false;
-                    if let Err(e) = result {
-                        v.error = Some(e.to_string());
-                    }
-                });
-            })?;
+        let runtime = ROOM_EXECUTOR
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("failed to initialize P2P executor: {error}"))?;
+        let (finished_tx, finished) = std::sync::mpsc::channel();
+        // TODO: why is this thread blocking the main ui thread and freezing the app?
+        let task = runtime.spawn(async move {
+            let result = run(data_dir, config, rx, stopped, view_tx.clone()).await;
+            view_tx.send_modify(|status| {
+                status.running = false;
+                if let Err(error) = result {
+                    status.error = Some(error.to_string());
+                }
+            });
+            // A panic also drops this sender, releasing an explicit join waiter.
+            let _ = finished_tx.send(());
+        });
         Ok(Self {
             commands,
             stop,
             view,
-            worker: Some(worker),
+            worker: Some(RoomTask { task, finished }),
             last_poll: None,
             min_poll_interval: MIN_POLL_INTERVAL,
         })
@@ -203,13 +219,13 @@ impl P2pService {
         let _ = self.stop.send(true);
     }
     pub fn is_finished(&self) -> bool {
-        self.worker.as_ref().is_none_or(|w| w.is_finished())
+        self.worker.as_ref().is_none_or(|w| w.task.is_finished())
     }
     /// Tests/CLI may wait for complete socket release. UI stop uses the non-blocking signal.
     pub fn join(mut self) {
         self.stop();
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            let _ = worker.finished.recv();
         }
     }
 }
@@ -406,27 +422,48 @@ async fn run(
     let allow = Allowlist::new(local.index.clone());
     let mut peers = config.peers.clone();
     peers.retain(|p| p.id != config.node_id && !(p.address.ip().is_loopback() && p.address.port() == config.port));
-    let backend = Arc::new(
-        KcpTransport::start(KcpConfig {
-            node_id: config.node_id,
-            udp_port: config.port,
-            tcp_port: 0,
-            group_code: config.group_code.clone(),
-            psk_password: String::new(),
-            bootstrap: peers
-                .iter()
-                .map(|p| format!("udp://{}", p.address))
-                .collect(),
-            allow_src: peers.iter().map(|p| u32::from(p.id)).collect(),
-        })
-        .await?,
-    );
-    let transport: Arc<dyn P2pTransport> = backend.clone();
+    let backend_name = std::env::var("ENTROPY_P2P_TRANSPORT").unwrap_or_else(|_| "quic".into());
+    let (transport, backend, quic): (Arc<dyn P2pTransport>, _, _) = match backend_name.as_str() {
+        "quic" => {
+            ensure!(peers.is_empty() && config.tracker.is_none(),
+                "QUIC startup comparison requires no peers and no tracker");
+            eprintln!("[p2p-room] starting QUIC transport");
+            let quic = Arc::new(QuicTransport::start(QuicConfig {
+                peer_id: config.node_id.to_string(),
+                seed: hex(&local.discovery.public_key()),
+                bind_addr: SocketAddr::new("0.0.0.0".parse().unwrap(), config.port),
+                bootstrap: Vec::new(),
+            }).await?);
+            (quic.clone() as Arc<dyn P2pTransport>, None, Some(quic))
+        }
+        "kcp" => {
+            eprintln!("[p2p-room] starting KCP transport");
+            let backend = Arc::new(
+                KcpTransport::start(KcpConfig {
+                    node_id: config.node_id,
+                    udp_port: config.port,
+                    tcp_port: 0,
+                    group_code: config.group_code.clone(),
+                    psk_password: String::new(),
+                    bootstrap: peers
+                        .iter()
+                        .map(|p| format!("udp://{}", p.address))
+                        .collect(),
+                    allow_src: peers.iter().map(|p| u32::from(p.id)).collect(),
+                })
+                .await?,
+            );
+            (backend.clone() as Arc<dyn P2pTransport>, Some(backend), None)
+        }
+        _ => anyhow::bail!("ENTROPY_P2P_TRANSPORT must be kcp or quic"),
+    };
+    eprintln!("[p2p-room] {backend_name} transport started");
     let client = config
         .tracker
         .as_ref()
         .map(|url| RendezvousClient::new(url, local.index.room(), local.index.maintainer()))
         .transpose()?;
+    // println!("running 1");
     let mut infos = BTreeMap::<ContentId, InfoDocument>::new();
     let mut bodies = BTreeMap::<ContentId, String>::new();
     // Only eligible, bounded post metadata is loaded. Payload hashes are checked on restart.
@@ -441,6 +478,7 @@ async fn run(
             }
         })
         .collect();
+    // println!("running 2");
     for item in stored_posts.values() {
         let path = local.dir.join(format!("{}.info", hex(&item.content)));
         if !path.exists() {
@@ -459,6 +497,7 @@ async fn run(
         }
         infos.insert(item.content, info);
     }
+    // println!("running 3");
     let mut hints = BTreeMap::<ContentId, Vec<Announcement>>::new();
     let mut wanted = BTreeSet::<ContentId>::new();
     let mut pending = BTreeMap::<ContentId, Download>::new();
@@ -474,11 +513,27 @@ async fn run(
         is_maintainer: local.key.public_key() == local.index.maintainer(),
         ..Default::default()
     };
+    // println!("running 4");
+    // Trace startup, then one pass every five seconds so silence is not mistaken for a hang.
+    let mut startup_pass = 0u64;
+    let mut last_trace = Instant::now();
     loop {
+        let trace_this_pass = startup_pass < 2 || last_trace.elapsed() >= Duration::from_secs(5);
+        if trace_this_pass {
+            last_trace = Instant::now();
+        }
+        let trace = |phase: &str| {
+            if trace_this_pass {
+                eprintln!("[p2p-room] loop {}: {phase}", startup_pass + 1);
+            }
+        };
         // Derived catalog is the authority for every serving, download and visible-body decision.
 
+        // trace("pruning pending downloads");
         pending.retain(|id, _| allow.contains(id));
+        // trace("pruning wanted content");
         wanted.retain(|id| allow.contains(id));
+        // trace("building post views");
         status.posts = local
             .index
             .publications()
@@ -514,13 +569,19 @@ async fn run(
                 })
             })
             .collect();
+        // trace("reading publishing policy");
         status.member_publishing = local.index.member_publishing();
         status.revision += 1;
-        view.send_replace(status.clone());
+        // trace("cloning service view");
+        let snapshot = status.clone();
+        // trace("publishing service view");
+        view.send_replace(snapshot);
+        // trace("entering select");
         tokio::select! {
             biased;
             _ = stop.changed() => break,
             command = commands.recv() => {
+                // trace("handling command");
                 let Some(command) = command else { break };
                 let result = (|| -> Result<()> {
                     match command {
@@ -554,6 +615,7 @@ async fn run(
                 status.error = status.command_error.clone();
             }
             _ = tick.tick() => {
+                // trace("handling timer tick");
                 // Metadata exchange works with the tracker offline as long as a configured peer is reachable.
                 if ticks % 5 == 0 {
                     for peer in &peers { send(&mut tasks, transport.clone(), allow.clone(), PeerId::new(peer.id.to_string()), Msg::GetRoomRecords { room: local.index.room() }, false); }
@@ -597,6 +659,7 @@ async fn run(
                 ticks += 1;
             }
             event = transport.next_event() => {
+                // trace("handling transport event");
                 match event {
                     None => break,
                     Some(TransportEvent::Datagram(dg)) => {
@@ -614,6 +677,7 @@ async fn run(
                 }
             }
             work = tasks.join_next(), if !tasks.is_empty() => {
+                // trace("handling completed task");
                 match work {
                     Some(Ok(Ok(Work::Incoming(peer, msg)))) => {
                         // Incoming snapshots must persist before changing the active catalog.
@@ -635,7 +699,11 @@ async fn run(
                                 peers.push(PeerConfig { id, address: hint.address });
                             }
                         }
-                        if peers.len() != before { backend.update_peers(&peers.iter().map(|p|(p.id,p.address)).collect::<Vec<_>>()).await?; }
+                        if peers.len() != before {
+                            if let Some(backend) = &backend {
+                                backend.update_peers(&peers.iter().map(|p|(p.id,p.address)).collect::<Vec<_>>()).await?;
+                            }
+                        }
                         hints.extend(new_hints);
                     }
                     Some(Ok(Ok(Work::Sync(Err(e))))) => { sync_active = false; dirty = true; status.tracker_online = false; status.error = Some(format!("Tracker offline: {e}")); }
@@ -647,10 +715,19 @@ async fn run(
                 }
             }
         }
+        // trace("select handler finished");
+        startup_pass = startup_pass.saturating_add(1);
     }
+    
+    // println!("running 5");
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     drop(transport);
+    if let Some(quic) = quic {
+        if let Ok(mut quic) = Arc::try_unwrap(quic) {
+            quic.shutdown().await;
+        }
+    }
     Ok(())
 }
 
@@ -797,4 +874,3 @@ mod tests {
         assert!(service.poll().is_none());
     }
 }
-
