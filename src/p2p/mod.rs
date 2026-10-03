@@ -10,4 +10,6 @@
 
 pub mod meta;
 pub mod pieces;
+pub mod session;
 pub mod transport;
+pub mod wire;

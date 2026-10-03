@@ -42,6 +42,14 @@ name = "p2p_spike"
 path = "src/bin/p2p_spike.rs"
 test = false
 
+# Phase-4 P2P peer: a single-content seed or leecher over the KCP backend, driven by CLI args.
+# tests/p2p_session.rs spawns two of these as the "fake peer nodes" for the two-process session
+# test; it is also runnable by hand.
+[[bin]]
+name = "p2p_peer"
+path = "src/bin/p2p_peer.rs"
+test = false
+
 
 [[test]]
 name = "browser_bdd"

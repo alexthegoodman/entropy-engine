@@ -13,6 +13,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{Datagram, P2pTransport, PeerId, ReliableChannel, RouteMode, TransportEvent};
 
@@ -84,6 +85,63 @@ fn peer_to_node_id(peer: &PeerId) -> io::Result<rp::NodeID> {
     Ok(ip.into())
 }
 
+/// A reliable KCP channel framed into messages with a `u32` length prefix. `rustp2p`'s KCP stream
+/// is a byte stream while `ReliableChannel` is message-oriented, so this adapter applies the same
+/// framing the QUIC backend uses, keeping the seam uniform.
+struct KcpChannel {
+    send: Option<rp::KcpStreamWrite>,
+    recv: rp::KcpStreamRead,
+}
+
+async fn read_exact_kcp(recv: &mut rp::KcpStreamRead, n: usize) -> io::Result<Vec<u8>> {
+    let mut out = vec![0u8; n];
+    let mut filled = 0usize;
+    while filled < n {
+        let k = recv.read(&mut out[filled..]).await?;
+        if k == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "kcp stream closed mid-message",
+            ));
+        }
+        filled += k;
+    }
+    Ok(out)
+}
+
+impl ReliableChannel for KcpChannel {
+    fn send(
+        &mut self,
+        data: Bytes,
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
+        let len = (data.len() as u32).to_be_bytes();
+        Box::pin(async move {
+            let send = self
+                .send
+                .as_mut()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "send half closed"))?;
+            send.write_all(&len).await?;
+            send.write_all(data.as_ref()).await
+        })
+    }
+
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Option<io::Result<Bytes>>> + Send + '_>> {
+        Box::pin(async move {
+            let len_buf = match read_exact_kcp(&mut self.recv, 4).await {
+                Ok(b) => b,
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return None,
+                Err(e) => return Some(Err(e)),
+            };
+            let n = u32::from_be_bytes([len_buf[0], len_buf[1], len_buf[2], len_buf[3]]) as usize;
+            match read_exact_kcp(&mut self.recv, n).await {
+                Ok(b) => Some(Ok(Bytes::from(b))),
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
+                Err(e) => Some(Err(e)),
+            }
+        })
+    }
+}
+
 impl KcpTransport {
     pub async fn start(cfg: KcpConfig) -> io::Result<Self> {
         let group_code = rp::GroupCode::try_from(cfg.group_code.as_str())
@@ -114,6 +172,7 @@ impl KcpTransport {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<TransportEvent>();
         let modes = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let accept_tx = tx.clone();
 
         // Drain the datagram receive loop into the bounded event queue. This is the
         // `mcp_rx` bridge pattern from the design: network I/O never touches the frame.
@@ -139,6 +198,37 @@ impl KcpTransport {
                             route: mode,
                         };
                         if tx.send(TransportEvent::Datagram(dg)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Accept incoming KCP streams (piece data) and surface them as reliable channels. KCP
+        // data is routed internally by `rustp2p` (it never appears on `recv_from`), so this
+        // listener is the one place inbound streams are observed.
+        let accept_ep = Arc::clone(&endpoint);
+        tokio::spawn(async move {
+            let listener = accept_ep.kcp_listener();
+            loop {
+                match listener.accept().await {
+                    Ok((stream, node_id)) => {
+                        let src: std::net::Ipv4Addr = node_id.into();
+                        let peer = PeerId::new(src.to_string());
+                        let (write, read) = stream.split();
+                        let channel = KcpChannel {
+                            send: Some(write),
+                            recv: read,
+                        };
+                        if accept_tx
+                            .send(TransportEvent::IncomingChannel {
+                                peer,
+                                channel: Box::new(channel),
+                            })
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -176,16 +266,20 @@ impl P2pTransport for KcpTransport {
 
     fn open_channel(
         &self,
-        _peer: &PeerId,
+        peer: &PeerId,
     ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn ReliableChannel>>> + Send + '_>> {
-        // `rustp2p-reliable` dialing is message-based KCP and its outbound-dial API is not
-        // yet wired in this spike; the datagram/control plane is what the four spike
-        // concerns exercise. Wire this after the backend decision.
+        let endpoint = Arc::clone(&self.endpoint);
+        let dest = match peer_to_node_id(peer) {
+            Ok(d) => d,
+            Err(e) => return Box::pin(async move { Err(e) }),
+        };
         Box::pin(async move {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "KCP reliable-channel dialing not wired in the phase-1 spike",
-            ))
+            let stream = endpoint.open_kcp_stream(dest)?;
+            let (write, read) = stream.split();
+            Ok(Box::new(KcpChannel {
+                send: Some(write),
+                recv: read,
+            }) as Box<dyn ReliableChannel>)
         })
     }
 
