@@ -43,9 +43,8 @@ impl std::fmt::Display for WireError {
 
 impl std::error::Error for WireError {}
 
-/// The full initial message set (section 4.3). The session in this phase uses the `Want`/`Piece`/
-/// `Done` subset; the rest are defined and round-trip-tested here so later phases (room index,
-/// scheduler) do not have to re-invent the vocabulary.
+/// The full initial message set (section 4.3). Sessions use availability, request, cancellation,
+/// piece and completion messages; metadata exchange remains for the room index phases.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
     /// Protocol version, supported schemas, group membership. First message on a connection.

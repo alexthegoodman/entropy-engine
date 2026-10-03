@@ -2,8 +2,8 @@
 //!
 //! Spawns two `p2p_peer` processes - the "fake peer nodes" the design asks for - and drives them
 //! over KCP on loopback with no NAT. It asserts the four acceptance checks: a full transfer, pieces
-//! arriving out of order (the leecher asks newest-first while the store writes at fixed offsets),
-//! duplicate/retried requests (the leecher re-asks on a cadence and the seeder serves idempotently),
+//! arriving through independent piece streams (the store writes at fixed offsets),
+//! retried requests (the scheduler retries expired requests and the seeder serves idempotently),
 //! and disconnect/reconnect (a seeder that dies mid-transfer is restarted and the leecher resumes
 //! from its partial store).
 //!

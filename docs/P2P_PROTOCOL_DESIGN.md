@@ -7,19 +7,49 @@ Latest Docs:
 
 ## Status (2026-10-02)
 
-Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), and 4 (two-process localhost
-session) are done. `src/p2p/` now holds the `P2pTransport` trait seam (`transport.rs`), both
-candidate backends (`transport/rustp2p.rs`, `transport/quic.rs`), the content model (`meta.rs`), the
-piece store (`pieces.rs`), the wire protocol (`wire.rs`), and the seed/download session
-(`session.rs`). The spike runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire,
-and session unit tests run as `cargo test --lib p2p`; the two-process session runs as
+Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), 4 (two-process localhost
+session), and 5 (scheduler) are done. `src/p2p/` now holds the `P2pTransport` trait seam
+(`transport.rs`), both candidate backends (`transport/rustp2p.rs`, `transport/quic.rs`), the
+content model (`meta.rs`), the piece store (`pieces.rs`), the wire protocol (`wire.rs`), the
+seed/download session (`session.rs`), and the pure piece scheduler (`scheduler.rs`). The spike
+runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire, and session unit tests
+run as `cargo test --lib p2p`; the two-process session runs as
 `cargo test --test p2p_session` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
 
 **Decision: KCP (`rustp2p`) is the first backend.** QUIC (`rustp2p-quic`) stays in-tree as a
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Next up: phase 5 (scheduler).
+Next up: phase 6 (room index and interceptor).
+
+### Phase-5 scheduler behavior
+
+`scheduler.rs` is pure single-content logic: the caller supplies a verified local piece map,
+peer availability, monotonic elapsed time, and the scheduling intent. Rarest-first counts the
+currently known holders of each missing piece; equal rarity uses piece-index order for repeatable
+tests. Sequential-ahead requests only `[playhead, playhead + lookahead)`, clipped to the content.
+A ready window waits for a playhead update; it does not start fetching unrelated pieces.
+
+- Defaults: four outstanding requests per peer, sixteen total, three-second request expiry.
+- Each piece has one outstanding owner. Verified and resumed pieces are never requested again.
+  Lost, failed, or cancelled requests can be retried; a different holder is preferred when available.
+- Seek cancels requests outside the new window and preserves overlapping ones. Unsolicited pieces
+  and responses without a current request from that peer are ignored before touching the store.
+- `Session::download` uses rarest-first against one configured peer. `download_swarm` accepts a
+  peer list, intent, limits, and an optional Tokio watch receiver for live seek/window updates.
+  The caller switches to rarest-first to finish a whole file after streaming, or advances the window.
+- Sessions probe availability with `Hello` every 250 ms; seeds reply with `Bitfield` using packed
+  LSB-first bits, exactly `ceil(piece_count / 8)` bytes. `Have` updates availability incrementally.
+  These small snapshots currently use datagrams, consistent with `wire.rs`; large-content snapshot
+  framing over a reliable channel remains necessary before scaling beyond datagram-sized maps.
+- Piece receivers run concurrently with a bounded task count so a stalled stream does not block
+  seek or retry processing. Serving deduplicates active requests, applies fixed caps, and aborts
+  pending send tasks on `Cancel`. Completion still requires full verification and promotion.
+
+Acceptance coverage: `cargo test -j 1 --test p2p_scheduler_bdd` drives a small synthetic swarm;
+`cargo test -j 1 --test p2p_swarm` exercises the real session and piece store over a fake transport
+(complementary holders, resume, corrupt bytes, and wire-level seek cancellation). The existing
+`cargo test -j 1 --test p2p_session` remains the real KCP localhost startup/reconnect regression.
 
 ### Phase-4 findings (recorded so we know what the session actually taught us)
 
@@ -458,8 +488,12 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    A localhost pair is the same shape as the DAW collab doc's two-process test. `src/p2p/session.rs`
    + `src/bin/p2p_peer.rs` + `tests/p2p_session.rs` (three startup shapes: seed-first, leecher-first,
    reconnect). See the "Phase-4 findings" note under the Status section.
-5. **Scheduler.** Rarest-first vs sequential-ahead correctness on a small synthetic swarm. Tests:
-   completes, no piece fetched twice from the same peer, seek reprioritizes.
+5. **Scheduler.** *(DONE)* Rarest-first vs sequential-ahead correctness on a small synthetic swarm.
+   `tests/features/p2p_scheduler.feature` + `tests/p2p_scheduler_bdd.rs`: nine scenarios, 27 steps.
+   `tests/p2p_swarm.rs`: three session/store integration tests. Verified completion, no duplicate
+   fetches in a successful download, bounded requests, resumed pieces skipped, timeout/source
+   failover, corruption recovery, peer loss, and seek cancellation/reprioritization. Retries after
+   loss/failure/cancellation are deliberate; they are distinct from duplicate active requests.
 6. **Room index and interceptor.** Signed append-only index + `DataInterceptor` drops non-index
    traffic; group code isolates two rooms. Tests: unknown content id dropped, wrong group code
    cannot join, only indexed ids reach the piece store, tombstone prevents resurrection.

@@ -64,6 +64,10 @@ name = "vst3_bdd"
 harness = false
 
 [[test]]
+name = "p2p_scheduler_bdd"
+harness = false
+
+[[test]]
 name = "audio_analysis_bdd"
 harness = false
 

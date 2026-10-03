@@ -673,6 +673,17 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
 
+## P2P development
+
+The Rust P2P layer provides verified piece storage and bounded rarest-first/sequential-ahead
+scheduling. `Session::download_swarm` learns peer availability and accepts live playback-window updates;
+the addon API and room index are later phases. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
+
+```bash
+cargo test -j 1 --lib p2p
+cargo test -j 1 --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
+```
+
 ## MCP
 
 ```bash

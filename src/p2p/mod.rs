@@ -4,12 +4,13 @@
 //! pieces, have/want exchange, rarest-first/sequential scheduling - but deliberately *not*
 //! interoperable with BitTorrent, and gated behind a group code plus a signed room index.
 //!
-//! This module is currently at the phase-1 evaluation-spike stage: `transport.rs` defines
-//! the `P2pTransport` seam, and `transport/{rustp2p,quic}.rs` are the two candidate
-//! backends being evaluated side by side. Only the chosen backend survives past the spike.
+//! Phases 1-5 provide transport backends, content metadata, verified storage, sessions,
+//! and bounded rarest-first/sequential-ahead scheduling. KCP is the primary backend;
+//! QUIC remains available behind the same transport seam.
 
 pub mod meta;
 pub mod pieces;
+pub mod scheduler;
 pub mod session;
 pub mod transport;
 pub mod wire;

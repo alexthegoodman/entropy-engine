@@ -1,17 +1,15 @@
 //! The peer session: seed/serve and download/resume for a single content item over any
-//! `P2pTransport` (docs/P2P_PROTOCOL_DESIGN.md phase 4 - the two-peer localhost session).
+//! `P2pTransport` (docs/P2P_PROTOCOL_DESIGN.md phases 4 and 5).
 //!
-//! Phase 4 is deliberately single-content and single-peer: one node seeds a content id, another
-//! downloads it over loopback. There is no scheduler here (that is phase 5) and no room index
-//! (phase 6). The leecher asks for *all* missing pieces and re-asks on a fixed retry cadence, so
-//! route discovery, dropped datagrams, duplicate requests, and a seeder that dies and comes back
-//! all recover through the same loop. The piece store (phase 3) makes arrival order irrelevant and
-//! re-writing a piece idempotent, which is exactly the two acceptance concerns "out-of-order
-//! pieces" and "duplicate/retried requests".
+//! Downloads use the phase-5 scheduler with live peer bitfields, bounded requests, and retries.
+//! The single-peer entry point delegates to rarest-first; the swarm entry point also accepts
+//! a watch channel for sequential windows and seek reprioritization.
 //!
-//! Control flows over the datagram plane (`Want`, `Done`, `Hello`); piece bytes flow over reliable
+//! Control flows over the datagram plane (`Hello`, `Bitfield`, `Have`, `Want`, `Cancel`, `Done`);
+//! piece bytes flow over reliable
 //! channels (`Piece`), one fresh channel per request as section 4.2 describes.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -21,11 +19,12 @@ use bytes::Bytes;
 
 use super::meta::InfoDocument;
 use super::pieces::PieceStore;
+use super::scheduler::{Limits, ScheduleMode, Scheduler};
 use super::transport::{P2pTransport, PeerId, TransportEvent};
 use super::wire::{self, ContentId, Msg};
 
-/// How often a leecher re-announces the pieces it still needs. This single knob is what makes
-/// retries, route discovery, and reconnect all converge.
+/// Availability probe and scheduler tick cadence. Request expiry is configured separately
+/// through `Limits::request_timeout`.
 pub const DEFAULT_RETRY: Duration = Duration::from_millis(250);
 /// Bound on a single piece transfer once its channel is open.
 const PIECE_RECV_TIMEOUT: Duration = Duration::from_secs(10);
@@ -56,7 +55,10 @@ impl std::fmt::Display for SessionError {
             SessionError::Wire(e) => write!(f, "session wire error: {e}"),
             SessionError::Timeout => write!(f, "session timed out"),
             SessionError::WrongContent { expected, got } => {
-                write!(f, "piece for unexpected content id (expected {expected:x?}, got {got:x?})")
+                write!(
+                    f,
+                    "piece for unexpected content id (expected {expected:x?}, got {got:x?})"
+                )
             }
             SessionError::TransportClosed => write!(f, "transport closed unexpectedly"),
         }
@@ -116,6 +118,7 @@ impl Session {
         let content = info.content_id();
         let deadline = tokio::time::Instant::now() + until;
         let mut served = 0u32;
+        let mut sends: BTreeMap<(PeerId, u32), tokio::task::JoinHandle<()>> = BTreeMap::new();
 
         loop {
             let now = tokio::time::Instant::now();
@@ -140,21 +143,55 @@ impl Session {
                     };
                     match msg {
                         Msg::Want { content: c, index } if c == content => {
+                            sends.retain(|_, task| !task.is_finished());
+                            let key = (dg.peer.clone(), index);
+                            if index >= info.piece_count()
+                                || sends.contains_key(&key)
+                                || sends.len() >= Limits::default().total
+                                || sends.keys().filter(|(p, _)| p == &dg.peer).count()
+                                    >= Limits::default().per_peer
+                                || !store
+                                    .lock()
+                                    .map_err(|_| io::Error::other("seed store lock poisoned"))?
+                                    .has_piece(index)
+                            {
+                                continue;
+                            }
                             let store = Arc::clone(&store);
                             let transport = Arc::clone(&self.transport);
                             let peer = dg.peer;
-                            tokio::spawn(async move {
-                                let _ = serve_piece(store, transport, peer, content, index).await;
-                            });
+                            sends.insert(
+                                key,
+                                tokio::spawn(async move {
+                                    let _ =
+                                        serve_piece(store, transport, peer, content, index).await;
+                                }),
+                            );
                             served += 1;
                         }
-                        Msg::Hello { .. } => {
+                        Msg::Cancel { content: c, index } if c == content => {
+                            if let Some(task) = sends.remove(&(dg.peer, index)) {
+                                task.abort();
+                            }
+                        }
+                        Msg::Hello { version } if version == wire::PROTOCOL_VERSION => {
                             let transport = Arc::clone(&self.transport);
                             let peer = dg.peer;
-                            let reply = wire::Envelope::new(Msg::Hello {
-                                version: wire::PROTOCOL_VERSION,
-                            })
-                            .encode();
+                            let bitmap = {
+                                let s = store
+                                    .lock()
+                                    .map_err(|_| io::Error::other("seed store lock poisoned"))?;
+                                let mut bitmap =
+                                    vec![0u8; (info.piece_count() as usize).div_ceil(8)];
+                                for i in 0..info.piece_count() {
+                                    if s.has_piece(i) {
+                                        bitmap[i as usize / 8] |= 1 << (i % 8);
+                                    }
+                                }
+                                bitmap
+                            };
+                            let reply =
+                                wire::Envelope::new(Msg::Bitfield { content, bitmap }).encode();
                             tokio::spawn(async move {
                                 let _ = transport.send_datagram(&peer, Bytes::from(reply)).await;
                             });
@@ -179,74 +216,154 @@ impl Session {
         peer: &PeerId,
         timeout: Duration,
     ) -> Result<DownloadStats, SessionError> {
-        let store = Arc::new(tokio::sync::Mutex::new(PieceStore::open(data_dir, info)?));
+        self.download_swarm(
+            data_dir,
+            info,
+            std::slice::from_ref(peer),
+            timeout,
+            ScheduleMode::RarestFirst,
+            Limits::default(),
+            None,
+        )
+        .await
+    }
+
+    /// Download from explicitly configured peers. Availability is learned through Hello/Bitfield
+    /// and Have. Mode updates cancel requests outside the new window; late responses are ignored.
+    /// Sequential mode waits when its window is ready until the caller advances it or switches to
+    /// rarest-first. Completion still means the entire file is verified and promoted.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn download_swarm(
+        &self,
+        data_dir: &Path,
+        info: &InfoDocument,
+        peers: &[PeerId],
+        timeout: Duration,
+        mode: ScheduleMode,
+        limits: Limits,
+        mut updates: Option<tokio::sync::watch::Receiver<ScheduleMode>>,
+    ) -> Result<DownloadStats, SessionError> {
+        let mut store = PieceStore::open(data_dir, info)?;
         let content = info.content_id();
         let total = info.piece_count();
-        let deadline = tokio::time::Instant::now() + timeout;
-        let mut retries = 0u32;
+        let have = (0..total).map(|i| store.has_piece(i)).collect();
+        let mut scheduler = Scheduler::new(have, mode, limits);
+        let started = tokio::time::Instant::now();
+        let deadline = started + timeout;
+        let mut tick = tokio::time::interval(DEFAULT_RETRY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut retries = 0;
+        let mut receivers: tokio::task::JoinSet<(PeerId, Option<io::Result<Bytes>>)> =
+            tokio::task::JoinSet::new();
 
-        loop {
-            if tokio::time::Instant::now() >= deadline {
-                return Err(SessionError::Timeout);
-            }
-
-            // Ask for every still-missing piece, newest-last so requests and storage order differ
-            // (exercises out-of-order writes). Re-asking is idempotent and is also how a restarted
-            // seeder is reached once its route comes back.
-            let missing = store.lock().await.missing();
-            if missing.is_empty() {
-                break;
-            }
-            retries += 1;
-            for index in missing.into_iter().rev() {
-                let msg = wire::Envelope::new(Msg::Want { content, index }).encode();
-                let _ = self
-                    .transport
-                    .send_datagram(peer, Bytes::from(msg))
-                    .await;
-            }
-
+        while !scheduler.complete() {
             tokio::select! {
-                _ = tokio::time::sleep(DEFAULT_RETRY) => {}
-                ev = self.transport.next_event() => {
-                    match ev {
-                        Some(TransportEvent::IncomingChannel { mut channel, .. }) => {
-                            match tokio::time::timeout(PIECE_RECV_TIMEOUT, channel.recv()).await {
-                                Ok(Some(Ok(bytes))) => {
-                                    let env = wire::Envelope::decode(&bytes)?;
-                                    if let Msg::Piece { content: c, index, data } = env.msg {
-                                        if c != content {
-                                            return Err(SessionError::WrongContent {
-                                                expected: content,
-                                                got: c,
-                                            });
+                _ = tokio::time::sleep_until(deadline) => return Err(SessionError::Timeout),
+                _ = tick.tick() => {
+                    retries += 1;
+                    // A periodic probe also recovers lost availability datagrams and peer restarts.
+                    for peer in peers {
+                        let hello = wire::Envelope::new(Msg::Hello { version: wire::PROTOCOL_VERSION });
+                        let _ = self.transport.send_datagram(peer, Bytes::from(hello.encode())).await;
+                    }
+                }
+                changed = async {
+                    match updates.as_mut() {
+                        Some(rx) => rx.changed().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if changed.is_err() { updates = None; }
+                    else {
+                        let mode = *updates.as_mut().unwrap().borrow_and_update();
+                        for r in scheduler.set_mode(mode) {
+                            let msg = wire::Envelope::new(Msg::Cancel { content, index: r.index });
+                            let _ = self.transport.send_datagram(&r.peer, Bytes::from(msg.encode())).await;
+                        }
+                    }
+                }
+                result = receivers.join_next(), if !receivers.is_empty() => {
+                    if let Some(Ok((peer, Some(Ok(bytes))))) = result {
+                        if let Ok(env) = wire::Envelope::decode(&bytes) {
+                            if let Msg::Piece { content: c, index, data } = env.msg {
+                                if c == content && scheduler.is_requested(&peer, index) {
+                                    match store.write_piece(index, &data) {
+                                        Ok(()) => { scheduler.verified(&peer, index); }
+                                        Err(super::pieces::PieceError::HashMismatch { .. }
+                                            | super::pieces::PieceError::InvalidLength { .. }) => {
+                                            scheduler.failed(&peer, index);
                                         }
-                                        store.lock().await.write_piece(index, &data)?;
+                                        Err(e) => return Err(e.into()),
                                     }
                                 }
-                                Ok(Some(Err(e))) => return Err(SessionError::Io(e)),
-                                Ok(None) | Err(_) => {} // channel closed/timeout; the retry loop recovers
                             }
                         }
-                        Some(TransportEvent::Datagram(_)) => {}
-                        Some(_) => {}
+                    }
+                }
+                ev = self.transport.next_event() => {
+                    match ev {
+                        Some(TransportEvent::IncomingChannel { peer, mut channel }) => {
+                            if peers.contains(&peer) && receivers.len() < limits.total {
+                                receivers.spawn(async move {
+                                    let result = tokio::time::timeout(PIECE_RECV_TIMEOUT, channel.recv()).await.ok().flatten();
+                                    (peer, result)
+                                });
+                            }
+                        }
+                        Some(TransportEvent::Datagram(dg)) if peers.contains(&dg.peer) => {
+                            if let Ok(env) = wire::Envelope::decode(&dg.payload) {
+                                match env.msg {
+                                    Msg::Bitfield { content: c, bitmap } if c == content
+                                        && bitmap.len() == (total as usize).div_ceil(8) => {
+                                        scheduler.set_peer(dg.peer, (0..total).filter(|&i|
+                                            bitmap[i as usize / 8] & (1 << (i % 8)) != 0));
+                                    }
+                                    Msg::Have { content: c, index } if c == content => scheduler.peer_have(dg.peer, index),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Some(TransportEvent::PeerDisconnected(peer)) => scheduler.remove_peer(&peer),
                         None => return Err(SessionError::TransportClosed),
+                        _ => {}
                     }
                 }
             }
+            let plan = scheduler.poll(started.elapsed());
+            for r in plan.cancel {
+                let msg = wire::Envelope::new(Msg::Cancel {
+                    content,
+                    index: r.index,
+                });
+                let _ = self
+                    .transport
+                    .send_datagram(&r.peer, Bytes::from(msg.encode()))
+                    .await;
+            }
+            for r in plan.want {
+                let msg = wire::Envelope::new(Msg::Want {
+                    content,
+                    index: r.index,
+                });
+                if self
+                    .transport
+                    .send_datagram(&r.peer, Bytes::from(msg.encode()))
+                    .await
+                    .is_err()
+                {
+                    scheduler.failed(&r.peer, r.index);
+                }
+            }
         }
-
-        {
-            let mut s = store.lock().await;
-            s.verify_all()?;
-            s.promote()?;
+        store.verify_all()?;
+        store.promote()?;
+        for peer in peers {
+            let msg = wire::Envelope::new(Msg::Done { content });
+            let _ = self
+                .transport
+                .send_datagram(peer, Bytes::from(msg.encode()))
+                .await;
         }
-
-        let _ = self
-            .transport
-            .send_datagram(peer, Bytes::from(wire::Envelope::new(Msg::Done { content }).encode()))
-            .await;
-
         Ok(DownloadStats {
             pieces_received: total,
             total_pieces: total,
