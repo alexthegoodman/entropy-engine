@@ -8,9 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
-use cucumber::{World as _, given, then, when};
+use cucumber::{given, then, when, World as _};
 use entropy_engine::p2p::allow::{Allowlist, CatalogTransport};
-use entropy_engine::p2p::index::{Action, CatalogItem, IndexError, Maintainer, RoomIndex};
+use entropy_engine::p2p::index::{
+    Action, CatalogItem, IndexError, Maintainer, Member, PublicationKind, RoomIndex,
+};
 use entropy_engine::p2p::meta::InfoDocument;
 use entropy_engine::p2p::pieces::PieceStore;
 use entropy_engine::p2p::session::{Session, SessionError};
@@ -149,6 +151,8 @@ fn item(id: [u8; 32]) -> CatalogItem {
         title: "Publication".into(),
         description: "".into(),
         media: None,
+        kind: PublicationKind::Post,
+        parent: None,
     }
 }
 
@@ -265,11 +269,12 @@ fn replay(w: &mut RoomWorld) {
         wrong_room.merge([altered_room]),
         Err(IndexError::BadSignature)
     );
-    let mut wrong_key = RoomIndex::new(
-        support::ROOM,
-        Maintainer::from_seed(&[8; 32]).unwrap().public_key(),
+    let mut altered_author = record;
+    altered_author.entry.author = Maintainer::from_seed(&[8; 32]).unwrap().public_key();
+    assert_eq!(
+        w.index.as_mut().unwrap().merge([altered_author]),
+        Err(IndexError::BadSignature)
     );
-    assert_eq!(wrong_key.merge([record]), Err(IndexError::BadSignature));
     w.result = true;
 }
 #[then("both replays are rejected")]
@@ -280,19 +285,359 @@ fn replayed(w: &mut RoomWorld) {
 #[when("I merge conflicting signed events at the same sequence")]
 fn conflict(w: &mut RoomWorld) {
     let a = support::publish(w.info(), 1);
-    let b = support::maintainer()
+    let b = Member::from_seed(&[6; 32])
+        .unwrap()
         .sign(support::ROOM, 1, Action::Publish(item([2; 32])))
         .unwrap();
-    assert_eq!(
-        w.index.as_mut().unwrap().merge([a, b]),
-        Err(IndexError::SequenceConflict(1))
-    );
-    assert_eq!(w.index.as_ref().unwrap().entries().count(), 0);
+    let mut other = w.index.clone().unwrap();
+    w.index.as_mut().unwrap().merge([a.clone()]).unwrap();
+    other.merge([b.clone()]).unwrap();
+    w.index.as_mut().unwrap().merge([b]).unwrap();
+    other.merge([a]).unwrap();
+    assert_eq!(w.index.as_ref().unwrap().to_bytes(), other.to_bytes());
+    assert_eq!(other.entries().count(), 2);
+    assert_eq!(other.publications().count(), 0);
     w.result = true;
 }
-#[then("the conflicting batch changes no catalog state")]
+#[then("conflicting publications converge to hidden records")]
 fn conflicted(w: &mut RoomWorld) {
-    rejected(w);
+    success(w);
+}
+
+#[when("two members independently publish a post and a video")]
+fn member_publications(w: &mut RoomWorld) {
+    let a = support::publish(w.info(), 1);
+    let member = Member::from_seed(&[5; 32]).unwrap();
+    let mut video = item([3; 32]);
+    video.kind = PublicationKind::Video;
+    video.parent = Some(a.entry.id());
+    let b = member
+        .sign(support::ROOM, 1, Action::Publish(video))
+        .unwrap();
+    let mut other = w.index.clone().unwrap();
+    w.index
+        .as_mut()
+        .unwrap()
+        .merge([a.clone(), b.clone()])
+        .unwrap();
+    other.merge([b, a]).unwrap();
+    assert_eq!(other.publications().count(), 2);
+    assert_eq!(other.items().count(), 2);
+    assert_eq!(other.to_bytes(), w.index.as_ref().unwrap().to_bytes());
+    let reload = RoomIndex::from_bytes(
+        support::ROOM,
+        support::maintainer().public_key(),
+        &other.to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(reload.publications().count(), 2);
+    assert!(reload
+        .publications()
+        .all(|(_, r)| r.entry.author != support::maintainer().public_key()));
+    w.result = true;
+}
+
+#[when("a stranger withdraws another member's publication before its arrival")]
+fn stranger_withdrawal(w: &mut RoomWorld) {
+    let publication = support::publish(w.info(), 1);
+    let wrong = Member::from_seed(&[5; 32])
+        .unwrap()
+        .sign(
+            support::ROOM,
+            1,
+            Action::Withdraw {
+                publication: publication.entry.id(),
+            },
+        )
+        .unwrap();
+    let own = Member::from_seed(&[6; 32])
+        .unwrap()
+        .sign(
+            support::ROOM,
+            2,
+            Action::Withdraw {
+                publication: publication.entry.id(),
+            },
+        )
+        .unwrap();
+    let index = w.index.as_mut().unwrap();
+    index.merge([wrong, publication.clone()]).unwrap();
+    assert_eq!(index.publications().count(), 1);
+    index.merge([own.clone()]).unwrap();
+    assert_eq!(index.publications().count(), 0);
+    let mut other = RoomIndex::new(support::ROOM, support::maintainer().public_key());
+    other.merge([own, publication]).unwrap();
+    assert!(!other.contains(&w.info().content_id()));
+    w.result = true;
+}
+
+#[when("a member attempts each maintainer-only action")]
+fn unauthorized_moderation(w: &mut RoomWorld) {
+    let member = Member::from_seed(&[6; 32]).unwrap();
+    let publication = support::publish(w.info(), 1);
+    for action in [
+        Action::Remove {
+            publication: publication.entry.id(),
+        },
+        Action::Tombstone {
+            content: w.info().content_id(),
+        },
+        Action::BanAuthor {
+            author: member.public_key(),
+        },
+        Action::SetPolicy {
+            member_publishing: false,
+        },
+    ] {
+        let bad = member.sign(support::ROOM, 2, action).unwrap();
+        let before = w.index.as_ref().unwrap().to_bytes();
+        assert_eq!(
+            w.index.as_mut().unwrap().merge([publication.clone(), bad]),
+            Err(IndexError::Unauthorized)
+        );
+        assert_eq!(before, w.index.as_ref().unwrap().to_bytes());
+    }
+    // A different externally pinned maintainer cannot accept the real maintainer's moderation.
+    let mut other = RoomIndex::new(
+        support::ROOM,
+        Member::from_seed(&[5; 32]).unwrap().public_key(),
+    );
+    assert_eq!(
+        other.merge([tombstone(w.info())]),
+        Err(IndexError::Unauthorized)
+    );
+    w.result = true;
+}
+
+#[when("the maintainer removes one of two publications sharing a payload")]
+fn publication_removal(w: &mut RoomWorld) {
+    let cid = w.info().content_id();
+    let a = support::publish(w.info(), 1);
+    let b = Member::from_seed(&[5; 32])
+        .unwrap()
+        .sign(
+            support::ROOM,
+            1,
+            Action::Publish(item(w.info().content_id())),
+        )
+        .unwrap();
+    let removal = support::maintainer()
+        .sign(
+            support::ROOM,
+            1,
+            Action::Remove {
+                publication: a.entry.id(),
+            },
+        )
+        .unwrap();
+    let index = w.index.as_mut().unwrap();
+    index
+        .merge([removal.clone(), a.clone(), b.clone()])
+        .unwrap();
+    assert_eq!(index.publications().count(), 1);
+    assert!(index.contains(&cid));
+    let mut other = RoomIndex::new(support::ROOM, support::maintainer().public_key());
+    other.merge([b, a, removal]).unwrap();
+    assert_eq!(index.to_bytes(), other.to_bytes());
+    other.merge([tombstone(w.info())]).unwrap();
+    assert_eq!(other.publications().count(), 0);
+    w.result = true;
+}
+
+#[when("an author ban arrives before stale and future publications")]
+fn author_ban(w: &mut RoomWorld) {
+    let a = support::publish(w.info(), 1);
+    let future = support::publish(w.info(), 2);
+    let ban = support::maintainer()
+        .sign(
+            support::ROOM,
+            1,
+            Action::BanAuthor {
+                author: a.entry.author,
+            },
+        )
+        .unwrap();
+    let index = w.index.as_mut().unwrap();
+    index.merge([ban, a]).unwrap();
+    index.merge([future]).unwrap();
+    assert_eq!(index.publications().count(), 0);
+    let bytes = index.to_bytes();
+    let reload =
+        RoomIndex::from_bytes(support::ROOM, support::maintainer().public_key(), &bytes).unwrap();
+    assert_eq!(reload.publications().count(), 0);
+    w.result = true;
+}
+
+#[when("room publishing policy changes arrive out of order")]
+fn room_policy(w: &mut RoomWorld) {
+    let a = support::publish(w.info(), 1);
+    let close = support::maintainer()
+        .sign(
+            support::ROOM,
+            10,
+            Action::SetPolicy {
+                member_publishing: false,
+            },
+        )
+        .unwrap();
+    let open = support::maintainer()
+        .sign(
+            support::ROOM,
+            11,
+            Action::SetPolicy {
+                member_publishing: true,
+            },
+        )
+        .unwrap();
+    let index = w.index.as_mut().unwrap();
+    index.merge([a.clone(), close.clone()]).unwrap();
+    assert_eq!(index.publications().count(), 0);
+    index.merge([open.clone()]).unwrap();
+    assert_eq!(index.publications().count(), 1);
+    let mut other = RoomIndex::new(support::ROOM, support::maintainer().public_key());
+    other.merge([open, close, a]).unwrap();
+    assert_eq!(other.to_bytes(), index.to_bytes());
+    let conflict = support::maintainer()
+        .sign(
+            support::ROOM,
+            11,
+            Action::SetPolicy {
+                member_publishing: false,
+            },
+        )
+        .unwrap();
+    index.merge([conflict]).unwrap();
+    assert_eq!(index.publications().count(), 0);
+    w.result = true;
+}
+
+#[when("a peer exchanges signed room metadata before any payload is listed")]
+async fn metadata_bootstrap(w: &mut RoomWorld) {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let allow = Allowlist::new(w.index.clone().unwrap());
+    let mut changes = allow.subscribe();
+    let snapshot = support::index(w.info()).to_bytes();
+    let cid = w.info().content_id();
+    let transport = CatalogTransport::new(
+        Box::new(Probe::new(
+            vec![
+                // Datagram snapshots cannot bypass the reliable metadata boundary.
+                datagram(Msg::RoomRecords {
+                    snapshot: snapshot.clone(),
+                }),
+                channel(Msg::RoomRecords { snapshot: vec![0] }, &sent),
+                channel(
+                    Msg::RoomRecords {
+                        snapshot: snapshot.clone(),
+                    },
+                    &sent,
+                ),
+                datagram(Msg::Have {
+                    content: cid,
+                    index: 0,
+                }),
+            ],
+            sent.clone(),
+        )),
+        allow.clone(),
+    );
+    assert!(!allow.contains(&cid));
+    assert_eq!(
+        transport
+            .send_datagram(
+                &"seed".into(),
+                Envelope::new(Msg::RoomRecords {
+                    snapshot: snapshot.clone()
+                })
+                .encode()
+                .into()
+            )
+            .await
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    let mut outbound = transport.open_channel(&"seed".into()).await.unwrap();
+    outbound
+        .send(Envelope::new(Msg::RoomRecords { snapshot }).encode().into())
+        .await
+        .unwrap();
+    assert!(
+        !allow.contains(&cid),
+        "sending metadata must not merge local policy"
+    );
+    assert!(allow.permits(&Msg::GetRoomRecords {
+        room: support::ROOM
+    }));
+    assert!(!allow.permits(&Msg::GetRoomRecords { room: [0; 32] }));
+    let Some(TransportEvent::IncomingChannel { mut channel, .. }) = transport.next_event().await
+    else {
+        panic!("expected metadata channel")
+    };
+    assert_eq!(
+        channel.recv().await.unwrap().unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    assert!(!allow.contains(&cid));
+    assert!(!changes.has_changed().unwrap());
+    let Some(TransportEvent::IncomingChannel { mut channel, .. }) = transport.next_event().await
+    else {
+        panic!("expected valid metadata channel")
+    };
+    channel.recv().await.unwrap().unwrap();
+    assert!(changes.has_changed().unwrap());
+    changes.borrow_and_update();
+    assert!(allow.contains(&cid));
+    assert!(matches!(
+        transport.next_event().await,
+        Some(TransportEvent::Datagram(_))
+    ));
+    let mut forged = support::publish(w.info(), 2);
+    forged.signature[0] ^= 1;
+    assert_eq!(
+        w.index.as_mut().unwrap().merge([forged]),
+        Err(IndexError::BadSignature)
+    );
+    let wrong = RoomIndex::new([0; 32], support::maintainer().public_key()).to_bytes();
+    assert!(!allow.permits(&Msg::RoomRecords { snapshot: wrong }));
+    assert!(!allow.permits(&Msg::RoomRecords {
+        snapshot: vec![0; entropy_engine::p2p::index::MAX_INDEX_BYTES + 1]
+    }));
+    w.result = true;
+}
+
+#[then("member publishing and moderation invariants hold")]
+fn member_invariants(w: &mut RoomWorld) {
+    success(w);
+}
+
+#[when("a member fills the current record capacity")]
+fn record_capacity(w: &mut RoomWorld) {
+    use entropy_engine::p2p::index::MAX_ENTRIES;
+    let member = Member::from_seed(&[6; 32]).unwrap();
+    let entries: Vec<_> = (1..=MAX_ENTRIES as u64)
+        .map(|sequence| {
+            member
+                .sign(support::ROOM, sequence, Action::Publish(item([3; 32])))
+                .unwrap()
+        })
+        .collect();
+    let index = w.index.as_mut().unwrap();
+    assert_eq!(index.merge(entries).unwrap(), MAX_ENTRIES);
+    let before = index.to_bytes();
+    let extra = member
+        .sign(
+            support::ROOM,
+            MAX_ENTRIES as u64 + 1,
+            Action::Publish(item([4; 32])),
+        )
+        .unwrap();
+    assert_eq!(index.merge([extra]), Err(IndexError::TooLarge));
+    assert_eq!(before, index.to_bytes());
+    let reload =
+        RoomIndex::from_bytes(support::ROOM, support::maintainer().public_key(), &before).unwrap();
+    assert_eq!(reload.entries().count(), MAX_ENTRIES);
+    w.result = true;
 }
 
 fn tombstone(info: &InfoDocument) -> entropy_engine::p2p::index::SignedEntry {
@@ -341,12 +686,23 @@ fn malformed(w: &mut RoomWorld) {
     assert!(
         RoomIndex::from_bytes(support::ROOM, support::maintainer().public_key(), &bytes).is_err()
     );
-    let mut record = support::publish(w.info(), 1);
-    record.entry.schema = 99;
-    assert_eq!(
-        w.index.as_mut().unwrap().merge([record]),
-        Err(IndexError::InvalidEntry)
-    );
+    for schema in [1, 99] {
+        let mut record = support::publish(w.info(), 1);
+        record.entry.schema = schema;
+        assert_eq!(
+            w.index.as_mut().unwrap().merge([record]),
+            Err(IndexError::InvalidEntry)
+        );
+    }
+    let legacy = Envelope {
+        protocol: 1,
+        msg: Msg::Hello { version: 1 },
+    }
+    .encode();
+    assert!(matches!(
+        Envelope::decode(&legacy),
+        Err(entropy_engine::p2p::wire::WireError::UnsupportedProtocol { found: 1 })
+    ));
     let bytes = rmp_serde::to_vec(&(99u32, support::ROOM, Vec::<u8>::new())).unwrap();
     assert!(
         RoomIndex::from_bytes(support::ROOM, support::maintainer().public_key(), &bytes).is_err()
@@ -606,8 +962,8 @@ fn pending_blocked(w: &mut RoomWorld) {
     success(w);
 }
 
-#[when("I tombstone a stalled active download")]
-async fn revoke_download(w: &mut RoomWorld) {
+#[when(regex = r"^I (tombstone|withdraw) a stalled active download$")]
+async fn revoke_download(w: &mut RoomWorld, operation: String) {
     let path = w.directory();
     let sent = Arc::new(Mutex::new(Vec::new()));
     let allow = support::allow(w.info());
@@ -623,7 +979,21 @@ async fn revoke_download(w: &mut RoomWorld) {
     );
     let snapshot = {
         let mut i = support::index(w.info());
-        i.merge([tombstone(w.info())]).unwrap();
+        let removal = if operation == "withdraw" {
+            Member::from_seed(&[6; 32])
+                .unwrap()
+                .sign(
+                    support::ROOM,
+                    2,
+                    Action::Withdraw {
+                        publication: support::publish(w.info(), 1).entry.id(),
+                    },
+                )
+                .unwrap()
+        } else {
+            tombstone(w.info())
+        };
+        i.merge([removal]).unwrap();
         i.to_bytes()
     };
     let cid = w.info().content_id();
@@ -648,13 +1018,11 @@ async fn revoke_download(w: &mut RoomWorld) {
         revoke
     );
     assert!(matches!(result, Err(SessionError::NotAllowed(c)) if c == cid));
-    assert!(
-        !path
-            .join("p2p")
-            .join(w.info().content_id_hex())
-            .join("sealed")
-            .exists()
-    );
+    assert!(!path
+        .join("p2p")
+        .join(w.info().content_id_hex())
+        .join("sealed")
+        .exists());
     w.result = true;
 }
 #[then("the download stops without promoting the file")]

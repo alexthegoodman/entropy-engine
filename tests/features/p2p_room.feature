@@ -1,4 +1,44 @@
-Feature: Curated P2P rooms
+Feature: Member publishing and moderated P2P rooms
+  Scenario: Members publish posts and videos without the maintainer online
+    Given a room with a pinned maintainer key
+    When two members independently publish a post and a video
+    Then member publishing and moderation invariants hold
+
+  Scenario: Only the original author can withdraw a publication
+    Given a room with a pinned maintainer key
+    When a stranger withdraws another member's publication before its arrival
+    Then member publishing and moderation invariants hold
+
+  Scenario: Members cannot exercise maintainer authority
+    Given a room with a pinned maintainer key
+    When a member attempts each maintainer-only action
+    Then member publishing and moderation invariants hold
+
+  Scenario: Publication removal differs from blocking shared content
+    Given a room with a pinned maintainer key
+    When the maintainer removes one of two publications sharing a payload
+    Then member publishing and moderation invariants hold
+
+  Scenario: Author bans survive stale and future publications and reload
+    Given a room with a pinned maintainer key
+    When an author ban arrives before stale and future publications
+    Then member publishing and moderation invariants hold
+
+  Scenario: Room policy converges and conflicting policy fails closed
+    Given a room with a pinned maintainer key
+    When room publishing policy changes arrive out of order
+    Then member publishing and moderation invariants hold
+
+  Scenario: Signed metadata bootstraps payload permission without downloading content
+    Given a room with a pinned maintainer key
+    When a peer exchanges signed room metadata before any payload is listed
+    Then member publishing and moderation invariants hold
+
+  Scenario: The deferred record ceiling still rejects overflow atomically
+    Given a room with a pinned maintainer key
+    When a member fills the current record capacity
+    Then member publishing and moderation invariants hold
+
   Scenario: Signed logs merge deterministically and survive reload
     Given a room with a pinned maintainer key
     When I merge signed publications in different orders and reload them
@@ -14,15 +54,15 @@ Feature: Curated P2P rooms
     When I publish and reload items with different optional media hints
     Then the hints round-trip and cannot reuse each other's signatures
 
-  Scenario: Signatures cannot be replayed in another room or under another key
+  Scenario: Signatures cannot be replayed in another room or under another author key
     Given a room with a pinned maintainer key
     When I replay a signed entry with different trust settings
     Then both replays are rejected
 
-  Scenario: A maintainer sequence cannot describe two different events
+  Scenario: Conflicting author sequences converge without arrival-order dependence
     Given a room with a pinned maintainer key
     When I merge conflicting signed events at the same sequence
-    Then the conflicting batch changes no catalog state
+    Then conflicting publications converge to hidden records
 
   Scenario: Tombstones prevent stale and later publication from resurrecting content
     Given a room with a pinned maintainer key
@@ -57,6 +97,11 @@ Feature: Curated P2P rooms
   Scenario: A live tombstone stops an active download
     Given a room with a pinned maintainer key
     When I tombstone a stalled active download
+    Then the download stops without promoting the file
+
+  Scenario: A member withdrawal stops an active download
+    Given a room with a pinned maintainer key
+    When I withdraw a stalled active download
     Then the download stops without promoting the file
 
   Scenario: Revocation applies to pending sends and existing channels

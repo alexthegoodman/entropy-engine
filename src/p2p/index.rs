@@ -1,10 +1,9 @@
-//! A room's durable, maintainer-signed log. Trust (room id and public key) is supplied externally,
-//! never learned from an incoming snapshot. Merge is an atomic, verified set union. Tombstones
-//! permanently remove a content id regardless of arrival order or later publication sequences.
+//! Member publications and maintainer moderation form an atomic, verified set union.
+//! Room and maintainer trust are pinned externally. Schema 2 deliberately rejects schema 1.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
+use ring::signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -13,10 +12,18 @@ use super::wire::ContentId;
 
 pub type RoomId = [u8; 32];
 pub type PublicKey = [u8; 32];
-pub const INDEX_SCHEMA: u32 = 1;
+pub const INDEX_SCHEMA: u32 = 2;
 pub const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_ENTRIES: usize = 4096;
-const DOMAIN: &str = "entropy-p2p-room-entry";
+const DOMAIN: &str = "entropy-p2p-room-entry-v2";
+pub type PublicationId = [u8; 32];
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PublicationKind {
+    Post,
+    Video,
+    File,
+}
 
 fn sort_maps(value: &mut serde_json::Value) {
     match value {
@@ -41,41 +48,61 @@ pub struct CatalogItem {
     pub title: String,
     pub description: String,
     pub media: Option<MediaInfo>,
+    pub kind: PublicationKind,
+    pub parent: Option<PublicationId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     Publish(CatalogItem),
-    Tombstone { content: ContentId },
-}
-
-impl Action {
-    pub fn content(&self) -> ContentId {
-        match self {
-            Self::Publish(item) => item.content,
-            Self::Tombstone { content } => *content,
-        }
-    }
+    /// Author-scoped withdrawal; may arrive before the referenced publication.
+    Withdraw {
+        publication: PublicationId,
+    },
+    /// Maintainer-only removal of one publication.
+    Remove {
+        publication: PublicationId,
+    },
+    /// Maintainer-only permanent payload block, including future republications.
+    Tombstone {
+        content: ContentId,
+    },
+    /// Maintainer-only permanent author ban; new keys are separate identities.
+    BanAuthor {
+        author: PublicKey,
+    },
+    /// Latest maintainer policy applies to all member publications. Defaults to open.
+    SetPolicy {
+        member_publishing: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub schema: u32,
     pub room: RoomId,
-    /// Unique monotonic sequence assigned by the single maintainer, starting at one.
+    pub author: PublicKey,
+    /// Sequence scoped to author, starting at one. Conflicts are retained as evidence.
     pub sequence: u64,
     pub action: Action,
 }
 
 impl Entry {
-    /// Schema 1 freezes this MessagePack tuple with a named-map action. Optional media fields
+    /// Schema 2 freezes this MessagePack tuple with a named-map action. Optional media fields
     /// retain their names, so omitted hints cannot alias different fields in a positional array.
     /// Domain, schema and room are signed so entries cannot be replayed across protocols/rooms.
     pub fn signing_bytes(&self) -> Vec<u8> {
         let mut action = serde_json::to_value(&self.action).expect("action serializes");
         sort_maps(&mut action);
-        rmp_serde::to_vec(&(DOMAIN, self.schema, self.room, self.sequence, action))
-            .expect("entry serializes")
+        rmp_serde::to_vec(&(
+            DOMAIN,
+            self.schema,
+            self.room,
+            self.author,
+            self.sequence,
+            action,
+        ))
+        .expect("entry serializes")
     }
     pub fn id(&self) -> [u8; 32] {
         Sha256::digest(self.signing_bytes()).into()
@@ -108,9 +135,11 @@ pub struct SignedEntry {
     pub signature: Vec<u8>,
 }
 
-/// Only the maintainer holds this key. Members need its public key alone.
-pub struct Maintainer(Ed25519KeyPair);
-impl Maintainer {
+/// Local author key, generated without an account. Maintainer authority comes from the room pin.
+pub struct SigningKey(Ed25519KeyPair);
+pub type Maintainer = SigningKey;
+pub type Member = SigningKey;
+impl SigningKey {
     pub fn generate_pkcs8() -> Result<Vec<u8>, IndexError> {
         Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new())
             .map(|d| d.as_ref().to_vec())
@@ -140,6 +169,7 @@ impl Maintainer {
         let entry = Entry {
             schema: INDEX_SCHEMA,
             room,
+            author: self.public_key(),
             sequence,
             action,
         };
@@ -155,7 +185,7 @@ pub enum IndexError {
     InvalidEntry,
     WrongRoom,
     BadSignature,
-    SequenceConflict(u64),
+    Unauthorized,
     TooLarge,
     Decode(String),
     NonCanonical,
@@ -171,7 +201,8 @@ impl std::error::Error for IndexError {}
 pub struct RoomIndex {
     room: RoomId,
     maintainer: PublicKey,
-    entries: BTreeMap<u64, SignedEntry>,
+    entries: BTreeMap<PublicationId, SignedEntry>,
+    publications: BTreeMap<PublicationId, SignedEntry>,
     live: BTreeMap<ContentId, CatalogItem>,
 }
 
@@ -188,6 +219,7 @@ impl RoomIndex {
             room,
             maintainer,
             entries: BTreeMap::new(),
+            publications: BTreeMap::new(),
             live: BTreeMap::new(),
         }
     }
@@ -200,12 +232,20 @@ impl RoomIndex {
     pub fn items(&self) -> impl Iterator<Item = &CatalogItem> {
         self.live.values()
     }
+    /// Visible publications, retaining author identity and separate references to shared payloads.
+    pub fn publications(&self) -> impl Iterator<Item = (PublicationId, &SignedEntry)> {
+        self.publications.iter().map(|(id, record)| (*id, record))
+    }
+    pub fn maintainer(&self) -> PublicKey {
+        self.maintainer
+    }
     pub fn contains(&self, content: &ContentId) -> bool {
         self.live.contains_key(content)
     }
 
     /// All records, including duplicates, must validate. A bad batch changes no local state.
-    /// Conflicting signed records at the same sequence are rejected, never resolved by arrival.
+    /// Conflicts converge by retaining both records and hiding publications at that author/sequence.
+    /// Signed moderation remains effective even at conflicting sequences (fail closed).
     pub fn merge(
         &mut self,
         entries: impl IntoIterator<Item = SignedEntry>,
@@ -218,21 +258,33 @@ impl RoomIndex {
                 return Err(IndexError::WrongRoom);
             }
             if record.signature.len() != 64
-                || UnparsedPublicKey::new(&ED25519, self.maintainer)
+                || UnparsedPublicKey::new(&ED25519, record.entry.author)
                     .verify(&record.entry.signing_bytes(), &record.signature)
                     .is_err()
             {
                 return Err(IndexError::BadSignature);
             }
-            let sequence = record.entry.sequence;
-            if let Some(existing) = merged.get(&sequence) {
-                if existing != &record {
-                    return Err(IndexError::SequenceConflict(sequence));
+            if !matches!(
+                record.entry.action,
+                Action::Publish(_) | Action::Withdraw { .. }
+            ) && record.entry.author != self.maintainer
+            {
+                return Err(IndexError::Unauthorized);
+            }
+            let id = record.entry.id();
+            match merged.entry(id) {
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(record);
+                    if merged.len() > MAX_ENTRIES {
+                        return Err(IndexError::TooLarge);
+                    }
                 }
-            } else {
-                merged.insert(sequence, record);
-                if merged.len() > MAX_ENTRIES {
-                    return Err(IndexError::TooLarge);
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    // Other Ed25519 signers may use different nonces for identical signing bytes.
+                    // Choose a stable signature representation instead of keeping first arrival.
+                    if record.signature < slot.get().signature {
+                        slot.insert(record);
+                    }
                 }
             }
         }
@@ -248,31 +300,63 @@ impl RoomIndex {
         {
             return Err(IndexError::TooLarge);
         }
-        let tombstones: BTreeSet<_> = merged
-            .values()
-            .filter_map(|r| {
-                if let Action::Tombstone { content } = r.entry.action {
-                    Some(content)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut live = BTreeMap::new();
+        let mut tombstones = BTreeSet::new();
+        let mut removed = BTreeSet::new();
+        let mut withdrawn = BTreeSet::new();
+        let mut banned = BTreeSet::new();
+        let mut counts = BTreeMap::new();
+        let mut policy = (0, true);
         for r in merged.values() {
+            *counts
+                .entry((r.entry.author, r.entry.sequence))
+                .or_insert(0usize) += 1;
+            match r.entry.action {
+                Action::Tombstone { content } => {
+                    tombstones.insert(content);
+                }
+                Action::Remove { publication } => {
+                    removed.insert(publication);
+                }
+                Action::Withdraw { publication } => {
+                    withdrawn.insert((r.entry.author, publication));
+                }
+                Action::BanAuthor { author } => {
+                    banned.insert(author);
+                }
+                Action::SetPolicy { member_publishing } => {
+                    if r.entry.sequence > policy.0 {
+                        policy = (r.entry.sequence, member_publishing);
+                    } else if r.entry.sequence == policy.0 {
+                        policy.1 &= member_publishing;
+                    }
+                }
+                Action::Publish(_) => {}
+            }
+        }
+        let mut live = BTreeMap::new();
+        let mut publications = BTreeMap::new();
+        for (id, r) in &merged {
             if let Action::Publish(item) = &r.entry.action {
-                if !tombstones.contains(&item.content) {
-                    live.insert(item.content, item.clone());
+                if !tombstones.contains(&item.content)
+                    && !removed.contains(id)
+                    && !withdrawn.contains(&(r.entry.author, *id))
+                    && !banned.contains(&r.entry.author)
+                    && counts[&(r.entry.author, r.entry.sequence)] == 1
+                    && (policy.1 || r.entry.author == self.maintainer)
+                {
+                    publications.insert(*id, r.clone());
+                    live.entry(item.content).or_insert_with(|| item.clone());
                 }
             }
         }
         let added = merged.len() - before;
         self.entries = merged;
+        self.publications = publications;
         self.live = live;
         Ok(added)
     }
 
-    /// Canonical snapshot: named schema/room/entries, entries sorted by sequence. No peer
+    /// Canonical snapshot: named schema/room/entries, entries sorted by record id. No peer
     /// addresses or private keys are serialized. The snapshot id changes with any log change.
     pub fn to_bytes(&self) -> Vec<u8> {
         rmp_serde::to_vec_named(&Snapshot {

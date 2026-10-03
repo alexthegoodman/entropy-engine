@@ -5,7 +5,8 @@
 //! interoperable with BitTorrent, and gated behind a group code plus a signed room index.
 //!
 //! Phases 1-6 provide transport backends, content metadata, verified storage, bounded scheduling,
-//! and signed room indexes with catalog enforcement. KCP is the primary backend;
+//! and member-signed publications with maintainer moderation and catalog enforcement.
+//! Schema-2 room records bootstrap over reliable channels. KCP is the primary backend;
 //! QUIC remains available behind the same transport seam.
 
 pub mod allow;

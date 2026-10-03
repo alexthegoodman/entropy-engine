@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use super::meta::HASH_LEN;
 
 /// The one wire-protocol version this build understands.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// A content id: `SHA-256(canonical(info_document))`. The stable handle peers use everywhere.
 pub type ContentId = [u8; HASH_LEN];
@@ -34,7 +34,10 @@ impl std::fmt::Display for WireError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WireError::UnsupportedProtocol { found } => {
-                write!(f, "unsupported wire protocol {found} (expected {PROTOCOL_VERSION})")
+                write!(
+                    f,
+                    "unsupported wire protocol {found} (expected {PROTOCOL_VERSION})"
+                )
             }
             WireError::Decode(e) => write!(f, "wire message decode failed: {e}"),
         }
@@ -48,21 +51,48 @@ impl std::error::Error for WireError {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
     /// Protocol version, supported schemas, group membership. First message on a connection.
-    Hello { version: u32 },
+    Hello {
+        version: u32,
+    },
+    /// Bounded metadata bootstrap, independent of payload catalog membership.
+    GetRoomRecords {
+        room: super::index::RoomId,
+    },
+    RoomRecords {
+        snapshot: Vec<u8>,
+    },
     /// Request the info document for a content id (reliable channel, request).
-    GetInfo { content: ContentId },
+    GetInfo {
+        content: ContentId,
+    },
     /// Response carrying the canonical info document bytes.
-    Info { document: Vec<u8> },
+    Info {
+        document: Vec<u8>,
+    },
     /// "I hold piece N of content C" (coalesced).
-    Have { content: ContentId, index: u32 },
+    Have {
+        content: ContentId,
+        index: u32,
+    },
     /// Full piece map on connect (batched `have`).
-    Bitfield { content: ContentId, bitmap: Vec<u8> },
+    Bitfield {
+        content: ContentId,
+        bitmap: Vec<u8>,
+    },
     /// "Send me piece N of content C" (informed by the scheduler).
-    Want { content: ContentId, index: u32 },
+    Want {
+        content: ContentId,
+        index: u32,
+    },
     /// Stop a pending piece request.
-    Cancel { content: ContentId, index: u32 },
+    Cancel {
+        content: ContentId,
+        index: u32,
+    },
     /// Completion signal, for seed accounting.
-    Done { content: ContentId },
+    Done {
+        content: ContentId,
+    },
     /// Piece bytes + content id + index (reliable channel, response to `want`).
     Piece {
         content: ContentId,
@@ -100,7 +130,9 @@ impl Envelope {
         let env: Envelope =
             rmp_serde::from_slice(bytes).map_err(|e| WireError::Decode(e.to_string()))?;
         if env.protocol != PROTOCOL_VERSION {
-            return Err(WireError::UnsupportedProtocol { found: env.protocol });
+            return Err(WireError::UnsupportedProtocol {
+                found: env.protocol,
+            });
         }
         Ok(env)
     }
@@ -117,7 +149,13 @@ mod tests {
     #[test]
     fn roundtrip_every_message() {
         let messages = vec![
-            Msg::Hello { version: PROTOCOL_VERSION },
+            Msg::Hello {
+                version: PROTOCOL_VERSION,
+            },
+            Msg::GetRoomRecords { room: [9; 32] },
+            Msg::RoomRecords {
+                snapshot: vec![1, 2, 255],
+            },
             Msg::GetInfo { content: cid() },
             Msg::Info {
                 document: b"\x87a schema".to_vec(),
@@ -182,6 +220,10 @@ mod tests {
             data,
         });
         let bytes = env.encode();
-        assert!(bytes.len() <= 64 * 1024 + 128, "piece payload bloated to {} bytes", bytes.len());
+        assert!(
+            bytes.len() <= 64 * 1024 + 128,
+            "piece payload bloated to {} bytes",
+            bytes.len()
+        );
     }
 }

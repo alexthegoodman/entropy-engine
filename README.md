@@ -675,7 +675,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 
 ## P2P development
 
-The Rust P2P layer provides maintainer-signed room indexes, verified piece storage, and bounded
+The Rust P2P layer provides member-signed publications with maintainer moderation, verified piece storage, and bounded
 rarest-first/sequential-ahead scheduling. Sessions require an index-derived `Allowlist` and filter
 both message planes through `CatalogTransport`. `Session::download_swarm` learns peer availability
 and accepts live playback-window updates. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
@@ -687,8 +687,12 @@ cargo test -j 1 --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --
 
 The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
 `--curator-key <64 hex digits>` in addition to its transport/content arguments. Members receive
-the pinned room id and maintainer public key through trusted configuration; signing keys stay with
-the maintainer. The addon API and rendezvous are later phases.
+the pinned room id and maintainer public key through trusted configuration. Each author uses a local
+`SigningKey` (Ed25519, no account); only the pinned maintainer can moderate. Schema-2 indexes retain
+author conflicts, withdrawals, publication removals, content blocks, bans and publishing policy.
+Reliable `RoomRecords` messages validate and merge metadata before allowing payload transfers.
+Schema-1 room snapshots and wire protocol 1 are rejected; content metadata stays schema 1.
+The current snapshot limit remains 4,096 records / 4 MiB. The addon API and rendezvous are later phases.
 
 ## MCP
 

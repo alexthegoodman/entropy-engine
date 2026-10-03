@@ -22,35 +22,55 @@ run as `cargo test --lib p2p`; the two-process session runs as
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Next up: phase 7 (minimal rendezvous node).
+Phase 6 has been revised for ordinary member publishing (see below). Next up: phase 7
+(minimal rendezvous node), followed by the long-lived service and phase-9 forum.
 
-### Phase-6 room index and enforcement
+### Phase-6 member publishing and moderation (revised 2026-10-02)
 
-`index.rs` implements a room-pinned Ed25519 log using `ring` 0.17.14 (already in the transport
-dependency tree). Members supply the trusted 32-byte room id and maintainer public key to
-`RoomIndex::new`/`from_bytes`; an incoming snapshot cannot choose either trust value. Only the
-maintainer holds a signing key. `Maintainer::generate_pkcs8` and `from_pkcs8` support real keys;
-the deterministic seeds in the test fixtures are synthetic.
+`index.rs` implements room-pinned Ed25519 records using `ring` 0.17.14. Members supply the
+trusted 32-byte room id and maintainer public key to `RoomIndex::new`/`from_bytes`; an incoming
+snapshot cannot choose either trust value. Every author can generate a local `SigningKey`
+(`Member` and `Maintainer` are role aliases) using `generate_pkcs8`/`from_pkcs8`. There are no
+accounts, curator-issued author keys, or author certificates. Fixture seeds are synthetic.
 
-- Entries are schema-1 publications or tombstones with unique, nonzero maintainer sequences.
-  Publications carry a content id, title, description and optional media hints; no peer addresses.
-- Signing bytes are the MessagePack tuple `(domain, schema, room, sequence, action)`, with domain
-  `entropy-p2p-room-entry` and an action represented by recursively sorted named maps. Optional
+- Entries are schema 2, with author public key and nonzero author-scoped sequence. Any author can
+  publish a post, video or file with content id, title, description, media hints and optional parent
+  publication id. No maintainer needs to be online. Publication identity is the SHA-256 of the
+  canonical signing bytes, distinct from payload content identity; no peer addresses are stored.
+- Authors can `Withdraw` their own publication. The pinned maintainer alone can `Remove` a
+  publication, `Tombstone` a content id, `BanAuthor`, or `SetPolicy { member_publishing }`.
+  Withdrawals are keyed by author and target id, so a stranger's withdrawal cannot hide a post.
+  Removes, content blocks and bans are permanent, including when delivered before their targets.
+  Removing one publication permits the same payload through another visible publication;
+  a content tombstone blocks every publication of that payload, including future republications.
+- Rooms default to open member publishing. The highest-sequence maintainer policy determines
+  whether all member publications are visible/transferable; closing a room suppresses existing
+  member publications too, reopening restores eligible ones. Maintainer publications remain
+  eligible. Conflicting policies at the highest sequence resolve to closed. Bans cannot prevent
+  someone creating another key; signatures authenticate keys, not real people or room membership.
+- Signing bytes are the MessagePack tuple `(domain, schema, room, author, sequence, action)`, with
+  domain `entropy-p2p-room-entry-v2` and an action represented by recursively sorted named maps. Optional
   media hints retain field names so omitting one cannot alias another. Entry ids are SHA-256 of
   these bytes; signatures cover them with Ed25519.
-- Snapshots use named MessagePack fields (`schema`, `room`, `entries`), with entries in sequence
+- Snapshots use named MessagePack fields (`schema`, `room`, `entries`), with entries in record-id
   order. The snapshot content id hashes the complete canonical snapshot, including signatures.
   Loading validates every signature and rejects alternate encodings/trailing bytes.
-- Merge validates the whole batch before changing state. Duplicate records are idempotent;
-  conflicting signed records at one sequence fail the batch. Missing sequences and out-of-order
-  delivery are supported. Tombstones remain in the log and permanently win over any publication
-  of that content id, including later signed publications and stale peer snapshots.
+- Merge validates the whole batch before changing state. Invalid signatures, rooms or moderation
+  authority reject the batch atomically. Duplicates are idempotent. Different authors may use the
+  same sequence; conflicting records at one author/sequence are both retained and publications
+  at that pair hidden, giving deterministic union even when peers first saw different conflicts.
+  Signed moderation/withdrawals remain effective at conflicting sequences. Missing sequences,
+  unknown parents/targets and out-of-order delivery are supported; targets do not authorize payloads.
+  If identical signing bytes have different valid signatures, their stored representation uses
+  the lexicographically smallest signature so snapshots also converge.
 - Bounds: 4 MiB snapshots, 4,096 records, 256-byte titles, 4,096-byte descriptions and 128-byte codec
   labels. Both reliable transport adapters reject frames above 16 MiB before payload allocation.
 - `Allowlist` holds the verified index, merges snapshots atomically and notifies sessions of changes.
   `CatalogTransport` checks decoded traffic on both inbound/outbound message planes, including
-  info-document content ids. Hello is the sole content-free bootstrap control and must have the
-  supported protocol version. KCP's raw interceptor separately filters configured source peers.
+  info-document content ids. Wire protocol 2 adds room-pinned `GetRoomRecords` and reliable-only
+  `RoomRecords` bootstrap alongside `Hello`. Received snapshots validate and merge before payload
+  traffic is permitted; outbound snapshots validate without modifying local policy. No asset
+  bytes are fetched automatically. KCP's raw interceptor separately filters configured source peers.
 - `Session::new(transport, allowlist)` requires a policy. Unlisted downloads/serves fail before opening
   a piece store; writes and promotion hold a policy read lock. A live tombstone wakes and stops
   transfers, aborts pending seed tasks, and applies to existing channels and prepared send futures.
@@ -59,9 +79,18 @@ the deterministic seeds in the test fixtures are synthetic.
   `--room-id`, and `--curator-key`. The localhost fixtures pass public material to each process;
   the private signing seed remains in the test fixture code.
 
-The index model provides verified snapshot loading/serialization and union for the forthcoming
-rendezvous client/server. Network index exchange and automatic disk persistence belong to that
-service.
+Schema-1 room snapshots and wire protocol 1 are deliberately rejected rather than reinterpreted.
+The schema-1 info document, payload content ids and piece hashes are unchanged. Existing synthetic
+room fixtures are regenerated. The model and transport bootstrap are ready for the forthcoming
+service; automatic exchange responses, author key/sequence persistence and index disk persistence
+belong to that service. Sequence allocation must survive restarts; reusing a sequence hides
+conflicting publications. Author keys must stay local and outside replicated snapshots.
+
+The 4,096-record / 4 MiB limits remain by agreement. Later incremental exchange can address
+records by stable id without changing their signing format. Full snapshots still fail atomically
+when a union exceeds either limit (including new moderation), so production growth needs bounded
+paging, capacity for moderation and safe checkpoints retaining revocations. This is deferred,
+not solved by deleting old records or raising the cap alone.
 
 Service integration follow-up: the existing transport adapters spawn receive/accept tasks with
 endpoint clones and use unbounded inbound queues. Their lifecycle and queue backpressure must be
@@ -159,16 +188,16 @@ Three mechanisms keep the network curated. Each can be tightened or loosened ind
 
 1. **Network isolation via group code.** `rustp2p` segments the network by a shared `GroupCode`
    (a short shared secret). Peers without the code never form a swarm with peers that have it, so
-   "joining our network" means knowing the code. This replaces heavy per-peer identity: there is
-   deliberately *no* per-peer keypair, no curator-issued identity, and no PKI in the first release.
-   The user has flagged full authentication as "probably a step too far"; a shared group code plus
-   PSK encryption (`Algorithm::AesGcm(password)`) is the lightweight stand-in.
+   "joining our network" means knowing the code. Author keys are locally generated to sign
+   publications and withdrawals; they are not transport peer IDs or curator-issued credentials.
+   There is no account login or PKI. Group code plus optional PSK encryption remains the transport
+   isolation mechanism, subject to the documented KCP piece-encryption limitation.
 
 2. **Curated catalog + content hashing.** Every shared item has a content id,
    `SHA-256(canonical(info_document))`, and every piece is `SHA-256`-verified against that document
-   (section 4). The set of content ids that may circulate is the **room index** (the catalog, section
-   6): peers only announce, request, or serve content ids they learned from that signed index. Adding
-   or removing content is a curation act, not a network act.
+   (section 4). The set of content ids that may circulate is derived from the **room index**:
+   verified member publications under pinned maintainer policy and moderation. Peers only announce,
+   request or serve eligible content. Member publishing requires no maintainer approval.
 
 3. **Enforcement at the transport and store boundary.** KCP's `DataInterceptor` sees plaintext
    peer metadata before decryption and keeps packets when `pre_handle` returns `true`. It rejects
@@ -178,10 +207,10 @@ Three mechanisms keep the network curated. Each can be tightened or loosened ind
    lock during store writes and promotion. Content filtering happens after decryption, where the
    content id is visible. See the Phase-1 finding and the Phase-6 implementation notes.
 
-Consequence: publish and curate are the same operation. There is no untrusted upload path in the
-first release; content enters a room's index through the room maintainer's tooling, which produces
-the info document, signs the index entry, and seeds the content. Replicating that signed index is
-something every member does; authoring it is not.
+Publishing and moderation are separate operations. A member produces the info document, signs a
+publication, shares its metadata and seeds its payload. Peers validate publications before adding
+their payloads to the derived catalog. Only the maintainer authors room-wide policy and moderation.
+Metadata and payload sizes are bounded; valid author signatures alone do not prevent spam.
 
 ## 3. Architecture constraints in Entropy
 
@@ -315,18 +344,17 @@ entries that merge cleanly, and a room survives without any server as long as on
 Keep these separate. "What exists in the room" and "who has it right now" are different facts, and
 distributed systems handle the second one badly.
 
-1. **Durable index (append-only, signed).** Each entry is `{ content_id, title, description, media
-   metadata }` - the "p2p link" is just the content id, nothing more. A room has a maintainer key
-   that signs entries; peers replicate and seed the signed log, they do not author it (this keeps
-   "anyone can add themselves" from becoming "anyone can inject"). Deletion is a tombstone entry,
-   not a removal, so re-served stale copies cannot resurrect dead content. **The index never stores
+1. **Durable index (append-only, signed).** Member publications carry content ids, metadata,
+   author keys and optional parent references. The maintainer signs policy and moderation;
+   members sign their own publications and withdrawals. Removal records remain in the union,
+   so re-served stale copies cannot resurrect removed publications or blocked content. **The index never stores
    peer endpoints** - addresses rot under NAT/roaming. Who holds a content id is a live question,
    answered by the layer below, never persisted.
 
 2. **Live availability (rendezvous).** A short-TTL table of "peer P announced it seeds content C".
    Fed by heartbeats and announces and expiring on silence, this is where "no seeders" becomes
-   visible: when liveness probes for C come up empty, the room marks C unavailable, and only then
-   may it tombstone C from the index. A room self-manages here, not in the durable layer.
+   visible: expired announcements mark C unavailable, but never remove publications or produce
+   tombstones automatically. An offline seeder can return without republishing.
 
 ### The always-on node is tiny
 
@@ -335,25 +363,26 @@ peer first). So we keep one small always-on node, but its job is deliberately mi
 is a free product and its cost must stay low. It touches only metadata, never file bytes, so its
 bandwidth scales with the number of peers announcing, not the volume of content.
 
-Three endpoints, nothing else:
+Phase 7 adds bounded public-metadata ingestion alongside discovery:
 
 | Endpoint | Job |
 | --- | --- |
 | `get_index(room)` | Serve the current signed room index to new/rejoining members (read-only). |
+| `put_records(room, records)` | Verify and merge member publications/withdrawals and pinned maintainer policy/moderation. Never accept caller-selected room trust. |
 | `put_announce(room, content_id, proof)` | Accept "I seed C" into the short-TTL live table (write). |
 | `get_peers(room, content_id)` | Rendezvous: return who holds C right now. |
 
-The index is small (titles + descriptions + hashes, ~1 KB/item) and announces are a few hundred
-bytes, so the whole node stays inside a free tier until real scale. Two ways to run it:
+Start with a standalone Rust `tracker` binary and local fake peers, with durable index storage
+and an in-memory expiring availability table. Deploy to a DigitalOcean droplet later. Keep hosting
+cost claims provisional until the actual request rate, metadata volume and persistence are measured.
+HTTP discovery supplies connection hints; it does not itself establish transport routes or replace
+NAT punch coordination. Local fixtures start with explicit loopback connection addresses.
 
-- **Edge/serverless (preferred for a free product):** Cloudflare Workers free tier + R2 (zero egress)
-  for the durable index, Workers KV or Durable Objects for the live TTL table. Zero fixed cost, no
-  VPS to patch. This is the "publicly available database table" from the earlier discussion.
-- **One cheap VPS:** a single process with SQLite. The engine already carries `tiny_http` (the MCP
-  server uses it) and `reqwest`, so a `tracker` binary is nearly free to write.
-
-The node is public, so it is rate-limited and content-agnostic: it serves a signed index it did not
-author and a TTL'd peer table it does not trust.
+The node is public, rate-limited and content-agnostic: it serves signed records it did not author
+and a TTL'd peer table it does not trust. An author signature is not proof of seeding; peer lists
+are connection hints verified through peer sessions. Announcements must name eligible content.
+Use a local Rust tracker binary first, then deploy to the planned DigitalOcean droplet. It stores
+public room pins and metadata, never author private keys, group secrets or payload bytes.
 
 ### No relay/proxy for file data
 
@@ -384,9 +413,10 @@ can be added later without changing the wire format.
 ## 8. Security and abuse controls
 
 - **Isolation and transport.** A shared `GroupCode` isolates the swarm; `rustp2p` optional
-  encryption (AES-GCM or ChaCha20-Poly1305) protects traffic with a PSK. There is no per-peer PKI
-  in the first release - the group code and PSK are the trust root, and the `DataInterceptor` is the
-  enforcement point.
+  encryption (AES-GCM or ChaCha20-Poly1305) protects control traffic with a PSK, subject to the
+  Phase-4 KCP piece-encryption limitation. Local author keys sign metadata without account login
+  or PKI; the pinned maintainer key controls moderation. The group code and raw interceptor
+  constrain transport participation, while decoded catalog policy constrains payload transfers.
 - **Verification everywhere.** Every piece is SHA-256 checked against the info document before it
   is trusted or re-shared.
 - **Filtering.** The KCP interceptor rejects unlisted source peers before decryption. The shared
@@ -415,7 +445,7 @@ A new addon, `p2p_file_browser_addon.ts`, following the existing media player's 
 - Shows per-item progress: pieces fetched, verified, remaining, per-peer contribution, and transfer
   rate. Reuses the `Widget.treeView` / `Widget.card` / `Widget.progress`-style primitives already
   in `entropy_gui`.
-- The "browser" is also the entry point for curation: the room maintainer's tooling publishes here.
+- Members publish their own content here; maintainers receive separate moderation controls.
 
 ## 10. The P2P media player
 
@@ -456,7 +486,7 @@ Playback behavior:
 | `meta.rs` | Info document schema, canonical serialization (MessagePack), content id derivation. |
 | `wire.rs` | The versioned `Envelope` and `Msg` set (hello/get_info/info/have/bitfield/want/cancel/done/piece), MessagePack-encoded; transport-agnostic. |
 | `session.rs` | Single-content seed/serve and swarm download/resume over the catalog transport; bounded scheduling, live seek and catalog revocation. |
-| `index.rs` | Maintainer-signed append-only entries, verified atomic union, canonical snapshots, permanent tombstones. |
+| `index.rs` | Member publications and withdrawals, maintainer policy/moderation, author-scoped conflict handling, verified union and canonical snapshots. |
 | `allow.rs` | Shared index-derived policy, change notifications, store-operation guards, and `CatalogTransport` filtering both message planes. |
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
@@ -542,25 +572,30 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    fetches in a successful download, bounded requests, resumed pieces skipped, timeout/source
    failover, corruption recovery, peer loss, and seek cancellation/reprioritization. Retries after
    loss/failure/cancellation are deliberate; they are distinct from duplicate active requests.
-6. **Room index and interceptor.** *(DONE)* Signed append-only index + catalog filtering after decoding;
+6. **Room index and interceptor.** *(DONE; member-publishing revision implemented)* Signed append-only index + catalog filtering after decoding;
    `DataInterceptor` filters source metadata before decryption and group code isolates rooms.
    Tests: unknown content id dropped, wrong group code cannot join, only indexed ids reach the
    piece store, tombstone prevents resurrection. This corrects the original content-aware
    interceptor assumption using the Phase-1 spike finding.
-   `tests/features/p2p_room.feature` + `tests/p2p_room_bdd.rs`: 17 scenarios, 51 steps passed on
-   Windows/loopback, covering verified merge/reload, signature/room/key rejection, sequence
-   conflicts, permanent tombstones, optional-media encoding, size limits, both message planes,
-   guarded storage, live revocation, encrypted KCP controls, native group isolation, and the raw
-   peer interceptor. The scheduler/swarm/two-process regressions, 15 P2P unit tests, and all-target
-   compile check passed (`-j 1 --offline` for builds on this Windows machine).
-7. **Minimal rendezvous node.** `get_index` / `put_announce` / `get_peers` over a short-TTL live
-   table. Verify only maintainer-signed entries enter the index, no bytes or secrets touch the node,
-   and liveness expires "no seeder" entries. (if this is the central Rust droplet, okay, or if its a peer node, okay, but im not sure what the goal is - needs clarification)
+   Original Phase-6 acceptance passed 17 scenarios / 51 steps. Revised acceptance adds independent
+   member posts/videos, withdrawals, scoped removals, bans, policy, author conflict convergence and
+   reliable metadata bootstrap; regressions retain guarded storage and live transfer revocation.
+   Revised Windows/loopback validation: 26 room scenarios / 78 steps, 9 scheduler scenarios,
+   3 synthetic swarm tests, 3 real KCP process tests, 15 P2P unit tests and
+   `cargo check -j 1 --offline --all-targets` passed. No new physical NAT or media playback test.
+7. **Minimal rendezvous node.** Rust tracker binary with `get_index` / `put_records` /
+   `put_announce` / `get_peers` and a short-TTL live table. Verify member publications and pinned
+   maintainer authority independently; no payload bytes or secrets touch the node. Expiry changes
+   availability, never durable publications. Test locally with fake peers before deployment.
+   Before Phase 9, add service task ownership/backpressure, multi-content event dispatch,
+   persistent author keys/sequences and verified indexes, bootstrap responses and non-blocking ops.
 8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
    punching; assert piece data never traverses a relayed route (via `RecvMetadata`/`LinkMode` relay
    info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything. (we may delay this till after Phase 9 due to physical logistics)
 9. **P2P forum addon (first product surface).** Room join, post/compose, index replication,
-   availability display ("no seeders"), and moderation via the maintainer key. Live BDD with two
+   availability display ("no seeders"), and moderation via the maintainer key. Members A and B
+   must publish with the maintainer offline; C downloads and re-seeds, then later moderation
+   propagates without stale snapshots resurrecting removed content. Live BDD with two
    windows. This is the MVP that ships before files or media and proves the discovery layer with
    real users.
 10. **P2P file browser addon.** Room index, download, seed, progress. Live BDD with two windows.
@@ -600,21 +635,21 @@ matter for the design:
   group code + PSK + interceptor); **QUIC stays in-tree as a fallback** because of the finding that
   its control model maps poorly onto section 2. The original "use QUIC" requirement is now
   satisfiable natively via `rustp2p-quic` if we switch.
-- **Trust model.** Group code + PSK + maintainer-signed room index + content hashing (no per-peer
-  identity), as the user suggested ("authentication is a step too far"). Decide whether any
-  additional signature on the info document is worth adding now or later.
+- **Trust model (decided).** Group code + optional PSK, local author signing keys, pinned maintainer
+  policy/moderation, and payload hashing. Open member publishing without accounts or prior approval.
 - **Canonical encoding.** *(Decided 2026-10-02)* MessagePack (`rmp-serde`), with sorted keys (a
   `serde_json::Map`, i.e. a `BTreeMap`, serialized to MessagePack) so the encoding is deterministic;
   `None` fields are omitted and the `pieces` field is a base64 string (no binary/array ambiguity).
   This locks the content id forever; the golden bytes/hash are frozen in `meta.rs` tests.
 - **Piece length** default (256 KiB vs 1 MiB) and whether it is per-content.
-- **Rendezvous node hosting.** Confirm the serverless-first choice (Workers + R2 + KV/Durable
-  Objects) vs a single VPS; who runs it, and the rate limits for a public, content-agnostic node.
-- **Room index write authority.** Confirm the maintainer-key model: one key per room signs index
-  entries, and everyone else only replicates. Decide how the maintainer key is rotated or shared,
-  and whether rooms ever allow multi-maintainer signing.
-- **Forum-first MVP.** Confirm the forum addon ships before the file browser/media player as the
-  first surface that exercises discovery with real users.
+- **Rendezvous hosting (decided).** Local Rust tracker binary first; DigitalOcean droplet later.
+  Public metadata without account authentication; bounded requests and rate limits are required.
+- **Room index write authority (decided).** Members sign publications/withdrawals; the pinned
+  maintainer signs room policy and moderation. Key rotation and multiple maintainers are deferred.
+- **Forum-first MVP (decided).** Forum ships before file browser/media player. Both forum posts and
+  media-channel videos use the same member-publication model.
+- **Index scaling (deferred by agreement).** Keep 4,096 records and 4 MiB now. Future paging and
+  moderation capacity must preserve stable record IDs and durable revocations.
 - **Relayed control traffic.** Confirm the boundary: small control/signaling may use `rustp2p`'s
   relayed routes, but piece data must be direct-only. Decide the exact enforcement (drop vs
   re-route).

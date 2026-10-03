@@ -53,6 +53,12 @@ impl Allowlist {
     pub fn permits(&self, msg: &Msg) -> bool {
         match msg {
             Msg::Hello { version } => *version == PROTOCOL_VERSION,
+            Msg::GetRoomRecords { room } => {
+                self.index.read().is_ok_and(|index| index.room() == *room)
+            }
+            Msg::RoomRecords { snapshot } => self.index.read().is_ok_and(|index| {
+                RoomIndex::from_bytes(index.room(), index.maintainer(), snapshot).is_ok()
+            }),
             Msg::GetInfo { content }
             | Msg::Have { content, .. }
             | Msg::Bitfield { content, .. }
@@ -67,6 +73,18 @@ impl Allowlist {
     }
     fn permits_bytes(&self, bytes: &[u8]) -> bool {
         Envelope::decode(bytes).is_ok_and(|e| self.permits(&e.msg))
+    }
+    /// Receive signed metadata before authorizing payload traffic. Outbound validation never merges.
+    fn accept_inbound(&self, bytes: &[u8]) -> bool {
+        Envelope::decode(bytes).is_ok_and(|e| match e.msg {
+            Msg::RoomRecords { snapshot } => self.merge_bytes(&snapshot).is_ok(),
+            msg => self.permits(&msg),
+        })
+    }
+    fn permits_datagram(&self, bytes: &[u8]) -> bool {
+        // Snapshots can be MiB-sized and belong exclusively on reliable channels.
+        Envelope::decode(bytes)
+            .is_ok_and(|e| !matches!(e.msg, Msg::RoomRecords { .. }) && self.permits(&e.msg))
     }
 }
 
@@ -103,7 +121,7 @@ impl ReliableChannel for CatalogChannel {
     fn recv(&mut self) -> Pin<Box<dyn Future<Output = Option<io::Result<Bytes>>> + Send + '_>> {
         Box::pin(async move {
             match self.inner.recv().await {
-                Some(Ok(bytes)) if self.allow.permits_bytes(&bytes) => Some(Ok(bytes)),
+                Some(Ok(bytes)) if self.allow.accept_inbound(&bytes) => Some(Ok(bytes)),
                 Some(Ok(_)) => Some(Err(denied())),
                 result => result,
             }
@@ -125,7 +143,7 @@ impl P2pTransport for CatalogTransport {
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
         let peer = peer.clone();
         Box::pin(async move {
-            if !self.allow.permits_bytes(&bytes) {
+            if !self.allow.permits_datagram(&bytes) {
                 return Err(denied());
             }
             self.inner.send_datagram(&peer, bytes).await
@@ -149,7 +167,7 @@ impl P2pTransport for CatalogTransport {
             loop {
                 match self.inner.next_event().await? {
                     TransportEvent::Datagram(dg) => {
-                        if self.allow.permits_bytes(&dg.payload) {
+                        if self.allow.permits_datagram(&dg.payload) {
                             return Some(TransportEvent::Datagram(dg));
                         }
                     }
