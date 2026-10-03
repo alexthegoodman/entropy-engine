@@ -1,6 +1,6 @@
 import { P2pClient } from "./p2p_client";
 
-const addon = Entropy.AddonAtom.register({ name: "p2p-forum", version: "1.0.0", description: "Peer-to-peer rooms and signed text posts", author: ["Entropy Team"], capabilities: { ui: true } });
+const addon = Entropy.Addon.register({ name: "p2p-forum", version: "1.0.0", description: "Peer-to-peer rooms and signed text posts", author: ["Entropy Team"], capabilities: { ui: true } });
 const client = new P2pClient();
 let room = "", maintainer = "", groupCode = "", tracker = "http://127.0.0.1:47110";
 let nodeId = "10.9.0.1", port = "47201", peers = "", advertiseAddress = "";
@@ -18,7 +18,7 @@ function update(time: number) {
     lastPolledAt = time;
 
     Entropy.println("P2P Polling...");
-    client.poll();
+    // client.poll();
 }
 
 function join(config?: any) {
@@ -28,11 +28,12 @@ function join(config?: any) {
         config = { room, maintainer, nodeId, port: Number(port), groupCode, tracker: tracker.trim() || null, peers: parsed, advertiseAddress: advertiseAddress.trim() || null };
     }
     
-    joining = client.start(config); started = joining;
+    // joining = client.start(config); // TODO: causes freezing
+    started = joining; 
     
     if (joining) {
         addon.IO.save(config);
-        client.poll();
+        // client.poll(); // NOTE: commented for testing
     }
 }
 
@@ -44,7 +45,7 @@ function publish(args?: any) {
     
     if (success) {
         publishing = { previous: client.state.lastPublication ?? null, title: submittedTitle, body: submittedBody };
-        client.poll();
+        // client.poll();
     }
 }
 
@@ -109,8 +110,8 @@ function render(win: string) {
     if (client.state.isMaintainer) w.button(win, { text: client.state.memberPublishing ? "Close member publishing" : "Open member publishing", onClick: () => { client.command({ action: "policy", open: !client.state.memberPublishing }); client.poll(); } });
 }
 
-addon.onUpdate((time: number) => update(time));
-// addon.onUpdatePlus("Global", (time: number) => update(time));
+// addon.onUpdate((time: number) => update(time));
+addon.onUpdatePlus("Global", (time: number) => update(time));
 
 addon.onInit(() => {
     const saved = addon.IO.load();

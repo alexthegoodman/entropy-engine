@@ -686,13 +686,6 @@ cargo test --jobs 1 --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_schedu
 cargo test --jobs 1 --test p2p_swarm --test p2p_session -- --test-threads=1
 ```
 
-P2P test runs must use `--jobs 1`, one Cargo invocation at
-a time, and finish compilation before launching peers or windows. Standard Rust tests also
-use `--test-threads=1`; Cucumber runners control scenario concurrency separately. The native
-forum test is ignored by default and requires explicit opt-in. See
-[resource precautions and separate build/run recipes](docs/P2P_FORUM.md#resource-precautions-for-future-runs-execution-remains-paused)
-before executing any of these commands. A single job does not cap compiler memory.
-
 The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
 `--curator-key <64 hex digits>` in addition to its transport/content arguments. Members receive
 the pinned room id and maintainer public key through trusted configuration. Each author uses a local
