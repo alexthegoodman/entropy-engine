@@ -5,7 +5,7 @@ Latest Docs:
 - https://docs.rs/rustp2p/latest/rustp2p/
 - https://docs.rs/rustp2p-quic/latest/rustp2p_quic/
 
-## Status (2026-10-02)
+## Status (2026-10-03)
 
 Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), 4 (two-process localhost
 session), 5 (scheduler), 6 (room index and enforcement), and 7 (local rendezvous tracker/client) are done. `src/p2p/` now holds the
@@ -24,8 +24,44 @@ fallback. Both remain behind the `P2pTransport` trait, so the call stays reversi
 "Phase-1 spike findings" note under section 13 for the evidence.
 
 Phase 6 has been revised for ordinary member publishing (see below). Phase 7 implements local
-metadata rendezvous. Next up: long-lived service integration before the phase-9 forum, with
-phase-8 physical NAT/no-relay validation still pending and optionally delayed for logistics.
+metadata rendezvous. Phase 9 now adds the long-lived room service and native forum addon.
+Phase 8 physical NAT/no-relay validation remains deferred by request.
+
+### Phase-9 local forum
+
+`src/p2p/service.rs` owns a room worker, persistent author/discovery keys, restart-safe sequence
+reservation, verified local index storage, automatic tracker synchronization/heartbeats and
+reliable peer bootstrap responses. Bounded channel tasks dispatch multiple post transfers over
+`P2pTransport`; KCP construction/discovery stays at the backend boundary. Metadata replication
+also works through configured peers when the tracker is offline. Tracker hints can bootstrap a
+reader with no configured peers, with at most 64 candidate nodes and explicit socket pins taking
+precedence. Incoming post bodies are requested explicitly, hash-verified and automatically
+re-served; metadata alone never downloads content.
+
+`Entropy.P2P.start/command/poll/stop` expose the service through queue-only Deno operations.
+`p2p_client.ts` caches coalesced UI snapshots. `p2p_forum_addon.ts` supports join/leave, composition,
+replies, availability, body download/retry, author withdrawals and pinned-maintainer publication
+removal, payload blocking, author bans and room policy. Profiles have exclusive OS locks; room,
+maintainer and node pins cannot silently change. Sequence reservation precedes signing, so a crash
+leaves a gap rather than an author conflict. Invalid keys, snapshots and sequence rollback fail
+startup. Policy reopening restores verified cached posts, including after restart.
+
+Forum text is bounded to 16 KiB in a single verified piece; large files/media continue to use
+`Session` and the scheduler and will need service routing in their later product phases. Queues
+are bounded to 32 commands and 64 transport events, with 16 active tasks and latest-state UI
+coalescing. Both adapters own their receive tasks; KCP drop shuts down its endpoint, and QUIC
+exposes explicit shutdown. The pinned `rustp2p` 0.4.1 source is vendored with one change: its
+upstream user-datagram queue is bounded to 64. QUIC upstream queue auditing remains separate
+before using that fallback in the service. Existing schemas and hashes are unchanged.
+
+See [P2P forum setup and API](P2P_FORUM.md). `p2p_room_setup` creates separate local member,
+reader and maintainer profiles. `p2p_service.feature` exercises offline-maintainer member
+publishing, replication, downloading/re-seeding, restart, stale moderation, tracker outage,
+profile isolation, tracker-only discovery, policy reopening, missing seeders and rejected
+banned-author publishing. `p2p_forum_live.feature` drives two real native windows through the
+UI handlers and captures their rendered downloaded bodies. Validation results are recorded
+below after the acceptance run. Deployment, physical NAT, direct-only payload enforcement and
+production load remain unverified. Large-room heartbeat batching remains tracked separately.
 
 ### Phase-7 local rendezvous
 
@@ -70,7 +106,7 @@ Windows/loopback acceptance: 18 tracker BDD scenarios / 54 steps, 26 room scenar
 9 scheduler scenarios / 27 steps, 3 synthetic swarm tests, 4 real process tests (including tracker
 discovery), 15 P2P unit tests, and `cargo check -j 1 --offline --all-targets` passed (existing
 warnings). Automatic heartbeat/index synchronization and persistent
-peer keys belong to the forthcoming service. DigitalOcean deployment, physical NAT, production load and hosting cost are unverified.
+author/discovery keys are now provided by the Phase-9 service. DigitalOcean deployment, physical NAT, production load and hosting cost are unverified.
 
 ### Phase-6 member publishing and moderation (revised 2026-10-02)
 
@@ -128,9 +164,8 @@ accounts, curator-issued author keys, or author certificates. Fixture seeds are 
 
 Schema-1 room snapshots and wire protocol 1 are deliberately rejected rather than reinterpreted.
 The schema-1 info document, payload content ids and piece hashes are unchanged. Existing synthetic
-room fixtures are regenerated. The model and transport bootstrap are ready for the forthcoming
-service; automatic exchange responses, author key/sequence persistence and index disk persistence
-belong to that service. Sequence allocation must survive restarts; reusing a sequence hides
+room fixtures are regenerated. The Phase-9 service now provides automatic exchange responses, author key/sequence persistence
+and verified index disk persistence for the forum. Sequence allocation must survive restarts; reusing a sequence hides
 conflicting publications. Author keys must stay local and outside replicated snapshots.
 
 The 4,096-record / 4 MiB limits remain by agreement. Later incremental exchange can address
@@ -139,9 +174,10 @@ when a union exceeds either limit (including new moderation), so production grow
 paging, capacity for moderation and safe checkpoints retaining revocations. This is deferred,
 not solved by deleting old records or raising the cap alone.
 
-Service integration follow-up: the existing transport adapters spawn receive/accept tasks with
-endpoint clones and use unbounded inbound queues. Their lifecycle and queue backpressure must be
-owned by the long-lived service before addon integration; the board tracks this separately.
+Service integration: adapter receive/accept tasks are now owned and their event queues bounded.
+The KCP upstream datagram backlog is bounded by the local 0.4.1 patch. The forum worker owns its
+channel/send/sync tasks through shutdown. QUIC upstream queues and large-asset session routing
+remain follow-ups before integrating those paths into a long-lived addon.
 
 ### Phase-5 scheduler behavior
 
@@ -634,12 +670,12 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    `put_announce` / `get_peers` and a short-TTL live table. Verify member publications and pinned
    maintainer authority independently; no payload bytes or secrets touch the node. Expiry changes
    availability, never durable publications. Test locally with fake peers before deployment.
-   Before Phase 9, add service task ownership/backpressure, multi-content event dispatch,
+   Phase 9 now supplies service task ownership/backpressure, multi-post event dispatch,
    persistent author keys/sequences and verified indexes, bootstrap responses and non-blocking ops.
 8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
    punching; assert piece data never traverses a relayed route (via `RecvMetadata`/`LinkMode` relay
    info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything. (we may delay this till after Phase 9 due to physical logistics)
-9. **P2P forum addon (first product surface).** Room join, post/compose, index replication,
+9. **P2P forum addon (first product surface).** *(Implemented locally; acceptance results below)* Room join, post/compose, index replication,
    availability display ("no seeders"), and moderation via the maintainer key. Members A and B
    must publish with the maintainer offline; C downloads and re-seeds, then later moderation
    propagates without stale snapshots resurrecting removed content. Live BDD with two

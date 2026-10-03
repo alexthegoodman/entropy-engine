@@ -30,7 +30,8 @@ pub struct QuicConfig {
 pub struct QuicTransport {
     endpoint: rpq::Endpoint,
     local: PeerId,
-    rx: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TransportEvent>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    rx: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransportEvent>>,
 }
 
 /// A reliable QUIC channel framed into messages with a `u32` length prefix, since the
@@ -94,6 +95,15 @@ impl ReliableChannel for QuicChannel {
 }
 
 impl QuicTransport {
+    /// Explicitly close upstream sockets as well as our adapter tasks. Call before dropping a
+    /// long-lived QUIC backend; aborting just the adapter does not close upstream workers.
+    pub async fn shutdown(&mut self) {
+        for task in self.tasks.drain(..) {
+            task.abort();
+            let _ = task.await;
+        }
+        self.endpoint.close().await;
+    }
     pub async fn start(cfg: QuicConfig) -> io::Result<Self> {
         let identity = rpq::Identity::new(cfg.peer_id.clone(), cfg.seed.as_bytes())
             .map_err(super::io_other)?;
@@ -108,10 +118,10 @@ impl QuicTransport {
         let endpoint = builder.build().await.map_err(super::io_other)?;
         let local = PeerId::new(cfg.peer_id);
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<TransportEvent>();
+        let (tx, rx) = tokio::sync::mpsc::channel::<TransportEvent>(64);
 
         let drain_ep = endpoint.clone();
-        tokio::spawn(async move {
+        let task1 = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     msg = drain_ep.recv() => {
@@ -120,7 +130,7 @@ impl QuicTransport {
                                 let mode = if m.is_relay { RouteMode::Relayed } else { RouteMode::Direct };
                                 let peer = PeerId::new(m.src.as_str());
                                 let dg = Datagram { peer, payload: m.payload, route: mode };
-                                if tx.send(TransportEvent::Datagram(dg)).is_err() {
+                                if tx.send(TransportEvent::Datagram(dg)).await.is_err() {
                                     break;
                                 }
                             }
@@ -132,7 +142,7 @@ impl QuicTransport {
                             Ok(s) => {
                                 let peer = PeerId::new(s.peer_id.as_str());
                                 let ch = QuicChannel { send: Some(s.send), recv: s.recv };
-                                if tx.send(TransportEvent::IncomingChannel { peer, channel: Box::new(ch) }).is_err() {
+                                if tx.send(TransportEvent::IncomingChannel { peer, channel: Box::new(ch) }).await.is_err() {
                                     break;
                                 }
                             }
@@ -146,6 +156,7 @@ impl QuicTransport {
         Ok(Self {
             endpoint,
             local,
+            tasks: vec![task1],
             rx: tokio::sync::Mutex::new(rx),
         })
     }
@@ -200,5 +211,11 @@ impl P2pTransport for QuicTransport {
                 rpq::LinkMode::Direct => RouteMode::Direct,
                 rpq::LinkMode::Relay => RouteMode::Relayed,
             })
+    }
+}
+
+impl Drop for QuicTransport {
+    fn drop(&mut self) {
+        for task in &self.tasks { task.abort(); }
     }
 }

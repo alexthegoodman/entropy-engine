@@ -80,6 +80,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "app-launcher",
     "canvas-surface-demo",
     "cc-manager",
+    "p2p-forum",
     "creative-suite",
     "daw",
     "doc-editor-demo",

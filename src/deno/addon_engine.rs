@@ -1,3 +1,4 @@
+use crate::deno::p2p_ops::{op_p2p_start, op_p2p_command, op_p2p_poll, op_p2p_stop};
 use deno_core::{
     error::AnyError,
     op2,
@@ -415,6 +416,7 @@ extension!(
         op_music_video_choose_image,
         op_music_video_start,
         op_music_video_poll,
+        op_p2p_start, op_p2p_command, op_p2p_poll, op_p2p_stop,
         op_music_video_cancel,
         op_ui_widget_music_visualizer,
         op_addon_load_data,
@@ -7317,7 +7319,15 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 UiWidget::Hyperlink { id: _, text, url } => {
                     ui.hyperlink_to(text, url.as_str());
                 }
-                UiWidget::TextInput { id: input_id, label, value, width } => {
+                UiWidget::TextInput { id: input_id, label, value, width, height } => {
+                    if *height > 0.0 {
+                        if !label.is_empty() { ui.label(label); }
+                        let rect = ui.allocate_space(egui::vec2(ui.available_size().x, height.clamp(60.0, 600.0)));
+                        let mut child = ui.child_ui_at(rect, egui::Layout::top_down(egui::Align::Min), ("addon_textarea", input_id));
+                        let mut current_value = value.clone();
+                        if child.text_edit_multiline(&mut current_value).changed() { events_to_push.push(format!("{}|{}", input_id, current_value)); }
+                        continue;
+                    }
                     ui.horizontal(|ui| {
                         if !label.is_empty() {
                             ui.label(label);

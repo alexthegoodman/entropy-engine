@@ -324,6 +324,13 @@ const systemAPI = {
     launchExample: (name) => ops.op_launch_example(name),
 };
 
+const p2pAPI = {
+    start: (config) => ops.op_p2p_start(config),
+    command: (command) => ops.op_p2p_command(command),
+    poll: () => ops.op_p2p_poll(),
+    stop: () => ops.op_p2p_stop(),
+};
+
 const terminalAPI = {
     execute: (command, options = {}) => {
         const sessionId = options.sessionId || "main";
@@ -1369,6 +1376,7 @@ globalThis.Entropy = {
                 System: systemAPI,
                 Clipboard: clipboardAPI,
                 Terminal: terminalAPI,
+    P2P: p2pAPI,
                 Prediction: predictionAPI,
                 Guitar: guitarAPI,
                 IO: {
@@ -2315,7 +2323,7 @@ globalThis.Entropy = {
                 const value = config?.value || "";
                 const id = nextWidgetId(windowId, label, config?.id);
 
-                ops.op_ui_widget_text_input(windowId, label, value, id, config?.width ?? 0);
+                ops.op_ui_widget_text_input(windowId, label, value, id, config?.width ?? 0, config?.multiline ? (config?.height ?? 120) : 0);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             // A true multi-page document editor (see `entropy_gui::widgets_doc_editor`). Only
@@ -2716,6 +2724,7 @@ globalThis.Entropy = {
     System: systemAPI,
     Clipboard: clipboardAPI,
     Terminal: terminalAPI,
+    P2P: p2pAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

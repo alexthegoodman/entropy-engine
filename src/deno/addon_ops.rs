@@ -1119,7 +1119,7 @@ pub enum UiWidget {
     Spacer { size: f32 },
     Segmented { id: String, config: SegmentedConfig },
     Hyperlink { id: String, text: String, url: String },
-    TextInput { id: String, label: String, value: String, width: f32 },
+    TextInput { id: String, label: String, value: String, width: f32, height: f32 },
     LayoutCanvas {
         id: String,
         width: f32,
@@ -5296,9 +5296,10 @@ pub fn op_ui_widget_text_input(
     #[string] value: String,
     #[string] id: String,
     width: f32,
+    height: f32,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value, width });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value, width, height });
     }
 }
 

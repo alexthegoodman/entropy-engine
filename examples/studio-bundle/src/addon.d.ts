@@ -570,6 +570,7 @@ export interface ScopedAPI {
   System: SystemAPI;
   Clipboard: ClipboardAPI;
   Terminal: TerminalAPI;
+  P2P: P2pAPI;
   Prediction: PredictionAPI;
   Guitar: GuitarAPI;
   Particles: {
@@ -3341,6 +3342,8 @@ export interface HyperlinkConfig {
 }
 
 export interface TextInputConfig {
+  multiline?: boolean;
+  height?: number;
   label?: string;
   value?: string;
   onChange?: (value: string) => void;
@@ -4102,6 +4105,7 @@ export interface EntropyAPI {
   System: SystemAPI;
   Clipboard: ClipboardAPI;
   Terminal: TerminalAPI;
+  P2P: P2pAPI;
   Prediction: PredictionAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
@@ -4222,3 +4226,11 @@ declare global {
 }
 
 export {};
+
+/** One worker-owned room per runtime. Errors and results arrive through poll(). */
+export interface P2pAPI {
+  start(config: {room: string; maintainer: string; nodeId: string; port: number; groupCode: string; tracker?: string | null; peers?: {id: string; address: string}[]; advertiseAddress?: string | null}): {queued?: boolean; error?: string};
+  command(command: {action: string; [key: string]: unknown}): {queued?: boolean; error?: string};
+  poll(): null | {running: boolean; author: string; isMaintainer: boolean; memberPublishing: boolean; trackerOnline: boolean; posts: {id: string; content: string; author: string; title: string; parent: string | null; sequence: number; body: string | null; availability: string}[]; error: string | null; commandError: string | null; lastPublication: string | null; revision: number};
+  stop(): {queued: boolean};
+}

@@ -17,6 +17,7 @@ pub mod pieces;
 pub mod rendezvous;
 pub mod scheduler;
 pub mod session;
+pub mod service;
 pub mod transport;
 pub mod tracker;
 pub mod wire;

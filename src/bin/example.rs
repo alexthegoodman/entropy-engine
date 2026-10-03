@@ -30,6 +30,11 @@ async fn main() {
                 // Entropy.IO.save/load (see canvas_surface_addon.ts's Save/Load Scene buttons)
                 // would silently no-op without this.
                 .with_data_dir(env::var("ENTROPY_CANVAS_BDD_DATA").unwrap_or_else(|_| "../canvas-surfaces-data".to_string())),
+            Some("p2p-forum") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/p2p_forum.js")
+                .with_title("P2P Forum")
+                .with_window_size(1100.0, 850.0)
+                .with_data_dir(env::var("ENTROPY_P2P_DATA").unwrap_or_else(|_| "../p2p-forum-data".into())),
             Some("cc-manager") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/cc_manager.js")
                 .with_hot_reload(true)

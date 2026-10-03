@@ -246,6 +246,17 @@ impl RoomIndex {
         self.live.contains_key(content)
     }
 
+    pub fn member_publishing(&self) -> bool {
+        let mut policy = (0, true);
+        for record in self.entries.values().filter(|r| r.entry.author == self.maintainer) {
+            if let Action::SetPolicy { member_publishing } = record.entry.action {
+                if record.entry.sequence > policy.0 { policy = (record.entry.sequence, member_publishing); }
+                else if record.entry.sequence == policy.0 { policy.1 &= member_publishing; }
+            }
+        }
+        policy.1
+    }
+
     /// All records, including duplicates, must validate. A bad batch changes no local state.
     /// Conflicts converge by retaining both records and hiding publications at that author/sequence.
     /// Signed moderation remains effective even at conflicting sequences (fail closed).

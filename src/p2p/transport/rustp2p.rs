@@ -73,8 +73,22 @@ pub struct KcpConfig {
 pub struct KcpTransport {
     endpoint: Arc<rp::EndPoint>,
     local: PeerId,
-    rx: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TransportEvent>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    allowed: Arc<std::sync::RwLock<Vec<u32>>>,
+    rx: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransportEvent>>,
     modes: Arc<Mutex<std::collections::HashMap<PeerId, RouteMode>>>,
+}
+
+struct LiveInterceptor(Arc<std::sync::RwLock<Vec<u32>>>);
+impl rp::DataInterceptor for LiveInterceptor {
+    fn pre_handle<'life0, 'life1, 'async_trait>(&'life0 self, data: &'life1 mut rp::RecvResult<'_>) -> Pin<Box<dyn Future<Output = bool> + Send + 'async_trait>>
+    where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait {
+        let keep = data.net_packet().ok().is_some_and(|p| {
+            let id = u32::from_be_bytes(p.src_id().try_into().unwrap());
+            self.0.read().is_ok_and(|ids|ids.contains(&id))
+        });
+        Box::pin(async move { keep })
+    }
 }
 
 fn peer_to_node_id(peer: &PeerId) -> io::Result<rp::NodeID> {
@@ -146,6 +160,7 @@ impl ReliableChannel for KcpChannel {
 
 impl KcpTransport {
     pub async fn start(cfg: KcpConfig) -> io::Result<Self> {
+        let allowed = Arc::new(std::sync::RwLock::new(cfg.allow_src));
         let group_code = rp::GroupCode::try_from(cfg.group_code.as_str())
             .map_err(|e| super::io_other(e))?;
 
@@ -154,9 +169,7 @@ impl KcpTransport {
             .udp_port(cfg.udp_port)
             .tcp_port(cfg.tcp_port)
             .group_code(group_code)
-            .interceptor(AllowInterceptor {
-                allow_src: cfg.allow_src,
-            });
+            .interceptor(LiveInterceptor(allowed.clone()));
 
         if !cfg.psk_password.is_empty() {
             builder = builder.encryption(Algorithm::AesGcm(cfg.psk_password));
@@ -175,7 +188,7 @@ impl KcpTransport {
         let endpoint = Arc::new(builder.build().await?);
         let local = PeerId::new(cfg.node_id.to_string());
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<TransportEvent>();
+        let (tx, rx) = tokio::sync::mpsc::channel::<TransportEvent>(64);
         let modes = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let accept_tx = tx.clone();
 
@@ -183,7 +196,7 @@ impl KcpTransport {
         // `mcp_rx` bridge pattern from the design: network I/O never touches the frame.
         let drain_ep = Arc::clone(&endpoint);
         let drain_modes = Arc::clone(&modes);
-        tokio::spawn(async move {
+        let task1 = tokio::spawn(async move {
             loop {
                 match drain_ep.recv_from().await {
                     Ok((data, meta)) => {
@@ -202,7 +215,7 @@ impl KcpTransport {
                             payload: Bytes::copy_from_slice(data.payload()),
                             route: mode,
                         };
-                        if tx.send(TransportEvent::Datagram(dg)).is_err() {
+                        if tx.send(TransportEvent::Datagram(dg)).await.is_err() {
                             break;
                         }
                     }
@@ -215,7 +228,7 @@ impl KcpTransport {
         // data is routed internally by `rustp2p` (it never appears on `recv_from`), so this
         // listener is the one place inbound streams are observed.
         let accept_ep = Arc::clone(&endpoint);
-        tokio::spawn(async move {
+        let task2 = tokio::spawn(async move {
             let listener = accept_ep.kcp_listener();
             loop {
                 match listener.accept().await {
@@ -232,7 +245,7 @@ impl KcpTransport {
                                 peer,
                                 channel: Box::new(channel),
                             })
-                            .is_err()
+                            .await.is_err()
                         {
                             break;
                         }
@@ -245,9 +258,22 @@ impl KcpTransport {
         Ok(Self {
             endpoint,
             local,
+            tasks: vec![task1, task2],
+            allowed,
             rx: tokio::sync::Mutex::new(rx),
             modes,
         })
+    }
+
+    /// Discovery remains a hint; room signatures and payload hashes provide authorization.
+    /// Replace the bounded set of candidate sockets and source IDs, preserving explicit pins
+    /// at the service layer. Numeric sockets avoid DNS work in the actor.
+    pub async fn update_peers(&self, peers: &[(std::net::Ipv4Addr, std::net::SocketAddr)]) -> io::Result<()> {
+        if peers.len() > 64 { return Err(io::Error::other("too many discovery peers")); }
+        let addresses = peers.iter().map(|(_,address)| rp::PeerNodeAddress::from_str(&format!("udp://{address}"))).collect::<Result<Vec<_>,_>>().map_err(super::io_other)?;
+        self.endpoint.node_context().update_direct_nodes(addresses).await?;
+        *self.allowed.write().map_err(|_|io::Error::other("peer lock poisoned"))? = peers.iter().map(|(id,_)|u32::from(*id)).collect();
+        Ok(())
     }
 }
 
@@ -294,5 +320,12 @@ impl P2pTransport for KcpTransport {
 
     fn route_mode(&self, peer: &PeerId) -> Option<RouteMode> {
         self.modes.lock().ok()?.get(peer).copied()
+    }
+}
+
+impl Drop for KcpTransport {
+    fn drop(&mut self) {
+        for task in &self.tasks { task.abort(); }
+        let _ = self.endpoint.shutdown();
     }
 }

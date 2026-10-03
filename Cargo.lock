@@ -9597,8 +9597,6 @@ dependencies = [
 [[package]]
 name = "rustp2p"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6f16b607aa5fd305b076b6de9eda88c5a9b272f986f1a23d82dd0f87bb4b1e6"
 dependencies = [
  "async-shutdown",
  "async-trait",

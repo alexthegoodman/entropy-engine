@@ -46,6 +46,7 @@ const CATALOG: CatalogEntry[] = [
     { name: "daw", title: "DAW", icon: "waveform" },
     { name: "canvas-surface-demo", title: "Canvas Surfaces", icon: "cube" },
     { name: "cc-manager", title: "CC Manager", icon: "kanban" },
+    { name: "p2p-forum", title: "P2P Forum", icon: "chat-circle" },
     { name: "doc-editor-demo", title: "Document Editor", icon: "file-text" },
     { name: "fft-water", title: "FFT Water", icon: "waves" },
     { name: "fft-river", title: "FFT River", icon: "wave-sine" },

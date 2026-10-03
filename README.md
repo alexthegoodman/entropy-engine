@@ -692,7 +692,8 @@ the pinned room id and maintainer public key through trusted configuration. Each
 author conflicts, withdrawals, publication removals, content blocks, bans and publishing policy.
 Reliable `RoomRecords` messages validate and merge metadata before allowing payload transfers.
 Schema-1 room snapshots and wire protocol 1 are rejected; content metadata stays schema 1.
-The current snapshot limit remains 4,096 records / 4 MiB. The addon API is a later phase.
+The current snapshot limit remains 4,096 records / 4 MiB. Phase 9 adds the queue-only
+`Entropy.P2P.start/command/poll/stop` API and the native forum; see [forum setup and API](docs/P2P_FORUM.md).
 
 Phase 7 adds `tracker`, a standalone public metadata server for one configured room, and
 `p2p::rendezvous::RendezvousClient`, an async Rust client. Start a local tracker with public pins:
@@ -707,7 +708,11 @@ snapshots against caller-configured room/maintainer pins and bounds responses. S
 Rust client example. `p2p_session` includes a three-process tracker/discovery/KCP file-transfer
 check. Payloads travel between peers; the tracker stores only public signed room metadata.
 Announcements expire after 90 seconds and disappear on restart; durable publications survive.
-DigitalOcean deployment, physical NAT/no-relay checks and service/addon integration remain later work.
+Phase 9 adds `P2pService`, persistent local identities/sequences, room synchronization, bounded
+task ownership and the forum addon. Create local member/reader/maintainer profiles with
+`cargo run --bin p2p_room_setup -- test-artifacts/forum-demo`, then run `example -- p2p-forum`
+with a separate `ENTROPY_P2P_DATA` directory per window. DigitalOcean deployment and physical
+NAT/no-relay checks remain later work. Large files/media are still future product surfaces.
 
 ## MCP
 

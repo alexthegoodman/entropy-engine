@@ -179,6 +179,7 @@ const BROWSER_LIVE_FEATURE_SOURCE: &str = include_str!("../tests/features/browse
 /// parent's script against the wrong app, and overwrite the run's result file. `op_launch_example`
 /// strips these from every child it spawns.
 pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
+    "ENTROPY_P2P_BDD_RESULT",
     "ENTROPY_BROWSER_BDD_RESULT",
     "ENTROPY_CANVAS_BDD_RESULT",
     "ENTROPY_DAW_BDD_RESULT",
@@ -202,6 +203,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real canvas demo is running in test mode"
         || text == "the real DAW is running in test mode"
         || text == "the real app launcher is running in test mode"
+        || text == "the real P2P forum is running in test mode"
         || text == "the real sheet addon is running in test mode"
         || text == "the real ML graph addon is running in test mode"
         || text == "the real media player is running in test mode"
@@ -315,6 +317,9 @@ fn substitute_feature_placeholders(text: &str) -> String {
     if let Ok(path) = std::env::var("ENTROPY_DAW_BDD_EXPORT") {
         out = out.replace("{export}", &path);
     }
+    for (placeholder, variable) in [("{forum_config}", "ENTROPY_P2P_BDD_CONFIG"), ("{forum_title}", "ENTROPY_P2P_BDD_TITLE"), ("{forum_body}", "ENTROPY_P2P_BDD_BODY"), ("{forum_other_title}", "ENTROPY_P2P_BDD_OTHER_TITLE"), ("{forum_other_body}", "ENTROPY_P2P_BDD_OTHER_BODY"), ("{forum_role}", "ENTROPY_P2P_BDD_ROLE")] {
+        if let Ok(value) = std::env::var(variable) { out = out.replace(placeholder, &value); }
+    }
     out
 }
 
@@ -329,7 +334,10 @@ impl BrowserBddDriver {
         let mesha = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some();
         let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some();
         let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
-        let result_path = std::env::var_os(if daw {
+        let forum = std::env::var_os("ENTROPY_P2P_BDD_RESULT").is_some();
+        let result_path = std::env::var_os(if forum {
+            "ENTROPY_P2P_BDD_RESULT"
+        } else if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
             "ENTROPY_CANVAS_BDD_RESULT"
@@ -351,7 +359,9 @@ impl BrowserBddDriver {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
         .map(PathBuf::from)?;
-        let source = if mesha {
+        let source = if forum {
+            include_str!("../tests/features/p2p_forum_live.feature")
+        } else if mesha {
             include_str!("../tests/features/mesha_live.feature")
         } else if quadplanet {
             // ENTROPY_QUADPLANET_BDD_FEATURE plays another feature file (ad-hoc captures, e.g. of
@@ -405,7 +415,7 @@ impl BrowserBddDriver {
         };
         let artifact_dir = result_path.parent().unwrap_or_else(|| std::path::Path::new("test-artifacts/browser-bdd")).to_path_buf();
         Some(Self {
-            actions: browser_bdd_actions_from_feature(source),
+            actions: if forum { browser_bdd_actions_from_feature(&substitute_feature_placeholders(source)) } else { browser_bdd_actions_from_feature(source) },
             canvas,
             daw,
             launcher,

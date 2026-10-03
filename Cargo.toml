@@ -6,6 +6,7 @@ autobins = false
 
 [patch.crates-io]
 vst3-host = { path = "vendor/vst3-host" }
+rustp2p = { path = "vendor/rustp2p" }
 
 [[bin]]
 name = "example"
@@ -51,9 +52,18 @@ path = "src/bin/p2p_peer.rs"
 test = false
 
 [[bin]]
+name = "p2p_room_setup"
+path = "src/bin/p2p_room_setup.rs"
+test = false
+
+[[bin]]
 name = "tracker"
 path = "src/bin/tracker.rs"
 test = false
+
+[[test]]
+name = "p2p_service_bdd"
+harness = false
 
 [[test]]
 name = "p2p_tracker_bdd"

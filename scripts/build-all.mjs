@@ -19,6 +19,7 @@ const bundles = [
   ["app-launcher", "src/apps/app_launcher_addon.ts", "app_launcher.js"],
   ["canvas-surface-demo", "src/apps/canvas_surfaces/canvas_surface_addon.ts", "canvas_surfaces.js"],
   ["cc-manager", "src/apps/cc_manager_addon.ts", "cc_manager.js"],
+  ["p2p-forum", "src/apps/p2p_forum_addon.ts", "p2p_forum.js"],
   ["daw", "src/apps/daw_synth_addon.ts", "daw.js"],
   ["doc-editor-demo", "src/apps/doc_editor_demo_addon.ts", "doc_editor_demo.js"],
   ["fft-river", "src/apps/fft_river_water_addon.ts", "fft_river.js"],
