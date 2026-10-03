@@ -5,28 +5,79 @@ author signing, tracker synchronization and verified post transfers. The render 
 queues commands and polls a coalesced snapshot. Physical NAT and no-relay validation remains
 Phase 8; these instructions exercise Windows loopback.
 
-## Try a local room
+## Validation paused after host memory exhaustion (2026-10-03)
+
+Do not launch these recipes or resume builds/tests until the resource precautions are reviewed.
+The final rebuild overlapped the two-window native acceptance run and reported
+`rustc-LLVM ERROR: out of memory` / `Allocation failed`; the host crashed. This establishes
+compiler memory exhaustion, but not the cause of the host crash itself. No complete live result
+or final regression result was produced. Earlier service acceptance passed two scenarios;
+an earlier all-targets compile check passed. The latest changes remain unbuilt/unvalidated.
+
+The native live test is now ignored by default, requires explicit `ENTROPY_P2P_LIVE_OPT_IN`,
+and waits for the first window's room initialization before launching the second. These guards
+are source changes only; existing binaries do not contain them. Before resuming, separate
+compilation from execution, review Windows commit/pagefile headroom, consider reduced debug
+information, and start with one GUI window plus a headless peer. Do not queue competing Cargo
+invocations. Further resource guards and startup measurements need review first.
+
+## Resource precautions for future runs (execution remains paused)
+
+Use `--jobs 1` (equivalent to `-j 1`) on every Cargo build/test/run command for this
+workflow. Run only one Cargo invocation at a time, and wait for it to exit before starting
+another command. Stop native windows and headless peers before compiling. Finish compilation
+before starting any peers or GUI windows; launch already-built executables during the demo.
+Do not run the native live test alongside another test suite or compiler.
+
+`--jobs 1` limits Cargo compilation concurrency within one invocation. It does not serialize
+separate Cargo invocations, limit a single compiler's memory, restrict runtime worker threads,
+or reduce the two windows deliberately created by the live test. It cannot guarantee that
+compilation fits the machine's memory budget.
+
+For Rust's standard test harness, also pass `-- --test-threads=1` to run test functions
+sequentially. Cucumber targets use `harness = false`: do not pass libtest flags to them.
+The service BDD already sets `max_concurrent_scenarios(1)` in its runner; other Cucumber
+runners need their own scenario-concurrency settings. See the official
+[Cargo test reference](https://doc.rust-lang.org/cargo/commands/cargo-test.html).
+
+Before a future rebuild, consider session-scoped reduced debug information:
+
+```powershell
+$env:CARGO_PROFILE_DEV_DEBUG = '1'
+$env:CARGO_PROFILE_TEST_DEBUG = '1'
+```
+
+Level 1 keeps line tables; level 0 removes debug information if further reduction is needed.
+Changing these settings can rebuild dependencies, so set them before compilation and keep them
+consistent throughout the session. These are proposed settings, not applied project defaults.
+See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#debug).
+Review Windows committed memory versus its commit limit and available RAM before any run.
+Start with one GUI plus a headless peer before returning to the two-window acceptance test.
+
+## Local setup reference (launch paused)
 
 Run from `entropy-engine/`:
 
 ```powershell
 deno bundle examples/studio-bundle/src/apps/p2p_forum_addon.ts --output examples/studio-bundle/dist/p2p_forum.js
-cargo run --bin p2p_room_setup -- test-artifacts/forum-demo
+cargo build --jobs 1 --bin p2p_room_setup --bin tracker --bin example
+# Wait for successful completion before launching anything.
+.\target\debug\p2p_room_setup.exe test-artifacts/forum-demo
 ```
 
 The setup command creates Alice, Bob, reader and maintainer profiles, plus an empty tracker
 snapshot. It prints the tracker command with the random room and maintainer public pins.
-Run that command in a separate terminal. The tracker stores signed metadata, never post bodies
+Use its printed arguments with the prebuilt `.\target\debug\tracker.exe` in a separate terminal. The tracker stores signed metadata, never post bodies
 or private keys. In two more terminals:
 
 ```powershell
 $env:ENTROPY_P2P_DATA = 'test-artifacts/forum-demo/alice'
-cargo run --bin example -- p2p-forum
+.\target\debug\example.exe p2p-forum
 ```
 
 ```powershell
 $env:ENTROPY_P2P_DATA = 'test-artifacts/forum-demo/bob'
-cargo run --bin example -- p2p-forum
+.\target\debug\example.exe p2p-forum
 ```
 
 Click **Join room** in both windows. Publish a title and body in each; click the other member's
@@ -98,7 +149,36 @@ Acceptance features are `tests/features/p2p_service.feature` and
 separate profiles, invokes the UI's handlers, verifies rendered labels and saves screenshots.
 
 ```powershell
-cargo test -j 1 --offline --test p2p_service_bdd --test p2p_forum_live
-cargo test -j 1 --offline --lib p2p
-cargo test -j 1 --offline --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
+# Run each command to completion before starting the next; keep native windows closed.
+# Cucumber runner: scenarios are serialized in the service runner.
+cargo test --jobs 1 --offline --test p2p_service_bdd
+cargo test --jobs 1 --offline --lib p2p -- --test-threads=1
+# Cucumber targets have their own runners, rather than libtest.
+cargo test --jobs 1 --offline --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd
+cargo test --jobs 1 --offline --test p2p_swarm --test p2p_session -- --test-threads=1
 ```
+
+The native acceptance test is a separate, explicitly opted-in stage. After the pause is lifted
+and headroom is reviewed, compile it with all windows closed:
+
+```powershell
+cargo test --jobs 1 --offline --test p2p_forum_live --no-run
+```
+
+Wait for successful completion. Copy the exact test executable path printed by Cargo, then run
+that executable directly in a separate execution stage. This avoids a rebuild during GUI startup:
+
+```powershell
+# Replace <hash> with the path from the successful compilation above.
+$liveTestExe = '.\target\debug\deps\p2p_forum_live-<hash>.exe'
+$env:ENTROPY_P2P_LIVE_OPT_IN = '1'
+try {
+    & $liveTestExe --ignored --test-threads=1
+} finally {
+    Remove-Item Env:ENTROPY_P2P_LIVE_OPT_IN -ErrorAction SilentlyContinue
+}
+```
+
+The test still owns two native windows; `--test-threads=1` does not change that. Its source now
+staggers their startup and cleans up child processes. Rebuild is required before those guards
+exist in the executable. None of these commands have been executed since the pause.

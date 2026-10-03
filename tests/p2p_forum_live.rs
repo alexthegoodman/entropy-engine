@@ -19,7 +19,13 @@ impl Drop for Windows {
     }
 }
 #[test]
+#[ignore = "Resource-intensive native two-window test. Paused after host memory exhaustion; review precautions before opting in."]
 fn two_windows_publish_and_read_with_maintainer_offline() {
+    assert_eq!(
+        std::env::var("ENTROPY_P2P_LIVE_OPT_IN").as_deref(),
+        Ok("1"),
+        "Native P2P acceptance requires explicit opt-in. Do not launch alongside builds."
+    );
     let root = std::env::current_dir()
         .unwrap()
         .join("test-artifacts")
@@ -64,7 +70,7 @@ fn two_windows_publish_and_read_with_maintainer_offline() {
         let child = Command::new(env!("CARGO_BIN_EXE_example"))
             .arg("p2p-forum")
             .env("ENTROPY_MCP_PORT", "0")
-            .env("ENTROPY_P2P_DATA", data)
+            .env("ENTROPY_P2P_DATA", &data)
             .env("ENTROPY_P2P_BDD_RESULT", root.join(format!("{role}.json")))
             .env(
                 "ENTROPY_P2P_BDD_CONFIG",
@@ -80,6 +86,23 @@ fn two_windows_publish_and_read_with_maintainer_offline() {
             .spawn()
             .unwrap();
         windows.0.push(child);
+        // Stagger graphics/runtime initialization. This file is created only after the first
+        // window has rendered and its join handler has reached the room worker. Do not start
+        // the second process blindly alongside the first process's startup allocations.
+        if i == 0 {
+            let ready_deadline = Instant::now() + Duration::from_secs(30);
+            while !data.join("p2p-room/identity.json").is_file() {
+                assert!(
+                    windows.0[0].try_wait().unwrap().is_none(),
+                    "first window exited before room initialization; second window was not launched"
+                );
+                assert!(
+                    Instant::now() < ready_deadline,
+                    "first window did not initialize; second window was not launched"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
     }
     let deadline = Instant::now() + Duration::from_secs(120);
     for child in &mut windows.0 {

@@ -15,9 +15,9 @@ content model (`meta.rs`), the piece store (`pieces.rs`), the wire protocol (`wi
 seed/download session (`session.rs`), the pure piece scheduler (`scheduler.rs`), the signed room
 index (`index.rs`), catalog policy/transport filtering (`allow.rs`), the public metadata tracker
 (`tracker.rs`), and its async rendezvous client (`rendezvous.rs`). The spike
-runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire, and session unit tests
-run as `cargo test --lib p2p`; the two-process session runs as
-`cargo test --test p2p_session` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
+runs as `cargo run --jobs 1 --bin p2p_spike`; the content-model, piece-store, wire, and session unit tests
+run as `cargo test --jobs 1 --lib p2p -- --test-threads=1`; the two-process session runs as
+`cargo test --jobs 1 --test p2p_session -- --test-threads=1` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
 
 **Decision: KCP (`rustp2p`) is the first backend.** QUIC (`rustp2p-quic`) stays in-tree as a
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
@@ -26,6 +26,14 @@ fallback. Both remain behind the `P2pTransport` trait, so the call stays reversi
 Phase 6 has been revised for ordinary member publishing (see below). Phase 7 implements local
 metadata rendezvous. Phase 9 now adds the long-lived room service and native forum addon.
 Phase 8 physical NAT/no-relay validation remains deferred by request.
+
+P2P execution remains paused after host/compiler memory exhaustion. For future runs, use
+`--jobs 1` on Cargo commands, wait for each invocation to finish, and complete compilation
+before starting native windows or peers. Standard Rust tests also use `--test-threads=1`;
+Cucumber scenario concurrency belongs to its runner. These controls do not cap a compiler's
+memory or the child processes deliberately launched by a test. See the
+[forum resource precautions](P2P_FORUM.md#resource-precautions-for-future-runs-execution-remains-paused)
+for separate build/run recipes and the native test's explicit opt-in.
 
 ### Phase-9 local forum
 
@@ -59,13 +67,16 @@ reader and maintainer profiles. `p2p_service.feature` exercises offline-maintain
 publishing, replication, downloading/re-seeding, restart, stale moderation, tracker outage,
 profile isolation, tracker-only discovery, policy reopening, missing seeders and rejected
 banned-author publishing. `p2p_forum_live.feature` drives two real native windows through the
-UI handlers and captures their rendered downloaded bodies. Validation results are recorded
-below after the acceptance run. Deployment, physical NAT, direct-only payload enforcement and
+UI handlers and captures their rendered downloaded bodies. Validation is paused after the host crashed during a two-window live run overlapping a
+rebuild; the rebuild reported LLVM out-of-memory. No final native acceptance/regression result
+was produced. Earlier service acceptance passed two scenarios / 15 steps and an earlier
+all-targets compile check passed. Latest code and protective test guards are unbuilt. See the
+forum guide's validation-pause note before any further execution. Deployment, physical NAT, direct-only payload enforcement and
 production load remain unverified. Large-room heartbeat batching remains tracked separately.
 
 ### Phase-7 local rendezvous
 
-`cargo run --bin tracker -- --room-id <hex> --maintainer-key <hex> --index <path>` starts a
+`cargo run --jobs 1 --bin tracker -- --room-id <hex> --maintainer-key <hex> --index <path>` starts a
 standalone HTTP metadata server (default `127.0.0.1:47110`) for one configured room.
 `RendezvousClient` exposes `get_index`, `put_records`, `put_announce`, and `get_peers`.
 [Tracker operation and API](P2P_TRACKER.md) documents URL paths, signed claims and client usage.
@@ -675,7 +686,7 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 8. **NAT traversal and no-relay enforcement.** Two physical machines behind NAT connect via hole
    punching; assert piece data never traverses a relayed route (via `RecvMetadata`/`LinkMode` relay
    info) and measure first-play and seek latency on real Wi-Fi/LAN before claiming anything. (we may delay this till after Phase 9 due to physical logistics)
-9. **P2P forum addon (first product surface).** *(Implemented locally; acceptance results below)* Room join, post/compose, index replication,
+9. **P2P forum addon (first product surface).** *(Implementation in progress; validation paused after host memory exhaustion)* Room join, post/compose, index replication,
    availability display ("no seeders"), and moderation via the maintainer key. Members A and B
    must publish with the maintainer offline; C downloads and re-seeds, then later moderation
    propagates without stale snapshots resurrecting removed content. Live BDD with two
@@ -688,7 +699,7 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
 
 ### Phase-1 spike findings (recorded so we know what the spike actually taught us)
 
-The spike (`cargo run --bin p2p_spike`) passed all hard checks on loopback for both backends:
+The spike (`cargo run --jobs 1 --bin p2p_spike`) passed all hard checks on loopback for both backends:
 KCP datagram round-trip under group code + PSK + interceptor, wrong-group-code isolation, and
 interceptor drop; QUIC bootstrap discovery, datagram round-trip, and a stream echo. Three things
 matter for the design:

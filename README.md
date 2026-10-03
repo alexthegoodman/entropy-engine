@@ -681,9 +681,17 @@ both message planes through `CatalogTransport`. `Session::download_swarm` learns
 and accepts live playback-window updates. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
 
 ```bash
-cargo test -j 1 --lib p2p
-cargo test -j 1 --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
+cargo test --jobs 1 --lib p2p -- --test-threads=1
+cargo test --jobs 1 --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd
+cargo test --jobs 1 --test p2p_swarm --test p2p_session -- --test-threads=1
 ```
+
+P2P test runs must use `--jobs 1`, one Cargo invocation at
+a time, and finish compilation before launching peers or windows. Standard Rust tests also
+use `--test-threads=1`; Cucumber runners control scenario concurrency separately. The native
+forum test is ignored by default and requires explicit opt-in. See
+[resource precautions and separate build/run recipes](docs/P2P_FORUM.md#resource-precautions-for-future-runs-execution-remains-paused)
+before executing any of these commands. A single job does not cap compiler memory.
 
 The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
 `--curator-key <64 hex digits>` in addition to its transport/content arguments. Members receive
@@ -699,7 +707,7 @@ Phase 7 adds `tracker`, a standalone public metadata server for one configured r
 `p2p::rendezvous::RendezvousClient`, an async Rust client. Start a local tracker with public pins:
 
 ```bash
-cargo run --bin tracker -- --room-id <64 hex digits> --maintainer-key <64 hex digits> --index ./tracker/room.msgpack --bind 127.0.0.1:47110
+cargo run --jobs 1 --bin tracker -- --room-id <64 hex digits> --maintainer-key <64 hex digits> --index ./tracker/room.msgpack --bind 127.0.0.1:47110
 ```
 
 The client exposes `get_index`, `put_records`, `put_announce`, and `get_peers`; it verifies
@@ -710,7 +718,7 @@ check. Payloads travel between peers; the tracker stores only public signed room
 Announcements expire after 90 seconds and disappear on restart; durable publications survive.
 Phase 9 adds `P2pService`, persistent local identities/sequences, room synchronization, bounded
 task ownership and the forum addon. Create local member/reader/maintainer profiles with
-`cargo run --bin p2p_room_setup -- test-artifacts/forum-demo`, then run `example -- p2p-forum`
+the prebuilt `p2p_room_setup` executable, then run the prebuilt `example p2p-forum`
 with a separate `ENTROPY_P2P_DATA` directory per window. DigitalOcean deployment and physical
 NAT/no-relay checks remain later work. Large files/media are still future product surfaces.
 
