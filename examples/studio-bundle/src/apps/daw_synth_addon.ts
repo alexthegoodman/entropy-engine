@@ -84,7 +84,12 @@ import {
     reverbPresetIndex,
     setBand,
 } from "./daw_space";
-import type { IconName, IconStyle } from "../addon";
+import type { DawActionDef, IconName, IconStyle, PredictedAction, PredictionContext, PredictionParamSpec } from "../addon";
+import type { Family, RecordedAction } from "./daw_predict";
+import {
+    ActionHistory, FAMILIES, VIEWS, choiceIndex, familyIndex, formatParam, noteName, paintSteps, paramDecimals,
+    sanitizeParam, sanitizeParams, strokeAction, viewIndex,
+} from "./daw_predict";
 import {
     WT_FRAME_CHOICES,
     WT_OPS,
@@ -635,7 +640,7 @@ function addTrack(kind: "synth" | "drum", channel?: number, name?: string): Trac
     const track = newTrack(kind, channel ?? nextFreeChannel(project.tracks), name);
     project.tracks.push(track);
     project.activeTrackId = track.id;
-    recordDawAction(DAW_ACTION.AddTrack, [kind === "synth" ? 0 : 1], track.name);
+    recordDawAction("add_track", [familyIndex(kind === "drum" ? "drum_rack" : "synth")], `Added ${track.name}`);
     return track;
 }
 
@@ -767,6 +772,7 @@ function setWavetablePosition(track: Track, position: number) {
     wt.position = Math.max(0, Math.min(1, position));
     for (const v of heldWavetableVoices(track)) addon.Audio.wavetableSetPosition(v, wt.position);
     scheduleSave();
+    recordDawAction("set_wavetable_position", [wt.position], `Position ${wt.position.toFixed(2)}`, "wt-pos:" + track.id);
 }
 
 function loadWavetablePreset(track: Track, preset: string) {
@@ -778,6 +784,7 @@ function loadWavetablePreset(track: Track, preset: string) {
     // matches its settings, and a stale "Modulated Bass" label on a hand-cleared sine would lie.
     wt.instrumentPreset = undefined;
     saveTrackWavetable(track);
+    recordDawAction("load_wavetable_preset", [choiceOf("wavetable_presets", preset)], `${track.name}: ${preset}`);
 }
 
 // A full patch: the table it is built from plus the motion/voice settings that make it read as
@@ -796,6 +803,7 @@ function applyInstrumentPreset(track: Track, presetId: string) {
     Object.assign(track.voice, preset.voice);
     wtStatus = "";
     saveTrackWavetable(track);
+    recordDawAction("load_wavetable_preset", [choiceOf("wavetable_presets", preset.id)], `${track.name}: ${preset.label}`);
 }
 
 function runWavetableOp(track: Track, op: string, arg?: number) {
@@ -901,6 +909,7 @@ function loadPhysModInstrument(track: Track, instrumentId: string) {
     if (!applyPhysModPreset(trackPhysMod(track), instrumentId)) { pmStatus = `Unknown instrument "${instrumentId}".`; return; }
     pmStatus = "";
     savePhysMod(track);
+    recordDawAction("load_strings", [choiceOf("strings_instruments", instrumentId)], `${track.name}: ${instrumentId}`);
 }
 
 // --- Brass tracks (see daw_brass.ts and src/audio/brass/) ------------------------------------
@@ -997,12 +1006,14 @@ function playBrassStyle(track: Track, id: string) {
     setBrassLive(track, "lipTension", b.lipTension);
     setBrassLive(track, "vibratoDepth", b.vibratoDepth);
     scheduleSave();
+    recordDawAction("set_brass_style", [choiceOf("brass_styles", id)], `${track.name}: ${id} style`);
 }
 
 function loadBrassInstrument(track: Track, id: string) {
     if (!applyBrassInstrument(trackBrass(track), id)) { brStatus = `Unknown instrument "${id}".`; return; }
     brStatus = "";
     rebuildBrass(track);
+    recordDawAction("load_brass", [choiceOf("brass_instruments", id)], `${track.name}: ${id}`);
 }
 
 /** The instrument, its mute, the hand and the bell make the air column, which a note is built
@@ -1020,6 +1031,7 @@ function setBrassMute(track: Track, id: string) {
     if (!applyBrassMute(trackBrass(track), id)) { brStatus = `Unknown mute "${id}".`; return; }
     brStatus = "";
     rebuildBrass(track);
+    recordDawAction("set_brass_mute", [choiceOf("brass_mutes", id)], `${track.name}: ${id} mute`);
 }
 
 // --- Grand piano tracks (see daw_piano.ts and src/audio/piano/) ------------------------------
@@ -1096,6 +1108,7 @@ function setPianoPedal(track: Track, sustain: number, unaCorda?: number) {
     if (unaCorda !== undefined) p.unaCorda = Math.min(1, Math.max(0, unaCorda));
     addon.Audio.pianoSetPedal(track.id, track.id, p.sustainPedal, p.unaCorda);
     scheduleSave();
+    recordDawAction("set_piano_pedal", [p.sustainPedal], `Pedal ${Math.round(p.sustainPedal * 100)}%`, "pedal:" + track.id);
 }
 
 function loadPianoPreset(track: Track, id: string) {
@@ -1107,6 +1120,7 @@ function loadPianoPreset(track: Track, id: string) {
         togglePianoLatch(track);
     }
     persist();
+    recordDawAction("load_piano_preset", [choiceOf("piano_presets", id)], `${track.name}: ${id}`);
 }
 
 // --- Drum-kit tracks (see daw_matter.ts and src/audio/matter/) ------------------------------
@@ -1243,6 +1257,7 @@ function loadWaterPreset(track: Track, id: string) {
     trackWater(track);
     prepareWater(track);
     scheduleSave();
+    recordDawAction("load_water_preset", [choiceOf("water_presets", id)], `${track.name}: ${id}`);
 }
 
 function setWaterPlay(track: Track, play: WaterSettings["play"]) {
@@ -1262,6 +1277,7 @@ function loadMatterPreset(track: Track, id: string) {
     mtStatus = "";
     commitMatter(track);
     scheduleSave();
+    recordDawAction("load_matter_preset", [choiceOf("matter_presets", id)], `${track.name}: ${id} kit`);
 }
 
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
@@ -1419,6 +1435,7 @@ function setCharacterKnob(track: Track, knob: KnobName, value: number) {
     syncTrackBus(track);
     if (knob === "pump" || knob === "gate") syncTempoEffects();
     scheduleSave();
+    recordDawAction("set_character", [choiceOf("character_knobs", knob), v], `${knob} ${Math.round(v * 100)}%`, `char:${track.id}:${knob}`);
 }
 
 function setGatePattern(track: Track, pattern: Character["gatePattern"]) {
@@ -1426,6 +1443,7 @@ function setGatePattern(track: Track, pattern: Character["gatePattern"]) {
     syncTrackBus(track);
     syncTempoEffects();
     scheduleSave();
+    recordDawAction("set_gate_pattern", [choiceOf("gate_patterns", pattern)], `Gate in ${pattern}`);
 }
 
 // Pushes one track's current gain/mute/solo/FX params into the engine's persistent bus for that
@@ -1536,6 +1554,7 @@ function removeTrackBus(track: Track) {
 }
 
 function removeTrack(track: Track) {
+    const index = project.tracks.indexOf(track);
     removeTrackBus(track);
     project.tracks = project.tracks.filter(t => t.id !== track.id);
     project.arrangement = project.arrangement.filter(c => c.trackId !== track.id);
@@ -1543,6 +1562,7 @@ function removeTrack(track: Track) {
     if (project.activeTrackId === track.id) {
         project.activeTrackId = project.tracks[0]?.id ?? null;
     }
+    recordDawAction("remove_track", [Math.max(0, index)], `Removed ${track.name}`);
 }
 
 // --- VST3 instruments (see src/audio/vst3.rs) --------------------------------------------------
@@ -1841,6 +1861,7 @@ function onPadClick(track: Track, row: number) {
             addon.Audio.stopPreview();
             const pad = assignSample(track, row, { path: file })!;
             rackUi.armed = false;
+            recordDawAction("assign_sample", [row], `${pad.sample!.name} on pad ${row + 1}`);
             // A pad that just took the file's name would read "kick is on kick".
             rackUi.status = (pad.name === pad.sample!.name ? `${pad.sample!.name} is on pad ${row + 1}.` : `${pad.sample!.name} is on ${pad.name}.`)
                 + (info.truncated ? ` Only the first ${formatSeconds(info.seconds)} of the file is used.` : "");
@@ -1862,6 +1883,7 @@ function onPadAdd(track: Track) {
     if (!pad) { rackUi.status = `A rack holds ${MAX_PADS} pads.`; return; }
     rackUi.selectedPad = track.rack!.length - 1;
     persist();
+    recordDawAction("add_pad", [], `${track.name} has ${track.rack!.length} pads`);
 }
 
 const PAD_ID_ROW = (id: string) => parseInt(id, 10);
@@ -2023,6 +2045,7 @@ let rackWindowId: string | null = null;
 let rackVisible = false;
 
 function setRackVisible(visible: boolean) {
+    noteWindow("rack", visible, rackVisible);
     rackVisible = visible;
     if (rackWindowId) Entropy.UI.setWindowVisible(rackWindowId, visible);
 }
@@ -2033,6 +2056,7 @@ let analyzerWindowId: string | null = null;
 let analyzerVisible = true;
 
 function setAnalyzerVisible(visible: boolean) {
+    noteWindow("analyzer", visible, analyzerVisible);
     analyzerVisible = visible;
     if (analyzerWindowId) Entropy.UI.setWindowVisible(analyzerWindowId, visible);
 }
@@ -2052,6 +2076,7 @@ let spaceWindowHeight = 900;
 const spaceSelectedBand: Record<string, number> = {};
 
 function setSpaceVisible(visible: boolean) {
+    noteWindow("space", visible, spaceVisible);
     spaceVisible = visible;
     if (spaceWindowId) Entropy.UI.setWindowVisible(spaceWindowId, visible);
 }
@@ -2118,7 +2143,7 @@ function renderSpaceWindow(win: string) {
             selectedIndex: reverbPresetIndex(v) + 1,
             onChange: (idx: string) => {
                 const p = REVERB_PRESETS[parseInt(idx, 10) - 1];
-                if (p) setTrackReverb(track, p.settings);
+                if (p) { setTrackReverb(track, p.settings); recordDawAction("set_reverb_preset", [choiceOf("reverb_presets", p.id)], `${track.name}: ${p.label} reverb`); }
             }
         });
         W.dropdown(row, {
@@ -2127,7 +2152,7 @@ function renderSpaceWindow(win: string) {
             selectedIndex: eqPresetIndex(eq) + 1,
             onChange: (idx: string) => {
                 const p = EQ_PRESETS[parseInt(idx, 10) - 1];
-                if (p) updateTrackEq(track, applyEqPreset(p.id));
+                if (p) { updateTrackEq(track, applyEqPreset(p.id)); recordDawAction("set_eq_preset", [choiceOf("eq_presets", p.id)], `${track.name}: ${p.label} EQ`); }
             }
         });
         W.button(row, {
@@ -2159,19 +2184,19 @@ function renderSpaceWindow(win: string) {
             W.horizontal(g, (r: string) => {
                 W.knob(r, {
                     id: "space_room", label: "Room", value: v.reverbRoomSize, min: 10, max: 30, unit: "m", decimals: 0, defaultValue: 10,
-                    onChange: (x: string) => { setTrackReverb(track, { reverbRoomSize: parseFloat(x) }); }
+                    onChange: (x: string) => { setTrackReverb(track, { reverbRoomSize: parseFloat(x) }); recordReverb(track); }
                 });
                 W.knob(r, {
                     id: "space_time", label: "Decay", value: v.reverbTime, min: 0.1, max: 6, unit: "s", decimals: 2, defaultValue: 1.2,
-                    onChange: (x: string) => { setTrackReverb(track, { reverbTime: parseFloat(x) }); }
+                    onChange: (x: string) => { setTrackReverb(track, { reverbTime: parseFloat(x) }); recordReverb(track); }
                 });
                 W.knob(r, {
                     id: "space_damping", label: "Damping", value: v.reverbDamping, min: 0, max: 1, decimals: 2, defaultValue: 0.5,
-                    onChange: (x: string) => { setTrackReverb(track, { reverbDamping: parseFloat(x) }); }
+                    onChange: (x: string) => { setTrackReverb(track, { reverbDamping: parseFloat(x) }); recordReverb(track); }
                 });
                 W.knob(r, {
                     id: "space_mix", label: "Mix", value: v.reverbMix, min: 0, max: 1, decimals: 2, defaultValue: 0,
-                    onChange: (x: string) => { setTrackReverb(track, { reverbMix: parseFloat(x) }); }
+                    onChange: (x: string) => { setTrackReverb(track, { reverbMix: parseFloat(x) }); recordReverb(track); }
                 });
             });
         });
@@ -2240,6 +2265,7 @@ function visualizerPrefs(): VisualizerPrefs {
 }
 
 function setVisualizerVisible(visible: boolean) {
+    noteWindow("visualizer", visible, visualizerVisible);
     visualizerVisible = visible;
     if (visualizerWindowId) Entropy.UI.setWindowVisible(visualizerWindowId, visible);
 }
@@ -2488,6 +2514,7 @@ function guitarPrefs(): GuitarPrefs {
 }
 
 function setGuitarVisible(visible: boolean) {
+    noteWindow("guitar", visible, guitarVisible);
     guitarVisible = visible;
     if (guitarWindowId) Entropy.UI.setWindowVisible(guitarWindowId, visible);
     if (visible && guitarDevices.length === 0) refreshGuitarDevices();
@@ -2810,6 +2837,7 @@ let wavetableWindowWidth = 1240;
 const WAVETABLE_SIDE_COLUMN = 380;
 
 function setWavetableVisible(visible: boolean) {
+    noteWindow("wavetable", visible, wavetableVisible);
     wavetableVisible = visible;
     if (wavetableWindowId) Entropy.UI.setWindowVisible(wavetableWindowId, visible);
 }
@@ -2849,7 +2877,7 @@ function renderWavetableWindow(win: string) {
         Entropy.UI.Widget.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         Entropy.UI.Widget.button(win, {
             text: "Make it a wavetable synth", id: "wt_make",
-            onClick: () => { track.voice.waveform = WT_WAVEFORM; persist(); }
+            onClick: () => { useFamily(track, "wavetable"); }
         });
         return;
     }
@@ -2964,12 +2992,12 @@ function renderWavetableWindow(win: string) {
             });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
                 Entropy.UI.Widget.knob(row, { label: "Vel->Pos", value: wt.velToPosition, min: -1, max: 1, defaultValue: 0, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
-                Entropy.UI.Widget.knob(row, { label: "Cutoff", value: track.voice.cutoff, min: 100, max: 20000, unit: "Hz", onChange: (v: string) => { track.voice.cutoff = parseFloat(v); saveTrackWavetable(track); } });
-                Entropy.UI.Widget.knob(row, { label: "Resonance", value: track.voice.resonance, min: 0.1, max: 10, onChange: (v: string) => { track.voice.resonance = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Cutoff", value: track.voice.cutoff, min: 100, max: 20000, unit: "Hz", onChange: (v: string) => { track.voice.cutoff = parseFloat(v); saveTrackWavetable(track); recordFilter(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Resonance", value: track.voice.resonance, min: 0.1, max: 10, onChange: (v: string) => { track.voice.resonance = parseFloat(v); saveTrackWavetable(track); recordFilter(track); } });
             });
             Entropy.UI.Widget.horizontal(g, (row: string) => {
-                Entropy.UI.Widget.knob(row, { label: "Attack", value: track.voice.attack, min: 0.0005, max: 4, unit: "s", decimals: 3, onChange: (v: string) => { track.voice.attack = parseFloat(v); saveTrackWavetable(track); } });
-                Entropy.UI.Widget.knob(row, { label: "Release", value: track.voice.release, min: 0.01, max: 3, unit: "s", onChange: (v: string) => { track.voice.release = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Attack", value: track.voice.attack, min: 0.0005, max: 4, unit: "s", decimals: 3, onChange: (v: string) => { track.voice.attack = parseFloat(v); saveTrackWavetable(track); recordEnvelope(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Release", value: track.voice.release, min: 0.01, max: 3, unit: "s", onChange: (v: string) => { track.voice.release = parseFloat(v); saveTrackWavetable(track); recordEnvelope(track); } });
             });
         });
     });
@@ -2989,6 +3017,7 @@ let physModWindowWidth = 1080;
 const PHYSMOD_SIDE_COLUMN = 340;
 
 function setPhysModVisible(visible: boolean) {
+    noteWindow("strings", visible, physModVisible);
     physModVisible = visible;
     if (physModWindowId) Entropy.UI.setWindowVisible(physModWindowId, visible);
 }
@@ -3004,7 +3033,7 @@ function renderPhysModWindow(win: string) {
         W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         W.button(win, {
             text: "Make it a bowed string", id: "pm_make",
-            onClick: () => { track.voice.waveform = PHYSMOD_WAVEFORM; persist(); }
+            onClick: () => { useFamily(track, "strings"); }
         });
         return;
     }
@@ -3157,6 +3186,7 @@ let brassWindowWidth = 1080;
 const BRASS_SIDE_COLUMN = 320;
 
 function setBrassVisible(visible: boolean) {
+    noteWindow("brass", visible, brassVisible);
     brassVisible = visible;
     if (brassWindowId) Entropy.UI.setWindowVisible(brassWindowId, visible);
 }
@@ -3172,7 +3202,7 @@ function renderBrassWindow(win: string) {
         W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         W.button(win, {
             text: "Make it brass", id: "br_make",
-            onClick: () => { track.voice.waveform = BRASS_WAVEFORM; persist(); }
+            onClick: () => { useFamily(track, "brass"); }
         });
         return;
     }
@@ -3310,6 +3340,7 @@ let pianoWindowWidth = 1080;
 const PIANO_SIDE_COLUMN = 320;
 
 function setPianoVisible(visible: boolean) {
+    noteWindow("piano", visible, pianoVisible);
     pianoVisible = visible;
     if (pianoWindowId) Entropy.UI.setWindowVisible(pianoWindowId, visible);
 }
@@ -3325,7 +3356,7 @@ function renderPianoWindow(win: string) {
         W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         W.button(win, {
             text: "Make it piano", id: "piano_make",
-            onClick: () => { track.voice.waveform = PIANO_WAVEFORM; persist(); }
+            onClick: () => { useFamily(track, "piano"); }
         });
         return;
     }
@@ -3427,6 +3458,7 @@ let matterWindowWidth = 1120;
 const MATTER_SIDE_COLUMN = 340;
 
 function setMatterVisible(visible: boolean) {
+    noteWindow("matter", visible, matterVisible);
     matterVisible = visible;
     if (matterWindowId) Entropy.UI.setWindowVisible(matterWindowId, visible);
 }
@@ -3452,7 +3484,7 @@ function renderMatterWindow(win: string) {
         W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         W.button(win, {
             text: "Make it a drum kit", id: "mt_make",
-            onClick: () => { track.voice.waveform = MATTER_WAVEFORM; trackMatter(track); persist(); }
+            onClick: () => { useFamily(track, "matter"); }
         });
         return;
     }
@@ -3572,6 +3604,7 @@ let waterWindowWidth = 1120;
 const WATER_SIDE_COLUMN = 360;
 
 function setWaterVisible(visible: boolean) {
+    noteWindow("water", visible, waterVisible);
     waterVisible = visible;
     if (waterWindowId) Entropy.UI.setWindowVisible(waterWindowId, visible);
 }
@@ -3604,7 +3637,7 @@ function renderWaterWindow(win: string) {
         W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
         W.button(win, {
             text: "Make it water", id: "wr_make",
-            onClick: () => { track.voice.waveform = WATER_WAVEFORM; trackWater(track); syncTrackBus(track); persist(); }
+            onClick: () => { useFamily(track, "water"); }
         });
         return;
     }
@@ -3867,7 +3900,7 @@ function play() {
     transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
     pendingNotes = [];
     syncTempoEffects();
-    recordDawAction(DAW_ACTION.Play, [], "Play transport");
+    recordDawAction("play", [], "Playing");
 }
 
 function stop() {
@@ -3876,7 +3909,7 @@ function stop() {
     for (const track of project.tracks) if (isPianoTrack(track)) { addon.Audio.pianoAllNotesOff(track.id); pianoHeld[track.id]={}; delete pianoLatch[track.id]; }
     pendingNotes = [];
     updateCuts(null);
-    recordDawAction(DAW_ACTION.Stop, [], "Stop transport");
+    recordDawAction("stop", [], "Stopped");
 }
 
 function seekToStep(step: number) {
@@ -3892,7 +3925,7 @@ function seekToStep(step: number) {
 
 function rewind() {
     seekToStep(0);
-    recordDawAction(DAW_ACTION.Rewind, [], "Rewind to start");
+    recordDawAction("rewind", [], "Back to the start");
 }
 
 // Changing tempo mid-run would jump the playhead (its position is elapsed time over step
@@ -3907,7 +3940,7 @@ function setBpm(bpm: number) {
     project.bpm = clamped;
     if (transport.playing) transport.startedAt = nowSeconds() - pos * stepDuration();
     syncTempoEffects();
-    recordDawAction(DAW_ACTION.SetBpm, [clamped], `${clamped} BPM`);
+    recordDawAction("set_bpm", [clamped], `${clamped} BPM`, "bpm");
 }
 
 // --- Offline WAV export -----------------------------------------------------
@@ -4343,17 +4376,31 @@ function trackForLane(laneId: string, kind: "synth" | "drum" = "synth"): Track |
 }
 
 function onArrangementSeek(ms: number) {
-    seekToStep(msToStep(ms, project.bpm, project.stepsPerBeat));
+    const step = msToStep(ms, project.bpm, project.stepsPerBeat);
+    seekToStep(step);
+    const bar = Math.floor(step / barSteps(project.stepsPerBeat));
+    recordDawAction("seek", [bar], `Jumped to bar ${bar + 1}`, "seek");
 }
 
 function onArrangementClipSelected(trackId: string, clipId: string) {
     const clip = project.arrangement.find(c => c.id === clipId && c.trackId === trackId);
+    const fresh = !!clip && clip.id !== selectedClipId;
     selectClip(clip);
+    const t = clip ? findTrack(clip.trackId) : undefined;
+    if (fresh && clip && t) {
+        const bar = Math.floor(clip.startStep / barSteps(project.stepsPerBeat));
+        recordDawAction("select_clip", [t.channel, bar], `${t.name} at bar ${bar + 1}`);
+    }
 }
 
 function onArrangementClipMoved(_trackId: string, clipId: string, startMs: number) {
     moveClip(project.arrangement, clipId, msToStep(startMs, project.bpm, project.stepsPerBeat), songSteps(project));
     scheduleSave();
+    const clip = project.arrangement.find(c => c.id === clipId);
+    if (clip) {
+        const bar = Math.floor(clip.startStep / barSteps(project.stepsPerBeat));
+        recordDawAction("move_clip", [bar], `Moved a clip to bar ${bar + 1}`, "clip-move:" + clipId);
+    }
 }
 
 function onArrangementClipResized(_trackId: string, clipId: string, startMs: number, durationMs: number) {
@@ -4361,12 +4408,18 @@ function onArrangementClipResized(_trackId: string, clipId: string, startMs: num
     const len = Math.max(1, msToStep(durationMs, project.bpm, project.stepsPerBeat));
     resizeClip(project.arrangement, clipId, start, len, songSteps(project));
     scheduleSave();
+    const clip = project.arrangement.find(c => c.id === clipId);
+    if (clip) {
+        const bars = Math.max(1, Math.round(clip.lengthSteps / barSteps(project.stepsPerBeat)));
+        recordDawAction("resize_clip", [bars], `A clip is now ${bars} bar${bars === 1 ? "" : "s"}`, "clip-size:" + clipId);
+    }
 }
 
 function onArrangementClipDelete(_trackId: string, clipId: string) {
     deleteClip(project.arrangement, clipId);
     if (selectedClipId === clipId) selectedClipId = null;
     persist();
+    recordDawAction("delete_clip", [], "Deleted a clip");
 }
 
 function onArrangementClipDuplicate(_trackId: string, clipId: string) {
@@ -4374,6 +4427,7 @@ function onArrangementClipDuplicate(_trackId: string, clipId: string) {
     if (copy) {
         selectClip(copy);
         arrangementStatus = "";
+        recordDawAction("duplicate_clip", [], `Copied a clip to bar ${Math.floor(copy.startStep / barSteps(project.stepsPerBeat)) + 1}`);
     } else {
         arrangementStatus = "No room after that clip for a copy.";
     }
@@ -4391,6 +4445,9 @@ function onArrangementClipCreate(laneId: string, startMs: number, durationMs: nu
     if (clip) {
         selectClip(clip);
         arrangementStatus = "";
+        const bar = barSteps(project.stepsPerBeat);
+        const bars = Math.max(1, Math.round(clip.lengthSteps / bar));
+        recordDawAction("create_clip", [track.channel, Math.floor(clip.startStep / bar), bars], `${track.name}: ${bars} bars from bar ${Math.floor(clip.startStep / bar) + 1}`);
     } else {
         arrangementStatus = "That spot is already taken by another clip on this channel.";
     }
@@ -4400,7 +4457,7 @@ function onArrangementClipCreate(laneId: string, startMs: number, durationMs: nu
 function onArrangementTrackClicked(laneId: string) {
     const track = trackForLane(laneId);
     if (track) {
-        project.activeTrackId = track.id;
+        selectActiveTrack(track);
         persist();
     }
 }
@@ -4410,6 +4467,7 @@ function onArrangementTrackMute(trackId: string) {
     if (!t) return;
     t.muted = !t.muted;
     persist();
+    recordDawAction("mute_track", [project.tracks.indexOf(t), t.muted ? 1 : 0], `${t.name} mute ${t.muted ? "on" : "off"}`);
 }
 
 function onArrangementTrackSolo(trackId: string) {
@@ -4417,6 +4475,7 @@ function onArrangementTrackSolo(trackId: string) {
     if (!t) return;
     t.solo = !t.solo;
     persist();
+    recordDawAction("solo_track", [project.tracks.indexOf(t), t.solo ? 1 : 0], `${t.name} solo ${t.solo ? "on" : "off"}`);
 }
 
 function onArrangementBackground() {
@@ -4424,8 +4483,10 @@ function onArrangementBackground() {
 }
 
 function setSnap(mode: SnapMode) {
+    const changed = project.snap !== mode;
     project.snap = mode;
     writeProject();
+    if (changed) recordDawAction("set_snap", [choiceOf("snap_modes", mode)], `Snap to ${mode}`);
 }
 
 function setSongBars(bars: number) {
@@ -4433,6 +4494,7 @@ function setSongBars(bars: number) {
     pruneArrangement(project);
     if (selectedClipId && !project.arrangement.some(c => c.id === selectedClipId)) selectedClipId = null;
     persist();
+    recordDawAction("set_song_bars", [project.songBars], `${project.songBars} bars`, "song-bars");
 }
 
 function instrumentSummary(track: Track): string {
@@ -4446,6 +4508,8 @@ function instrumentSummary(track: Track): string {
 
 let dragMode: "add" | "erase" | null = null;
 let lastCellKey: string | null = null;
+// The cells one press-drag-release changed: recorded as one action when the stroke ends.
+let strokeCells: { row: number; step: number }[] = [];
 
 function findNoteIndexAt(pattern: Pattern, row: number, step: number): number {
     return pattern.notes.findIndex(n => n.row === row && step >= n.step && step < n.step + n.length);
@@ -4456,9 +4520,13 @@ function applyCell(pattern: Pattern, row: number, step: number) {
     if (dragMode === "add") {
         if (idx === -1) {
             pattern.notes.push({ row, step, length: 1, velocity: 0.85 });
+            strokeCells.push({ row, step });
         }
     } else if (dragMode === "erase") {
-        if (idx !== -1) pattern.notes.splice(idx, 1);
+        if (idx !== -1) {
+            strokeCells.push({ row, step: pattern.notes[idx].step });
+            pattern.notes.splice(idx, 1);
+        }
     }
 }
 
@@ -4470,6 +4538,7 @@ function handleNoteDown(row: number, step: number) {
     const pattern = activePattern(track);
     dragMode = findNoteIndexAt(pattern, row, step) >= 0 ? "erase" : "add";
     lastCellKey = `${row}:${step}`;
+    strokeCells = [];
     applyCell(pattern, row, step);
 }
 
@@ -4483,11 +4552,21 @@ function handleNoteDrag(row: number, step: number) {
 }
 
 function handleNoteUp(_row: number, _step: number) {
+    const mode = dragMode;
     dragMode = null;
     lastCellKey = null;
     const track = getActiveTrack();
     if (track) ensureTrackHasClip(track);
     persist();
+    const stroke = mode && track ? strokeAction(mode, strokeCells) : null;
+    if (stroke && track) {
+        const [row, a, b, count] = stroke.params;
+        const detail = stroke.action === "add_note" ? `${rowName(track, row)} at ${stepLabel(a)}`
+            : stroke.action === "remove_note" ? `Erased ${rowName(track, row)} at ${stepLabel(a)}`
+            : `${stroke.action === "paint_notes" ? "Painted" : "Erased"} ${count} ${rowName(track, row)} from ${stepLabel(a)} to ${stepLabel(b)}`;
+        recordDawAction(stroke.action, stroke.params, detail);
+    }
+    strokeCells = [];
 }
 
 // --- Pattern management --------------------------------------------------------
@@ -5130,7 +5209,7 @@ function saveVersionNow(label?: string) {
     if (kept) {
         historySelection = kept.id;
         toast(name ? `Saved version "${name}".` : `Saved. A version from ${formatClock(kept.at)} is in History.`);
-        recordDawAction(DAW_ACTION.SaveProject, [], name ? `Saved version "${name}"` : "Saved project");
+        recordDawAction("save_version", [], name ? `Saved version "${name}"` : "Saved a version");
     } else {
         toast("Saved. Nothing changed since the last version.");
     }
@@ -5651,10 +5730,9 @@ let rollSize = 0;
 
 function setDawView(view: string) {
     const next = DAW_VIEWS.find(v => v.id === view);
-    if (next) {
-        dawView = next.id;
-        recordDawAction(next.id === "mixer" ? DAW_ACTION.OpenMixer : (next.id === "roll" ? DAW_ACTION.OpenPianoRoll : DAW_ACTION.SelectTrack), [], `Switched to ${next.label}`);
-    }
+    // Recorded once a frame by noteViewChange, so a view flipped and flipped back within a
+    // frame is not an action.
+    if (next) dawView = next.id;
 }
 
 function openMoves() {
@@ -5721,470 +5799,887 @@ function positionReadout(): string {
     return `Bar ${bar}  Beat ${beat}   ${mm}:${ss}`;
 }
 
-// --- MoE UI Prediction Model & Suggested Next Steps -----------------------
+// --- Next-action prediction & Suggested Next Steps ---------------------------------------------
+//
+// Every action you take in the DAW is recorded (daw_predict.ts's ActionHistory) with its parameters
+// and the context after it: the active track's instrument family, the view, the transport and how
+// full the pattern and the song are. The model (src/prediction's MoE predictor, through
+// Entropy.Prediction) reads that history and proposes the next few actions with their parameters.
+// Each suggested step is drawn with real controls built from the action's parameter specs - knobs,
+// dropdowns, toggles - so a step can be tweaked and applied without opening the menus it lives in.
+// Applying a step runs the same functions the DAW's own controls do.
 
-const DAW_ACTION = {
-    AddTrack: 0,
-    RemoveTrack: 1,
-    SelectTrack: 2,
-    SetBpm: 3,
-    Play: 4,
-    Stop: 5,
-    Rewind: 6,
-    Seek: 7,
-    AddNote: 8,
-    RemoveNote: 9,
-    SelectPattern: 10,
-    NewPattern: 11,
-    PlaceClip: 12,
-    RemoveClip: 13,
-    LoadInstrument: 14,
-    LoadPreset: 15,
-    SetVolume: 16,
-    SetPan: 17,
-    MuteTrack: 18,
-    SoloTrack: 19,
-    SetReverb: 20,
-    SetEq: 21,
-    OpenMixer: 22,
-    OpenPianoRoll: 23,
-    PlayNotePreview: 24,
-    SetScale: 25,
-    SetRootNote: 26,
-    ExportWav: 27,
-    SaveProject: 28,
-    Undo: 29,
-    ToggleAnalyzer: 30,
-    SetCharacterKnob: 31,
-} as const;
+interface PredictVocab {
+    defs: Map<string, DawActionDef>;
+    choices: Record<string, { id: string; label: string }[]>;
+}
+let predictVocabCache: PredictVocab | null = null;
 
-interface ActionHistoryEntry {
-    id: string;
-    actionId: number;
-    name: string;
-    displayName: string;
-    category: string;
-    icon: IconName;
-    params: number[];
-    timestamp: number;
-    detail?: string;
+function predictVocab(): PredictVocab {
+    if (!predictVocabCache) {
+        try {
+            const defs: DawActionDef[] = addon.Prediction?.getActionVocab?.() ?? [];
+            const choices = addon.Prediction?.getChoiceLists?.() ?? {};
+            predictVocabCache = { defs: new Map(defs.map(d => [d.name, d])), choices };
+        } catch {
+            predictVocabCache = { defs: new Map(), choices: {} };
+        }
+    }
+    return predictVocabCache;
 }
 
-const MAX_PREDICTION_HISTORY = 12;
-const actionHistory: ActionHistoryEntry[] = [];
+const actionDef = (name: string): DawActionDef | undefined => predictVocab().defs.get(name);
+const choiceOf = (list: string, id: string): number => Math.max(0, choiceIndex(list, id, predictVocab().choices));
+const choiceAt = (list: string, index: number): string | undefined => predictVocab().choices[list]?.[Math.round(index)]?.id;
+
+const actionHistory = new ActionHistory(64);
+let recordingSuppressed = 0;
 let predictedNextSteps: PredictedAction[] = [];
-let isPredicting = false;
+// Each plan gets a serial so edits made to one plan's controls never leak into the next.
+let planSerial = 0;
+let planAlternative = 0;
+const stepEdits: Record<string, number[]> = {};
 let predictionError: string | null = null;
+// Set when no usable model is installed (none trained or downloaded, or an old vocabulary): the
+// panel says so quietly and the history keeps recording, so suggestions start once one is there.
+let predictionUnavailable: string | null = null;
+let predictionStatus = "";
 let predictionsVisible = false;
 let predictionsWindowId: string | null = null;
+// A new plan is asked for once the history has been still for a moment, so a knob drag or a
+// painted stroke costs one inference, not one per frame.
+let predictionDueAt = 0;
+const PREDICTION_SETTLE_MS = 350;
+const PREDICTION_STEPS = 5;
+const HISTORY_SHOWN = 10;
 
-const ACTION_VOCAB_FALLBACK: Record<number, { name: string; displayName: string; category: string; icon: IconName }> = {
-    0: { name: "add_track", displayName: "Add Track", category: "Track", icon: "plus-circle" },
-    1: { name: "remove_track", displayName: "Remove Track", category: "Track", icon: "trash" },
-    2: { name: "select_track", displayName: "Select Track", category: "Track", icon: "cursor" },
-    3: { name: "set_bpm", displayName: "Set BPM", category: "Transport", icon: "metronome" },
-    4: { name: "play", displayName: "Play", category: "Transport", icon: "play" },
-    5: { name: "stop", displayName: "Stop", category: "Transport", icon: "stop" },
-    6: { name: "rewind", displayName: "Rewind", category: "Transport", icon: "skip-back" },
-    7: { name: "seek", displayName: "Seek", category: "Transport", icon: "crosshair" },
-    8: { name: "add_note", displayName: "Add Note", category: "Piano Roll", icon: "music-notes" },
-    9: { name: "remove_note", displayName: "Remove Note", category: "Piano Roll", icon: "eraser" },
-    10: { name: "select_pattern", displayName: "Select Pattern", category: "Pattern", icon: "squares-four" },
-    11: { name: "new_pattern", displayName: "New Pattern", category: "Pattern", icon: "file-plus" },
-    12: { name: "place_clip", displayName: "Place Clip", category: "Arrangement", icon: "waveform" },
-    13: { name: "remove_clip", displayName: "Remove Clip", category: "Arrangement", icon: "scissors" },
-    14: { name: "load_instrument", displayName: "Load Instrument", category: "Instrument", icon: "piano-keys" },
-    15: { name: "load_preset", displayName: "Load Preset", category: "Instrument", icon: "sliders" },
-    16: { name: "set_volume", displayName: "Set Volume", category: "Mixer", icon: "speaker-high" },
-    17: { name: "set_pan", displayName: "Set Pan", category: "Mixer", icon: "arrows-left-right" },
-    18: { name: "mute_track", displayName: "Mute Track", category: "Mixer", icon: "speaker-slash" },
-    19: { name: "solo_track", displayName: "Solo Track", category: "Mixer", icon: "star" },
-    20: { name: "set_reverb", displayName: "Set Reverb", category: "Effects", icon: "waves" },
-    21: { name: "set_eq", displayName: "Set EQ", category: "Effects", icon: "equalizer" },
-    22: { name: "open_mixer", displayName: "Open Mixer", category: "View", icon: "faders" },
-    23: { name: "open_piano_roll", displayName: "Open Piano Roll", category: "View", icon: "keyboard" },
-    24: { name: "play_note_preview", displayName: "Preview Note", category: "Theory", icon: "headphones" },
-    25: { name: "set_scale", displayName: "Set Scale", category: "Theory", icon: "scales" },
-    26: { name: "set_root_note", displayName: "Set Root Note", category: "Theory", icon: "tuning-fork" },
-    27: { name: "export_wav", displayName: "Export WAV", category: "Project", icon: "download-simple" },
-    28: { name: "save_project", displayName: "Save Project", category: "Project", icon: "floppy-disk" },
-    29: { name: "undo", displayName: "Undo", category: "Project", icon: "arrow-u-up-left" },
-    30: { name: "toggle_analyzer", displayName: "Toggle Analyzer", category: "View", icon: "chart-bar" },
-    31: { name: "set_character_knob", displayName: "Set Character", category: "Effects", icon: "knob" },
-};
+function trackFamily(track: Track | undefined): Family {
+    if (!track) return "none";
+    if (track.instrument) return "vst3";
+    if (track.kind === "drum") return "drum_rack";
+    if (isWavetableTrack(track)) return "wavetable";
+    if (isPhysModTrack(track)) return "strings";
+    if (isBrassTrack(track)) return "brass";
+    if (isPianoTrack(track)) return "piano";
+    if (isMatterTrack(track)) return "matter";
+    if (isWaterTrack(track)) return "water";
+    return "synth";
+}
 
-function getActionMeta(actionId: number) {
-    return ACTION_VOCAB_FALLBACK[actionId] || {
-        name: `action_${actionId}`,
-        displayName: `Action #${actionId}`,
-        category: "General",
-        icon: "sparkle" as IconName,
+function predictionContext(): PredictionContext {
+    const track = getActiveTrack();
+    const pattern = track ? activePattern(track) : undefined;
+    const bar = barSteps(project.stepsPerBeat);
+    const covered = project.arrangement.reduce((sum, c) => sum + c.lengthSteps / bar, 0);
+    const room = Math.max(1, project.tracks.length * project.songBars);
+    return {
+        family: familyIndex(trackFamily(track)),
+        view: viewIndex(dawView),
+        playing: transport.playing,
+        tracks: project.tracks.length,
+        patternFill: pattern ? Math.min(1, pattern.notes.length / Math.max(1, pattern.steps)) : 0,
+        songFill: Math.min(1, covered / room),
     };
 }
 
-function recordDawAction(actionId: number, params: number[] = [], detail?: string, autoPredict = true) {
-    const meta = getActionMeta(actionId);
-    const entry: ActionHistoryEntry = {
-        id: Entropy.generateUUID(),
-        actionId,
-        name: meta.name,
-        displayName: meta.displayName,
-        category: meta.category,
-        icon: meta.icon,
-        params,
-        timestamp: Date.now(),
-        detail,
-    };
-    actionHistory.push(entry);
-    if (actionHistory.length > MAX_PREDICTION_HISTORY) {
-        actionHistory.shift();
-    }
-    if (autoPredict && predictionsVisible) {
+/** Records one action. `key` makes a continuous control (a knob drag) one entry, not one per step. */
+function recordDawAction(action: string, params: number[] = [], detail?: string, key?: string) {
+    if (recordingSuppressed > 0 || !actionDef(action)) return;
+    actionHistory.record(action, params, predictionContext(), { detail, key });
+    schedulePrediction();
+}
+
+function withoutRecording<T>(run: () => T): T {
+    recordingSuppressed++;
+    try { return run(); } finally { recordingSuppressed--; }
+}
+
+function noteWindow(id: string, visible: boolean, was: boolean) {
+    if (visible === was) return;
+    const label = predictVocab().choices.windows?.find(o => o.id === id)?.label ?? id;
+    recordDawAction("toggle_window", [choiceOf("windows", id), visible ? 1 : 0], `${visible ? "Opened" : "Closed"} ${label}`);
+}
+
+function schedulePrediction(delay = PREDICTION_SETTLE_MS) {
+    if (predictionsVisible) predictionDueAt = Date.now() + delay;
+}
+
+// The view the history last recorded. Views are recorded where they settle, once a frame.
+let recordedView: string | null = null;
+
+function noteViewChange() {
+    if (recordedView === null) { recordedView = dawView; return; }
+    if (dawView === recordedView) return;
+    recordedView = dawView;
+    recordDawAction("open_view", [viewIndex(dawView)], `Showing ${DAW_VIEWS.find(v => v.id === dawView)?.label ?? dawView}`);
+}
+
+/** Once a frame: records a settled view change and asks for the plan a recent change made due. */
+function tickPredictions() {
+    noteViewChange();
+    if (predictionDueAt && Date.now() >= predictionDueAt) {
+        predictionDueAt = 0;
         refreshPredictions();
     }
 }
 
-function refreshPredictions(steps = 5) {
-    if (!addon.Prediction) {
-        predictionError = "Prediction engine not available";
+function refreshPredictions(alternative = 0) {
+    predictionDueAt = 0;
+    if (!addon.Prediction?.predictPlan) {
+        predictionError = "The prediction engine is not available in this build.";
         return;
     }
-    isPredicting = true;
-    predictionError = null;
     try {
-        const contextIds = actionHistory.map(a => a.actionId);
-        const preds = addon.Prediction.predictNextActions(contextIds, steps);
-        predictedNextSteps = preds || [];
-    } catch (e: any) {
-        predictionError = String(e?.message || e || "Prediction failed");
-    } finally {
-        isPredicting = false;
+        const status = addon.Prediction.status?.();
+        predictionUnavailable = status && !status.available ? status.message : null;
+    } catch (e) {
+        predictionUnavailable = errorText(e);
     }
+    if (predictionUnavailable) {
+        predictedNextSteps = [];
+        predictionError = null;
+        planSerial++;
+        return;
+    }
+    try {
+        predictedNextSteps = addon.Prediction.predictPlan({
+            history: actionHistory.toRequest(),
+            current: predictionContext(),
+            steps: PREDICTION_STEPS,
+            alternative,
+        }) ?? [];
+        predictionError = null;
+    } catch (e) {
+        predictedNextSteps = [];
+        predictionError = errorText(e);
+    }
+    planSerial++;
+    planAlternative = alternative;
 }
 
 function setPredictionsVisible(v: boolean) {
     predictionsVisible = v;
-    if (v && predictedNextSteps.length === 0) {
-        refreshPredictions();
-    }
+    if (v) refreshPredictions();
     if (predictionsWindowId) Entropy.UI.setWindowVisible(predictionsWindowId, v);
 }
 
-function executePredictedAction(step: PredictedAction, index?: number) {
-    const actId = step.action_id;
-    let detail = "";
-    switch (actId) {
-        case DAW_ACTION.AddTrack: {
-            const kind = (step.params && step.params[0] > 0.5) ? "drum" : "synth";
-            const t = addTrack(kind);
-            detail = `Added ${kind} track "${t.name}"`;
-            break;
+const editKey = (index: number) => `${planSerial}:${index}`;
+
+/** A step's parameters: what was dialled in on its controls, else what the model predicted. */
+function stepParams(index: number): number[] {
+    const step = predictedNextSteps[index];
+    const def = step && actionDef(step.name);
+    if (!def) return [];
+    return sanitizeParams(def, stepEdits[editKey(index)] ?? step.params);
+}
+
+function editStepParam(index: number, param: number, value: number) {
+    const params = stepParams(index);
+    const def = actionDef(predictedNextSteps[index]?.name ?? "");
+    if (!def || !def.params[param]) return;
+    params[param] = sanitizeParam(def.params[param], value);
+    stepEdits[editKey(index)] = params;
+}
+
+/** Swaps a step for one of the alternatives the model gave it, with that action's defaults. */
+function swapStep(index: number, name: string) {
+    const def = actionDef(name);
+    const step = predictedNextSteps[index];
+    if (!def || !step) return;
+    predictedNextSteps[index] = {
+        ...step, action_id: def.id, name: def.name, display_name: def.display_name,
+        category: def.category, icon: def.icon, params: def.default_params.slice(),
+        confidence: step.alternatives?.find(a => a.name === name)?.confidence ?? 0,
+        alternatives: [],
+    };
+    delete stepEdits[editKey(index)];
+}
+
+// --- Running a suggested action
+
+/** What a run did: a line for the history, the entries to record (default: the action as given)
+ *  and whether it failed (nothing is recorded then; the line is shown as a toast). */
+interface RunResult { detail: string; records?: [string, number[]][]; failed?: boolean }
+
+const fail = (detail: string): RunResult => ({ detail, failed: true });
+
+const FAMILY_WAVEFORM: Partial<Record<Family, string>> = {
+    wavetable: WT_WAVEFORM, strings: PHYSMOD_WAVEFORM, brass: BRASS_WAVEFORM,
+    piano: PIANO_WAVEFORM, matter: MATTER_WAVEFORM, water: WATER_WAVEFORM,
+};
+
+/** Makes a synth track play `family` - what each instrument window's "Make it..." button does. */
+function switchTrackFamily(track: Track, family: Family): string | null {
+    if (trackFamily(track) === family) return null;
+    if (track.kind === "drum") return `${track.name} is a drum rack; instruments go on synth tracks.`;
+    if (family === "vst3") return "Pick a VST3 plugin in the Sound tab.";
+    if (family === "drum_rack" || family === "none") return "A synth track cannot become a drum rack.";
+    if (track.instrument) clearTrackInstrument(track);
+    track.voice.waveform = family === "synth"
+        ? (BUILT_IN_OSCILLATORS.includes(track.voice.waveform) ? track.voice.waveform : "saw")
+        : FAMILY_WAVEFORM[family]!;
+    if (family === "matter") trackMatter(track);
+    if (family === "water") trackWater(track);
+    syncTrackBus(track);
+    return null;
+}
+
+/** The DAW's own "Make it..." buttons: switch the track and record it. */
+function useFamily(track: Track, family: Family) {
+    const problem = switchTrackFamily(track, family);
+    if (problem) { toast(problem); return; }
+    persist();
+    recordDawAction("set_instrument", [familyIndex(family)], `${track.name} plays ${familyLabel(family)}`);
+}
+
+const familyLabel = (family: Family): string => predictVocab().choices.families?.find(o => o.id === family)?.label ?? family;
+
+/** For instrument presets: the active synth track, switched to `family` first if it plays something else. */
+function trackFor(family: Family): { track?: Track; error?: string } {
+    const track = getActiveTrack();
+    if (!track) return { error: "Add a track first." };
+    const problem = switchTrackFamily(track, family);
+    return problem ? { error: problem } : { track };
+}
+
+function windowSetter(id: string): ((v: boolean) => void) | undefined {
+    const setters: Record<string, (v: boolean) => void> = {
+        analyzer: setAnalyzerVisible, space: setSpaceVisible, wavetable: setWavetableVisible,
+        strings: setPhysModVisible, brass: setBrassVisible, piano: setPianoVisible, matter: setMatterVisible,
+        water: setWaterVisible, rack: setRackVisible, guitar: setGuitarVisible, visualizer: setVisualizerVisible,
+    };
+    return setters[id];
+}
+
+function setTransportMode(mode: TransportMode) {
+    if (transport.mode === mode) return;
+    const wasPlaying = transport.playing;
+    if (wasPlaying) stop();
+    transport.mode = mode;
+    transport.cursorStep = 0;
+    if (wasPlaying) play();
+}
+
+function clipAt(lane: number, bar: number): ArrClip | undefined {
+    const track = project.tracks.find(t => t.channel === lane);
+    if (!track) return undefined;
+    const step = bar * barSteps(project.stepsPerBeat);
+    return clipsOfTrack(project.arrangement, track.id).find(c => step >= c.startStep && step < clipEnd(c));
+}
+
+/** Performs one action with the given parameters. Everything the DAW's own controls would record
+ *  is suppressed by the caller; the result says what to record instead. */
+function runAction(name: string, p: number[]): RunResult {
+    const track = getActiveTrack();
+    const bar = barSteps(project.stepsPerBeat);
+    const at = (i: number) => project.tracks[Math.round(i)];
+    const choice = (list: string, i: number) => choiceAt(list, i) ?? "";
+    const needTrack = (): RunResult | null => track ? null : fail("Add a track first.");
+    switch (name) {
+        // Tracks
+        case "add_track": {
+            const family = (FAMILIES[Math.round(p[0])] ?? "synth") as Family;
+            const t = addTrack(family === "drum_rack" ? "drum" : "synth");
+            if (t.kind === "synth" && family !== "synth" && family !== "none") {
+                const problem = switchTrackFamily(t, family);
+                if (!problem) return { detail: `Added ${t.name} (${familyLabel(family)})`, records: [["add_track", [familyIndex("synth")]], ["set_instrument", [familyIndex(family)]]] };
+            }
+            return { detail: `Added ${t.name}`, records: [["add_track", [familyIndex(t.kind === "drum" ? "drum_rack" : "synth")]]] };
         }
-        case DAW_ACTION.RemoveTrack: {
-            if (project.tracks.length > 1) {
-                const removed = project.tracks.pop();
-                if (removed) {
-                    if (project.activeTrackId === removed.id) {
-                        project.activeTrackId = project.tracks[0].id;
-                    }
-                    detail = `Removed track "${removed.name}"`;
+        case "remove_track": {
+            const t = at(p[0]);
+            if (!t) return fail("There is no such track.");
+            if (project.tracks.length <= 1) return fail("A song keeps at least one track.");
+            removeTrack(t);
+            return { detail: `Removed ${t.name}` };
+        }
+        case "select_track": {
+            const t = at(p[0]);
+            if (!t) return fail("There is no such track.");
+            project.activeTrackId = t.id;
+            return { detail: `Selected ${t.name}` };
+        }
+        case "set_instrument": {
+            if (!track) return fail("Add a track first.");
+            const family = (FAMILIES[Math.round(p[0])] ?? "synth") as Family;
+            const problem = switchTrackFamily(track, family);
+            return problem ? fail(problem) : { detail: `${track.name} plays ${familyLabel(family)}` };
+        }
+        // Transport
+        case "play": play(); return { detail: "Playing" };
+        case "stop": stop(); return { detail: "Stopped" };
+        case "rewind": rewind(); return { detail: "Back to the start" };
+        case "seek": seekToStep(Math.round(p[0]) * bar); return { detail: `Jumped to bar ${Math.round(p[0]) + 1}` };
+        case "set_bpm": setBpm(p[0]); syncBpmDraft(); return { detail: `${project.bpm} BPM` };
+        case "set_transport_mode": {
+            const mode = choice("transport_modes", p[0]) === "pattern" ? "pattern" : "song";
+            setTransportMode(mode);
+            return { detail: mode === "pattern" ? "Looping the pattern" : "Playing the song" };
+        }
+        // Piano roll
+        case "add_note":
+        case "remove_note":
+        case "paint_notes":
+        case "erase_notes": {
+            if (!track) return fail("Add a track first.");
+            const pattern = activePattern(track);
+            const row = Math.round(p[0]);
+            if (row < 0 || row >= track.rows) return fail(`${track.name} has ${track.rows} rows; row ${row + 1} is outside them.`);
+            const inPattern = (s: number) => s >= 0 && s < pattern.steps;
+            if (name === "add_note") {
+                const step = Math.round(p[1]);
+                if (!inPattern(step)) return fail(`${pattern.name} is ${pattern.steps} steps long.`);
+                if (findNoteIndexAt(pattern, row, step) < 0) {
+                    pattern.notes.push({ row, step, length: Math.max(1, Math.round(p[2] ?? 1)), velocity: p[3] ?? 0.85 });
                 }
+                ensureTrackHasClip(track);
+                return { detail: `${rowName(track, row)} at ${stepLabel(step)}` };
             }
-            break;
-        }
-        case DAW_ACTION.SelectTrack: {
-            const tracks = project.tracks;
-            if (tracks.length > 1) {
-                const curIdx = tracks.findIndex(t => t.id === project.activeTrackId);
-                const nextIdx = (curIdx + 1) % tracks.length;
-                project.activeTrackId = tracks[nextIdx].id;
-                detail = `Selected track "${tracks[nextIdx].name}"`;
+            if (name === "remove_note") {
+                const idx = findNoteIndexAt(pattern, row, Math.round(p[1]));
+                if (idx < 0) return fail(`No note on ${rowName(track, row)} at ${stepLabel(Math.round(p[1]))}.`);
+                pattern.notes.splice(idx, 1);
+                return { detail: `Erased ${rowName(track, row)} at ${stepLabel(Math.round(p[1]))}` };
             }
-            break;
-        }
-        case DAW_ACTION.SetBpm: {
-            const newBpm = (step.params && step.params[0] >= 20) ? step.params[0] : 128;
-            setBpm(newBpm);
-            syncBpmDraft();
-            detail = `Set tempo to ${Math.round(newBpm)} BPM`;
-            break;
-        }
-        case DAW_ACTION.Play: {
-            play();
-            detail = "Started playback";
-            break;
-        }
-        case DAW_ACTION.Stop: {
-            stop();
-            detail = "Stopped playback";
-            break;
-        }
-        case DAW_ACTION.Rewind: {
-            rewind();
-            detail = "Rewound to start";
-            break;
-        }
-        case DAW_ACTION.Seek: {
-            const targetStep = (step.params && step.params[0]) || 0;
-            seekToStep(targetStep);
-            detail = `Seeked to step ${targetStep}`;
-            break;
-        }
-        case DAW_ACTION.AddNote: {
-            const t = getActiveTrack();
-            if (t) {
-                const pat = activePattern(t);
-                const row = Math.round((step.params && step.params[0]) ?? 4);
-                const startStep = Math.round((step.params && step.params[1]) ?? ((pat.notes.length * 4) % pat.lengthSteps));
-                const len = Math.max(1, Math.round((step.params && step.params[2]) ?? 4));
-                const vel = (step.params && step.params[3]) ?? 0.8;
-                pat.notes.push({ row, step: startStep, length: len, velocity: vel });
-                detail = `Added note row ${row} at step ${startStep}`;
-            }
-            break;
-        }
-        case DAW_ACTION.RemoveNote: {
-            const t = getActiveTrack();
-            if (t) {
-                const pat = activePattern(t);
-                if (pat.notes.length > 0) {
-                    pat.notes.pop();
-                    detail = `Removed note from ${pat.name}`;
+            if (name === "paint_notes") {
+                const steps = paintSteps(p[1], p[2], p[3]).filter(inPattern);
+                let added = 0;
+                for (const s of steps) {
+                    if (findNoteIndexAt(pattern, row, s) >= 0) continue;
+                    pattern.notes.push({ row, step: s, length: 1, velocity: 0.85 });
+                    added++;
                 }
+                ensureTrackHasClip(track);
+                return { detail: `Painted ${added} ${rowName(track, row)} from ${stepLabel(steps[0] ?? 0)}` };
             }
-            break;
+            const lo = Math.min(p[1], p[2]), hi = Math.max(p[1], p[2]);
+            const before = pattern.notes.length;
+            pattern.notes = pattern.notes.filter(n => !(n.row === row && n.step >= lo && n.step <= hi));
+            return { detail: `Erased ${before - pattern.notes.length} ${rowName(track, row)}` };
         }
-        case DAW_ACTION.SelectPattern: {
-            const t = getActiveTrack();
-            if (t && t.patterns.length > 1) {
-                const curIdx = t.patterns.findIndex(p => p.id === t.activePatternId);
-                const nextIdx = (curIdx + 1) % t.patterns.length;
-                t.activePatternId = t.patterns[nextIdx].id;
-                detail = `Selected pattern "${t.patterns[nextIdx].name}"`;
+        case "preview_note": {
+            if (!track) return fail("Add a track first.");
+            previewTrackRow(track, Math.round(p[0]), p[1] ?? 0.85);
+            return { detail: `Heard ${rowName(track, Math.round(p[0]))}` };
+        }
+        // Patterns
+        case "new_pattern": {
+            if (!track) return fail("Add a track first.");
+            const bars = parseFloat(choice("pattern_lengths", p[0])) || 1;
+            const pattern = addPattern(track, undefined, Math.max(1, Math.round(bars * bar)));
+            return { detail: `New ${pattern.name}` };
+        }
+        case "duplicate_pattern": {
+            if (!track) return fail("Add a track first.");
+            return { detail: `Made ${duplicatePattern(track).name}` };
+        }
+        case "select_pattern": {
+            const pattern = track?.patterns[Math.round(p[0])];
+            if (!track || !pattern) return fail("There is no such pattern.");
+            track.activePatternId = pattern.id;
+            return { detail: `Editing ${pattern.name}` };
+        }
+        case "set_pattern_length": {
+            if (!track) return fail("Add a track first.");
+            const bars = parseFloat(choice("pattern_lengths", p[0])) || 1;
+            activePattern(track).steps = Math.max(1, Math.round(bars * bar));
+            return { detail: `${activePattern(track).name} is ${bars} bar${bars === 1 ? "" : "s"}` };
+        }
+        case "use_pattern_in_clip": {
+            const clip = selectedClip();
+            if (!track || !clip || clip.trackId !== track.id) return fail(`Select a clip of ${track?.name ?? "the track"} in the song first.`);
+            clip.patternId = activePattern(track).id;
+            return { detail: `The clip plays ${activePattern(track).name}` };
+        }
+        // Arrangement
+        case "create_clip": {
+            const lane = Math.round(p[0]);
+            const t = project.tracks.find(x => x.channel === lane) ?? trackForLane(`empty:${lane}`);
+            if (!t) return fail(`Channel ${lane + 1} has no track.`);
+            const clip = createClip(project.arrangement, {
+                trackId: t.id, patternId: activePattern(t).id, startStep: Math.round(p[1]) * bar, lengthSteps: Math.max(1, Math.round(p[2])) * bar
+            }, songSteps(project), newId);
+            if (!clip) return fail("That spot is already taken by another clip on this channel.");
+            selectClip(clip);
+            return { detail: `${t.name}: ${Math.round(p[2])} bars from bar ${Math.round(p[1]) + 1}` };
+        }
+        case "move_clip":
+        case "resize_clip":
+        case "delete_clip":
+        case "duplicate_clip": {
+            const clip = selectedClip();
+            if (!clip) return fail("Select a clip in the song first.");
+            if (name === "move_clip") {
+                moveClip(project.arrangement, clip.id, Math.round(p[0]) * bar, songSteps(project));
+                return { detail: `Moved the clip to bar ${Math.round(p[0]) + 1}` };
             }
-            break;
-        }
-        case DAW_ACTION.NewPattern: {
-            const t = getActiveTrack();
-            if (t) {
-                const stepsCount = Math.round((step.params && step.params[0]) ?? 16);
-                const newPat = newPattern(nextPatternName(t.patterns), stepsCount);
-                t.patterns.push(newPat);
-                t.activePatternId = newPat.id;
-                detail = `Created pattern "${newPat.name}"`;
+            if (name === "resize_clip") {
+                resizeClip(project.arrangement, clip.id, clip.startStep, Math.max(1, Math.round(p[0])) * bar, songSteps(project));
+                return { detail: `The clip is ${Math.round(p[0])} bars` };
             }
-            break;
-        }
-        case DAW_ACTION.PlaceClip: {
-            const t = getActiveTrack();
-            if (t) {
-                const pat = activePattern(t);
-                const bar = barSteps(project.stepsPerBeat);
-                const nextBar = (t.clips.length * bar);
-                t.clips.push({ id: Entropy.generateUUID(), trackId: t.id, patternId: pat.id, startStep: nextBar, lengthSteps: pat.lengthSteps });
-                detail = `Placed clip for "${pat.name}" at bar ${Math.floor(nextBar / bar) + 1}`;
+            if (name === "delete_clip") {
+                deleteClip(project.arrangement, clip.id);
+                selectedClipId = null;
+                return { detail: "Deleted the clip" };
             }
-            break;
+            const copy = duplicateClip(project.arrangement, clip.id, songSteps(project), newId);
+            if (!copy) return fail("No room after that clip for a copy.");
+            selectClip(copy);
+            return { detail: `Copied the clip to bar ${Math.floor(copy.startStep / bar) + 1}` };
         }
-        case DAW_ACTION.OpenMixer: {
-            setDawView("mixer");
-            detail = "Switched to Mixer view";
-            break;
+        case "select_clip": {
+            const clip = clipAt(Math.round(p[0]), Math.round(p[1]));
+            if (!clip) return fail(`No clip on channel ${Math.round(p[0]) + 1} at bar ${Math.round(p[1]) + 1}.`);
+            selectClip(clip);
+            return { detail: `Selected the clip at bar ${Math.floor(clip.startStep / bar) + 1}` };
         }
-        case DAW_ACTION.OpenPianoRoll: {
-            setDawView("roll");
-            detail = "Switched to Piano Roll view";
-            break;
+        case "set_snap": setSnap((choice("snap_modes", p[0]) || "bar") as SnapMode); return { detail: `Snap to ${choice("snap_modes", p[0])}` };
+        case "set_song_bars": setSongBars(p[0]); return { detail: `${project.songBars} bars` };
+        // Mixer
+        case "set_volume":
+        case "mute_track":
+        case "solo_track": {
+            const t = at(p[0]);
+            if (!t) return fail("There is no such track.");
+            if (name === "set_volume") { t.gain = Math.max(0, Math.min(1, p[1])); return { detail: `${t.name} gain ${t.gain.toFixed(2)}` }; }
+            const on = p[1] >= 0.5;
+            if (name === "mute_track") t.muted = on; else t.solo = on;
+            return { detail: `${t.name} ${name === "mute_track" ? "mute" : "solo"} ${on ? "on" : "off"}` };
         }
-        case DAW_ACTION.ToggleAnalyzer: {
-            setAnalyzerVisible(!analyzerVisible);
-            detail = "Toggled Analyzer";
-            break;
+        // Sound
+        case "set_waveform": {
+            if (!track || track.kind !== "synth") return fail("Waveforms belong to synth tracks.");
+            if (track.instrument) clearTrackInstrument(track);
+            track.voice.waveform = choice("waveforms", p[0]) || "saw";
+            return { detail: `${track.name}: ${track.voice.waveform}` };
         }
-        case DAW_ACTION.SaveProject: {
-            libraryAction("save a version", () => saveVersionNow());
-            detail = "Saved project version";
-            break;
+        case "set_scale": {
+            if (!track || track.kind !== "synth") return fail("Scales belong to synth tracks.");
+            track.scale = choice("scales", p[0]) || track.scale;
+            return { detail: `${track.name} in ${track.scale.replace(/_/g, " ")}` };
         }
-        default: {
-            detail = `Executed ${step.display_name}`;
-            break;
+        case "set_root_note": {
+            if (!track || track.kind !== "synth") return fail("The root note belongs to synth tracks.");
+            track.rootNote = Math.round(p[0]);
+            return { detail: `${track.name} from ${midiToName(track.rootNote)}` };
         }
+        case "set_filter": {
+            const e = needTrack(); if (e) return e;
+            track!.voice.cutoff = p[0];
+            track!.voice.resonance = p[1];
+            return { detail: `Cutoff ${Math.round(p[0])} Hz` };
+        }
+        case "set_envelope": {
+            const e = needTrack(); if (e) return e;
+            Object.assign(track!.voice, { attack: p[0], decay: p[1], sustain: p[2], release: p[3] });
+            return { detail: `A ${p[0].toFixed(2)} D ${p[1].toFixed(2)} S ${p[2].toFixed(2)} R ${p[3].toFixed(2)}` };
+        }
+        // Effects
+        case "set_delay": {
+            const e = needTrack(); if (e) return e;
+            Object.assign(track!.voice, { delayTime: p[0], delayFeedback: p[1], delayMix: p[2] });
+            return { detail: `Delay ${p[0].toFixed(2)} s, mix ${p[2].toFixed(2)}` };
+        }
+        case "set_reverb": {
+            const e = needTrack(); if (e) return e;
+            setTrackReverb(track!, { reverbRoomSize: p[0], reverbTime: p[1], reverbDamping: p[2], reverbMix: p[3] });
+            return { detail: `Reverb ${p[1].toFixed(1)} s, mix ${p[3].toFixed(2)}` };
+        }
+        case "set_reverb_preset": {
+            const e = needTrack(); if (e) return e;
+            const preset = REVERB_PRESETS.find(r => r.id === choice("reverb_presets", p[0]));
+            if (!preset) return fail("Unknown reverb.");
+            setTrackReverb(track!, preset.settings);
+            return { detail: `${track!.name}: ${preset.label} reverb` };
+        }
+        case "set_eq_preset": {
+            const e = needTrack(); if (e) return e;
+            const preset = EQ_PRESETS.find(q => q.id === choice("eq_presets", p[0]));
+            if (!preset) return fail("Unknown EQ.");
+            updateTrackEq(track!, applyEqPreset(preset.id));
+            return { detail: `${track!.name}: ${preset.label} EQ` };
+        }
+        case "set_character": {
+            const e = needTrack(); if (e) return e;
+            const knob = choice("character_knobs", p[0]) as KnobName;
+            if (!KNOB_NAMES.includes(knob)) return fail("Unknown knob.");
+            setCharacterKnob(track!, knob, p[1]);
+            return { detail: `${knob} ${Math.round(p[1] * 100)}%` };
+        }
+        case "set_gate_pattern": {
+            const e = needTrack(); if (e) return e;
+            setGatePattern(track!, (choice("gate_patterns", p[0]) || "sixteenths") as Character["gatePattern"]);
+            return { detail: `Gate in ${choice("gate_patterns", p[0])}` };
+        }
+        // Instruments
+        case "load_wavetable_preset":
+        case "set_wavetable_position": {
+            const { track: t, error } = trackFor("wavetable");
+            if (!t) return fail(error!);
+            if (name === "set_wavetable_position") { setWavetablePosition(t, p[0]); return { detail: `Position ${p[0].toFixed(2)}` }; }
+            const id = choice("wavetable_presets", p[0]);
+            if (WT_PRESETS.some(w => w.id === id)) loadWavetablePreset(t, id); else applyInstrumentPreset(t, id);
+            return { detail: `${t.name}: ${predictVocab().choices.wavetable_presets?.[Math.round(p[0])]?.label ?? id}` };
+        }
+        case "load_strings": {
+            const { track: t, error } = trackFor("strings");
+            if (!t) return fail(error!);
+            loadPhysModInstrument(t, choice("strings_instruments", p[0]));
+            return { detail: `${t.name}: ${choice("strings_instruments", p[0])}` };
+        }
+        case "load_brass":
+        case "set_brass_mute":
+        case "set_brass_style": {
+            const { track: t, error } = trackFor("brass");
+            if (!t) return fail(error!);
+            if (name === "load_brass") loadBrassInstrument(t, choice("brass_instruments", p[0]));
+            else if (name === "set_brass_mute") setBrassMute(t, choice("brass_mutes", p[0]));
+            else playBrassStyle(t, choice("brass_styles", p[0]));
+            const list = name === "load_brass" ? "brass_instruments" : name === "set_brass_mute" ? "brass_mutes" : "brass_styles";
+            return { detail: `${t.name}: ${choice(list, p[0])}` };
+        }
+        case "load_piano_preset":
+        case "set_piano_pedal": {
+            const { track: t, error } = trackFor("piano");
+            if (!t) return fail(error!);
+            if (name === "set_piano_pedal") { setPianoPedal(t, p[0]); return { detail: `Pedal ${Math.round(p[0] * 100)}%` }; }
+            loadPianoPreset(t, choice("piano_presets", p[0]));
+            return { detail: `${t.name}: ${choice("piano_presets", p[0])}` };
+        }
+        case "load_matter_preset": {
+            const { track: t, error } = trackFor("matter");
+            if (!t) return fail(error!);
+            loadMatterPreset(t, choice("matter_presets", p[0]));
+            return { detail: `${t.name}: ${choice("matter_presets", p[0])} kit` };
+        }
+        case "load_water_preset": {
+            const { track: t, error } = trackFor("water");
+            if (!t) return fail(error!);
+            loadWaterPreset(t, choice("water_presets", p[0]));
+            return { detail: `${t.name}: ${choice("water_presets", p[0])}` };
+        }
+        case "load_vst3": {
+            const e = needTrack(); if (e) return e;
+            const plugin = vst3Catalog[Math.round(p[0])];
+            if (!plugin) return fail(vst3Catalog.length === 0 ? "Scan for VST3 plugins in the Sound tab first." : "There is no such plugin.");
+            loadTrackInstrument(track!, { path: plugin.path, name: plugin.name });
+            return { detail: `${track!.name} plays ${plugin.name}` };
+        }
+        case "assign_sample": {
+            if (!track || track.kind !== "drum") return fail("Samples go on a drum rack's pads.");
+            const pad = Math.round(p[0]);
+            if (pad >= ensureRack(track).length) return fail(`${track.name} has ${ensureRack(track).length} pads.`);
+            setRackVisible(true);
+            const armed = rackUi.armed && rackUi.browser.selected;
+            onPadClick(track, pad);
+            if (!armed) return fail(`Pick a sample in the browser, then click pad ${pad + 1}.`);
+            return { detail: rackUi.status || `Sample on pad ${pad + 1}` };
+        }
+        case "add_pad": {
+            if (!track || track.kind !== "drum") return fail("Pads belong to drum racks.");
+            onPadAdd(track);
+            return { detail: `${track.name} has ${ensureRack(track).length} pads` };
+        }
+        // Moves
+        case "move_variation": {
+            const e = needTrack(); if (e) return e;
+            moveOpts.amount = Math.max(0, Math.min(1, p[0]));
+            return { detail: variationMove(track!) };
+        }
+        case "move_thin_out": {
+            const e = needTrack(); if (e) return e;
+            moveOpts.amount = Math.max(0, Math.min(1, p[0]));
+            return { detail: thinOutMove(track!) };
+        }
+        case "move_stutter": {
+            const e = needTrack(); if (e) return e;
+            moveOpts.stutterRate = (choice("stutter_rates", p[0]) || "16th") as StutterRate;
+            return { detail: stutterMove(track!) };
+        }
+        case "move_octave_spark": { const e = needTrack(); if (e) return e; return { detail: octaveSparkMove(track!) }; }
+        case "move_answer": { const e = needTrack(); if (e) return e; return { detail: answerMove(track!) }; }
+        case "move_kick_lock": {
+            const e = needTrack(); if (e) return e;
+            const status = kickLockMove(track!);
+            return { detail: kickPreview ? applyKickPreview() : status };
+        }
+        case "move_build": moveOpts.buildBars = Math.max(1, Math.round(p[0])); return { detail: buildMove() };
+        case "move_drop_gap": return { detail: dropGapMove() };
+        case "move_echo_out": return { detail: echoOutMove() };
+        case "undo": return undoStack.length === 0 ? fail("Nothing to undo.") : { detail: undoMove() };
+        // View
+        case "open_view": {
+            const view = VIEWS[Math.round(p[0])] ?? "arrange";
+            setDawView(view);
+            recordedView = dawView;
+            return { detail: `Showing ${DAW_VIEWS.find(v => v.id === view)?.label ?? view}` };
+        }
+        case "toggle_window": {
+            const id = choice("windows", p[0]);
+            const set = windowSetter(id);
+            if (!set) return fail("Unknown window.");
+            set(p[1] >= 0.5);
+            return { detail: `${p[1] >= 0.5 ? "Opened" : "Closed"} ${predictVocab().choices.windows?.[Math.round(p[0])]?.label ?? id}` };
+        }
+        // Project
+        case "save_version": libraryAction("save a version", () => saveVersionNow()); return { detail: "Saved a version" };
+        case "export_wav": exportPatternToWav(); return { detail: "Exporting the song to WAV" };
+        case "export_video": exportMusicVideo(); return { detail: "Exporting a music video" };
+        // Guitar
+        case "start_guitar": startGuitar(); return { detail: "Guitar input on" };
+        case "stop_guitar": stopGuitar(); return { detail: "Guitar input off" };
     }
+    return fail(`The DAW does not know how to ${name.replace(/_/g, " ")}.`);
+}
 
-    recordDawAction(actId, step.params || [], detail, false);
+// Grouped controls record as one action carrying the whole group, keyed per track so a drag is one entry.
+function recordFilter(track: Track) {
+    recordDawAction("set_filter", [track.voice.cutoff, track.voice.resonance], `Cutoff ${Math.round(track.voice.cutoff)} Hz`, "filter:" + track.id);
+}
 
-    if (typeof index === "number" && index >= 0 && index < predictedNextSteps.length) {
-        predictedNextSteps.splice(index, 1);
+function recordEnvelope(track: Track) {
+    const v = track.voice;
+    recordDawAction("set_envelope", [v.attack, v.decay, v.sustain, v.release], `A ${v.attack.toFixed(2)} D ${v.decay.toFixed(2)} S ${v.sustain.toFixed(2)} R ${v.release.toFixed(2)}`, "env:" + track.id);
+}
+
+function recordDelay(track: Track) {
+    const v = track.voice;
+    recordDawAction("set_delay", [v.delayTime, v.delayFeedback, v.delayMix], `Delay ${v.delayTime.toFixed(2)} s, mix ${v.delayMix.toFixed(2)}`, "delay:" + track.id);
+}
+
+function recordReverb(track: Track) {
+    const v = track.voice;
+    recordDawAction("set_reverb", [v.reverbRoomSize, v.reverbTime, v.reverbDamping, v.reverbMix], `Reverb ${v.reverbTime.toFixed(1)} s, mix ${v.reverbMix.toFixed(2)}`, "reverb:" + track.id);
+}
+
+/** Makes `track` the one being edited, recording the change. */
+function selectActiveTrack(track: Track) {
+    if (project.activeTrackId === track.id) return;
+    project.activeTrackId = track.id;
+    recordDawAction("select_track", [project.tracks.indexOf(track)], `Selected ${track.name}`);
+}
+
+/** Plays one row of a track the way the Sound tab's preview buttons do: through the track's own bus. */
+function previewTrackRow(track: Track, row: number, velocity: number) {
+    if (trackUsesVst3(track)) { playVst3Note(track, row, velocity, 0.5); return; }
+    if (track.kind === "drum") { playPad(track, row, velocity, 0.5); return; }
+    const { freq } = noteVoiceAndFreq(track, row);
+    if (isWavetableTrack(track)) { wavetableNote(track, freq, velocity, 0.5); return; }
+    addon.Audio.playNoteOnTrack(track.id, builtInNoteConfig(track, freq, velocity, 0.5));
+}
+
+function rowName(track: Track, row: number): string {
+    if (track.kind === "drum") return padAt(track, row)?.name || `Pad ${row + 1}`;
+    if (isMatterTrack(track)) return MATTER_ROWS[row]?.label ?? `Row ${row + 1}`;
+    return midiToName(rowToMidi(row, track.rootNote, track.scale));
+}
+
+/** "1.3": beat 1, step 3 of it, counted from the start of the pattern. */
+function stepLabel(step: number): string {
+    const spb = project.stepsPerBeat;
+    return `${Math.floor(step / spb) + 1}.${(step % spb) + 1}`;
+}
+
+/** Applies suggested step `index` with its (possibly edited) parameters. Returns false when it could not run. */
+function applySuggestion(index: number, refresh = true): boolean {
+    const step = predictedNextSteps[index];
+    const def = step && actionDef(step.name);
+    if (!step || !def) return false;
+    const params = stepParams(index);
+    const result = withoutRecording(() => runAction(step.name, params));
+    if (result.failed) {
+        toast(result.detail);
+        return false;
     }
+    for (const [action, p] of result.records ?? [[step.name, params]]) {
+        actionHistory.record(action, p, predictionContext(), { detail: result.detail, source: "suggestion" });
+    }
+    persist();
+    predictionStatus = result.detail;
+    if (refresh) refreshPredictions();
+    return true;
+}
+
+function applyAllSuggestions() {
+    const count = predictedNextSteps.length;
+    let applied = 0;
+    for (let i = 0; i < count; i++) {
+        if (!applySuggestion(i, false)) break;
+        applied++;
+    }
+    predictionStatus = `Applied ${applied} of ${count} steps.`;
     refreshPredictions();
 }
 
-function executeNextStep() {
-    if (predictedNextSteps.length > 0) {
-        executePredictedAction(predictedNextSteps[0], 0);
+function skipSuggestion(index: number) {
+    predictedNextSteps.splice(index, 1);
+    // Edits are keyed by position: move the later steps' edits down with them.
+    for (let i = index; i < predictedNextSteps.length + 1; i++) {
+        const next = stepEdits[editKey(i + 1)];
+        if (next) stepEdits[editKey(i)] = next; else delete stepEdits[editKey(i)];
     }
-}
-
-function executeAllSteps() {
-    const stepsToRun = [...predictedNextSteps];
-    for (const step of stepsToRun) {
-        executePredictedAction(step);
-    }
-    refreshPredictions();
-}
-
-function skipPredictedAction(index: number) {
-    if (index >= 0 && index < predictedNextSteps.length) {
-        predictedNextSteps.splice(index, 1);
-    }
-}
-
-function seedSampleWorkflow() {
-    actionHistory.length = 0;
-    recordDawAction(DAW_ACTION.SetBpm, [128, 0, 0, 0], "128 BPM", false);
-    recordDawAction(DAW_ACTION.AddTrack, [0, 0, 0, 0], "Synth Track", false);
-    recordDawAction(DAW_ACTION.SelectTrack, [0, 0, 0, 0], "Lead Synth", false);
-    recordDawAction(DAW_ACTION.AddNote, [4, 0, 4, 0.8], "C4 Note", false);
-    refreshPredictions();
 }
 
 function clearActionHistory() {
-    actionHistory.length = 0;
-    predictedNextSteps = [];
+    actionHistory.clear();
+    predictionStatus = "";
     refreshPredictions();
+}
+
+// --- The panel
+
+function historyLine(entry: RecordedAction): string {
+    const def = actionDef(entry.action);
+    if (entry.detail) return entry.detail;
+    if (!def || def.params.length === 0) return "";
+    return def.params.map((s, i) => `${s.label} ${formatParam(s, entry.params[i] ?? s.default, predictVocab().choices, project.tracks.map(t => t.name))}`).join(", ");
+}
+
+/** One control for parameter `pi` of suggested step `si`, built from its spec. */
+function renderStepControl(row: string, si: number, pi: number, spec: PredictionParamSpec, value: number) {
+    const W = Entropy.UI.Widget;
+    const id = `pred_${si}_${spec.name}`;
+    const set = (v: number) => editStepParam(si, pi, v);
+    const track = getActiveTrack();
+    switch (spec.kind) {
+        case "choice": {
+            const options = (spec.choices && predictVocab().choices[spec.choices]) || [];
+            W.dropdown(row, {
+                label: spec.label, id, options: options.map(o => o.label),
+                selectedIndex: Math.max(0, Math.min(options.length - 1, Math.round(value))),
+                onChange: (idx: string) => set(parseInt(idx, 10)),
+            });
+            return;
+        }
+        case "track": {
+            const names = project.tracks.map(t => t.name);
+            W.dropdown(row, {
+                label: spec.label, id, options: names.length ? names : ["(no tracks)"],
+                selectedIndex: Math.max(0, Math.min(names.length - 1, Math.round(value))),
+                onChange: (idx: string) => set(parseInt(idx, 10)),
+            });
+            return;
+        }
+        case "toggle":
+            W.checkbox(row, { label: spec.label, id, value: value >= 0.5, onChange: (v: any) => set(v === true || v === "true" ? 1 : 0) });
+            return;
+        default: {
+            // Rows read as the note or pad they play on the active track; MIDI notes as note names.
+            let label = spec.label;
+            if (spec.name === "row" && track) label = `${spec.label}: ${rowName(track, Math.round(value))}`;
+            else if (spec.kind === "note") label = `${spec.label}: ${noteName(value)}`;
+            else if (spec.name === "step" || spec.name === "end_step") label = `${spec.label}: ${stepLabel(Math.round(value))}`;
+            W.knob(row, {
+                label, id, value, min: spec.min, max: spec.max,
+                unit: spec.kind === "knob" || spec.kind === "int" ? spec.unit : undefined,
+                step: spec.kind === "knob" ? undefined : 1,
+                decimals: paramDecimals(spec),
+                defaultValue: spec.default,
+                onChange: (v: string) => set(parseFloat(v)),
+            });
+        }
+    }
+}
+
+function renderStepCard(parent: string, step: PredictedAction, i: number) {
+    const W = Entropy.UI.Widget;
+    const def = actionDef(step.name);
+    const params = stepParams(i);
+    const edited = stepEdits[editKey(i)] !== undefined;
+    W.card(parent, { id: `pred_card_${i}`, fill: UI.card, stroke: i === 0 ? UI.amber : UI.cardLine, radius: 10, padding: 10 }, (card: string) => {
+        W.horizontal(card, (top: string) => {
+            W.label(top, { text: `${i + 1}`, bold: true, color: UI.amber, fontSize: 13 });
+            W.label(top, { text: withIcon((step.icon as IconName) || "sparkle", step.display_name), bold: true });
+            W.label(top, { text: step.category, color: UI.dim, fontSize: 11 });
+            const pct = Math.round(step.confidence * 100);
+            W.label(top, { text: `${pct}%`, color: pct >= 50 ? rgb(60, 210, 130) : pct >= 20 ? UI.amber : UI.dim, fontSize: 11 });
+            if (edited) W.label(top, { text: "edited", color: UI.amber, fontSize: 11 });
+        });
+        if (def && def.params.length > 0) {
+            W.horizontal(card, (row: string) => {
+                def.params.forEach((spec, pi) => renderStepControl(row, i, pi, spec, params[pi]));
+            });
+        }
+        W.horizontal(card, (actions: string) => {
+            W.button(actions, {
+                text: withIcon("check", "Apply"), id: `pred_apply_${i}`, accent: UI.amber,
+                tooltip: `${step.display_name} now, with these settings`,
+                onClick: () => { applySuggestion(i); }
+            });
+            W.button(actions, { text: "Skip", id: `pred_skip_${i}`, frame: false, tooltip: "Drop this step from the plan", onClick: () => { skipSuggestion(i); } });
+            if (edited) {
+                W.button(actions, { text: "Reset", id: `pred_reset_${i}`, frame: false, tooltip: "Back to the model's values", onClick: () => { delete stepEdits[editKey(i)]; } });
+            }
+            const alts = (step.alternatives ?? []).filter(a => a.confidence >= 0.03).slice(0, 2);
+            if (alts.length > 0) {
+                W.label(actions, { text: "or", color: UI.dim, fontSize: 11 });
+                for (const alt of alts) {
+                    W.button(actions, {
+                        text: `${alt.display_name} ${Math.round(alt.confidence * 100)}%`, id: `pred_alt_${i}_${alt.name}`, frame: false,
+                        tooltip: `Make this step ${alt.display_name} instead`,
+                        onClick: () => { swapStep(i, alt.name); }
+                    });
+                }
+            }
+        });
+    });
 }
 
 function renderPredictionsWindow(win: string) {
     const W = Entropy.UI.Widget;
 
-    // Header controls
     W.horizontal(win, (row: string) => {
         W.label(row, { text: withIcon("sparkle", "Suggested Next Steps"), bold: true, fontSize: 14 });
-        W.label(row, { text: "·", color: UI.dim });
-        W.label(row, { text: "MoE Active Predictor (4 Experts)", color: UI.amber, fontSize: 12 });
         W.button(row, {
-            text: withIcon("arrows-clockwise", "Refresh Plan"),
+            text: withIcon("arrows-clockwise", planAlternative === 0 ? "Another plan" : `Plan ${planAlternative + 1}`),
             id: "prediction_refresh_btn",
-            tooltip: "Re-predict continuation from current action history",
-            onClick: () => { refreshPredictions(); }
+            tooltip: "A different continuation: starts from the next most likely first step",
+            onClick: () => { refreshPredictions((planAlternative + 1) % 4); }
         });
         W.button(row, {
-            text: withIcon("trash", "Clear"),
-            id: "prediction_clear_btn",
-            tooltip: "Clear recent action history context",
-            frame: false,
+            text: withIcon("trash", "Clear history"), id: "prediction_clear_btn", frame: false,
+            tooltip: "Forget the recorded actions and plan from the song as it is",
             onClick: () => { clearActionHistory(); }
         });
     });
 
-    W.separator(win);
-
-    // Section 1: Model Context (Recent Action History)
-    W.group(win, (g: string) => {
-        W.horizontal(g, (hdr: string) => {
-            W.label(hdr, { text: withIcon("clock-counter-clockwise", "Model Context"), bold: true });
-            W.label(hdr, { text: `(${actionHistory.length} recent actions observed)`, color: UI.dim, fontSize: 12 });
-        });
-
-        if (actionHistory.length === 0) {
-            W.group(g, (empty: string) => {
-                W.label(empty, { text: "No action history yet. Take actions in the DAW or load a sample workflow:", color: UI.dim });
-                W.button(empty, {
-                    text: withIcon("play-circle", "Seed Sample Workflow (BPM › Track › Note)"),
-                    id: "prediction_seed_sample_btn",
-                    accent: UI.amber,
-                    onClick: () => { seedSampleWorkflow(); }
-                });
+    if (predictionUnavailable) {
+        W.label(win, { text: "Suggestions start once a prediction model is installed. Your actions are being recorded in the meantime.", wrap: true });
+        W.label(win, { text: predictionUnavailable, color: UI.dim, fontSize: 12, wrap: true });
+    } else if (predictionError) {
+        W.label(win, { text: predictionError, color: UI.warn, wrap: true });
+        W.label(win, { text: "Generate data with gen_daw_data and train with train_prediction (entropy-engine), or set ENTROPY_PREDICTION_DIR to a checkpoint.", color: UI.dim, fontSize: 12, wrap: true });
+    } else if (predictedNextSteps.length === 0) {
+        W.label(win, { text: "No plan yet: take an action in the DAW or ask for another plan.", color: UI.dim });
+    } else {
+        predictedNextSteps.forEach((step, i) => renderStepCard(win, step, i));
+        W.horizontal(win, (bot: string) => {
+            W.button(bot, {
+                text: withIcon("fast-forward", "Apply all"), id: "pred_run_all_btn",
+                tooltip: "Apply every step in order, each with its settings", onClick: () => { applyAllSuggestions(); }
             });
-        } else {
-            for (let i = 0; i < actionHistory.length; i++) {
-                const item = actionHistory[i];
-                W.horizontal(g, (chip: string) => {
-                    W.label(chip, { text: `#${i + 1}`, color: UI.dim, monospace: true, fontSize: 11 });
-                    W.label(chip, { text: withIcon(item.icon, item.displayName), bold: true });
-                    W.label(chip, { text: `[${item.category}]`, color: UI.amber, fontSize: 11 });
-                    if (item.detail) {
-                        W.label(chip, { text: item.detail, color: UI.dim, fontSize: 12 });
-                    }
-                });
-            }
-        }
-    });
+        });
+    }
+    if (predictionStatus) W.label(win, { text: predictionStatus, color: UI.dim, fontSize: 12, wrap: true });
 
     W.separator(win);
-
-    // Section 2: Suggested Next Steps (Predictions)
-    W.group(win, (g: string) => {
-        W.horizontal(g, (hdr: string) => {
-            W.label(hdr, { text: withIcon("sparkle", "Suggested Next Steps"), bold: true });
-            if (predictedNextSteps.length > 0) {
-                W.label(hdr, { text: `(${predictedNextSteps.length} steps planned)`, color: UI.amber, fontSize: 12 });
-            }
-        });
-
-        if (isPredicting) {
-            W.label(g, { text: "Predicting likely continuation from action context...", color: UI.dim });
-        } else if (predictionError) {
-            W.label(g, { text: `Prediction note: ${predictionError}`, color: UI.warn });
-        } else if (predictedNextSteps.length === 0) {
-            W.label(g, { text: "No predicted steps right now. Perform an action or click Refresh Plan.", color: UI.dim });
-        } else {
-            for (let i = 0; i < predictedNextSteps.length; i++) {
-                const step = predictedNextSteps[i];
-                W.group(g, (card: string) => {
-                    W.horizontal(card, (top: string) => {
-                        W.label(top, { text: `Step ${i + 1}:`, bold: true, color: UI.amber, fontSize: 13 });
-                        const stepIcon = (step.icon as IconName) || "sparkle";
-                        W.label(top, { text: withIcon(stepIcon, step.display_name), bold: true });
-                        W.label(top, { text: `[${step.category}]`, color: UI.dim, fontSize: 11 });
-                        const pct = Math.round(step.confidence * 100);
-                        W.label(top, { text: `${pct}% match`, color: pct >= 60 ? rgb(60, 210, 130) : UI.amber, fontSize: 11 });
-                    });
-
-                    W.horizontal(card, (actions: string) => {
-                        W.button(actions, {
-                            text: withIcon("check", `Execute: ${step.display_name}`),
-                            id: `pred_exec_${i}`,
-                            accent: UI.amber,
-                            tooltip: `Perform ${step.display_name} in DAW`,
-                            onClick: () => { executePredictedAction(step, i); }
-                        });
-                        W.button(actions, {
-                            text: "Skip",
-                            id: `pred_skip_${i}`,
-                            frame: false,
-                            tooltip: "Skip this predicted step",
-                            onClick: () => { skipPredictedAction(i); }
-                        });
-                    });
-                });
-            }
-
-            W.horizontal(g, (bot: string) => {
-                W.button(bot, {
-                    text: withIcon("play-circle", "Run Next Step"),
-                    id: "pred_run_next_btn",
-                    accent: UI.amber,
-                    tooltip: "Execute the first predicted action",
-                    onClick: () => { executeNextStep(); }
-                });
-                W.button(bot, {
-                    text: withIcon("fast-forward", "Execute All Steps"),
-                    id: "pred_run_all_btn",
-                    tooltip: "Batch execute all predicted steps in sequence",
-                    onClick: () => { executeAllSteps(); }
-                });
-                W.button(bot, {
-                    text: withIcon("arrows-clockwise", "Alternative Continuation"),
-                    id: "pred_refresh_plan_btn",
-                    frame: false,
-                    tooltip: "Request alternative continuation",
-                    onClick: () => { refreshPredictions(); }
-                });
-            });
-        }
+    W.horizontal(win, (hdr: string) => {
+        W.label(hdr, { text: withIcon("clock-counter-clockwise", "What the model sees"), bold: true });
+        W.label(hdr, { text: `${actionHistory.length} action${actionHistory.length === 1 ? "" : "s"}`, color: UI.dim, fontSize: 12 });
     });
+    const entries = actionHistory.entries();
+    if (entries.length === 0) {
+        W.label(win, { text: "Nothing yet. Paint notes, pick instruments, move clips or turn knobs: each becomes part of the context.", color: UI.dim, wrap: true });
+    }
+    for (const entry of entries.slice(-HISTORY_SHOWN).reverse()) {
+        const def = actionDef(entry.action);
+        W.horizontal(win, (line: string) => {
+            W.label(line, { text: withIcon((def?.icon as IconName) || "sparkle", def?.display_name ?? entry.action), bold: entry.source === "suggestion" });
+            const text = historyLine(entry);
+            if (text) W.label(line, { text, color: UI.dim, fontSize: 12 });
+            if (entry.source === "suggestion") W.label(line, { text: "suggested", color: UI.amber, fontSize: 11 });
+        });
+    }
 }
 
 addon.onInit(async () => {
@@ -6240,7 +6735,12 @@ addon.onInit(async () => {
                 W.button(tid, {
                     text: radio(!track.instrument) + "Built-in",
                     id: "vst3_use_builtin",
-                    onClick: () => { clearTrackInstrument(track); persist(); }
+                    onClick: () => {
+                        const had = !!track.instrument;
+                        clearTrackInstrument(track);
+                        persist();
+                        if (had) recordDawAction("set_instrument", [familyIndex(trackFamily(track))], `${track.name} plays its built-in voice`);
+                    }
                 });
                 vst3Catalog.forEach(plugin => {
                     W.button(tid, {
@@ -6249,6 +6749,7 @@ addon.onInit(async () => {
                         onClick: () => {
                             loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
                             persist();
+                            recordDawAction("load_vst3", [vst3Catalog.indexOf(plugin)], `${track.name} plays ${plugin.name}`);
                         }
                     });
                 });
@@ -6325,11 +6826,10 @@ addon.onInit(async () => {
                         options: ["Song", "Pattern loop"],
                         selectedIndex: TRANSPORT_MODES.indexOf(transport.mode),
                         onChange: (idx: string) => {
-                            const wasPlaying = transport.playing;
-                            if (wasPlaying) stop();
-                            transport.mode = TRANSPORT_MODES[parseInt(idx, 10)] ?? "song";
-                            transport.cursorStep = 0;
-                            if (wasPlaying) play();
+                            const mode = TRANSPORT_MODES[parseInt(idx, 10)] ?? "song";
+                            if (mode === transport.mode) return;
+                            withoutRecording(() => setTransportMode(mode));
+                            recordDawAction("set_transport_mode", [parseInt(idx, 10)], mode === "pattern" ? "Looping the pattern" : "Playing the song");
                         }
                     });
                 }
@@ -6670,7 +7170,7 @@ addon.onInit(async () => {
                     selectedIndex: Math.max(0, project.tracks.indexOf(track)),
                     onChange: (idx: string) => {
                         const chosen = project.tracks[parseInt(idx, 10)];
-                        if (chosen) project.activeTrackId = chosen.id;
+                        if (chosen) selectActiveTrack(chosen);
                     }
                 });
                 W.dropdown(left, {
@@ -6680,11 +7180,14 @@ addon.onInit(async () => {
                     selectedIndex: Math.max(0, track.patterns.findIndex(p => p.id === pattern.id)),
                     onChange: (idx: string) => {
                         const chosen = track.patterns[parseInt(idx, 10)];
-                        if (chosen) track.activePatternId = chosen.id;
+                        if (chosen && chosen.id !== track.activePatternId) {
+                            track.activePatternId = chosen.id;
+                            recordDawAction("select_pattern", [parseInt(idx, 10)], `Editing ${chosen.name}`);
+                        }
                     }
                 });
-                W.button(left, { text: icon("plus"), id: "pattern_new", frame: false, tooltip: "New empty pattern", onClick: () => { addPattern(track); persist(); } });
-                W.button(left, { text: icon("copy"), id: "pattern_duplicate", frame: false, tooltip: "Duplicate this pattern, to make a variation of it", onClick: () => { duplicatePattern(track); persist(); } });
+                W.button(left, { text: icon("plus"), id: "pattern_new", frame: false, tooltip: "New empty pattern", onClick: () => { const pat = addPattern(track); persist(); recordDawAction("new_pattern", [choiceOf("pattern_lengths", String(pat.steps / barSteps(project.stepsPerBeat)))], `New ${pat.name}`); } });
+                W.button(left, { text: icon("copy"), id: "pattern_duplicate", frame: false, tooltip: "Duplicate this pattern, to make a variation of it", onClick: () => { const copy = duplicatePattern(track); persist(); recordDawAction("duplicate_pattern", [], `Made ${copy.name}`); } });
                 W.segmented(left, {
                     label: "Length",
                     id: "pattern_length",
@@ -6695,6 +7198,7 @@ addon.onInit(async () => {
                         if (bars) {
                             activePattern(track).steps = Math.max(1, Math.round(bars * barSteps(project.stepsPerBeat)));
                             persist();
+                            recordDawAction("set_pattern_length", [parseInt(idx, 10)], `${activePattern(track).name} is ${PATTERN_LENGTH_LABELS[parseInt(idx, 10)]}`);
                         }
                     }
                 });
@@ -6710,6 +7214,7 @@ addon.onInit(async () => {
                         if (selected && selected.trackId === track.id) {
                             selected.patternId = activePattern(track).id;
                             persist();
+                            recordDawAction("use_pattern_in_clip", [], `The clip plays ${activePattern(track).name}`);
                         }
                     }
                 });
@@ -6799,25 +7304,37 @@ addon.onInit(async () => {
                 color: trackRgba(track),
                 frame: false,
                 tooltip: "Edit this track in the piano roll and the inspector",
-                onClick: () => { project.activeTrackId = track.id; }
+                onClick: () => { selectActiveTrack(track); }
             });
             W.label(c, { text: `Channel ${track.channel + 1}`, color: UI.dim, fontSize: 11.5 });
             W.levelMeter(c, { id: "meter_" + track.id, source: track.id, width: 34, height: 160 });
             W.slider(c, {
                 label: "Gain",
                 value: track.gain, min: 0, max: 1,
-                onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
+                onChange: (v: string) => {
+                    track.gain = parseFloat(v);
+                    persist();
+                    recordDawAction("set_volume", [project.tracks.indexOf(track), track.gain], `${track.name} gain ${track.gain.toFixed(2)}`, "gain:" + track.id);
+                }
             });
             W.horizontal(c, (r: string) => {
                 W.checkbox(r, {
                     label: "M",
                     value: track.muted,
-                    onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
+                    onChange: (v: any) => {
+                        track.muted = v === true || v === "true";
+                        persist();
+                        recordDawAction("mute_track", [project.tracks.indexOf(track), track.muted ? 1 : 0], `${track.name} mute ${track.muted ? "on" : "off"}`);
+                    }
                 });
                 W.checkbox(r, {
                     label: "S",
                     value: track.solo,
-                    onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
+                    onChange: (v: any) => {
+                        track.solo = v === true || v === "true";
+                        persist();
+                        recordDawAction("solo_track", [project.tracks.indexOf(track), track.solo ? 1 : 0], `${track.name} solo ${track.solo ? "on" : "off"}`);
+                    }
                 });
             });
             W.button(c, {
@@ -6885,19 +7402,34 @@ addon.onInit(async () => {
                     label: "Waveform",
                     options: WAVEFORMS,
                     selectedIndex: wfIndex,
-                    onChange: (idx: string) => { track.voice.waveform = WAVEFORMS[parseInt(idx, 10)]; persist(); }
+                    onChange: (idx: string) => {
+                        const waveform = WAVEFORMS[parseInt(idx, 10)];
+                        if (!waveform || waveform === track.voice.waveform) return;
+                        track.voice.waveform = waveform;
+                        persist();
+                        if (BUILT_IN_OSCILLATORS.includes(waveform)) recordDawAction("set_waveform", [choiceOf("waveforms", waveform)], `${track.name}: ${waveform}`);
+                        else recordDawAction("set_instrument", [familyIndex(trackFamily(track))], `${track.name} plays ${familyLabel(trackFamily(track))}`);
+                    }
                 });
                 const scaleIndex = Math.max(0, SCALE_NAMES.indexOf(track.scale));
                 W.dropdown(tid, {
                     label: "Scale",
                     options: SCALE_NAMES,
                     selectedIndex: scaleIndex,
-                    onChange: (idx: string) => { track.scale = SCALE_NAMES[parseInt(idx, 10)]; persist(); }
+                    onChange: (idx: string) => {
+                        track.scale = SCALE_NAMES[parseInt(idx, 10)];
+                        persist();
+                        recordDawAction("set_scale", [choiceOf("scales", track.scale)], `${track.name} in ${track.scale.replace(/_/g, " ")}`);
+                    }
                 });
                 W.numericInput(tid, {
                     label: "Root Note (MIDI)",
                     value: track.rootNote,
-                    onChange: (v: string) => { track.rootNote = parseFloat(v) || track.rootNote; persist(); }
+                    onChange: (v: string) => {
+                        track.rootNote = parseFloat(v) || track.rootNote;
+                        persist();
+                        recordDawAction("set_root_note", [track.rootNote], `${track.name} from ${midiToName(track.rootNote)}`, "root:" + track.id);
+                    }
                 });
                 W.numericInput(tid, {
                     label: "Rows (octave span)",
@@ -6913,33 +7445,33 @@ addon.onInit(async () => {
             W.slider(tid, {
                 label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
                 value: track.voice.cutoff, min: 100, max: 20000,
-                onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); recordFilter(track); }
             });
             W.slider(tid, {
                 label: "Resonance",
                 value: track.voice.resonance, min: 0.1, max: 10,
-                onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); recordFilter(track); }
             });
             W.label(tid, { text: "Envelope", color: UI.dim, fontSize: 11.5 });
             W.slider(tid, {
                 label: "Attack",
                 value: track.voice.attack, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); recordEnvelope(track); }
             });
             W.slider(tid, {
                 label: "Decay",
                 value: track.voice.decay, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); recordEnvelope(track); }
             });
             W.slider(tid, {
                 label: "Sustain",
                 value: track.voice.sustain, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); recordEnvelope(track); }
             });
             W.slider(tid, {
                 label: "Release",
                 value: track.voice.release, min: 0, max: 2,
-                onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); recordEnvelope(track); }
             });
         });
 
@@ -6952,26 +7484,14 @@ addon.onInit(async () => {
             for (let from = 0; from < previewRows; from += PER_ROW) {
                 W.horizontal(tid, (tid2: string) => {
                     for (let r = from; r < Math.min(previewRows, from + PER_ROW); r++) {
-                        const { freq } = noteVoiceAndFreq(track, r);
                         const label = track.kind === "drum" ? (padAt(track, r)?.name || `Pad ${r + 1}`) : midiToName(rowToMidi(r, track.rootNote, track.scale));
                         W.button(tid2, {
                             text: label,
                             id: "preview_row_" + r,
                             minWidth: 48,
                             onClick: () => {
-                                if (trackUsesVst3(track)) {
-                                    playVst3Note(track, r, 1.0, 0.5);
-                                    return;
-                                }
-                                if (track.kind === "drum") {
-                                    playPad(track, r, 1.0, 0.5);
-                                    return;
-                                }
-                                if (isWavetableTrack(track)) {
-                                    wavetableNote(track, freq, 1.0, 0.5);
-                                    return;
-                                }
-                                addon.Audio.playNoteOnTrack(track.id, builtInNoteConfig(track, freq, 1.0, 0.5));
+                                previewTrackRow(track, r, 1.0);
+                                recordDawAction("preview_note", [r, 1.0], `Heard ${label}`);
                             }
                         });
                     }
@@ -7031,39 +7551,39 @@ addon.onInit(async () => {
             W.slider(tid, {
                 label: "Time (s)",
                 value: track.voice.delayTime, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); recordDelay(track); }
             });
             W.slider(tid, {
                 label: "Feedback",
                 value: track.voice.delayFeedback, min: 0, max: 0.95,
-                onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); recordDelay(track); }
             });
             W.slider(tid, {
                 label: "Mix",
                 value: track.voice.delayMix, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); recordDelay(track); }
             });
         });
         section(side, "fx_reverb", withIcon("sparkle", "Reverb"), (tid: string) => {
             W.slider(tid, {
                 label: "Room Size (m)",
                 value: track.voice.reverbRoomSize, min: 10, max: 30,
-                onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); recordReverb(track); }
             });
             W.slider(tid, {
                 label: "Time (s)",
                 value: track.voice.reverbTime, min: 0.1, max: 6,
-                onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); recordReverb(track); }
             });
             W.slider(tid, {
                 label: "Damping",
                 value: track.voice.reverbDamping, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); recordReverb(track); }
             });
             W.slider(tid, {
                 label: "Mix",
                 value: track.voice.reverbMix, min: 0, max: 1,
-                onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
+                onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); recordReverb(track); }
             });
         });
     };
@@ -7071,7 +7591,11 @@ addon.onInit(async () => {
     // ---- Inspector: Moves. One-click edits: the first card works on the pattern in the piano
     // roll, the second at the section boundary nearest the playhead, or on the selected clip. ----
     const renderMovesTab = (side: string, track: Track) => {
-        const act = (fn: () => string) => () => { fn(); };
+        // A move button records itself, with the options it used, once it has run.
+        const act = (fn: () => string, action?: string, params: () => number[] = () => []) => () => {
+            const status = fn();
+            if (action) recordDawAction(action, params(), status);
+        };
         section(side, "moves_pattern", `Pattern  ·  ${activePattern(track).name}`, (c: string) => {
             W.horizontal(c, (row: string) => {
                 W.knob(row, {
@@ -7090,14 +7614,14 @@ addon.onInit(async () => {
                     });
                 });
             });
-            W.button(c, { text: withIcon("shuffle", "Make Variation"), id: "move_variation", accent: UI.amber, minWidth: 284, onClick: act(() => variationMove(track)) });
+            W.button(c, { text: withIcon("shuffle", "Make Variation"), id: "move_variation", accent: UI.amber, minWidth: 284, onClick: act(() => variationMove(track), "move_variation", () => [moveOpts.amount]) });
             W.horizontal(c, (row: string) => {
-                W.button(row, { text: "Thin Out", id: "move_thin", minWidth: 138, onClick: act(() => thinOutMove(track)) });
-                W.button(row, { text: "Octave Spark", id: "move_spark", minWidth: 138, onClick: act(() => octaveSparkMove(track)) });
+                W.button(row, { text: "Thin Out", id: "move_thin", minWidth: 138, onClick: act(() => thinOutMove(track), "move_thin_out", () => [moveOpts.amount]) });
+                W.button(row, { text: "Octave Spark", id: "move_spark", minWidth: 138, onClick: act(() => octaveSparkMove(track), "move_octave_spark") });
             });
-            W.button(c, { text: "Answer", id: "move_answer", minWidth: 138, tooltip: "Answers the selected clip: a call-and-response phrase in the next clip", onClick: act(() => answerMove(track)) });
+            W.button(c, { text: "Answer", id: "move_answer", minWidth: 138, tooltip: "Answers the selected clip: a call-and-response phrase in the next clip", onClick: act(() => answerMove(track), "move_answer") });
             W.horizontal(c, (row: string) => {
-                W.button(row, { text: "Stutter", id: "move_stutter", minWidth: 88, onClick: act(() => stutterMove(track)) });
+                W.button(row, { text: "Stutter", id: "move_stutter", minWidth: 88, onClick: act(() => stutterMove(track), "move_stutter", () => [choiceOf("stutter_rates", moveOpts.stutterRate)]) });
                 W.segmented(row, {
                     id: "move_stutter_rate", options: ["1/8", "1/16", "1/32"], compact: true,
                     selectedIndex: Math.max(0, STUTTER_RATES.indexOf(moveOpts.stutterRate)),
@@ -7116,7 +7640,7 @@ addon.onInit(async () => {
                 W.label(c, { text: `Kick Lock preview (playing now): ${lines.length} note${lines.length === 1 ? "" : "s"} change.`, bold: true, wrap: true });
                 for (const line of lines) W.label(c, { text: line, fontSize: 12, wrap: true });
                 W.horizontal(c, (row: string) => {
-                    W.button(row, { text: "Apply", id: "move_kick_apply", accent: UI.amber, onClick: act(applyKickPreview) });
+                    W.button(row, { text: "Apply", id: "move_kick_apply", accent: UI.amber, onClick: act(applyKickPreview, "move_kick_lock") });
                     W.button(row, { text: "Cancel", id: "move_kick_cancel", onClick: () => { cancelKickPreview(); moveStatus = "Kick Lock cancelled."; } });
                 });
             }
@@ -7124,7 +7648,7 @@ addon.onInit(async () => {
 
         section(side, "moves_song", `Song  ·  before ${barLabel(boundaryStep())}`, (c: string) => {
             W.horizontal(c, (row: string) => {
-                W.button(row, { text: withIcon("fire", "Build"), id: "move_build", minWidth: 96, onClick: act(buildMove) });
+                W.button(row, { text: withIcon("fire", "Build"), id: "move_build", minWidth: 96, onClick: act(buildMove, "move_build", () => [moveOpts.buildBars]) });
                 W.segmented(row, {
                     id: "move_build_bars", options: ["2 bars", "4 bars"], compact: true,
                     selectedIndex: moveOpts.buildBars === 2 ? 0 : 1,
@@ -7136,7 +7660,7 @@ addon.onInit(async () => {
                 onChange: (v: any) => { moveOpts.buildSweep = v === true || v === "true"; }
             });
             W.horizontal(c, (row: string) => {
-                W.button(row, { text: "Drop Gap", id: "move_drop_gap", minWidth: 96, onClick: act(dropGapMove) });
+                W.button(row, { text: "Drop Gap", id: "move_drop_gap", minWidth: 96, onClick: act(dropGapMove, "move_drop_gap") });
                 W.segmented(row, {
                     id: "move_gap_length", options: ["Last beat", "Half bar"], compact: true,
                     selectedIndex: moveOpts.gapLength === "beat" ? 0 : 1,
@@ -7155,7 +7679,7 @@ addon.onInit(async () => {
                 });
             });
             W.horizontal(c, (row: string) => {
-                W.button(row, { text: withIcon("wave-sine", "Echo Out"), id: "move_echo_out", minWidth: 96, onClick: act(echoOutMove) });
+                W.button(row, { text: withIcon("wave-sine", "Echo Out"), id: "move_echo_out", minWidth: 96, onClick: act(echoOutMove, "move_echo_out") });
                 W.segmented(row, {
                     id: "move_echo_length", options: ["1 beat", "Half bar"], compact: true,
                     selectedIndex: moveOpts.echoLength === "beat" ? 0 : 1,
@@ -7171,7 +7695,7 @@ addon.onInit(async () => {
 
         W.button(side, {
             text: withIcon("arrow-counter-clockwise", undoStack.length ? `Undo ${undoStack[undoStack.length - 1].label}` : "Undo"),
-            id: "move_undo", minWidth: 308, disabled: undoStack.length === 0, onClick: act(undoMove)
+            id: "move_undo", minWidth: 308, disabled: undoStack.length === 0, onClick: act(undoMove, "undo")
         });
         W.label(side, {
             text: moveStatus || `Build and Drop Gap work before the bar nearest the playhead (now ${barLabel(boundaryStep())}); Echo Out and Answer use the selected clip.`,
@@ -7265,7 +7789,7 @@ addon.onInit(async () => {
         y: Math.max(16, screenH - 346 - 36),
         onRender: () => renderAnalyzer(analyzerWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { analyzerVisible = false; }
+        onClose: () => { noteWindow("analyzer", false, analyzerVisible); analyzerVisible = false; }
     });
     Entropy.UI.setWindowVisible(analyzerWindowId, analyzerVisible);
 
@@ -7277,7 +7801,7 @@ addon.onInit(async () => {
         x: Math.max(16, Math.round((screenW - Math.min(960, screenW - 32)) / 2)),
         y: 56,
         onRender: () => renderVisualizerWindow(visualizerWindowId!),
-        onClose: () => { visualizerVisible = false; }
+        onClose: () => { noteWindow("visualizer", false, visualizerVisible); visualizerVisible = false; }
     });
     Entropy.UI.setWindowVisible(visualizerWindowId, visualizerVisible);
 
@@ -7303,7 +7827,7 @@ addon.onInit(async () => {
         x: Math.max(16, Math.round((screenW - spaceWidth) / 2)),
         y: 56,
         onRender: () => renderSpaceWindow(spaceWindowId!),
-        onClose: () => { spaceVisible = false; }
+        onClose: () => { noteWindow("space", false, spaceVisible); spaceVisible = false; }
     });
     Entropy.UI.setWindowVisible(spaceWindowId, spaceVisible);
 
@@ -7318,7 +7842,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderRackWindow(rackWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { rackVisible = false; }
+        onClose: () => { noteWindow("rack", false, rackVisible); rackVisible = false; }
     });
     Entropy.UI.setWindowVisible(rackWindowId, rackVisible);
 
@@ -7333,7 +7857,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderWavetableWindow(wavetableWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { wavetableVisible = false; }
+        onClose: () => { noteWindow("wavetable", false, wavetableVisible); wavetableVisible = false; }
     });
     Entropy.UI.setWindowVisible(wavetableWindowId, wavetableVisible);
 
@@ -7348,7 +7872,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderPhysModWindow(physModWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { physModVisible = false; }
+        onClose: () => { noteWindow("strings", false, physModVisible); physModVisible = false; }
     });
     Entropy.UI.setWindowVisible(physModWindowId, physModVisible);
 
@@ -7363,7 +7887,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderBrassWindow(brassWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { brassVisible = false; }
+        onClose: () => { noteWindow("brass", false, brassVisible); brassVisible = false; }
     });
     Entropy.UI.setWindowVisible(brassWindowId, brassVisible);
 
@@ -7377,7 +7901,7 @@ addon.onInit(async () => {
         x: 16,
         y: 56,
         onRender: () => renderPianoWindow(pianoWindowId!),
-        onClose: () => { pianoVisible = false; }
+        onClose: () => { noteWindow("piano", false, pianoVisible); pianoVisible = false; }
     });
     Entropy.UI.setWindowVisible(pianoWindowId, pianoVisible);
 
@@ -7392,7 +7916,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderMatterWindow(matterWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { matterVisible = false; }
+        onClose: () => { noteWindow("matter", false, matterVisible); matterVisible = false; }
     });
     Entropy.UI.setWindowVisible(matterWindowId, matterVisible);
 
@@ -7407,7 +7931,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderWaterWindow(waterWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { waterVisible = false; }
+        onClose: () => { noteWindow("water", false, waterVisible); waterVisible = false; }
     });
     Entropy.UI.setWindowVisible(waterWindowId, waterVisible);
 
@@ -7459,7 +7983,7 @@ addon.onInit(async () => {
         y: 56,
         onRender: () => renderGuitarWindow(guitarWindowId!),
         // The title bar's close button (or Escape) hid it; keep the toggle in step.
-        onClose: () => { guitarVisible = false; }
+        onClose: () => { noteWindow("guitar", false, guitarVisible); guitarVisible = false; }
     });
     Entropy.UI.setWindowVisible(guitarWindowId, guitarVisible);
 
@@ -7476,6 +8000,7 @@ addon.onInit(async () => {
     Entropy.UI.setWindowVisible(predictionsWindowId, predictionsVisible);
 
     const onFrame = () => {
+        tickPredictions();
         pollGuitar();
         pollVst3Scan();
         // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The

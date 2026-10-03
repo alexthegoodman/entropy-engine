@@ -354,6 +354,20 @@ const predictionAPI = {
     getActionVocab: () => {
         return ops.op_prediction_action_vocab();
     },
+    // history: [{ action, params, context }], oldest first. [] when no model is installed; throws when
+    // one is installed but unusable (old vocabulary, failed load).
+    predictPlan: (request = {}) => {
+        return ops.op_prediction_plan({
+            history: request.history ?? [],
+            current: request.current ?? null,
+            steps: request.steps ?? 5,
+            alternative: request.alternative ?? 0,
+        });
+    },
+    getChoiceLists: () => ops.op_prediction_choice_lists(),
+    vocabVersion: () => ops.op_prediction_vocab_version(),
+    // { available, checkpoint, message, vocab_version, eval_top1, eval_top3 } without loading the model.
+    status: () => ops.op_prediction_status(),
 };
 
 const wavetableAPI = {

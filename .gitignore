@@ -5,3 +5,4 @@ node_modules
 *.mp4
 **/data/level_editor_2d/
 test-artifacts/
+/checkpoints

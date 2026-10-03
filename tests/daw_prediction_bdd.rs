@@ -1,177 +1,275 @@
-//! BDD test suite for DAW UI Prediction Model and Suggested Next Steps.
+#![recursion_limit = "256"]
+
+//! BDD test suite for the DAW UI prediction model and Suggested Next Steps.
 //!
-//! Verifies action vocabulary metadata, confidence scores, multi-step next action
-//! predictions, and context continuity across beatmaking and mixing workflows.
+//! Verifies the action vocabulary and its parameter specs, the vocabulary fixture the studio
+//! bundle's DAW tests load, the checkpoint version gate, and plan prediction through the same
+//! `predict_plan` the Deno op calls. Inference runs against a freshly initialised (untrained)
+//! checkpoint written to a temp dir: these scenarios check the plumbing and the shape of a plan,
+//! not how good its suggestions are - that needs a trained model.
+//!
+//! Regenerate the fixture after changing the vocabulary:
+//!   UPDATE_PREDICTION_FIXTURE=1 cargo test --test daw_prediction_bdd
 
-use cucumber::{given, then, when, World as _};
+use cucumber::{World as _, given, then, when};
 use entropy_engine::deno::prediction_ops::{
-    predict_next_actions, prediction_action_vocab, ActionVocabEntry, DawAction,
-    PredictedAction,
+    ActionVocabEntry, ContextInput, HistoryEntry, PlanRequest, PredictedAction, predict_plan,
+    prediction_action_vocab, prediction_choice_lists,
 };
+use entropy_engine::deno::prediction_ops::{PredictionStatus, prediction_status};
+use entropy_engine::prediction::daw_actions::{ACTION_VOCAB_SIZE, DAW_VOCAB_VERSION, NUM_FAMILIES, NUM_VIEWS};
+use entropy_engine::prediction::model::{CHECKPOINT_ENV, PredictionMetadata, PredictionModel, PredictionModelConfig};
 
-#[derive(cucumber::World)]
+const FIXTURE: &str = "examples/studio-bundle/tests/fixtures/prediction_vocab.json";
+
+#[derive(cucumber::World, Default)]
 pub struct PredictionWorld {
     vocab: Vec<ActionVocabEntry>,
-    context_ids: Vec<u32>,
-    predicted_actions: Vec<PredictedAction>,
+    checkpoint: Option<std::path::PathBuf>,
+    load_error: Option<String>,
+    history: Vec<HistoryEntry>,
+    current: ContextInput,
+    plan: Vec<PredictedAction>,
+    alternative: Vec<PredictedAction>,
+    status: Option<PredictionStatus>,
 }
 
 impl std::fmt::Debug for PredictionWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "PredictionWorld(context_len={}, preds_len={})",
-            self.context_ids.len(),
-            self.predicted_actions.len()
-        )
+        write!(f, "PredictionWorld(history={}, plan={})", self.history.len(), self.plan.len())
     }
 }
 
-impl Default for PredictionWorld {
-    fn default() -> Self {
-        Self {
-            vocab: Vec::new(),
-            context_ids: Vec::new(),
-            predicted_actions: Vec::new(),
-        }
-    }
+fn tiny_config() -> PredictionModelConfig {
+    PredictionModelConfig::new()
+        .with_vocab_size(ACTION_VOCAB_SIZE)
+        .with_num_families(NUM_FAMILIES)
+        .with_num_views(NUM_VIEWS)
+        .with_embed_dim(32)
+        .with_n_layers(2)
+        .with_attn_heads(2)
+        .with_ff_dim(64)
+        .with_max_seq_len(32)
+        .with_num_experts(4)
+        .with_top_k(1)
+        .with_dropout_rate(0.0)
 }
 
-// ── Given Steps ─────────────────────────────────────────────────────────────
+fn temp_checkpoint(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("entropy-prediction-{tag}-{}", uuid::Uuid::new_v4()))
+}
+
+/// The vocabulary and choice lists exactly as the fixture stores them.
+fn vocab_json() -> serde_json::Value {
+    serde_json::json!({
+        "version": DAW_VOCAB_VERSION,
+        "actions": prediction_action_vocab(),
+        "choices": prediction_choice_lists(),
+    })
+}
+
+// ── Given ─────────────────────────────────────────────────────────────────────
 
 #[given(expr = "the DAW action vocabulary is loaded")]
-fn action_vocab_loaded(world: &mut PredictionWorld) {
+fn vocab_loaded(world: &mut PredictionWorld) {
     world.vocab = prediction_action_vocab();
 }
 
-#[given(expr = "an action history sequence of {string}")]
-fn action_history_sequence(world: &mut PredictionWorld, names_str: String) {
-    world.context_ids.clear();
-    for raw in names_str.split(',') {
-        let name = raw.trim();
-        if let Some(action) = DawAction::from_name(name) {
-            let id: u32 = action.id();
-            world.context_ids.push(id);
-        } else {
-            panic!("Unknown action name in test: '{name}'");
-        }
-    }
+#[given(expr = "a prediction checkpoint saved with vocabulary version {int}")]
+fn old_checkpoint(world: &mut PredictionWorld, version: u32) {
+    let dir = temp_checkpoint("old");
+    let config = tiny_config();
+    let mut meta = PredictionMetadata::from_config(&config);
+    let device = Default::default();
+    let model: PredictionModel<burn::backend::Wgpu> = config.init(&device);
+    model.save(dir.to_str().unwrap(), &meta).unwrap();
+    meta.vocab_version = version;
+    meta.vocab_size = 35;
+    std::fs::write(dir.join("metadata.json"), serde_json::to_string(&meta).unwrap()).unwrap();
+    world.checkpoint = Some(dir);
 }
 
-#[given(expr = "an empty action history sequence")]
-fn empty_action_history_sequence(world: &mut PredictionWorld) {
-    world.context_ids.clear();
+#[given(expr = "a freshly initialised prediction checkpoint")]
+fn fresh_checkpoint(world: &mut PredictionWorld) {
+    let dir = temp_checkpoint("fresh");
+    let config = tiny_config();
+    let device = Default::default();
+    let model: PredictionModel<burn::backend::Wgpu> = config.init(&device);
+    model.save(dir.to_str().unwrap(), &PredictionMetadata::from_config(&config)).unwrap();
+    // The op resolves its checkpoint through this variable when it is set.
+    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
+    world.checkpoint = Some(dir);
 }
 
-// ── When Steps ──────────────────────────────────────────────────────────────
-
-#[when(expr = "I request {int} predicted next steps from the model")]
-fn request_predicted_steps(world: &mut PredictionWorld, steps: i32) {
-    let result = predict_next_actions(&world.context_ids, steps as usize);
-    assert!(
-        result.is_ok(),
-        "predict_next_actions failed: {:?}",
-        result.err()
-    );
-    world.predicted_actions = result.unwrap();
+#[given(expr = "no prediction model is installed")]
+fn no_model(world: &mut PredictionWorld) {
+    let dir = temp_checkpoint("empty");
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
+    world.checkpoint = Some(dir);
 }
 
-// ── Then Steps ──────────────────────────────────────────────────────────────
+#[given(expr = "a checkpoint with metadata but no model.bin")]
+fn no_weights(world: &mut PredictionWorld) {
+    let dir = temp_checkpoint("noweights");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("metadata.json"), serde_json::to_string(&PredictionMetadata::from_config(&tiny_config())).unwrap()).unwrap();
+    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
+    world.checkpoint = Some(dir);
+}
+
+#[given(expr = "a history of {string} on a {string} track in the {string} view")]
+fn history(world: &mut PredictionWorld, actions: String, family: String, view: String) {
+    let choices = prediction_choice_lists();
+    let index = |list: &str, id: &str| choices[list].iter().position(|o| o.id == id).unwrap_or_else(|| panic!("no {id} in {list}")) as u32;
+    world.current = ContextInput { family: index("families", &family), view: index("views", &view), tracks: 2, ..Default::default() };
+    world.history = actions
+        .split(';')
+        .map(|entry| {
+            let mut parts = entry.split_whitespace();
+            let action = parts.next().unwrap().to_string();
+            HistoryEntry { action, params: parts.map(|p| p.parse().unwrap()).collect(), context: world.current }
+        })
+        .collect();
+}
+
+// ── When ──────────────────────────────────────────────────────────────────────
+
+#[when(expr = "I try to load that checkpoint")]
+fn try_load(world: &mut PredictionWorld) {
+    let dir = world.checkpoint.as_ref().unwrap();
+    let device = Default::default();
+    world.load_error = PredictionModel::<burn::backend::Wgpu>::load(dir.to_str().unwrap(), &device).err().map(|e| e.to_string());
+}
+
+fn request(world: &PredictionWorld, steps: u32, alternative: u32) -> Vec<PredictedAction> {
+    predict_plan(&PlanRequest {
+        history: world.history.clone(),
+        current: Some(world.current),
+        steps: Some(steps),
+        alternative: Some(alternative),
+    })
+    .unwrap_or_else(|e| panic!("predict_plan failed: {e:?}"))
+}
+
+#[when(expr = "I ask whether a model is installed")]
+fn ask_status(world: &mut PredictionWorld) {
+    world.status = Some(prediction_status());
+}
+
+#[when(expr = "I request a plan of {int} steps")]
+fn request_plan(world: &mut PredictionWorld, steps: u32) {
+    world.plan = request(world, steps, 0);
+}
+
+#[when(expr = "I request alternative plan {int} of {int} steps")]
+fn request_alternative(world: &mut PredictionWorld, alternative: u32, steps: u32) {
+    world.alternative = request(world, steps, alternative);
+}
+
+// ── Then ──────────────────────────────────────────────────────────────────────
 
 #[then(expr = "it should contain at least {int} distinct DAW actions")]
-fn vocab_min_count(world: &mut PredictionWorld, count: i32) {
-    assert!(
-        world.vocab.len() >= count as usize,
-        "Expected at least {} actions, got {}",
-        count,
-        world.vocab.len()
-    );
+fn vocab_min_count(world: &mut PredictionWorld, count: usize) {
+    assert!(world.vocab.len() >= count, "expected at least {count} actions, got {}", world.vocab.len());
 }
 
 #[then(expr = "the vocabulary should include action {string} in category {string}")]
 fn vocab_includes_action(world: &mut PredictionWorld, name: String, category: String) {
-    let entry = world
-        .vocab
-        .iter()
-        .find(|a| a.name == name)
-        .unwrap_or_else(|| panic!("Action '{name}' not found in vocabulary"));
-    assert_eq!(
-        entry.category, category,
-        "Action '{name}' category expected '{}', got '{}'",
-        category, entry.category
-    );
+    let entry = world.vocab.iter().find(|a| a.name == name).unwrap_or_else(|| panic!("action '{name}' not found"));
+    assert_eq!(entry.category, category, "category of {name}");
+}
+
+#[then(expr = "action {string} should have parameters {string}")]
+fn action_params(world: &mut PredictionWorld, name: String, params: String) {
+    let entry = world.vocab.iter().find(|a| a.name == name).unwrap();
+    let got: Vec<String> = entry.params.iter().map(|p| format!("{}:{}", p.name, p.kind)).collect();
+    let want: Vec<String> = params.split(',').map(|s| s.trim().to_string()).collect();
+    assert_eq!(got, want, "parameters of {name}");
+    assert_eq!(entry.param_count, want.len());
+}
+
+#[then(expr = "every choice parameter should name a choice list that exists")]
+fn choices_exist(world: &mut PredictionWorld) {
+    let lists = prediction_choice_lists();
+    for a in &world.vocab {
+        for p in &a.params {
+            if p.kind == "choice" {
+                let list = p.choices.as_ref().unwrap_or_else(|| panic!("{}.{} has no list", a.name, p.name));
+                let options = lists.get(list).unwrap_or_else(|| panic!("{}.{} names missing list {list}", a.name, p.name));
+                assert_eq!(p.max as usize, options.len() - 1, "{}.{} range vs {list}", a.name, p.name);
+            }
+        }
+    }
 }
 
 #[then(expr = "every action should have a valid display name and Phosphor icon")]
 fn vocab_all_valid(world: &mut PredictionWorld) {
     for a in &world.vocab {
-        assert!(
-            !a.display_name.is_empty(),
-            "Action {} has empty display name",
-            a.name
-        );
-        assert!(
-            !a.icon.is_empty(),
-            "Action {} has empty icon",
-            a.name
-        );
+        assert!(!a.display_name.is_empty(), "{} has an empty display name", a.name);
+        assert!(!a.icon.is_empty(), "{} has an empty icon", a.name);
     }
 }
 
-#[then(expr = "the response should contain {int} predicted actions")]
-fn response_contains_count(world: &mut PredictionWorld, count: i32) {
-    assert_eq!(
-        world.predicted_actions.len(),
-        count as usize,
-        "Expected {} predictions, got {}",
-        count,
-        world.predicted_actions.len()
-    );
+#[then(expr = "the studio bundle's vocabulary fixture should match it")]
+fn fixture_matches(_world: &mut PredictionWorld) {
+    let want = serde_json::to_string_pretty(&vocab_json()).unwrap() + "\n";
+    if std::env::var("UPDATE_PREDICTION_FIXTURE").is_ok() {
+        std::fs::create_dir_all(std::path::Path::new(FIXTURE).parent().unwrap()).unwrap();
+        std::fs::write(FIXTURE, &want).unwrap();
+    }
+    let have = std::fs::read_to_string(FIXTURE).unwrap_or_default().replace("\r\n", "\n");
+    assert!(have == want, "{FIXTURE} is out of date: rerun with UPDATE_PREDICTION_FIXTURE=1");
 }
 
-#[then(expr = "each prediction should have a confidence score between 0 and 100 percent")]
-fn predictions_have_confidence(world: &mut PredictionWorld) {
-    for p in &world.predicted_actions {
-        assert!(
-            p.confidence >= 0.0 && p.confidence <= 1.0,
-            "Prediction {} confidence out of range: {}",
-            p.name,
-            p.confidence
-        );
+#[then(expr = "loading should fail with a message naming vocabulary {string}")]
+fn load_failed(world: &mut PredictionWorld, version: String) {
+    let err = world.load_error.as_ref().expect("the old checkpoint loaded");
+    assert!(err.contains(&format!("vocabulary {version}")), "{err}");
+    assert!(err.contains("retrain"), "{err}");
+}
+
+#[then(expr = "the model should be unavailable, saying {string}")]
+fn unavailable(world: &mut PredictionWorld, text: String) {
+    let status = world.status.as_ref().unwrap();
+    assert!(!status.available, "{status:?}");
+    assert!(status.message.contains(&text), "{}", status.message);
+}
+
+#[then(expr = "the model should be available")]
+fn available(world: &mut PredictionWorld) {
+    let status = world.status.as_ref().unwrap();
+    assert!(status.available, "{status:?}");
+}
+
+#[then(expr = "the plan should have {int} steps")]
+fn plan_len(world: &mut PredictionWorld, steps: usize) {
+    assert_eq!(world.plan.len(), steps);
+}
+
+#[then(expr = "every step should carry one value per parameter, inside its range")]
+fn plan_params(world: &mut PredictionWorld) {
+    let vocab = prediction_action_vocab();
+    for step in &world.plan {
+        let def = vocab.iter().find(|a| a.name == step.name).unwrap_or_else(|| panic!("unknown action {}", step.name));
+        assert_eq!(step.params.len(), def.params.len(), "{} params", step.name);
+        for (v, spec) in step.params.iter().zip(&def.params) {
+            assert!(*v >= spec.min && *v <= spec.max, "{}.{} = {v} outside {}..{}", step.name, spec.name, spec.min, spec.max);
+            if spec.kind != "knob" { assert_eq!(v.fract(), 0.0, "{}.{} = {v} is not whole", step.name, spec.name); }
+        }
     }
 }
 
-#[then(expr = "each prediction should have a category, display name, and icon")]
-fn predictions_have_metadata(world: &mut PredictionWorld) {
-    for p in &world.predicted_actions {
-        assert!(
-            !p.category.is_empty(),
-            "Prediction {} has empty category",
-            p.name
-        );
-        assert!(
-            !p.display_name.is_empty(),
-            "Prediction {} has empty display name",
-            p.name
-        );
-        assert!(
-            !p.icon.is_empty(),
-            "Prediction {} has empty icon",
-            p.name
-        );
+#[then(expr = "every step should have a confidence between 0 and 1")]
+fn plan_confidence(world: &mut PredictionWorld) {
+    for p in &world.plan {
+        assert!((0.0..=1.0).contains(&p.confidence), "{} confidence {}", p.name, p.confidence);
     }
 }
 
-#[then(expr = "the predicted actions should have valid action IDs")]
-fn predictions_valid_ids(world: &mut PredictionWorld) {
-    for p in &world.predicted_actions {
-        assert!(
-            (p.action_id as usize) < DawAction::ALL.len(),
-            "Prediction {} action_id {} is out of range",
-            p.name,
-            p.action_id
-        );
-    }
+#[then(expr = "the alternative plan should open with a different action")]
+fn alternative_differs(world: &mut PredictionWorld) {
+    assert_ne!(world.plan[0].action_id, world.alternative[0].action_id);
 }
 
 fn main() {

@@ -207,6 +207,15 @@ harness = false
 name = "daw_prediction_bdd"
 harness = false
 
+# The DAW prediction model's data generator and trainer (src/prediction).
+[[bin]]
+name = "gen_daw_data"
+path = "src/bin/gen_daw_data.rs"
+
+[[bin]]
+name = "train_prediction"
+path = "src/bin/train_prediction.rs"
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
@@ -267,9 +276,11 @@ fundsp = "0.23.0"
 realfft = "3.5"
 hound = "3.5"
 ordered-float = "5.1.0"
-burn = { version = "0.20", features = ["ndarray", "autodiff"] }
+burn = { version = "0.20", features = ["ndarray", "autodiff", "wgpu"] }
 fastrand = "2"
-yumon-pet = { path = "../yumon-pet", default-features = false }
+# CLI and progress bars for the gen_daw_data / train_prediction bins.
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
 
 # entropy_gui (the in-house immediate-mode GUI kit that replaces egui) dependencies
 etagere = "0.2"
@@ -351,8 +362,8 @@ rtrb = "0.3"
 # posix_openpt on Unix) so TUI programs like Claude Code / Codex see a real terminal, and vt100
 # parses their ANSI output into a grid the TerminalView widget can draw.
 portable-pty = "0.9"
-# vt100 0.15 (not 0.16): 0.16 needs unicode-width ^0.2.1, which conflicts with ratatui's exact
-# =0.2.0 pin (via yumon-pet). 0.15 uses unicode-width 0.1.x, which coexists.
+# vt100 0.15: 0.16 needed unicode-width ^0.2.1, which conflicted with ratatui's exact =0.2.0 pin
+# when yumon-pet was a dependency. 0.15 uses unicode-width 0.1.x.
 vt100 = "0.15"
 
 [target.'cfg(not(any(target_os = "windows", target_arch = "wasm32")))'.dependencies]

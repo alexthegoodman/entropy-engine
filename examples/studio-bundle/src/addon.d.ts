@@ -1617,7 +1617,17 @@ export interface TerminalAPI {
   listFonts: () => string[];
 }
 
-/** A predicted next action from the MoE UI prediction model. */
+/** Another action the prediction model considered for a step. */
+export interface PredictedAlternative {
+  action_id: number;
+  name: string;
+  display_name: string;
+  icon: string;
+  confidence: number;
+}
+
+/** A predicted next action from the MoE UI prediction model. `params` are the model's predicted values in
+ *  natural units, one per entry of the action's `DawActionDef.params`. */
 export interface PredictedAction {
   action_id: number;
   name: string;
@@ -1626,6 +1636,25 @@ export interface PredictedAction {
   icon: string;
   params: number[];
   confidence: number;
+  alternatives?: PredictedAlternative[];
+}
+
+/** How an action parameter is edited: knob (continuous), int (whole-number knob), choice (dropdown over a
+ *  choice list), toggle (checkbox), note (MIDI note knob), track (a track of the current project). */
+export type PredictionParamKind = "knob" | "int" | "choice" | "toggle" | "note" | "track";
+
+export interface PredictionParamSpec {
+  name: string;
+  label: string;
+  kind: PredictionParamKind;
+  min: number;
+  max: number;
+  default: number;
+  unit: string;
+  /** Normalised on a log scale (frequencies). */
+  log: boolean;
+  /** For "choice": the list id in `getChoiceLists()`. */
+  choices: string | null;
 }
 
 /** Action definition metadata in the DAW action vocabulary. */
@@ -1637,14 +1666,61 @@ export interface DawActionDef {
   icon: string;
   param_count: number;
   default_params: number[];
+  params: PredictionParamSpec[];
+}
+
+/** The app's state after an action: instrument family (index into the "families" list), view (index into
+ *  "views"), transport, track count, notes per step of the active pattern and arrangement coverage (0..1). */
+export interface PredictionContext {
+  family: number;
+  view: number;
+  playing: boolean;
+  tracks: number;
+  patternFill: number;
+  songFill: number;
+}
+
+/** One recorded action: its snake_case name, parameters in natural units and the context after it. */
+export interface PredictionHistoryEntry {
+  action: string;
+  params: number[];
+  context: PredictionContext;
+}
+
+export interface PredictionPlanRequest {
+  /** Oldest first. */
+  history?: PredictionHistoryEntry[];
+  /** The app's context now, used when the history is empty. */
+  current?: PredictionContext;
+  steps?: number;
+  /** 0: the most likely plan; n: start from the n-th most likely first action. */
+  alternative?: number;
 }
 
 /** Interface for DAW next-action prediction powered by Yumon Pet MoE model. */
 export interface PredictionAPI {
-  /** Predict next DAW actions from a context window of recent action IDs. */
+  /** Predict a plan of next actions, with predicted parameters, from a recorded history.
+   *  Empty when no model is installed; throws when one is installed but cannot be used. */
+  predictPlan: (request: PredictionPlanRequest) => PredictedAction[];
+  /** Older entry point: action ids only, no parameters or context. */
   predictNextActions: (contextIds?: number[], steps?: number) => PredictedAction[];
-  /** Returns the full semantic action vocabulary with display names, categories, icons, and default parameters. */
+  /** The full action vocabulary with display names, categories, icons and parameter specs. */
   getActionVocab: () => DawActionDef[];
+  /** Every option list a "choice" parameter indexes into, by list id. */
+  getChoiceLists: () => Record<string, { id: string; label: string }[]>;
+  /** The vocabulary version this build speaks. */
+  vocabVersion: () => number;
+  /** Whether a usable model is installed, without loading it. `message` says why not when it is not. */
+  status: () => PredictionStatus;
+}
+
+export interface PredictionStatus {
+  available: boolean;
+  checkpoint: string | null;
+  message: string;
+  vocab_version: number;
+  eval_top1: number | null;
+  eval_top3: number | null;
 }
 
 /** One audio input device, from `Guitar.listInputs`. */

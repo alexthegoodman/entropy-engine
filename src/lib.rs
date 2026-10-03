@@ -1,4 +1,6 @@
 #![allow(warnings)]
+// Burn's Wgpu backend (src/prediction) needs a deeper trait-solver limit than the default 128.
+#![recursion_limit = "256"]
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod startup;
@@ -64,6 +66,7 @@ pub mod alpha;
 pub mod yumon;
 pub mod ml_graph;
 pub mod ml_architecture;
+pub mod prediction;
 
 // Burn's seeded CPU backend uses shared RNG state. Tests that seed and train models must hold
 // this lock through completion so parallel unit tests cannot change one another's initialization.

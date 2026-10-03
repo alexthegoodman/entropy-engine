@@ -86,7 +86,8 @@ use crate::deno::terminal_ops::{
     op_ui_widget_terminal,
 };
 use crate::deno::prediction_ops::{
-    op_prediction_next_actions, op_prediction_action_vocab,
+    op_prediction_next_actions, op_prediction_action_vocab, op_prediction_plan,
+    op_prediction_choice_lists, op_prediction_vocab_version, op_prediction_status,
 };
 use crate::deno::addon_ops::{
     AddonContext,
@@ -351,6 +352,10 @@ extension!(
         op_ui_widget_terminal,
         op_prediction_next_actions,
         op_prediction_action_vocab,
+        op_prediction_plan,
+        op_prediction_choice_lists,
+        op_prediction_vocab_version,
+        op_prediction_status,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_spectrogram,

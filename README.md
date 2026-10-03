@@ -464,12 +464,16 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 <details>
 <summary><strong>Prediction (MoE next-action model)</strong></summary>
 
-Mixture-of-Experts inference for predicting user next actions from a recent semantic action history sequence (e.g. for the DAW Suggested Next Steps panel).
+Mixture-of-Experts inference (`src/prediction`) over the DAW's recorded actions, for the Suggested Next Steps panel. Each history entry is an action name, its parameters in natural units and the app context after it (instrument family, view, transport, pattern and song fill). Plans come back with predicted parameters, one per parameter spec, so the panel can draw knobs, dropdowns and toggles for each step. The model is optional: it is looked for in `checkpoints/prediction` (`metadata.json` + `model.bin`) or `ENTROPY_PREDICTION_DIR`; with none installed, plans are empty and `status()` says why. A checkpoint trained on another vocabulary version is refused. Train one with the `gen_daw_data` and `train_prediction` bins.
 
 | Call | What it does |
 |---|---|
-| `Entropy.Prediction.predictNextActions(contextActionIds, steps)` | Runs MoE inference over recent action IDs and returns predicted continuation actions with metadata and confidence scores. |
-| `Entropy.Prediction.getActionVocab()` | Returns the complete semantic DAW action vocabulary with action IDs, names, display names, categories, and Phosphor icons. |
+| `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. `[]` with no model installed; throws when one is installed but unusable. |
+| `Entropy.Prediction.getActionVocab()` | Every action: id, name, display name, category, Phosphor icon and parameter specs (`kind`: knob, int, choice, toggle, note, track; range, default, unit, choice list). |
+| `Entropy.Prediction.getChoiceLists()` | The option lists choice parameters index into (families, views, presets, scales, windows...), as `{ id, label }`. |
+| `Entropy.Prediction.vocabVersion()` | The vocabulary version this build speaks. |
+| `Entropy.Prediction.status()` | `{ available, checkpoint, message, vocab_version, eval_top1, eval_top3 }` without loading the model. |
+| `Entropy.Prediction.predictNextActions(contextActionIds, steps)` | Older entry point: action ids only, no parameters or context. |
 
 </details>
 

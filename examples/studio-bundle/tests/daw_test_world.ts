@@ -175,6 +175,17 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
         musicVideoPolls: [] as any[],
         musicVideoCancels: 0,
         wavOptions: [] as any[],
+        // Next-action prediction: the real vocabulary (tests/fixtures/prediction_vocab.json, written
+        // by the Rust daw_prediction_bdd suite), the plan the stand-in model answers with, every plan
+        // request the addon made (a copy of its history), and an error to throw instead of planning.
+        prediction: {
+            vocab: JSON.parse(readFileSync(new URL("./fixtures/prediction_vocab.json", import.meta.url), "utf8")),
+            plan: [] as any[],
+            requests: [] as any[],
+            error: null as string | null,
+            // What `Prediction.status` answers: a test sets `available: false` for a setup with no model.
+            status: { available: true, checkpoint: "checkpoints/prediction", message: "Trained 20 epochs on 20000 sessions", vocab_version: 2, eval_top1: null, eval_top3: null } as any,
+        },
     };
 
     const wrap = (_win: string, body: (win: string) => void) => body("win");
@@ -508,9 +519,21 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             setEqParams: (id: string, cfg: any) => { if (w.effects.has(id)) w.effects.set(id, { kind: "eq", ...JSON.parse(JSON.stringify(cfg)) }); },
             destroy: (id: string) => { w.effects.delete(id); },
         },
+        Prediction: {
+            getActionVocab: () => w.prediction.vocab.actions,
+            getChoiceLists: () => w.prediction.vocab.choices,
+            vocabVersion: () => w.prediction.vocab.version,
+            status: () => JSON.parse(JSON.stringify(w.prediction.status)),
+            predictNextActions: () => [],
+            predictPlan: (request: any) => {
+                w.prediction.requests.push(JSON.parse(JSON.stringify(request)));
+                if (w.prediction.error) throw new Error(w.prediction.error);
+                return JSON.parse(JSON.stringify(w.prediction.plan));
+            },
+        },
         Vst3: {
             unload: () => {}, load: () => ({ ok: false, error: "no plugins in the test world" }),
-            scan: () => ({ plugins: [], skipped: [] }), noteOn: () => {}, pollState: () => null,
+            scan: () => ({ plugins: [], skipped: [] }), scanPoll: () => null, noteOn: () => {}, pollState: () => null,
             saveState: () => null,
             takePeak: () => null, openEditor: () => ({ ok: false }), closeEditor: () => {}, allNotesOff: () => {},
         },

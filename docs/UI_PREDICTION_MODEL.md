@@ -157,3 +157,30 @@ The model's responsibility ends at proposing semantic actions and their likely p
 Application code remains responsible for authorization, validation, rendering, and execution. This boundary is important because it allows the predictive system to remain probabilistic while actual application behavior remains deterministic and governed by existing business rules.
 
 Note: The model.bin will be downloaded from a CDN rather than embedding a single version in the git history or binary. (even though it is a small binary)
+---
+
+## Implementation (DAW, vocabulary v2)
+
+**Vocabulary** (`src/prediction/daw_actions.rs`): 72 actions across tracks, transport, piano roll, patterns, arrangement, mixer, sound, effects, every instrument family (drum rack, synth, wavetable, bowed strings, brass, piano, Matter kit, water, VST3), Moves, views/windows, project and guitar input. Each action declares typed parameters (`knob`, `int`, `choice`, `toggle`, `note`, `track`) with range, default and, for choices, a named option list whose ids match the DAW's own preset ids. Parameters are stored in natural units and normalised to [-1, 1] only for the model. `DAW_VOCAB_VERSION` is checked when a checkpoint loads; an older checkpoint is refused with a message to retrain.
+
+**What each step carries**: the action, its parameters (a note's row and step, a fader's track and level, a preset index...) and the context after it: the active track's instrument family, the view, whether the transport plays, the track count, the active pattern's notes per step and how much of the song is arranged.
+
+**Recording in the DAW** (`daw_predict.ts`, `daw_synth_addon.ts`): every user-facing mutation records an action. A piano-roll click is `add_note`/`remove_note`; a drag along a row is one `paint_notes`/`erase_notes`. Continuous controls (faders, knobs, filter and envelope sliders, wavetable position) coalesce into one entry per drag. View changes are recorded once per frame where they settle.
+
+**Model** (`src/prediction/model.rs`, built from `nn.rs`): the action, parameter, family, view and state embeddings are summed per step into the sparse-MoE transformer. Two heads: next action, and that action's parameters (conditioned on the action, teacher-forced in training). "Another plan" asks for the plan opening with the next most likely first action.
+
+**Data** (`src/prediction/daw_sim.rs`): a simulated DAW (tracks, families, patterns, clips, view, transport) driven by sessions of chained goals (start song, drums, bass, chords, melody, sound design, arrange, variation, mix, finish, edit, guitar take), sampled personas (listening rhythm, previewing, painting vs clicking, slips, saving, Moves use) and ten genres with their own tempo, scales, progressions, grooves and instrument choices per role. Notes follow the genre's groove, chord roots, chord stacks and a motif-based melody. Four genre/role/family pairings are held out of training and make up the eval split.
+
+**Suggested Next Steps panel**: each step is a card with a control per parameter (knob, dropdown, checkbox; rows read as the note or pad they play), Apply / Skip / Reset, and up to two alternatives to swap in. Apply runs the same functions the DAW's controls do and records the step as a suggestion.
+
+**Generate and train** (from `entropy-engine/`; the checkpoint lands in `checkpoints/prediction`, which is where the DAW looks, or set `ENTROPY_PREDICTION_DIR`):
+
+```
+cargo run --release --bin gen_daw_data -- --out data/daw_sequences.json --count 20000 --eval-count 1000
+cargo run --release --bin train_prediction -- --data data/daw_sequences.json --eval-data data/daw_sequences.eval.json --out checkpoints/prediction --epochs 20
+cargo run --release --bin train_prediction -- --dry-run   # one batch through both losses, no training
+```
+
+The trainer reports held-out loss and top-1/top-3 next-action accuracy per epoch and keeps the checkpoint with the best held-out loss.
+
+**No model installed**: the DAW works without one. `Prediction.status()` reports why there is none (no `checkpoints/prediction/model.bin`, an old vocabulary, a load that failed), `predictPlan` answers an empty plan, and the panel says suggestions start once a model is installed while the history keeps recording. A failed load is not retried until the checkpoint's files change, and a panic inside Burn is caught and reported.
