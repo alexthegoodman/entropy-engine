@@ -1,4 +1,7 @@
 //! Synthetic transport exercises the real session, wire messages, verification and disk store.
+#[path = "common/p2p.rs"]
+mod support;
+
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::io;
@@ -169,17 +172,20 @@ async fn run(corrupt: bool, resume: bool, seek: bool) -> Vec<(PeerId, Msg)> {
         ])
     };
     let peers: Vec<_> = maps.keys().cloned().collect();
-    let session = Session::new(Box::new(FakeSwarm {
-        info: info.clone(),
-        data: data.clone(),
-        maps,
-        tx,
-        rx: tokio::sync::Mutex::new(rx),
-        log: log.clone(),
-        corrupt,
-        seek: seek.then_some(update_tx),
-        sought: false.into(),
-    }));
+    let session = Session::new(
+        Box::new(FakeSwarm {
+            info: info.clone(),
+            data: data.clone(),
+            maps,
+            tx,
+            rx: tokio::sync::Mutex::new(rx),
+            log: log.clone(),
+            corrupt,
+            seek: seek.then_some(update_tx),
+            sought: false.into(),
+        }),
+        support::allow(&info),
+    );
     let stats = session
         .download_swarm(
             &dir.0,

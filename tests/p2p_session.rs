@@ -10,6 +10,9 @@
 //! No display or real network is involved, so this is a plain `#[test]` (the repo's libtest
 //! harness) rather than a `*_live`/`*_bdd` scenario.
 
+#[path = "common/p2p.rs"]
+mod support;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -124,7 +127,7 @@ fn kill(peer: &mut Peer) {
 struct Fixture {
     root: PathBuf,
     content: Vec<u8>,
-    info: InfoDocument,
+    index_path: PathBuf,
     info_path: PathBuf,
     seed_data: PathBuf,
     leech_data: PathBuf,
@@ -145,6 +148,8 @@ impl Fixture {
         );
         let info_path = root.join("info.bin");
         fs::write(&info_path, info.to_canonical()).unwrap();
+        let index_path = root.join("room-index.bin");
+        fs::write(&index_path, support::index(&info).to_bytes()).unwrap();
         let seed_data = root.join("seed-data");
         let leech_data = root.join("leech-data");
         fs::create_dir_all(&seed_data).unwrap();
@@ -153,7 +158,7 @@ impl Fixture {
         Fixture {
             root,
             content,
-            info,
+            index_path,
             info_path,
             seed_data,
             leech_data,
@@ -187,6 +192,7 @@ impl Fixture {
             "--serve-ms".into(),
             serve_ms.to_string(),
         ];
+        a.extend(self.catalog_args());
         if let Some(l) = limit {
             a.push("--limit".into());
             a.push(l.to_string());
@@ -194,8 +200,19 @@ impl Fixture {
         a
     }
 
-    fn leech_args(&self, out_path: &PathBuf, timeout_ms: u64) -> Vec<String> {
+    fn catalog_args(&self) -> Vec<String> {
         vec![
+            "--room-index".into(),
+            self.index_path.to_string_lossy().into_owned(),
+            "--room-id".into(),
+            support::hex(&support::ROOM),
+            "--curator-key".into(),
+            support::hex(&support::maintainer().public_key()),
+        ]
+    }
+
+    fn leech_args(&self, out_path: &PathBuf, timeout_ms: u64) -> Vec<String> {
+        let mut args = vec![
             "--role".into(),
             "download".into(),
             "--node-id".into(),
@@ -218,7 +235,9 @@ impl Fixture {
             out_path.to_string_lossy().into_owned(),
             "--timeout-ms".into(),
             timeout_ms.to_string(),
-        ]
+        ];
+        args.extend(self.catalog_args());
+        args
     }
 }
 
@@ -234,13 +253,19 @@ fn two_process_localhost_session_full_transfer() {
 
     let mut leech = spawn_peer(&f.leech_args(&out_path, 60_000));
     let done = wait_line(&leech, "LEECH DONE", Duration::from_secs(60));
-    assert!(done.contains(&format!("{}", PIECES)), "leecher reported: {done}");
+    assert!(
+        done.contains(&format!("{}", PIECES)),
+        "leecher reported: {done}"
+    );
 
     let status = wait_exit(&mut leech, Duration::from_secs(10));
     assert!(status.success(), "leecher exited with {status}");
 
     let out = fs::read(&out_path).unwrap();
-    assert_eq!(out, f.content, "downloaded bytes differ from the seeded content");
+    assert_eq!(
+        out, f.content,
+        "downloaded bytes differ from the seeded content"
+    );
 
     // The seed stops only when its serve window elapses; kill it now that the transfer is done.
     kill(&mut seed);
@@ -263,13 +288,19 @@ fn two_process_localhost_session_leecher_first() {
     wait_line(&seed, "SEED READY", Duration::from_secs(20));
 
     let done = wait_line(&leech, "LEECH DONE", Duration::from_secs(90));
-    assert!(done.contains(&format!("{}", PIECES)), "leecher reported: {done}");
+    assert!(
+        done.contains(&format!("{}", PIECES)),
+        "leecher reported: {done}"
+    );
 
     let status = wait_exit(&mut leech, Duration::from_secs(10));
     assert!(status.success(), "leecher exited with {status}");
 
     let out = fs::read(&out_path).unwrap();
-    assert_eq!(out, f.content, "downloaded bytes differ from the seeded content");
+    assert_eq!(
+        out, f.content,
+        "downloaded bytes differ from the seeded content"
+    );
 
     kill(&mut seed);
 }
@@ -290,20 +321,29 @@ fn two_process_localhost_session_disconnect_and_reconnect() {
     wait_line(&leech, "LEECH START", Duration::from_secs(20));
 
     let seed_a_status = wait_exit(&mut seed_a, Duration::from_secs(30));
-    assert!(seed_a_status.success(), "limited seeder exited with {seed_a_status}");
+    assert!(
+        seed_a_status.success(),
+        "limited seeder exited with {seed_a_status}"
+    );
 
     // Restart the seeder (no limit); the leecher resumes and finishes the remaining pieces.
     let mut seed_b = spawn_peer(&f.seed_args(&content_path, None, 30_000));
     wait_line(&seed_b, "SEED READY", Duration::from_secs(20));
 
     let done = wait_line(&leech, "LEECH DONE", Duration::from_secs(90));
-    assert!(done.contains(&format!("{}", PIECES)), "leecher reported: {done}");
+    assert!(
+        done.contains(&format!("{}", PIECES)),
+        "leecher reported: {done}"
+    );
 
     let status = wait_exit(&mut leech, Duration::from_secs(10));
     assert!(status.success(), "leecher exited with {status}");
 
     let out = fs::read(&out_path).unwrap();
-    assert_eq!(out, f.content, "resumed download differs from the seeded content");
+    assert_eq!(
+        out, f.content,
+        "resumed download differs from the seeded content"
+    );
 
     kill(&mut seed_b);
 }

@@ -17,6 +17,34 @@ use bytes::Bytes;
 pub mod quic;
 pub mod rustp2p;
 
+/// Reject oversized reliable frames before allocating their payload buffer.
+pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) fn check_frame_len(len: usize) -> io::Result<()> {
+    if len > MAX_FRAME_BYTES {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "p2p frame exceeds size limit",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+    #[test]
+    fn frame_length_boundaries() {
+        assert!(check_frame_len(MAX_FRAME_BYTES).is_ok());
+        assert_eq!(
+            check_frame_len(MAX_FRAME_BYTES + 1).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(check_frame_len(u32::MAX as usize).is_err());
+        assert!(check_frame_len(usize::MAX).is_err());
+    }
+}
+
 /// A stable, transport-neutral peer identifier.
 ///
 /// `rustp2p` addresses peers by IPv4 `NodeID`; `rustp2p-quic` addresses them by an
@@ -80,10 +108,7 @@ pub struct Datagram {
 /// `rustp2p-reliable` is already message-based (KCP), while `rustp2p-quic` is a byte
 /// stream, so the QUIC backend frames each message with a `u32` length prefix.
 pub trait ReliableChannel: Send {
-    fn send(
-        &mut self,
-        data: Bytes,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>>;
+    fn send(&mut self, data: Bytes) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>>;
 
     fn recv(&mut self) -> Pin<Box<dyn Future<Output = Option<io::Result<Bytes>>> + Send + '_>>;
 }

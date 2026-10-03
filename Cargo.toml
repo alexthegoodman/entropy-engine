@@ -68,6 +68,10 @@ name = "p2p_scheduler_bdd"
 harness = false
 
 [[test]]
+name = "p2p_room_bdd"
+harness = false
+
+[[test]]
 name = "audio_analysis_bdd"
 harness = false
 
@@ -302,6 +306,8 @@ tokio = { version = "1.41.0", features = ["fs", "full"] }
 rustp2p = { version = "0.4.1", features = ["use-kcp", "aes-gcm-ring"] }
 rustp2p-reliable = "0.1.2"
 rustp2p-quic = "0.1.1"
+# Maintainer signatures for the room index; already used transitively by the transports.
+ring = "0.17.14"
 bytes = "1"
 # Phase-2 content model (src/p2p/meta.rs): canonical MessagePack encoding + SHA-256 ids.
 rmp-serde = "1"

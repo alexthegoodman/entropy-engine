@@ -3461,6 +3461,7 @@ dependencies = [
  "reqwest 0.12.24",
  "reqwest-graphql",
  "rfd",
+ "ring",
  "rmp-serde",
  "rodio",
  "rtrb",

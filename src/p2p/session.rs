@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
+use super::allow::{Allowlist, CatalogTransport};
 use super::meta::InfoDocument;
 use super::pieces::PieceStore;
 use super::scheduler::{Limits, ScheduleMode, Scheduler};
@@ -45,6 +46,7 @@ pub enum SessionError {
     Timeout,
     WrongContent { expected: ContentId, got: ContentId },
     TransportClosed,
+    NotAllowed(ContentId),
 }
 
 impl std::fmt::Display for SessionError {
@@ -59,6 +61,9 @@ impl std::fmt::Display for SessionError {
                     f,
                     "piece for unexpected content id (expected {expected:x?}, got {got:x?})"
                 )
+            }
+            SessionError::NotAllowed(content) => {
+                write!(f, "content {content:x?} is not in the room catalog")
             }
             SessionError::TransportClosed => write!(f, "transport closed unexpectedly"),
         }
@@ -96,12 +101,14 @@ pub struct DownloadStats {
 /// backend-agnostic; `serve` and `download` are the two roles phase 4 exercises.
 pub struct Session {
     transport: Arc<dyn P2pTransport>,
+    allow: Allowlist,
 }
 
 impl Session {
-    pub fn new(transport: Box<dyn P2pTransport>) -> Self {
+    pub fn new(transport: Box<dyn P2pTransport>, allow: Allowlist) -> Self {
         Self {
-            transport: Arc::from(transport),
+            transport: Arc::new(CatalogTransport::new(transport, allow.clone())),
+            allow,
         }
     }
 
@@ -114,13 +121,24 @@ impl Session {
         until: Duration,
         limit: Option<u32>,
     ) -> Result<u32, SessionError> {
-        let store = Arc::new(std::sync::Mutex::new(PieceStore::open(data_dir, info)?));
         let content = info.content_id();
+        let store = self
+            .allow
+            .with_allowed(&content, || PieceStore::open(data_dir, info))
+            .ok_or(SessionError::NotAllowed(content))??;
+        let store = Arc::new(std::sync::Mutex::new(store));
+        let mut policy_changed = self.allow.subscribe();
         let deadline = tokio::time::Instant::now() + until;
         let mut served = 0u32;
         let mut sends: BTreeMap<(PeerId, u32), tokio::task::JoinHandle<()>> = BTreeMap::new();
 
         loop {
+            if !self.allow.contains(&content) {
+                for task in sends.values() {
+                    task.abort();
+                }
+                return Err(SessionError::NotAllowed(content));
+            }
             let now = tokio::time::Instant::now();
             if now >= deadline {
                 return Ok(served);
@@ -133,7 +151,11 @@ impl Session {
             }
 
             let remaining = deadline.saturating_duration_since(now);
-            match tokio::time::timeout(remaining, self.transport.next_event()).await {
+            let event = tokio::select! {
+                _ = policy_changed.changed() => continue,
+                event = tokio::time::timeout(remaining, self.transport.next_event()) => event,
+            };
+            match event {
                 Err(_) => return Ok(served),
                 Ok(None) => return Ok(served),
                 Ok(Some(TransportEvent::Datagram(dg))) => {
@@ -158,13 +180,15 @@ impl Session {
                                 continue;
                             }
                             let store = Arc::clone(&store);
+                            let allow = self.allow.clone();
                             let transport = Arc::clone(&self.transport);
                             let peer = dg.peer;
                             sends.insert(
                                 key,
                                 tokio::spawn(async move {
                                     let _ =
-                                        serve_piece(store, transport, peer, content, index).await;
+                                        serve_piece(store, transport, peer, content, index, allow)
+                                            .await;
                                 }),
                             );
                             served += 1;
@@ -243,8 +267,12 @@ impl Session {
         limits: Limits,
         mut updates: Option<tokio::sync::watch::Receiver<ScheduleMode>>,
     ) -> Result<DownloadStats, SessionError> {
-        let mut store = PieceStore::open(data_dir, info)?;
         let content = info.content_id();
+        let mut store = self
+            .allow
+            .with_allowed(&content, || PieceStore::open(data_dir, info))
+            .ok_or(SessionError::NotAllowed(content))??;
+        let mut policy_changed = self.allow.subscribe();
         let total = info.piece_count();
         let have = (0..total).map(|i| store.has_piece(i)).collect();
         let mut scheduler = Scheduler::new(have, mode, limits);
@@ -257,7 +285,11 @@ impl Session {
             tokio::task::JoinSet::new();
 
         while !scheduler.complete() {
+            if !self.allow.contains(&content) {
+                return Err(SessionError::NotAllowed(content));
+            }
             tokio::select! {
+                _ = policy_changed.changed() => continue,
                 _ = tokio::time::sleep_until(deadline) => return Err(SessionError::Timeout),
                 _ = tick.tick() => {
                     retries += 1;
@@ -287,7 +319,9 @@ impl Session {
                         if let Ok(env) = wire::Envelope::decode(&bytes) {
                             if let Msg::Piece { content: c, index, data } = env.msg {
                                 if c == content && scheduler.is_requested(&peer, index) {
-                                    match store.write_piece(index, &data) {
+                                    let result = self.allow.with_allowed(&content, || store.write_piece(index, &data))
+                                        .ok_or(SessionError::NotAllowed(content))?;
+                                    match result {
                                         Ok(()) => { scheduler.verified(&peer, index); }
                                         Err(super::pieces::PieceError::HashMismatch { .. }
                                             | super::pieces::PieceError::InvalidLength { .. }) => {
@@ -355,8 +389,12 @@ impl Session {
                 }
             }
         }
-        store.verify_all()?;
-        store.promote()?;
+        self.allow
+            .with_allowed(&content, || {
+                store.verify_all()?;
+                store.promote()
+            })
+            .ok_or(SessionError::NotAllowed(content))??;
         for peer in peers {
             let msg = wire::Envelope::new(Msg::Done { content });
             let _ = self
@@ -381,16 +419,16 @@ async fn serve_piece(
     peer: PeerId,
     content: ContentId,
     index: u32,
+    allow: Allowlist,
 ) -> Result<(), SessionError> {
-    let piece = {
-        let mut s = store
-            .lock()
-            .map_err(|_| io::Error::other("seed store lock poisoned"))?;
-        match s.read_piece(index) {
-            Ok(p) => p,
-            Err(_) => return Ok(()),
-        }
-    };
+    let piece = allow
+        .with_allowed(&content, || {
+            let mut s = store
+                .lock()
+                .map_err(|_| io::Error::other("seed store lock poisoned"))?;
+            s.read_piece(index).map_err(SessionError::from)
+        })
+        .ok_or(SessionError::NotAllowed(content))??;
 
     let msg = wire::Envelope::new(Msg::Piece {
         content,

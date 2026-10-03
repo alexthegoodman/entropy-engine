@@ -17,6 +17,8 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use entropy_engine::p2p::allow::Allowlist;
+use entropy_engine::p2p::index::{MAX_INDEX_BYTES, RoomIndex};
 use entropy_engine::p2p::meta::InfoDocument;
 use entropy_engine::p2p::pieces::PieceStore;
 use entropy_engine::p2p::session::Session;
@@ -40,6 +42,9 @@ struct Args {
     limit: Option<u32>,
     serve_ms: u64,
     timeout_ms: u64,
+    room_index: PathBuf,
+    room_id: [u8; 32],
+    curator_key: [u8; 32],
 }
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -56,9 +61,7 @@ fn parse_args() -> Result<Args, String> {
     };
 
     let role = get("--role")?;
-    let node_id: Ipv4Addr = get("--node-id")?
-        .parse()
-        .map_err(|_| "invalid --node-id")?;
+    let node_id: Ipv4Addr = get("--node-id")?.parse().map_err(|_| "invalid --node-id")?;
     let port: u16 = get("--port")?.parse().map_err(|_| "invalid --port")?;
     let group = get("--group")?;
     let psk = get("--psk")?;
@@ -77,6 +80,9 @@ fn parse_args() -> Result<Args, String> {
         .unwrap_or(DEFAULT_TIMEOUT_MS);
 
     Ok(Args {
+        room_index: get("--room-index")?.into(),
+        room_id: parse_hash(&get("--room-id")?)?,
+        curator_key: parse_hash(&get("--curator-key")?)?,
         role,
         node_id,
         port,
@@ -92,6 +98,30 @@ fn parse_args() -> Result<Args, String> {
         serve_ms,
         timeout_ms,
     })
+}
+
+fn parse_hash(hex: &str) -> Result<[u8; 32], String> {
+    if hex.len() != 64 || !hex.is_ascii() {
+        return Err("expected 64 hex digits".into());
+    }
+    let mut bytes = [0; 32];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| "invalid hex value")?;
+    }
+    Ok(bytes)
+}
+
+fn read_allowlist(args: &Args) -> Result<Allowlist, String> {
+    use std::io::Read;
+    let file =
+        std::fs::File::open(&args.room_index).map_err(|e| format!("open room index: {e}"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_INDEX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    let index =
+        RoomIndex::from_bytes(args.room_id, args.curator_key, &bytes).map_err(|e| e.to_string())?;
+    Ok(Allowlist::new(index))
 }
 
 fn read_info(path: &std::path::Path) -> Result<InfoDocument, String> {
@@ -113,6 +143,10 @@ fn kcp_config(args: &Args) -> entropy_engine::p2p::transport::rustp2p::KcpConfig
 
 async fn run_seed(args: &Args) -> Result<(), String> {
     let info = read_info(&args.info)?;
+    let allow = read_allowlist(args)?;
+    if !allow.contains(&info.content_id()) {
+        return Err("seed content is not in the room catalog".into());
+    }
     let content_path = args
         .content
         .as_ref()
@@ -136,16 +170,24 @@ async fn run_seed(args: &Args) -> Result<(), String> {
         store.promote().map_err(|e| e.to_string())?;
     }
 
-    println!("SEED READY {} {}", info.content_id_hex(), info.piece_count());
+    println!(
+        "SEED READY {} {}",
+        info.content_id_hex(),
+        info.piece_count()
+    );
     std::io::stdout().flush().ok();
 
-    let transport =
-        entropy_engine::p2p::transport::rustp2p::KcpTransport::start(kcp_config(args))
-            .await
-            .map_err(|e| e.to_string())?;
-    let session = Session::new(Box::new(transport));
+    let transport = entropy_engine::p2p::transport::rustp2p::KcpTransport::start(kcp_config(args))
+        .await
+        .map_err(|e| e.to_string())?;
+    let session = Session::new(Box::new(transport), allow);
     let served = session
-        .serve(&args.data_dir, &info, Duration::from_millis(args.serve_ms), args.limit)
+        .serve(
+            &args.data_dir,
+            &info,
+            Duration::from_millis(args.serve_ms),
+            args.limit,
+        )
         .await
         .map_err(|e| e.to_string())?;
 
@@ -156,19 +198,26 @@ async fn run_seed(args: &Args) -> Result<(), String> {
 
 async fn run_download(args: &Args) -> Result<(), String> {
     let info = read_info(&args.info)?;
+    let allow = read_allowlist(args)?;
+    if !allow.contains(&info.content_id()) {
+        return Err("download content is not in the room catalog".into());
+    }
     let out = args
         .out
         .as_ref()
         .ok_or_else(|| "download role requires --out".to_string())?;
 
-    let transport =
-        entropy_engine::p2p::transport::rustp2p::KcpTransport::start(kcp_config(args))
-            .await
-            .map_err(|e| e.to_string())?;
-    let session = Session::new(Box::new(transport));
+    let transport = entropy_engine::p2p::transport::rustp2p::KcpTransport::start(kcp_config(args))
+        .await
+        .map_err(|e| e.to_string())?;
+    let session = Session::new(Box::new(transport), allow);
     let peer = PeerId::new(args.peer.to_string());
 
-    println!("LEECH START {} {}", info.content_id_hex(), info.piece_count());
+    println!(
+        "LEECH START {} {}",
+        info.content_id_hex(),
+        info.piece_count()
+    );
     std::io::stdout().flush().ok();
 
     let stats = session
@@ -188,7 +237,10 @@ async fn run_download(args: &Args) -> Result<(), String> {
         .join("data");
     std::fs::copy(&data_path, out).map_err(|e| format!("copy assembled file: {e}"))?;
 
-    println!("LEECH DONE {} (retries {})", stats.pieces_received, stats.retries);
+    println!(
+        "LEECH DONE {} (retries {})",
+        stats.pieces_received, stats.retries
+    );
     std::io::stdout().flush().ok();
     Ok(())
 }
@@ -201,7 +253,9 @@ async fn main() {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("usage: p2p_peer --role seed|download --node-id <ip> --port <n> --group <code> --psk <pw> --peer <ip> --bootstrap <udp://ip:port> --data-dir <dir> --info <file> [--content <file> | --out <file>] [--limit <n>] [--serve-ms <ms>] [--timeout-ms <ms>]");
+            eprintln!(
+                "usage: p2p_peer --role seed|download --node-id <ip> --port <n> --group <code> --psk <pw> --peer <ip> --bootstrap <udp://ip:port> --data-dir <dir> --info <file> --room-index <file> --room-id <hex> --curator-key <public-key-hex> [--content <file> | --out <file>] [--limit <n>] [--serve-ms <ms>] [--timeout-ms <ms>]"
+            );
             eprintln!("error: {e}");
             std::process::exit(2);
         }

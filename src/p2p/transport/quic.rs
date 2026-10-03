@@ -65,6 +65,7 @@ impl ReliableChannel for QuicChannel {
     ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
         let len = (data.len() as u32).to_be_bytes();
         Box::pin(async move {
+            super::check_frame_len(data.len())?;
             let send = self
                 .send
                 .as_mut()
@@ -82,6 +83,7 @@ impl ReliableChannel for QuicChannel {
                 Err(e) => return Some(Err(e)),
             };
             let n = u32::from_be_bytes([len_buf[0], len_buf[1], len_buf[2], len_buf[3]]) as usize;
+            if let Err(e) = super::check_frame_len(n) { return Some(Err(e)); }
             match read_exact(&mut self.recv, n).await {
                 Ok(b) => Some(Ok(Bytes::from(b))),
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,

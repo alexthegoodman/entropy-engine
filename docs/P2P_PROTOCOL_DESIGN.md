@@ -8,10 +8,12 @@ Latest Docs:
 ## Status (2026-10-02)
 
 Phases 1 (evaluation spike), 2 (content model), 3 (local piece store), 4 (two-process localhost
-session), and 5 (scheduler) are done. `src/p2p/` now holds the `P2pTransport` trait seam
-(`transport.rs`), both candidate backends (`transport/rustp2p.rs`, `transport/quic.rs`), the
+session), 5 (scheduler), and 6 (room index and enforcement) are done. `src/p2p/` now holds the
+`P2pTransport` trait seam (`transport.rs`), both candidate backends
+(`transport/rustp2p.rs`, `transport/quic.rs`), the
 content model (`meta.rs`), the piece store (`pieces.rs`), the wire protocol (`wire.rs`), the
-seed/download session (`session.rs`), and the pure piece scheduler (`scheduler.rs`). The spike
+seed/download session (`session.rs`), the pure piece scheduler (`scheduler.rs`), the signed room
+index (`index.rs`), and catalog policy/transport filtering (`allow.rs`). The spike
 runs as `cargo run --bin p2p_spike`; the content-model, piece-store, wire, and session unit tests
 run as `cargo test --lib p2p`; the two-process session runs as
 `cargo test --test p2p_session` (it spawns two `p2p_peer` binaries as the "fake peer nodes").
@@ -20,7 +22,50 @@ run as `cargo test --lib p2p`; the two-process session runs as
 fallback. Both remain behind the `P2pTransport` trait, so the call stays reversible. See the
 "Phase-1 spike findings" note under section 13 for the evidence.
 
-Next up: phase 6 (room index and interceptor).
+Next up: phase 7 (minimal rendezvous node).
+
+### Phase-6 room index and enforcement
+
+`index.rs` implements a room-pinned Ed25519 log using `ring` 0.17.14 (already in the transport
+dependency tree). Members supply the trusted 32-byte room id and maintainer public key to
+`RoomIndex::new`/`from_bytes`; an incoming snapshot cannot choose either trust value. Only the
+maintainer holds a signing key. `Maintainer::generate_pkcs8` and `from_pkcs8` support real keys;
+the deterministic seeds in the test fixtures are synthetic.
+
+- Entries are schema-1 publications or tombstones with unique, nonzero maintainer sequences.
+  Publications carry a content id, title, description and optional media hints; no peer addresses.
+- Signing bytes are the MessagePack tuple `(domain, schema, room, sequence, action)`, with domain
+  `entropy-p2p-room-entry` and an action represented by recursively sorted named maps. Optional
+  media hints retain field names so omitting one cannot alias another. Entry ids are SHA-256 of
+  these bytes; signatures cover them with Ed25519.
+- Snapshots use named MessagePack fields (`schema`, `room`, `entries`), with entries in sequence
+  order. The snapshot content id hashes the complete canonical snapshot, including signatures.
+  Loading validates every signature and rejects alternate encodings/trailing bytes.
+- Merge validates the whole batch before changing state. Duplicate records are idempotent;
+  conflicting signed records at one sequence fail the batch. Missing sequences and out-of-order
+  delivery are supported. Tombstones remain in the log and permanently win over any publication
+  of that content id, including later signed publications and stale peer snapshots.
+- Bounds: 4 MiB snapshots, 4,096 records, 256-byte titles, 4,096-byte descriptions and 128-byte codec
+  labels. Both reliable transport adapters reject frames above 16 MiB before payload allocation.
+- `Allowlist` holds the verified index, merges snapshots atomically and notifies sessions of changes.
+  `CatalogTransport` checks decoded traffic on both inbound/outbound message planes, including
+  info-document content ids. Hello is the sole content-free bootstrap control and must have the
+  supported protocol version. KCP's raw interceptor separately filters configured source peers.
+- `Session::new(transport, allowlist)` requires a policy. Unlisted downloads/serves fail before opening
+  a piece store; writes and promotion hold a policy read lock. A live tombstone wakes and stops
+  transfers, aborts pending seed tasks, and applies to existing channels and prepared send futures.
+  Bytes already sent cannot be recalled; stored bytes remain local, and removed content is not served.
+- `p2p_peer` requires a signed index file, pinned room id and public key through `--room-index`,
+  `--room-id`, and `--curator-key`. The localhost fixtures pass public material to each process;
+  the private signing seed remains in the test fixture code.
+
+The index model provides verified snapshot loading/serialization and union for the forthcoming
+rendezvous client/server. Network index exchange and automatic disk persistence belong to that
+service.
+
+Service integration follow-up: the existing transport adapters spawn receive/accept tasks with
+endpoint clones and use unbounded inbound queues. Their lifecycle and queue backpressure must be
+owned by the long-lived service before addon integration; the board tracks this separately.
 
 ### Phase-5 scheduler behavior
 
@@ -125,11 +170,13 @@ Three mechanisms keep the network curated. Each can be tightened or loosened ind
    6): peers only announce, request, or serve content ids they learned from that signed index. Adding
    or removing content is a curation act, not a network act.
 
-3. **Enforcement at the socket.** `rustp2p` exposes a `DataInterceptor` trait whose `pre_handle`
-   returns `true` to drop an incoming packet before delivery. We install an interceptor that drops
-   any packet that is not for a known, catalog-listed content id (or is not group-valid). This is a
-   single choke point that makes "what is allowed on the network" a real, enforced rule rather than
-   a convention peers could ignore.
+3. **Enforcement at the transport and store boundary.** KCP's `DataInterceptor` sees plaintext
+   peer metadata before decryption and keeps packets when `pre_handle` returns `true`. It rejects
+   peers outside the configured socket allowlist; native group-code handling isolates rooms.
+   `CatalogTransport` then decodes datagrams and reliable-channel messages and rejects unlisted
+   content on both inbound and outbound paths. Sessions require this policy and hold its read
+   lock during store writes and promotion. Content filtering happens after decryption, where the
+   content id is visible. See the Phase-1 finding and the Phase-6 implementation notes.
 
 Consequence: publish and curate are the same operation. There is no untrusted upload path in the
 first release; content enters a room's index through the room maintainer's tooling, which produces
@@ -342,8 +389,9 @@ can be added later without changing the wire format.
   enforcement point.
 - **Verification everywhere.** Every piece is SHA-256 checked against the info document before it
   is trusted or re-shared.
-- **Socket-level filtering.** The `DataInterceptor` drops packets not for a catalog-listed content
-  id. This is defense in depth on top of the catalog, and also rejects unsolicited/garbage traffic.
+- **Filtering.** The KCP interceptor rejects unlisted source peers before decryption. The shared
+  catalog transport rejects unknown/tombstoned content after decoding on both message planes;
+  sessions additionally require current catalog membership before touching the piece store.
 - **Rate and size limits.** Cap per-peer in-flight piece requests, message sizes, and the number of
   concurrent pieces; enforce backpressure so a slow disk or player never unboundedly buffers.
 - **Penalties.** Peers that send bad hashes, oversized pieces, or protocol-invalid messages are
@@ -407,9 +455,9 @@ Playback behavior:
 | `mod.rs` | The `P2pService` handle: owns the tokio task set, the event outbound channel, and the poll surface drained by `about_to_wait`. |
 | `meta.rs` | Info document schema, canonical serialization (MessagePack), content id derivation. |
 | `wire.rs` | The versioned `Envelope` and `Msg` set (hello/get_info/info/have/bitfield/want/cancel/done/piece), MessagePack-encoded; transport-agnostic. |
-| `session.rs` | The single-content seed/serve and download/resume loops over `P2pTransport` (phase 4); uses the `Want`/`Piece`/`Done` subset. |
-| `index.rs` | The room's durable index: append-only signed entries, merge, tombstones, maintainer-signature verification. |
-| `allow.rs` | The allowlist policy derived from the room index (which content ids may circulate); transport-agnostic. |
+| `session.rs` | Single-content seed/serve and swarm download/resume over the catalog transport; bounded scheduling, live seek and catalog revocation. |
+| `index.rs` | Maintainer-signed append-only entries, verified atomic union, canonical snapshots, permanent tombstones. |
+| `allow.rs` | Shared index-derived policy, change notifications, store-operation guards, and `CatalogTransport` filtering both message planes. |
 | `pieces.rs` | On-disk piece store, bitmap, SHA-256 verification, promote-to-seed. |
 | `scheduler.rs` | Rarest-first and sequential-ahead scheduling, in-flight caps, cancellation, seek reprioritization. |
 | `transport.rs` | The `P2pTransport` trait: peer addressing, datagram send/recv, reliable stream open, peer events, relay-route detection. The stable seam all upper layers code against. |
@@ -494,9 +542,17 @@ Phased, each phase gated on the one before it, in the BDD style the repo already
    fetches in a successful download, bounded requests, resumed pieces skipped, timeout/source
    failover, corruption recovery, peer loss, and seek cancellation/reprioritization. Retries after
    loss/failure/cancellation are deliberate; they are distinct from duplicate active requests.
-6. **Room index and interceptor.** Signed append-only index + `DataInterceptor` drops non-index
-   traffic; group code isolates two rooms. Tests: unknown content id dropped, wrong group code
-   cannot join, only indexed ids reach the piece store, tombstone prevents resurrection.
+6. **Room index and interceptor.** *(DONE)* Signed append-only index + catalog filtering after decoding;
+   `DataInterceptor` filters source metadata before decryption and group code isolates rooms.
+   Tests: unknown content id dropped, wrong group code cannot join, only indexed ids reach the
+   piece store, tombstone prevents resurrection. This corrects the original content-aware
+   interceptor assumption using the Phase-1 spike finding.
+   `tests/features/p2p_room.feature` + `tests/p2p_room_bdd.rs`: 17 scenarios, 51 steps passed on
+   Windows/loopback, covering verified merge/reload, signature/room/key rejection, sequence
+   conflicts, permanent tombstones, optional-media encoding, size limits, both message planes,
+   guarded storage, live revocation, encrypted KCP controls, native group isolation, and the raw
+   peer interceptor. The scheduler/swarm/two-process regressions, 15 P2P unit tests, and all-target
+   compile check passed (`-j 1 --offline` for builds on this Windows machine).
 7. **Minimal rendezvous node.** `get_index` / `put_announce` / `get_peers` over a short-TTL live
    table. Verify only maintainer-signed entries enter the index, no bytes or secrets touch the node,
    and liveness expires "no seeder" entries. (if this is the central Rust droplet, okay, or if its a peer node, okay, but im not sure what the goal is - needs clarification)

@@ -94,6 +94,9 @@ impl Envelope {
 
     /// Parses and validates, rejecting unknown protocol versions.
     pub fn decode(bytes: &[u8]) -> Result<Self, WireError> {
+        if bytes.len() > super::transport::MAX_FRAME_BYTES {
+            return Err(WireError::Decode("p2p envelope exceeds size limit".into()));
+        }
         let env: Envelope =
             rmp_serde::from_slice(bytes).map_err(|e| WireError::Decode(e.to_string()))?;
         if env.protocol != PROTOCOL_VERSION {

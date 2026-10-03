@@ -675,14 +675,20 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 
 ## P2P development
 
-The Rust P2P layer provides verified piece storage and bounded rarest-first/sequential-ahead
-scheduling. `Session::download_swarm` learns peer availability and accepts live playback-window updates;
-the addon API and room index are later phases. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
+The Rust P2P layer provides maintainer-signed room indexes, verified piece storage, and bounded
+rarest-first/sequential-ahead scheduling. Sessions require an index-derived `Allowlist` and filter
+both message planes through `CatalogTransport`. `Session::download_swarm` learns peer availability
+and accepts live playback-window updates. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
 
 ```bash
 cargo test -j 1 --lib p2p
-cargo test -j 1 --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
+cargo test -j 1 --test p2p_room_bdd --test p2p_scheduler_bdd --test p2p_swarm --test p2p_session
 ```
+
+The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
+`--curator-key <64 hex digits>` in addition to its transport/content arguments. Members receive
+the pinned room id and maintainer public key through trusted configuration; signing keys stay with
+the maintainer. The addon API and rendezvous are later phases.
 
 ## MCP
 
