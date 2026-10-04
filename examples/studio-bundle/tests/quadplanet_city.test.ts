@@ -209,3 +209,38 @@ describe("streaming houses", () => {
         expect(city.lastStats.lod0 + city.lastStats.lod1).toBeGreaterThan(0);
     });
 });
+
+describe("house streaming costs", () => {
+    const street = Array.from({ length: 12 }, (_, i) => building(`c${i}`, i * 20, 0, { seed: i % 2, width: 11 }));
+    const camera: Vec3 = [0, 101.8, 0];
+
+    it("does no work for a still camera once its street is finished", () => {
+        const f = fakeEngine(street);
+        let calls = 0, status = 0;
+        const engine: CityEngine = { ...f.engine, buildings: (...a) => { calls++; return f.engine.buildings(...a); }, status: (...a) => { status++; return f.engine.status(...a); } };
+        const city = new CityHouses(engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300 });
+        for (let frame = 0; frame < 12; frame++) { city.update(camera, [0, 0, 0], 1, 12); f.land(); }
+        const before = { calls, status, meshes: f.meshes.size, stats: city.lastStats };
+        expect(city.busy()).toBe(false);
+        for (let frame = 0; frame < 5; frame++) city.update(camera, [0, 0, 0], 1, 12);
+        expect({ calls, status, meshes: f.meshes.size, stats: city.lastStats }).toEqual(before);
+        expect(city.lastStats).toBe(before.stats);
+        // Moving, a rebase or new city data still update.
+        city.update([0, 101.8, 2], [0, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(before.stats);
+        const moved = city.lastStats;
+        city.update([0, 101.8, 2], [10, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(moved);
+    });
+
+    it("spaces Mesha evaluations by minBuildIntervalMs", () => {
+        const f = fakeEngine(street.map((b, i) => ({ ...b, seed: i, width: 8 + i * 0.5 })));
+        let now = 0;
+        const city = new CityHouses({ ...f.engine, now: () => now }, { lod0Radius: 0, maxLod0: 0, lod1Radius: 300, minBuildIntervalMs: 250 });
+        for (let frame = 0; frame < 10; frame++) { city.update(camera, [0, 0, 0], 1, 12); now += 16; }
+        // 160 ms of frames: the first evaluation, then none until 250 ms have passed.
+        expect(f.log.evaluations).toBe(1);
+        for (let frame = 0; frame < 10; frame++) { city.update(camera, [0, 0, 0], 1, 12); now += 16; }
+        expect(f.log.evaluations).toBe(2);
+    });
+});

@@ -138,6 +138,7 @@ export const NAV_SIZE = 280;
 
 export class NavGrid {
     readonly size: number;
+    private scratch?: { g: Float32Array; came: Int32Array; seen: Uint32Array; closed: Uint32Array; stamp: number; heap: MinHeap };
     readonly cell: number;
     /** Local coordinates of the grid's center. */
     readonly cx: number;
@@ -243,23 +244,25 @@ export class NavGrid {
         const N = this.size;
         const sIdx = sj * N + si, gIdx = gj * N + gi;
         if (sIdx === gIdx) return [[bx, bz]];
-        const g = new Float32Array(N * N).fill(Infinity);
-        const came = new Int32Array(N * N).fill(-1);
-        const closed = new Uint8Array(N * N);
-        const heap = new MinHeap();
+        // Scratch reused across searches: a cell's g/came are only valid when its stamp is this
+        // search's, and closed when its closed stamp is (no per-search allocation or clearing).
+        const sc = this.scratch ??= { g: new Float32Array(N * N), came: new Int32Array(N * N), seen: new Uint32Array(N * N), closed: new Uint32Array(N * N), stamp: 0, heap: new MinHeap() };
+        if (++sc.stamp === 0xffffffff) { sc.seen.fill(0); sc.closed.fill(0); sc.stamp = 1; }
+        const stamp = sc.stamp, g = sc.g, came = sc.came, seen = sc.seen, closed = sc.closed, heap = sc.heap;
+        heap.clear();
         const h = (i: number, j: number) => {
             const dx = Math.abs(i - gi), dy = Math.abs(j - gj);
             return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
         };
-        g[sIdx] = 0;
+        g[sIdx] = 0; came[sIdx] = -1; seen[sIdx] = stamp;
         heap.push(sIdx, h(si, sj));
         let expanded = 0;
         let found = false;
         while (heap.size) {
             const cur = heap.pop();
-            if (closed[cur]) continue;
+            if (closed[cur] === stamp) continue;
             if (cur === gIdx) { found = true; break; }
-            closed[cur] = 1;
+            closed[cur] = stamp;
             if (++expanded > maxExpand) break;
             const ci = cur % N, cj = (cur - ci) / N;
             for (let dj = -1; dj <= 1; dj++) {
@@ -269,9 +272,10 @@ export class NavGrid {
                     if (this.isBlocked(ni, nj)) continue;
                     if (di && dj && (this.isBlocked(ci + di, cj) || this.isBlocked(ci, cj + dj))) continue;
                     const n = nj * N + ni;
-                    if (closed[n]) continue;
+                    if (closed[n] === stamp) continue;
                     const cost = g[cur] + (di && dj ? Math.SQRT2 : 1);
-                    if (cost < g[n]) {
+                    if (seen[n] !== stamp || cost < g[n]) {
+                        seen[n] = stamp;
                         g[n] = cost;
                         came[n] = cur;
                         heap.push(n, cost + h(ni, nj));
@@ -341,6 +345,7 @@ class MinHeap {
     private idx: number[] = [];
     private pri: number[] = [];
     get size(): number { return this.idx.length; }
+    clear(): void { this.idx.length = 0; this.pri.length = 0; }
     push(i: number, p: number): void {
         const a = this.idx, q = this.pri;
         a.push(i); q.push(p);
@@ -348,8 +353,8 @@ class MinHeap {
         while (k > 0) {
             const parent = (k - 1) >> 1;
             if (q[parent] <= q[k]) break;
-            [a[parent], a[k]] = [a[k], a[parent]];
-            [q[parent], q[k]] = [q[k], q[parent]];
+            const ti = a[parent]; a[parent] = a[k]; a[k] = ti;
+            const tp = q[parent]; q[parent] = q[k]; q[k] = tp;
             k = parent;
         }
     }
@@ -366,8 +371,8 @@ class MinHeap {
                 if (l < a.length && q[l] < q[m]) m = l;
                 if (r < a.length && q[r] < q[m]) m = r;
                 if (m === k) break;
-                [a[m], a[k]] = [a[k], a[m]];
-                [q[m], q[k]] = [q[k], q[m]];
+                const ti = a[m]; a[m] = a[k]; a[k] = ti;
+                const tp = q[m]; q[m] = q[k]; q[k] = tp;
                 k = m;
             }
         }

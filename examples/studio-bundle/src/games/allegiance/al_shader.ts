@@ -11,8 +11,11 @@
 // belongs to (0 rigid, 1/2 left/right leg, 3/4 left/right arm). Legs swing about the hip and
 // arms about the shoulder by sin(phase) * amplitude, with phase = |tex_origin.w| and amplitude
 // tint.w; uv.y's fractional part / 0.49 blends the limb into the torso. A negative
-// tex_origin.w raises the arms to aim a weapon. So a whole walking, aiming
-// person is one mesh and one 24-float uniform write per frame.
+// tex_origin.w raises the arms to aim a weapon.
+//
+// People are instanced (al_crowd.ts): the people shader reads its Item and colors from a
+// storage-buffer record per instance, by @builtin(instance_index), instead of a uniform per
+// person. The vertex stage passes the index on (flat) so the fragment stage reads the same one.
 
 import { QUADPLANET_SHADER } from "../../apps/quadplanet/qp_shader";
 
@@ -32,12 +35,32 @@ function inject(src: string, anchor: string, replacement: string): string {
 
 function build(people: boolean): string {
     let s = QUADPLANET_SHADER;
-    if (people) s = inject(s, "@group(2) @binding(1) var<uniform> item: Item;", `struct PersonColors {
+    if (people) {
+        s = inject(s, "@group(2) @binding(1) var<uniform> item: Item;", `struct PersonColors {
         skin: vec4<f32>,
         hair: vec4<f32>,
     };
-    @group(2) @binding(2) var<uniform> person_colors: PersonColors;
-    @group(2) @binding(1) var<uniform> item: Item;`);
+    // One per instance: al_crowd.ts PERSON_FLOATS.
+    struct PersonRecord {
+        model: mat4x4<f32>,
+        tint: vec4<f32>,
+        tex_origin: vec4<f32>,
+        skin: vec4<f32>,
+        hair: vec4<f32>,
+    };
+    @group(2) @binding(1) var<storage, read> people: array<PersonRecord>;
+    var<private> item: Item;
+    var<private> person_colors: PersonColors;
+    fn load_person(i: u32) {
+        let r = people[i];
+        item = Item(r.model, r.tint, r.tex_origin);
+        person_colors = PersonColors(r.skin, r.hair);
+    }`);
+        s = inject(s, "    @location(3) color: vec4<f32>,\n};\n\nstruct VertexOutput {", "    @location(3) color: vec4<f32>,\n    @builtin(instance_index) instance: u32,\n};\n\nstruct VertexOutput {");
+        s = inject(s, "    @location(6) local_normal: vec3<f32>,\n};", "    @location(6) local_normal: vec3<f32>,\n    @location(7) @interpolate(flat) instance: u32,\n};");
+        s = inject(s, "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n", "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n    load_person(in.instance);\n    out.instance = in.instance;\n");
+        s = inject(s, "fn fs_main(in: VertexOutput) -> FragmentOutput {\n", "fn fs_main(in: VertexOutput) -> FragmentOutput {\n    load_person(in.instance);\n");
+    }
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
         if (material >= 12 && material <= 16) {

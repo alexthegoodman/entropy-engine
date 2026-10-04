@@ -17,14 +17,21 @@ export function humanParams(female: boolean): HumanParams {
         quality: "final" };
 }
 
+const humanKeys = new Map<string, string>();
 export function humanKey(female: boolean, lod: PersonLod): string {
-    return `${PEOPLE_GENERATOR}|${JSON.stringify(humanParams(female))}|lod${lod}`;
+    const memo = `${female}${lod}`;
+    let key = humanKeys.get(memo);
+    if (!key) { key = `${PEOPLE_GENERATOR}|${JSON.stringify(humanParams(female))}|lod${lod}`; humanKeys.set(memo, key); }
+    return key;
 }
 
-/** Hysteresis only extends the full-detail range: entering the nearby range always restores LOD 0. */
-export function personLod(distance: number, previous?: PersonLod): PersonLod {
-    if (distance <= 18 || previous === 0 && distance <= 22) return 0;
-    if (distance <= 55 || previous === 1 && distance <= 65) return 1;
+/** Hysteresis only extends the full-detail range: entering the nearby range always restores LOD 0.
+ * `detail` scales every range: below 1 trades detail for speed on slower machines (a full human
+ * is ~410k triangles, LOD 1 ~65-85k, LOD 2 ~5-7k). */
+export function personLod(distance: number, previous?: PersonLod, detail = 1): PersonLod {
+    const d = distance / Math.max(0.05, detail);
+    if (d <= 18 || previous === 0 && d <= 22) return 0;
+    if (d <= 55 || previous === 1 && d <= 65) return 1;
     return 2;
 }
 
@@ -109,10 +116,16 @@ export class PeopleMeshes {
         if (!look.hat && !look.soldier && !look.sash && look.weapon === "none") return humanKey(look.female, lod);
         return `${humanKey(look.female, lod)}|gear:${look.hat},${look.soldier},${look.sash},${look.weapon}`;
     }
+    /** Keys known to be cached: ensure() is called for every visible person every frame, and
+     * this spares a native status call each time. */
+    private readyKeys = new Set<string>();
+    /** The cache lost `key` (a spawn found it missing): check it again next time. */
+    forget(key: string): void { this.readyKeys.delete(key); }
     /** Cheap equipment composition on a cache miss. Never evaluates a human during gameplay. */
     ensure(look: PersonLook, lod: PersonLod): string | null {
         const key = this.key(look, lod);
-        if (this.cache.status(PEOPLE_NAMESPACE, key) === "ready") return key;
+        if (this.readyKeys.has(key)) return key;
+        if (this.cache.status(PEOPLE_NAMESPACE, key) === "ready") { this.readyKeys.add(key); return key; }
         const base = this.cache.get(PEOPLE_NAMESPACE, humanKey(look.female, lod));
         if (!base) { this.prepared = false; return null; }
         const gear = buildEquipment(look), nv = base.vertexData.length / 12;
@@ -122,6 +135,7 @@ export class PeopleMeshes {
         indexData.set(base.indexData);
         gear.indexData.forEach((v, i) => { indexData[base.indexData.length + i] = v + nv; });
         this.cache.put(PEOPLE_NAMESPACE, key, { vertexData, indexData });
+        this.readyKeys.add(key);
         return key;
     }
 }

@@ -314,7 +314,8 @@ impl ShadowPipelineData {
         }
         for meshes in renderer_state.addon_meshes.values() {
             for mesh in meshes {
-                mesh.transform.update_uniform_buffer(queue);
+                if mesh.instance_count == 0 { continue; }
+                mesh.upload_transform(queue);
                 render_pass.set_bind_group(1, &mesh.model_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

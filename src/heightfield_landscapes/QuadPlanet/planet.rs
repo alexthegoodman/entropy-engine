@@ -145,6 +145,7 @@ pub fn earth_surface(height: f64, has_sea: bool) -> SurfaceSample {
 /// Highest mountain on Earth (Everest, 8,849 m) with a little headroom.
 const EARTH_RELIEF: f64 = 8_900.0;
 
+#[derive(Clone)]
 pub struct Planet {
     pub def: PlanetDef,
     /// Configured vertex counts per level, leaf first (None: the 17-vertex defaults).

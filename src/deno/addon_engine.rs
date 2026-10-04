@@ -126,7 +126,7 @@ use crate::deno::addon_ops::{
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
     op_gizmo_update, op_gizmo_update_rotation, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
-    op_mesh_get_data, op_mesh_update_vertices, op_mesh_write_vertices, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
+    op_mesh_get_data, op_mesh_update_vertices, op_mesh_write_vertices, op_mesh_set_instance_count, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
     op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
@@ -506,6 +506,7 @@ extension!(
         op_ui_clear,
         op_mesh_get_data,
         op_mesh_update_vertices,
+        op_mesh_set_instance_count,
         op_mesh_write_vertices,
         op_behavior_register,
         op_system_spawn_particles,
@@ -895,6 +896,8 @@ impl AddonEngine {
             pending_alpha_models: Vec::new(),
             pending_quadscapes: Vec::new(),
             quadplanets: HashMap::new(),
+            shared_geometry: HashMap::new(),
+            pending_instance_counts: Vec::new(),
             yumon_sims: HashMap::new(),
             yumon_brains: HashMap::new(),
             yumon_runtime_actions: HashMap::new(),
@@ -2891,16 +2894,19 @@ impl AddonEngine {
                                          };
                                          
                                          // Create Mesh
-                                         let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
-                                         let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
-                
                                          let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                                         let shared = config.shared_geometry.is_some();
+                                         let geometry = config.shared_geometry.clone().unwrap_or_else(|| std::sync::Arc::new(
+                                             crate::core::custom_mesh::SharedGeometry::upload(&gpu.device, &id, bytemuck::cast_slice(&config.vertex_data), bytemuck::cast_slice(&config.index_data))
+                                         ));
+                                         let fallback = renderer_state.mesh_fallback_material
+                                             .get_or_insert_with(|| std::sync::Arc::new(crate::core::custom_mesh::FallbackMaterial::new(&gpu.device, &gpu.queue)))
+                                             .clone();
                 
                                          let mut mesh = CustomMesh::new(
                                              &gpu.device,
-                                             &gpu.queue,
-                                             vertex_bytes,
-                                             index_bytes,
+                                             geometry,
+                                             shared,
                                              pipeline,
                                              pipeline_id,
                                              bind_groups,
@@ -2922,6 +2928,9 @@ impl AddonEngine {
                                              // and binds `color_render_mode_buffer` (mode 0, plain
                                              // vertex color) for exactly this reason.
                                              &renderer_state.color_render_mode_buffer,
+                                             // The non-PBR addon pass's group 1 (render mode 2).
+                                             &renderer_state.regular_texture_render_mode_buffer,
+                                             &fallback,
                                              &renderer_state.group_bind_group_layout,
                                              camera
                                          );
@@ -3020,6 +3029,21 @@ impl AddonEngine {
                          }
                      }
                 }
+            }
+        }
+
+        // Entropy.Model.setInstanceCount, after this frame's new meshes so a mesh created and
+        // resized in the same frame gets its count.
+        let pending_instance_counts: Vec<(String, u32)> = {
+            let op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            op_state.try_borrow_mut::<AddonContext>().map(|ctx| std::mem::take(&mut ctx.pending_instance_counts)).unwrap_or_default()
+        };
+        if !pending_instance_counts.is_empty() {
+            let mut counts: HashMap<String, u32> = HashMap::new();
+            for (id, count) in pending_instance_counts { counts.insert(id, count); }
+            for mesh in renderer_state.addon_meshes.values_mut().flatten() {
+                if let Some(&count) = counts.get(&mesh.id) { mesh.instance_count = count; }
             }
         }
 

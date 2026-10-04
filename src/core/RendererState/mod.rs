@@ -124,6 +124,9 @@ pub struct RendererState {
     pub cubes: Vec<Cube>,
     pub addon_cubes: HashMap<String, Vec<Cube>>,
     pub addon_meshes: HashMap<String, Vec<CustomMesh>>,
+    /// 1x1 placeholder textures + sampler every addon mesh's model bind group shares (made on
+    /// the first addon mesh). Before, each CustomMesh made its own three textures and sampler.
+    pub mesh_fallback_material: Option<std::sync::Arc<crate::core::custom_mesh::FallbackMaterial>>,
     pub spheres: Vec<Sphere>,
     pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
@@ -310,6 +313,7 @@ impl RendererState {
             cubes,
             addon_cubes: HashMap::new(),
             addon_meshes: HashMap::new(),
+            mesh_fallback_material: None,
             spheres,
             debug_rays: Vec::new(),
             pyramids,

@@ -3,12 +3,20 @@
 //! and drop stale chunks once their ground is covered by live replacements - so streaming never
 //! opens a hole.
 //!
+//! Two ways to build: `update` builds within the call (scoped threads, joined before it returns;
+//! the tests and unlimited-budget loading use it), `update_background` hands chunks to persistent
+//! worker threads and only collects what they finished, so a frame never waits on a chunk.
+//! Queued jobs that stop being wanted are cancelled before they start; finished chunks that are
+//! no longer wanted are dropped; at most `max_builds` finished chunks are handed out per call,
+//! which bounds the GPU uploads a frame does.
+//!
 //! The wanted set also respects a triangle budget: if the selection would draw more than
 //! `triangle_budget` triangles, the split distance is tightened until it fits, so detail follows
 //! you from orbit to the ground without ever passing the budget (2M by default).
 
-use std::collections::HashMap;
-use std::time::Instant;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -39,9 +47,65 @@ pub struct StreamStats {
     pub triangles: usize,
     /// The split factor the triangle budget left (the configured one when within budget).
     pub split_factor: f64,
-    /// Milliseconds spent building chunks this update.
+    /// Milliseconds spent building chunks this update (background mode: collecting finished ones).
     pub build_ms: f64,
+    /// Background mode: chunks queued or building on worker threads.
+    pub in_flight: usize,
+    /// Background mode: finished chunks waiting for a later update (beyond max_builds).
+    pub ready: usize,
+    /// Background mode: queued jobs dropped because the chunk stopped being wanted, in total.
+    pub cancelled: usize,
 }
+
+struct Job { key: String, node: ChunkNode, planets: Arc<Vec<Planet>>, epoch: u64 }
+struct JobResult { key: String, node: ChunkNode, mesh: Option<ChunkMesh>, epoch: u64 }
+
+#[derive(Default)]
+struct JobQueue { jobs: VecDeque<Job>, shutdown: bool }
+
+/// Persistent chunk builders. Threads exit when the streamer is dropped.
+struct Workers {
+    queue: Arc<(Mutex<JobQueue>, Condvar)>,
+    results: mpsc::Receiver<JobResult>,
+}
+
+impl Workers {
+    fn new(threads: usize) -> Self {
+        let queue: Arc<(Mutex<JobQueue>, Condvar)> = Arc::default();
+        let (tx, results) = mpsc::channel();
+        for i in 0..threads {
+            let queue = queue.clone();
+            let tx = tx.clone();
+            let _ = std::thread::Builder::new().name(format!("quadplanet-chunks-{i}")).spawn(move || loop {
+                let job = {
+                    let (lock, cv) = &*queue;
+                    let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    loop {
+                        if q.shutdown { return; }
+                        if let Some(job) = q.jobs.pop_front() { break job; }
+                        q = cv.wait(q).unwrap_or_else(|e| e.into_inner());
+                    }
+                };
+                let mesh = build_chunk(&job.planets[job.node.planet as usize], &job.node);
+                if tx.send(JobResult { key: job.key, node: job.node, mesh, epoch: job.epoch }).is_err() { return; }
+            });
+        }
+        Self { queue, results }
+    }
+}
+
+impl Drop for Workers {
+    fn drop(&mut self) {
+        let (lock, cv) = &*self.queue;
+        let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+        q.shutdown = true;
+        q.jobs.clear();
+        cv.notify_all();
+    }
+}
+
+/// A chunk whose elevation was not there yet is tried again after this long.
+const RETRY_AFTER: Duration = Duration::from_millis(250);
 
 struct LiveChunk { node: ChunkNode, triangles: usize }
 
@@ -63,12 +127,25 @@ pub struct PlanetStreamer {
     pub lod: LodSettings,
     pub triangle_budget: usize,
     pub threads: usize,
+    workers: Option<Workers>,
+    /// Chunks queued or building on the workers.
+    in_flight: HashSet<String>,
+    /// Finished chunks not handed out yet.
+    ready: Vec<(String, ChunkNode, ChunkMesh)>,
+    /// Chunks that came back waiting for elevation data, and when.
+    waiting: HashMap<String, Instant>,
+    /// Bumped by `clear`: results of jobs from before it are dropped.
+    epoch: u64,
+    cancelled_total: usize,
 }
 
 impl PlanetStreamer {
     pub fn new(lod: LodSettings, triangle_budget: usize) -> Self {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 8);
-        Self { live: HashMap::new(), built_total: 0, destroyed_total: 0, last_stats: StreamStats::default(), cache: None, lod, triangle_budget, threads }
+        Self {
+            live: HashMap::new(), built_total: 0, destroyed_total: 0, last_stats: StreamStats::default(), cache: None, lod, triangle_budget, threads,
+            workers: None, in_flight: HashSet::new(), ready: Vec::new(), waiting: HashMap::new(), epoch: 0, cancelled_total: 0,
+        }
     }
 
     pub fn live_nodes(&self) -> impl Iterator<Item = (&String, &ChunkNode)> { self.live.iter().map(|(k, c)| (k, &c.node)) }
@@ -141,10 +218,90 @@ impl PlanetStreamer {
                 }
             }
         }
+        let build_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.finish(planets, viewer, created, waiting, build_ms)
+    }
+
+    /// Like `update`, but chunks are built on persistent worker threads: this call only queues
+    /// the most important missing chunks (replacing the previous queue, so the order follows the
+    /// viewer and unwanted jobs are cancelled before they start) and hands out up to `max_builds`
+    /// chunks the workers have finished. `max_ms` bounds nothing here but is kept for symmetry;
+    /// an unbounded budget (loading screens) falls back to building everything within the call.
+    pub fn update_background(&mut self, planets: &Arc<Vec<Planet>>, viewer: V3, max_builds: usize, max_ms: f64) -> StreamUpdate {
+        if max_ms >= 1.0e12 {
+            // Collect anything the workers finished first, so nothing is built twice.
+            self.collect();
+            return self.update(planets, viewer, max_builds, max_ms);
+        }
+        let started = Instant::now();
+        self.select(planets, viewer);
+        self.collect();
+        let wanted = &self.cache.as_ref().unwrap().1;
+
+        // Hand out finished chunks that are still wanted, nearest-looking first.
+        let mut ready = std::mem::take(&mut self.ready);
+        ready.retain(|(k, _, _)| wanted.nodes.contains_key(k) && !self.live.contains_key(k));
+        ready.sort_by(|a, b| {
+            let pa = distance(viewer, a.2.center) / planets[a.1.planet as usize].level_world_size(a.1.level);
+            let pb = distance(viewer, b.2.center) / planets[b.1.planet as usize].level_world_size(b.1.level);
+            pa.total_cmp(&pb)
+        });
+        let keep = ready.split_off(ready.len().min(max_builds));
+        let created = ready;
+        self.ready = keep;
+
+        // Requeue: the missing chunks that matter most, minus those building or finished.
+        let now = Instant::now();
+        self.waiting.retain(|k, t| wanted.nodes.contains_key(k) && now.duration_since(*t) < RETRY_AFTER);
+        let mut missing: Vec<(f64, &String, &ChunkNode)> = wanted.nodes.iter()
+            .filter(|(k, _)| !self.live.contains_key(*k) && !self.waiting.contains_key(*k))
+            .map(|(k, (n, c))| (distance(viewer, *c) / planets[n.planet as usize].level_world_size(n.level), k, n)).collect();
+        missing.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let threads = self.threads;
+        let workers = self.workers.get_or_insert_with(|| Workers::new(threads));
+        {
+            let (lock, cv) = &*workers.queue;
+            let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
+            for job in q.jobs.drain(..) {
+                self.in_flight.remove(&job.key);
+                if !wanted.nodes.contains_key(&job.key) { self.cancelled_total += 1; }
+            }
+            // Finished chunks (handed out now or kept for later) are not built again.
+            let ready_keys: HashSet<&String> = self.ready.iter().chain(created.iter()).map(|(k, _, _)| k).collect();
+            // Enough queued to keep every worker busy until the next frame, not so many that a
+            // turn of the camera leaves a long stale queue.
+            let depth = threads * 3;
+            for (_, key, node) in missing {
+                if q.jobs.len() >= depth { break; }
+                if self.in_flight.contains(key) || ready_keys.contains(key) { continue; }
+                q.jobs.push_back(Job { key: key.clone(), node: *node, planets: planets.clone(), epoch: self.epoch });
+                self.in_flight.insert(key.clone());
+            }
+            cv.notify_all();
+        }
+        let waiting = self.waiting.len();
+        let build_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.finish(planets, viewer, created, waiting, build_ms)
+    }
+
+    /// Moves finished jobs from the workers into `ready`.
+    fn collect(&mut self) {
+        let Some(workers) = &self.workers else { return };
+        while let Ok(r) = workers.results.try_recv() {
+            if r.epoch != self.epoch { continue; }
+            self.in_flight.remove(&r.key);
+            match r.mesh {
+                Some(mesh) => self.ready.push((r.key, r.node, mesh)),
+                None => { self.waiting.insert(r.key, Instant::now()); }
+            }
+        }
+    }
+
+    fn finish(&mut self, planets: &[Planet], _viewer: V3, created: Vec<(String, ChunkNode, ChunkMesh)>, waiting: usize, build_ms: f64) -> StreamUpdate {
+        let wanted = &self.cache.as_ref().unwrap().1;
         for (key, node, mesh) in &created {
             self.live.insert(key.clone(), LiveChunk { node: *node, triangles: mesh.triangles });
         }
-        let build_ms = started.elapsed().as_secs_f64() * 1000.0;
 
         // Drop stale chunks whose ground is fully covered by live wanted chunks.
         let mut by_face: HashMap<(u32, u8), Vec<&ChunkNode>> = HashMap::new();
@@ -173,6 +330,9 @@ impl PlanetStreamer {
             deepest: vec![0; planets.len()],
             per_planet: vec![0; planets.len()],
             build_ms,
+            in_flight: self.in_flight.len(),
+            ready: self.ready.len(),
+            cancelled: self.cancelled_total,
             ..Default::default()
         };
         for c in self.live.values() {
@@ -190,6 +350,13 @@ impl PlanetStreamer {
     /// Removes everything; returns the keys that were live.
     pub fn clear(&mut self) -> Vec<String> {
         self.cache = None;
+        self.epoch += 1;
+        self.in_flight.clear();
+        self.ready.clear();
+        self.waiting.clear();
+        if let Some(w) = &self.workers {
+            w.queue.0.lock().unwrap_or_else(|e| e.into_inner()).jobs.clear();
+        }
         self.live.drain().map(|(k, _)| k).collect()
     }
 }

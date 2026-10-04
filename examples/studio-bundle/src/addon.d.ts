@@ -148,6 +148,9 @@ declare global {
     createMesh: (namespace: string, key: string, config: {
       id?: string; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number];
       pipelineId: string; renderRole?: string; bindings?: BindingConfig[];
+      /** Instances drawn (default 1); the shader places each by `@builtin(instance_index)`. 0
+       * draws nothing until `Model.setInstanceCount`. */
+      instanceCount?: number;
     }) => boolean;
     remove: (namespace: string, key: string) => boolean;
     clear: (namespace: string) => number;
@@ -441,6 +444,8 @@ export interface ScopedAPI {
       }) => void;
       clearMeshes: () => void;
       clearMesh: (meshId: string) => void;
+      /** Instances drawn from the next frame on; 0 hides the mesh without destroying it. */
+      setInstanceCount: (meshId: string, count: number) => void;
       setBoneTransform: (config: {
           modelId: string;
           boneName: string;
@@ -4084,6 +4089,8 @@ export interface EntropyAPI {
         };
     }) => void;
     clearMesh: (meshId: string) => void;
+    /** Instances drawn from the next frame on; 0 hides the mesh without destroying it. */
+    setInstanceCount: (meshId: string, count: number) => void;
     /** Opens a native Save As dialog and writes a self-contained .glb (each mesh's texture
      * PNG-encoded and embedded, no external file references) from already-world-space mesh
      * data supplied directly - doesn't touch the engine's own mesh registry, so it works for

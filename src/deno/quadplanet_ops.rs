@@ -125,7 +125,7 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         }
     }
 
-    let out = sys.streamer.update(&sys.planets, args.viewer, max_builds, max_ms);
+    let out = sys.streamer.update_background(&sys.planets, args.viewer, max_builds, max_ms);
     let allowed = AddonEngine::is_render_allowed(&sys.addon_name);
     for (key, node, mesh) in out.created {
         let item = ChunkItem { buffer_id: format!("{}:{key}", sys.id), origin: mesh.origin, tex_origin: sys.tex_origin(node.planet as usize, mesh.origin) };
@@ -139,6 +139,7 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         ctx.buffers.insert(item.buffer_id.clone(), Arc::new(buffer));
         if allowed {
             ctx.pending_meshes.push((sys.addon_name.clone(), MeshConfig {
+                shared_geometry: None,
                 id: Some(key.clone()),
                 position: [0.0; 3],
                 rotation: None,
@@ -190,6 +191,7 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
         let triangles = built.indices.len() / 3;
         if allowed && triangles > 0 {
             ctx.pending_meshes.push((sys.addon_name.clone(), MeshConfig {
+                shared_geometry: None,
                 id: Some(mesh_id.clone()),
                 position: [0.0; 3],
                 rotation: None,
@@ -369,7 +371,7 @@ pub fn op_quadplanet_configure(state: &mut OpState, #[string] id: String, #[serd
             // Validate once before changing anything.
             if let Some(d) = &detail { crate::heightfield_landscapes::QuadPlanet::planet::chunk_resolutions(d)?; }
             let default = sys.default_detail.clone();
-            for i in targets { sys.planets[i].set_detail(detail.clone(), default.as_ref())?; }
+            for i in targets { Arc::make_mut(&mut sys.planets)[i].set_detail(detail.clone(), default.as_ref())?; }
             clear_all(ctx, &mut sys);
         }
         if let Some(s) = args.split_factor { sys.streamer.lod.split_factor = s.clamp(0.25, 8.0); sys.streamer.invalidate(); }

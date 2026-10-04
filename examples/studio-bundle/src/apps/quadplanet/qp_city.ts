@@ -167,9 +167,12 @@ export interface CityOptions {
     lod1Radius: number;
     /** Triangles all drawn houses may take together. */
     triangleBudget: number;
+    /** With a finite build budget, at least this long between Mesha evaluations (each holds its
+     * frame for tens of milliseconds): a hitch now and then rather than a run of slow frames. */
+    minBuildIntervalMs: number;
 }
 
-export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000 };
+export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000, minBuildIntervalMs: 0 };
 
 /** Until a mesh's real size is known: typical house triangle counts. */
 const ESTIMATE = [150_000, 10_000];
@@ -211,6 +214,11 @@ export class CityHouses {
     private renderOrigin: Vec3 = [0, 0, 0];
     private generated = 0;
     private lastBuildMs = 0;
+    private lastBuildAt = -Infinity;
+    /** Where the last full update ran, and whether it left every wanted house drawn at its
+     * wanted level of detail with nothing to make: then a still camera needs no work at all. */
+    private lastCamera: Vec3 | null = null;
+    private settled = false;
     hideRadius = 0;
     lastStats: CityHouseStats = { candidates: 0, lod0: 0, lod1: 0, variants: 0, generated: 0, queued: 0, triangles: 0, hideRadius: 0, lastBuildMs: 0 };
 
@@ -294,6 +302,7 @@ export class CityHouses {
         for (const key of [...this.shown.keys()]) this.remove(key);
         this.candidates = [];
         this.queryCenter = null;
+        this.settled = false;
     }
 
     /**
@@ -305,6 +314,12 @@ export class CityHouses {
     update(camera: Vec3, renderOrigin: Vec3, cityVersion: number, buildMs: number): number {
         const o = this.options;
         const originMoved = renderOrigin.some((x, i) => x !== this.renderOrigin[i]);
+        // Standing still in a finished street: the selection, and so everything below, would come
+        // out the same (it sorted thousands of candidates and checked caches every frame).
+        if (this.settled && !originMoved && cityVersion === this.queryVersion && this.lastCamera && distance(camera, this.lastCamera) < 0.05) {
+            return this.hideRadius;
+        }
+        this.lastCamera = camera;
         this.renderOrigin = renderOrigin;
         const queryRadius = o.lod1Radius + 80;
         if (!this.queryCenter || cityVersion !== this.queryVersion || distance(camera, this.queryCenter) > 30) {
@@ -340,14 +355,17 @@ export class CityHouses {
         const missing = [...this.variants.values()].filter(v => v.want < Infinity && (this.needs(v, 0) || this.needs(v, 1)));
         missing.sort((a, b) => a.want - b.want);
         const started = this.engine.now();
+        const throttled = buildMs !== Infinity && started - this.lastBuildAt < o.minBuildIntervalMs;
         for (const v of missing) {
-            if (buildMs <= 0) break;
+            if (buildMs <= 0 || throttled) break;
             this.generate(v);
+            this.lastBuildAt = this.engine.now();
             if (buildMs !== Infinity) break;
             if (this.engine.now() - started > buildMs) break;
         }
 
         // Show what is ready: the wanted LOD, or the other one meanwhile.
+        let complete = missing.length === 0;
         for (const b of this.candidates) {
             const lodWanted = want.get(b.key);
             const current = this.shown.get(b.key);
@@ -355,6 +373,7 @@ export class CityHouses {
             const v = this.variantFor(b);
             const other: 0 | 1 = lodWanted === 0 ? 1 : 0;
             const lod = this.ready(v, lodWanted) ? lodWanted : this.ready(v, other) && (other === 1 || b.distance < o.lod0Radius * 2) ? other : null;
+            if (lod !== lodWanted) complete = false;
             if (lod === null) { if (current && current.variant !== v.key) this.remove(b.key); continue; }
             if (current && current.lod === lod && current.variant === v.key) {
                 if (originMoved) this.writeItem(current);
@@ -368,6 +387,7 @@ export class CityHouses {
             this.writeItem(s);
             if (!this.engine.createMesh(HOUSE_NAMESPACE, this.meshKey(v, lod), meshId, item)) {
                 // Evicted from the cache meanwhile: make it again.
+                complete = false;
                 v.status[lod] = null;
                 if (!current) this.engine.destroyItem(item);
                 continue;
@@ -375,6 +395,7 @@ export class CityHouses {
             if (current) this.engine.clearMesh(current.meshId);
             this.shown.set(b.key, s);
         }
+        this.settled = complete;
         const inList = new Set(this.candidates.map(b => b.key));
         for (const key of [...this.shown.keys()]) if (!inList.has(key)) this.remove(key);
 

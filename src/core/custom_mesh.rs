@@ -7,11 +7,127 @@ use crate::core::editor::WindowSize;
 
 use rapier3d::prelude::{Collider, ColliderHandle, RigidBody, RigidBodyHandle};
 
+/// Immutable GPU geometry that several meshes can draw. `Entropy.MeshCache.createMesh` spawns
+/// every mesh of one cached key from the same pair of buffers (see AddonContext::shared_geometry),
+/// so twenty pedestrians of one body variant hold one copy of its vertices on the GPU, not twenty.
+pub struct SharedGeometry {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+}
+
+impl std::fmt::Debug for SharedGeometry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedGeometry").field("vertex_bytes", &self.vertex_buffer.size()).field("num_indices", &self.num_indices).finish()
+    }
+}
+
+impl SharedGeometry {
+    pub fn upload(device: &wgpu::Device, label: &str, vertex_data: &[u8], index_data: &[u8]) -> Self {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("Custom Mesh Vertex Buffer {}", label)),
+            contents: vertex_data,
+            // COPY_DST is required for Entropy.Mesh.updateVertices (op_mesh_update_vertices,
+            // addon_engine.rs) to queue.write_buffer into this buffer after creation - without
+            // it, wgpu rejects the write with a validation panic rather than silently ignoring
+            // it, which is how the queue.write_buffer half of that op's fix was actually found.
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("Custom Mesh Index Buffer {}", label)),
+            contents: index_data,
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        Self { vertex_buffer, index_buffer, num_indices: (index_data.len() / 4) as u32 }
+    }
+
+    pub fn bytes(&self) -> u64 { self.vertex_buffer.size() + self.index_buffer.size() }
+}
+
+/// The 1x1 albedo/normal/pbr-params placeholders and sampler that fill the texture slots of an
+/// addon mesh's model bind group. One set serves every addon mesh (RendererState::mesh_fallback_material).
+pub struct FallbackMaterial {
+    pub sampler: wgpu::Sampler,
+    pub albedo: wgpu::TextureView,
+    pub normal: wgpu::TextureView,
+    pub pbr: wgpu::TextureView,
+}
+
+impl FallbackMaterial {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let make_placeholder = |label: &str, pixel: [u8; 4]| {
+            let size = wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 };
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                &pixel,
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
+                size,
+            );
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        };
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        Self {
+            sampler,
+            albedo: make_placeholder("Addon Mesh Fallback Albedo", [255, 255, 255, 255]),
+            // (0,0,1) normal in Rgba8Unorm
+            normal: make_placeholder("Addon Mesh Fallback Normal", [128, 128, 255, 255]),
+            // metallic=0, roughness=1, AO=1
+            pbr: make_placeholder("Addon Mesh Fallback PBR", [0, 255, 255, 255]),
+        }
+    }
+
+    /// A model bind group (model_bind_group_layout: transform, albedo, sampler, render mode,
+    /// normal, pbr params) for `transform_buffer` with these placeholders.
+    pub fn model_bind_group(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout, transform_buffer: &wgpu::Buffer, render_mode_buffer: &wgpu::Buffer, label: &str) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: transform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.albedo) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: render_mode_buffer, offset: 0, size: None }),
+                },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&self.normal) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&self.pbr) },
+            ],
+            label: Some(label),
+        })
+    }
+}
+
 pub struct CustomMesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
+    /// Instances drawn (`@builtin(instance_index)` 0..instance_count). 0 skips the draw
+    /// entirely: Entropy.Model.setInstanceCount hides a pooled mesh without destroying it.
     pub instance_count: u32,
+    /// Keeps geometry shared with other meshes alive (MeshCache-spawned meshes); None when this
+    /// mesh owns its buffers outright.
+    pub geometry: Option<Arc<SharedGeometry>>,
     pub pipeline: Arc<wgpu::RenderPipeline>,
     pub pipeline_id: String,
     pub bind_groups: Vec<wgpu::BindGroup>,
@@ -22,6 +138,9 @@ pub struct CustomMesh {
     pub time_buffer: Option<wgpu::Buffer>,
     pub render_role: Option<String>,
     pub model_bind_group: wgpu::BindGroup,
+    /// Group 1 for the non-PBR addon pass (render mode 2). Built once here; that pass used to
+    /// create it - plus three textures and a sampler - for every mesh, every frame.
+    pub unlit_bind_group: wgpu::BindGroup,
     pub group_bind_group: wgpu::BindGroup,
     pub behavior_id: Option<String>,
     pub yumon_id: Option<String>,
@@ -31,6 +150,10 @@ pub struct CustomMesh {
     pub collider_handle: Option<ColliderHandle>,
     pub rapier_rigidbody: RigidBody,
     pub rigid_body_handle: Option<RigidBodyHandle>,
+
+    /// The matrix last written to the transform's uniform buffer: unchanged transforms (static
+    /// terrain chunks, houses) skip the per-frame upload.
+    last_uploaded_transform: std::sync::Mutex<Option<[[f32; 4]; 4]>>,
 }
 
 use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, LockedAxes};
@@ -38,9 +161,8 @@ use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, LockedAxes};
 impl CustomMesh {
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        vertex_data: &[u8],
-        index_data: &[u8],
+        geometry: Arc<SharedGeometry>,
+        shared: bool,
         pipeline: Arc<wgpu::RenderPipeline>,
         pipeline_id: String,
         bind_groups: Vec<wgpu::BindGroup>,
@@ -53,6 +175,8 @@ impl CustomMesh {
 
         model_bind_group_layout: &wgpu::BindGroupLayout,
         texture_render_mode_buffer: &wgpu::Buffer,
+        unlit_render_mode_buffer: &wgpu::Buffer,
+        fallback: &FallbackMaterial,
         group_bind_group_layout: &wgpu::BindGroupLayout,
         camera: &SimpleCamera
     ) -> Self {
@@ -70,24 +194,6 @@ impl CustomMesh {
             .user_data(uuid.as_u128())
             .build();
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Custom Mesh Vertex Buffer {}", id)),
-            contents: vertex_data,
-            // COPY_DST is required for Entropy.Mesh.updateVertices (op_mesh_update_vertices,
-            // addon_engine.rs) to queue.write_buffer into this buffer after creation - without
-            // it, wgpu rejects the write with a validation panic rather than silently ignoring
-            // it, which is how the queue.write_buffer half of that op's fix was actually found.
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("Custom Mesh Index Buffer {}", id)),
-            contents: index_data,
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let num_indices = (index_data.len() / 4) as u32; // Assuming u32 indices
-
         let empty_buffer = Matrix4::<f32>::identity();
         let raw_matrix = matrix4_to_raw_array(&empty_buffer);
 
@@ -97,165 +203,8 @@ impl CustomMesh {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Create a 1x1 white texture as a default
-        let texture_size = wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default White Texture"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        // Create white pixel data
-        let white_pixel: [u8; 4] = [255, 255, 255, 255];
-
-        // Copy white pixel data to texture
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &white_pixel,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            texture_size,
-        );
-
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-
-        // Create default sampler
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        // Create a 1x1 default normal texture (flat normal, [0.5, 0.5, 1.0, 1.0] for (0,0,1) normal)
-        let normal_texture_size = wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let normal_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default Normal Texture"),
-            size: normal_texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let flat_normal: [u8; 4] = [128, 128, 255, 255]; // (0,0,1) normal in Rgba8Unorm
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &normal_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &flat_normal,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            normal_texture_size,
-        );
-        let normal_texture_view = normal_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-
-        // Create a 1x1 default PBR params texture (metallic=0, roughness=1, AO=1)
-        let pbr_params_texture_size = wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let pbr_params_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default PBR Params Texture"),
-            size: pbr_params_texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let default_pbr_params: [u8; 4] = [0, 255, 255, 255]; // metallic=0, roughness=1, AO=1
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &pbr_params_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &default_pbr_params,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            pbr_params_texture_size,
-        );
-        let pbr_params_texture_view = pbr_params_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &model_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&texture_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            },wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: texture_render_mode_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&normal_texture_view), // normal array
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::TextureView(&pbr_params_texture_view), // pbr params array
-            }],
-            label: None,
-        });
+        let bind_group = fallback.model_bind_group(device, model_bind_group_layout, &uniform_buffer, texture_render_mode_buffer, "CustomMesh Model Bind Group");
+        let unlit_bind_group = fallback.model_bind_group(device, model_bind_group_layout, &uniform_buffer, unlit_render_mode_buffer, "Mesh Transform Bind Group");
 
         let mut transform = Transform::new(
             Vector3::new(0.0, 0.0, 0.0),
@@ -273,10 +222,11 @@ impl CustomMesh {
         transform.update_position(position);
 
         Self {
-            vertex_buffer,
-            index_buffer,
-            num_indices,
+            vertex_buffer: geometry.vertex_buffer.clone(),
+            index_buffer: geometry.index_buffer.clone(),
+            num_indices: geometry.num_indices,
             instance_count,
+            geometry: shared.then_some(geometry),
             pipeline,
             pipeline_id,
             bind_groups,
@@ -287,6 +237,7 @@ impl CustomMesh {
             time_buffer,
             render_role: None,
             model_bind_group: bind_group,
+            unlit_bind_group,
             group_bind_group: tmp_group_bind_group,
             behavior_id: None,
             yumon_id: None,
@@ -294,6 +245,18 @@ impl CustomMesh {
             collider_handle: None,
             rapier_rigidbody,
             rigid_body_handle: None,
+            last_uploaded_transform: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Writes the transform's matrix to its uniform buffer if it changed since the last write
+    /// through here. Returns whether it wrote.
+    pub fn upload_transform(&self, queue: &wgpu::Queue) -> bool {
+        let raw = matrix4_to_raw_array(&self.transform.update_transform().transpose());
+        let mut last = self.last_uploaded_transform.lock().unwrap_or_else(|e| e.into_inner());
+        if *last == Some(raw) { return false; }
+        queue.write_buffer(&self.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw));
+        *last = Some(raw);
+        true
     }
 }

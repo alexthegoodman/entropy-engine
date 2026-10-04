@@ -185,6 +185,9 @@ pub struct MeshConfig {
     pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
     pub physics: Option<PhysicsConfig>,
+    /// GPU geometry already uploaded (MeshCache.createMesh), drawn instead of vertex/index data.
+    #[serde(skip)]
+    pub shared_geometry: Option<std::sync::Arc<crate::core::custom_mesh::SharedGeometry>>,
     pub behavior_id: Option<String>,
     pub yumon_id: Option<String>,
     pub is_npc: Option<bool>,
@@ -1513,6 +1516,11 @@ pub struct AddonContext {
     pub pending_quadscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     /// Rust-side planet systems (`Entropy.QuadPlanet`), by id. See quadplanet_ops.rs.
     pub quadplanets: HashMap<String, crate::heightfield_landscapes::QuadPlanet::QuadPlanetSystem>,
+    /// GPU geometry of MeshCache entries with live meshes ("namespace/key"), shared by every mesh
+    /// spawned from that entry. Weak: the geometry goes when its last mesh does.
+    pub shared_geometry: HashMap<String, std::sync::Weak<crate::core::custom_mesh::SharedGeometry>>,
+    /// Entropy.Model.setInstanceCount requests (mesh id, count), applied after this frame's new meshes.
+    pub pending_instance_counts: Vec<(String, u32)>,
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -4216,6 +4224,16 @@ pub fn op_mesh_write_vertices(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_vertex_writes.push((mesh_id, first_vertex, data.to_vec()));
+    }
+}
+
+/// Sets how many instances of an addon mesh are drawn (Entropy.Model.setInstanceCount). 0 skips
+/// the mesh's draw entirely, so a pooled or instanced batch can be emptied and refilled without
+/// destroying it. Applied after the frame's pending mesh creations.
+#[op2(fast)]
+pub fn op_mesh_set_instance_count(state: &mut OpState, #[string] mesh_id: String, count: u32) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_instance_counts.push((mesh_id, count));
     }
 }
 

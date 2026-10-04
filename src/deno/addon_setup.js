@@ -808,6 +808,7 @@ function createAddonContextualAPI(resolveTarget) {
                 pipelineId: config.pipelineId,
                 renderRole: config.renderRole ?? null,
                 bindings: config.bindings ?? null,
+                instanceCount: config.instanceCount ?? null,
             }),
             remove: (namespace, key) => ops.op_mesh_cache_remove(namespace, key),
             clear: (namespace) => ops.op_mesh_cache_clear(namespace),
@@ -1285,7 +1286,7 @@ globalThis.Entropy = {
                             indexData: config.indexData || [],
                             pipelineId: config.pipelineId,
                             render_role: config.renderRole || null,
-                            instanceCount: config.instanceCount || 1,
+                            instanceCount: config.instanceCount ?? 1,
                             bindings: config.bindings || [],
                             behaviorId: config.behaviorId || null,
                             yumonId: config.yumonId || null,
@@ -1295,6 +1296,9 @@ globalThis.Entropy = {
                     },
                     clearMesh: (meshId) => {
                         ops.op_mesh_clear(getAddonName(), meshId);
+                    },
+                    setInstanceCount: (meshId, count) => {
+                        ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
                     },
                     clearMeshes: () => {
                         ops.op_meshes_clear(getAddonName());
@@ -2735,7 +2739,7 @@ globalThis.Entropy = {
                 indexData: config.indexData || [],
                 pipelineId: config.pipelineId,
                 render_role: config.renderRole || null,
-                instanceCount: config.instanceCount || 1,
+                instanceCount: config.instanceCount ?? 1,
                 bindings: config.bindings || [],
                 behaviorId: config.behaviorId || null,
                 yumonId: config.yumonId || null,
@@ -2745,6 +2749,10 @@ globalThis.Entropy = {
         },
         clearMesh: (meshId) => {
             ops.op_mesh_clear(globalThis.__entropy_current_addon_context_override || "Global", meshId);
+        },
+        // Instances drawn from now on (0 hides the mesh without destroying it).
+        setInstanceCount: (meshId, count) => {
+            ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
         },
         // Opens a native Save As dialog and writes a self-contained .glb built from
         // already-world-space mesh data the caller supplies directly (no engine-side mesh

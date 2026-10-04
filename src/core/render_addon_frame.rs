@@ -423,6 +423,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_meshes = Vec::new();
         let mut pbr_addon_models = Vec::new();
         let mut non_pbr_addon_models = Vec::new();
+        let mut mesh_stats = MeshDrawStats::default();
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -541,6 +542,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
 
                     for mesh in meshes {
+                        // An emptied batch or a hidden pooled mesh (Model.setInstanceCount(id, 0)).
+                        if mesh.instance_count == 0 { continue; }
                         let mut is_pbr = true;
                         if let Some(config) = ctx.pipeline_configs.get(&mesh.pipeline_id) {
                             is_pbr = config.pbr.unwrap_or(true);
@@ -857,13 +860,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                         }
 
-                        mesh.transform.update_uniform_buffer(&queue);
+                        if mesh.upload_transform(&queue) { mesh_stats.transform_uploads += 1; }
                         render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                         render_pass.set_index_buffer(
                             mesh.index_buffer.slice(..),
                             wgpu::IndexFormat::Uint32,
                         );
                         render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                        mesh_stats.draw(mesh);
 
                         // println!("~~~~~~~~~~ THE GOOOOOD draw");
                     }
@@ -1301,13 +1305,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
                     }
 
-                    // Made once per frame, not once per mesh: an addon streaming hundreds of
-                    // meshes (QuadPlanet's terrain chunks) would otherwise create three textures
-                    // and a sampler per mesh every frame. See the bind group below for why these
-                    // placeholder resources are needed at all.
-                    let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) =
-                        fallback_material_resources(device, queue);
-
                     for mesh in &non_pbr_meshes {
                         let mut pipeline_set = false;
 
@@ -1335,55 +1332,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
 
-                        // `model_bind_group_layout` (shared with the PBR/textured-model path) has
-                        // 6 bindings - transform, albedo, sampler, render mode, normal, pbr params
-                        // (see pipeline.rs) - not just the transform. This only ever worked before
-                        // by accident: every prior non-PBR custom pipeline either skipped `layout:
-                        // "mesh"` entirely or had no addon-created mesh reach this loop, so a
-                        // 1-entry bind group against this 6-entry layout never actually got built
-                        // until a `pbr:false` + `layout:"mesh"` custom pipeline exercised it (the
-                        // media player's video quad) - wgpu's create_bind_group validation caught
-                        // the mismatch immediately. Filled the rest with the same fallback
-                        // resources non-textured NPCs/players already use for this same layout
-                        // (`RendererState::create_fallback_material_resources`) - reimplemented as
-                        // a free function here rather than called as a method because this loop
-                        // sits inside an outer `&mut renderer_state.addon_grasses` borrow that a
-                        // `&self` method call on `renderer_state` as a whole would conflict with.
-                        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &renderer_state.model_bind_group_layout,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: mesh.transform.uniform_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(&dummy_albedo),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 2,
-                                    resource: wgpu::BindingResource::Sampler(&dummy_sampler),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 3,
-                                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                        buffer: &renderer_state.regular_texture_render_mode_buffer,
-                                        offset: 0,
-                                        size: None,
-                                    }),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 4,
-                                    resource: wgpu::BindingResource::TextureView(&dummy_normal),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 5,
-                                    resource: wgpu::BindingResource::TextureView(&dummy_pbr),
-                                },
-                            ],
-                            label: Some("Mesh Transform Bind Group"),
-                        });
-                        render_pass.set_bind_group(1, &transform_bind_group, &[]);
+                        // Built once with the mesh (CustomMesh::unlit_bind_group): this used to be
+                        // created here for every mesh, every frame.
+                        render_pass.set_bind_group(1, &mesh.unlit_bind_group, &[]);
 
                         for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
                             render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
@@ -1393,9 +1344,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                         }
                         
-                                                mesh.transform.update_uniform_buffer(&queue);
-                        
-                                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        if mesh.upload_transform(&queue) { mesh_stats.transform_uploads += 1; }
+                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                         
                                                 render_pass.set_index_buffer(
                         
@@ -1405,9 +1355,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         
                                                 );
                         
-                                                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
-                        
-                                            }
+                        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                        mesh_stats.draw(mesh);
+                    }
                         
                         
                         
@@ -1802,56 +1752,33 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         dialogue_ui::update_dialogue_ui(editor, device, queue);
         quest_ui::update_quest_ui(editor, device, queue);
 
+        mesh_stats.report();
+
         let command_buffer = encoder.finish();
         queue.submit(std::iter::once(command_buffer));
     }
 
-/// Same 1x1 placeholder albedo/normal/pbr-params textures + sampler as
-/// `RendererState::create_fallback_material_resources` - duplicated as a free function (see the
-/// call site in the `non_pbr_meshes` loop above) because that loop holds an outer `&mut
-/// renderer_state.addon_grasses` borrow that a `&self` method call on `renderer_state` would
-/// conflict with.
-fn fallback_material_resources(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-) -> (wgpu::Sampler, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
-    let make_placeholder = |label: &str, pixel: [u8; 4]| {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            &pixel,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-        );
-        texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        })
-    };
+/// Addon mesh counts for one frame, reported to the frame profiler (ENTROPY_FRAME_PROFILE).
+#[derive(Default)]
+struct MeshDrawStats {
+    draws: u32,
+    instances: u64,
+    triangles: u64,
+    transform_uploads: u32,
+}
 
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Nearest,
-        ..Default::default()
-    });
+impl MeshDrawStats {
+    fn draw(&mut self, mesh: &crate::core::custom_mesh::CustomMesh) {
+        self.draws += 1;
+        self.instances += mesh.instance_count as u64;
+        self.triangles += (mesh.num_indices / 3) as u64 * mesh.instance_count as u64;
+    }
 
-    (
-        sampler,
-        make_placeholder("Addon Mesh Fallback Albedo", [255, 255, 255, 255]),
-        make_placeholder("Addon Mesh Fallback Normal", [128, 128, 255, 255]),
-        make_placeholder("Addon Mesh Fallback PBR", [0, 255, 255, 255]),
-    )
+    fn report(&self) {
+        use crate::core::frame_profile::count;
+        count("#mesh draws", self.draws as f64);
+        count("#mesh instances", self.instances as f64);
+        count("#mesh triangles (k)", self.triangles as f64 / 1000.0);
+        count("#mesh transform uploads", self.transform_uploads as f64);
+    }
 }
