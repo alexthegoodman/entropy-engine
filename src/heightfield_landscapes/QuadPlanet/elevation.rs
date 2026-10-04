@@ -392,9 +392,9 @@ fn worker(inner: Arc<Inner>) {
     }
 }
 
-thread_local! {
-    static CLIENT: std::cell::RefCell<Option<reqwest::blocking::Client>> = const { std::cell::RefCell::new(None) };
-}
+// Process lifetime: blocking Client's runtime join must never run in a Windows TLS destructor
+// (the loader lock would prevent that runtime thread from finishing its own thread cleanup).
+static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
 
 fn load_tile(loader: &Loader, id: TileId) -> Option<Tile> {
     match loader {
@@ -410,15 +410,12 @@ fn load_tile(loader: &Loader, id: TileId) -> Option<Tile> {
             }
             let url = url.replace("{z}", &id.z.to_string()).replace("{x}", &id.x.to_string()).replace("{y}", &id.y.to_string());
             for attempt in 0..2 {
-                let bytes = CLIENT.with(|c| {
-                    let mut c = c.borrow_mut();
-                    let client = c.get_or_insert_with(|| reqwest::blocking::Client::builder()
-                        .user_agent(super::geo::USER_AGENT)
-                        .timeout(Duration::from_secs(20))
-                        .build()
-                        .expect("http client"));
-                    client.get(&url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes())
-                });
+                let client = CLIENT.get_or_init(|| reqwest::blocking::Client::builder()
+                    .user_agent(super::geo::USER_AGENT)
+                    .timeout(Duration::from_secs(20))
+                    .build()
+                    .expect("http client"));
+                let bytes = client.get(&url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes());
                 match bytes {
                     Ok(bytes) => {
                         let tile = Tile::from_terrarium_png(&bytes).ok()?;

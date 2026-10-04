@@ -47,17 +47,15 @@ fn run_with_data(name: &str, feature: Option<&str>, data: Option<&std::path::Pat
     let mut child = cmd.spawn().expect("launch Allegiance");
     let started = std::time::Instant::now();
     let mut completed = None;
-    let mut fixture_cleanup = false;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
-        // The focused people fixture tests rendering and cache persistence, not shutdown.
-        // Once the driver has written its complete result, bound cleanup of background world jobs.
-        if name.starts_with("people") && result_path.exists() {
+        // Completed gameplay must also tear down normally; a forced close is a test failure.
+        if result_path.exists() {
             let finished = completed.get_or_insert_with(std::time::Instant::now);
             if finished.elapsed() > std::time::Duration::from_secs(10) {
-                fixture_cleanup = true;
-                child.kill().expect("stop completed people fixture");
-                break child.wait().expect("reap people fixture");
+                child.kill().expect("stop hung Allegiance shutdown");
+                child.wait().expect("reap hung Allegiance shutdown");
+                panic!("Allegiance completed its feature but failed to close within 10 seconds");
             }
         }
         if started.elapsed() > std::time::Duration::from_secs(1600) {
@@ -66,7 +64,7 @@ fn run_with_data(name: &str, feature: Option<&str>, data: Option<&std::path::Pat
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     };
-    assert!(fixture_cleanup || status.success(), "Allegiance failed: {status}");
+    assert!(status.success(), "Allegiance failed: {status}");
     let result: serde_json::Value = serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
     assert_eq!(result["status"], "passed", "{result:#}");
     let artifacts: Vec<String> = result["artifacts"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
@@ -221,12 +219,15 @@ fn allegiance_iteration1_live_feature() {
     assert_eq!(s[1]["mode"], "play");
     assert_eq!(s[1]["region"]["name"], "Levittown");
     assert_eq!(s[1]["region"]["country"], "The Workers States of America");
+    assert_eq!(s[1]["flyingCar"]["state"], "parked");
+    assert!(f(&s[1]["flyingCar"]["distance"]) < 6.0, "player starts beside their car");
     assert!(s[1]["settlements"].as_array().unwrap().iter().any(|d| d["name"] == "Levittown"));
     assert_ne!(s[1]["player"]["yaw"], s[2]["player"]["yaw"], "right stick turns the player camera");
     assert_eq!(s[3]["mode"], "console");
     assert_eq!(s[3]["tab"], "territory", "shoulders navigate console tabs");
     assert_eq!(s[4]["region"]["id"], s[1]["region"]["id"], "save restores independent hometown identity");
     assert_eq!(s[4]["mode"], "play");
+    assert_eq!(s[4]["flyingCar"]["state"], "parked", "saved car is restored");
     let traffic = s[1]["traffic"]["count"].as_u64().unwrap();
     assert!(traffic <= 12);
     if s[1]["terrain"]["city"]["houses"].as_u64().unwrap_or(0) > 50 { assert!(traffic > 0); }

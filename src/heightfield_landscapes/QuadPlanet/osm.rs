@@ -314,24 +314,22 @@ pub enum LoadError {
     Transient(String),
 }
 
-thread_local! {
-    static CLIENT: std::cell::RefCell<Option<reqwest::blocking::Client>> = const { std::cell::RefCell::new(None) };
-}
+// A blocking Client joins its runtime thread when dropped. Windows TLS destructors run under
+// the loader lock, so dropping one there deadlocks that join against the runtime thread's exit.
+// Keep a shared connection pool for the process lifetime instead of per-worker TLS clients.
+static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
 
 fn http_get(url: &str) -> Result<Vec<u8>, LoadError> {
-    CLIENT.with(|c| {
-        let mut c = c.borrow_mut();
-        let client = c.get_or_insert_with(|| reqwest::blocking::Client::builder()
-            .user_agent(super::geo::USER_AGENT)
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("http client"));
-        match client.get(url).send().and_then(|r| r.error_for_status()) {
-            Ok(r) => r.bytes().map(|b| b.to_vec()).map_err(|e| LoadError::Transient(e.to_string())),
-            Err(e) if e.status().is_some_and(|s| s.as_u16() == 404 || s.as_u16() == 204) => Err(LoadError::Missing),
-            Err(e) => Err(LoadError::Transient(e.to_string())),
-        }
-    })
+    let client = CLIENT.get_or_init(|| reqwest::blocking::Client::builder()
+        .user_agent(super::geo::USER_AGENT)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("http client"));
+    match client.get(url).send().and_then(|r| r.error_for_status()) {
+        Ok(r) => r.bytes().map(|b| b.to_vec()).map_err(|e| LoadError::Transient(e.to_string())),
+        Err(e) if e.status().is_some_and(|s| s.as_u16() == 404 || s.as_u16() == 204) => Err(LoadError::Missing),
+        Err(e) => Err(LoadError::Transient(e.to_string())),
+    }
 }
 
 /// The `{z}/{x}/{y}` template a TileJSON document names.

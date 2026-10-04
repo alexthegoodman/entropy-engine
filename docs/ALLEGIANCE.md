@@ -111,6 +111,8 @@ rooftops, with some hovering. Housing within 400 m sets traffic density, capped 
 cars. Sparse areas have little or no traffic; separated altitude lanes keep dense areas readable.
 Tall blocks contribute a provisional apartment estimate from their floor area, since the current
 map bridge does not expose residential use. These are ambient vehicles in this iteration.
+Your personal flying car is parked beside you on clear ground when you arrive. It stays where
+you leave it and its location is saved with the campaign.
 
 The HUD shows your party, the date and the time of day, your funds, members, world support and
 reputation. It also shows the region you are in (who rules it, your share against the strongest
@@ -272,7 +274,7 @@ where you left off.
 
 | File | What it holds |
 |---|---|
-| `al_data.ts` | The world of 2100: 113 regions (a city and its hinterland, with population, wealth, bloc and government), 8 power blocs, the factions, ideologies, topics, audience segments, speech cards, weapons, armor, skills, facilities, schemes, pamphlets |
+| `al_data.ts` | The world of 2100: 108 hinterland anchors, discovered settlements, future countries, 8 power blocs, factions, ideologies, topics, audience segments, speech cards, weapons, armor, skills, facilities, schemes, pamphlets |
 | `al_state.ts` | The campaign as plain JSON (the save file), the region lookup (nearest city), support shares, the seeded RNG |
 | `al_party.ts` | The chain of command, the ledger, the shop, XP and skills, schemes, followers |
 | `al_world.ts` | The daily tick and every strategic rule: grassroots growth, rivals, unrest and heat, crackdowns, elections, coups, wars, counter-offensives, insurgencies, victory and defeat |
@@ -341,12 +343,16 @@ These tools also drive the live test:
   debate, travel to Paris, save and continue. It checks the tools' replies and the captured
   frames. `allegiance_iteration1_live.feature` covers hometown start, controller movement and menus,
   density-limited traffic, and save/resume. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  Every live fixture must exit normally within ten seconds of completing its feature; forced
+  closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
+  to avoid joining network threads from Windows thread-local destructors during shutdown.
 
 ## Limits
 
 - Buildings are their fitted rectangles to the nav grid and to bullets; you can't go inside. The
   houses' interiors are there to see, not to walk.
-- Hover cars are ambient traffic; they cannot be driven yet. Long-distance travel is instant
+- Your personal hover car parks beside you on arrival, with clearance for its rotors; its parking
+  location persists through save/resume. Cars cannot be driven yet. Long-distance travel is instant
   (it costs days and credits).
 - Settlements become individual targets as their map tiles load or a hometown is selected.
   Coverage depends on mapped place labels. Political hinterlands use nearest regional centers;

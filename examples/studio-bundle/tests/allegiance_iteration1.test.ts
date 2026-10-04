@@ -9,6 +9,7 @@ import { Controller, stick } from "../src/games/allegiance/al_controller";
 import { newBody, stepBody, NO_PLAYER_INPUT } from "../src/games/allegiance/al_player";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "../src/games/allegiance/al_traffic";
 import { buildFlyingCar } from "../src/games/allegiance/al_models";
+import { parkBeside } from "../src/games/allegiance/al_vehicle";
 
 const hometown = { name: "Levittown", kind: "town", lat: 40.7259, lon: -73.5143 };
 describe("Iteration 1 settlement campaigns", () => {
@@ -101,6 +102,17 @@ describe("Iteration 1 settlement campaigns", () => {
 });
 
 describe("Iteration 1 controller and traffic", () => {
+    it("parks a car beside the player with room for the rotors, avoiding buildings and steep ground", () => {
+        const walkable = (x: number, z: number) => !(x > -4 && x < 4 && z > 1 && z < 12);
+        const parked = parkBeside(0, 0, walkable, () => 10)!;
+        expect(parked).not.toBeNull();
+        expect(Math.hypot(parked.car.x - parked.player[0], parked.car.z - parked.player[1])).toBeCloseTo(4.8);
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+            if (dx * dx + dz * dz <= 12.25) expect(walkable(parked.car.x + dx, parked.car.z + dz)).toBe(true);
+        }
+        expect(parkBeside(0, 0, () => false, () => 0)).toBeNull();
+        expect(parkBeside(0, 0, () => true, x => x * 2)).toBeNull();
+    });
     it("filters drift, retains analog movement speed, and applies look", () => {
         expect(stick([0.1, 0.05])).toEqual([0, 0]);
         const half = newBody(), full = newBody();

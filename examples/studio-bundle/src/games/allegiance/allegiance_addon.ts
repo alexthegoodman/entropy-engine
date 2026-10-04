@@ -1,4 +1,5 @@
 import { Controller } from "./al_controller";
+import { parkBeside, type ParkedCar } from "./al_vehicle";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
 //
@@ -250,6 +251,7 @@ function startLoading(lat: number, lon: number): void {
     frame = makeLocalFrame(origin);
     renderOrigin = [Math.round(origin[0]), Math.round(origin[1]), Math.round(origin[2])];
     controller.reset(); trafficSampleTime = -Infinity; trafficHouses = [];
+    playerCar = null;
     body = newBody(0, 0, 0);
     body.y = heightAt(0, 0);
     focus = toWorld(frame, 0, 2, 0);
@@ -298,6 +300,24 @@ function finishLoading(): void {
     body.x = spot[0];
     body.z = spot[1];
     body.y = heightAt(body.x, body.z);
+    const savedCar = campaign?.player.flyingCar;
+    if (savedCar && frame) {
+        const p = toLocal(frame, surfaceAt(savedCar.lat, savedCar.lon));
+        if (Math.hypot(p[0] - body.x, p[2] - body.z) < 1000)
+            playerCar = { x: p[0], y: heightAt(p[0], p[2]) + 0.22, z: p[2], yaw: savedCar.yaw };
+    }
+    if (!playerCar) {
+        const parked = parkBeside(body.x, body.z, (x, z) => nav?.walkable(x, z) ?? !isSea(x, z), heightAt);
+        if (parked) {
+            [body.x, body.z] = parked.player;
+            body.y = heightAt(body.x, body.z);
+            body.yaw = parked.car.yaw;
+            playerCar = parked.car;
+            const ll = dirToLatLon(toWorld(frame!, playerCar.x, playerCar.y, playerCar.z));
+            if (campaign) campaign.player.flyingCar = { lat: ll.lat, lon: ll.lon, yaw: playerCar.yaw };
+        }
+    }
+    if (playerCar) addCarObstacle();
     street.player.x = body.x;
     street.player.z = body.z;
     loading.progress = 1;
@@ -317,6 +337,7 @@ function buildNav(cx: number, cz: number): void {
     for (const b of list) g.addRect(buildingToRect(frame, b));
     g.markWhere((x, z) => isSea(x, z));
     nav = g;
+    if (playerCar) addCarObstacle();
     navBuildings = stats?.city?.buildings ?? 0;
 }
 
@@ -330,8 +351,10 @@ function maintainNav(dt: number): void {
     // Far from the frame's origin: move the origin to you, so local numbers stay small.
     if (Math.hypot(body.x, body.z) > 2500) {
         const newOrigin = toWorld(frame, body.x, body.y, body.z);
+        const carWorld = playerCar ? toWorld(frame, playerCar.x, playerCar.y, playerCar.z) : null;
         const dx = body.x, dz = body.z;
         frame = makeLocalFrame(newOrigin);
+        if (playerCar && carWorld) [playerCar.x, playerCar.y, playerCar.z] = toLocal(frame, carWorld);
         shiftStreet(street, dx, dz);
         body.x -= dx; body.z -= dz; body.y = 0;
         heightCache.clear();
@@ -705,6 +728,7 @@ let controllerFocus: string | null = null;
 let lastMenuAxis = 0;
 function menuMove(direction: number): void {
     if (!ui) return;
+    if (!ui.handlers.size) drawUi(0, true);
     const ids = [...ui.handlers.keys()].filter(id => !id.startsWith("map-"));
     if (!ids.length) return;
     const current = controllerFocus ? ids.indexOf(controllerFocus) : -1;
@@ -1104,11 +1128,24 @@ function setupProps(): void {
 }
 
 const trafficItems: string[] = [];
+let playerCarItem = "";
+let playerCar: ParkedCar | null = null;
+function addCarObstacle(): void {
+    if (!nav || !playerCar) return;
+    const p = playerCar;
+    nav.addRect({ cx: p.x, cz: p.z, ux: Math.cos(p.yaw), uz: -Math.sin(p.yaw), hw: 2.8, hd: 2.5,
+        height: 1.6, base: p.y - 0.22, key: "al-player-car", door: [p.x, p.z] });
+}
 let trafficVisible = 0;
 let trafficHouses: QuadPlanetBuilding[] = [];
 let trafficSampleTime = -Infinity;
 function drawTraffic(): void {
     const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue");
+    if (visible && playerCar) {
+        playerCar.y = heightAt(playerCar.x, playerCar.z) + 0.22;
+        writeItem(playerCarItem, personMatrix(playerCar.x, playerCar.y, playerCar.z, playerCar.yaw, false), [1, 1, 1, 0]);
+    }
+    showProp("al-player-car", visible && !!playerCar);
     if (visible && time - trafficSampleTime > 2) {
         trafficSampleTime = time;
         trafficHouses = Entropy.QuadPlanet.buildings(terrainId, toWorld(frame!, body.x, body.y, body.z), 400, { limit: 1500 });
@@ -1289,6 +1326,7 @@ function snapshot() {
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
         traffic: { count: trafficVisible, limit: TRAFFIC_LIMIT },
+        flyingCar: playerCar ? { ...playerCar, state: "parked", distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null,
         settlements: c?.settlements?.map(d => ({ id: d.id, name: d.name, country: d.country, parent: d.parent, governor: c.regions[d.id].governor })) ?? [],
         fixedStep,
     };
@@ -1604,6 +1642,8 @@ addon.onInit(() => {
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     const flyingCar = buildFlyingCar();
+    playerCarItem = uniform(ITEM_FLOATS);
+    spawnMesh("al-player-car", flyingCar, playerCarItem); showProp("al-player-car", false);
     for (let i = 0; i < TRAFFIC_LIMIT; i++) {
         const item = uniform(ITEM_FLOATS); trafficItems.push(item);
         spawnMesh(`al-car-${i}`, flyingCar, item); showProp(`al-car-${i}`, false);

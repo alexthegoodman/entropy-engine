@@ -602,7 +602,8 @@ checks the captures (under `xvfb-run -a` on a headless box).
 QuadPlanet's full-scale Earth in the year 2100. Found a party (name, ideology, color), search for your real hometown to start in, and wait on a propaganda-poster loading screen while the real terrain,
 OpenStreetMap streets and Mesha houses stream in and cache. Streamed cities, towns and villages
 are independent political targets inside future-country territories. Xbox/DualShock controls and
-sparse housing-based hover-car traffic are supported. People use Mesha's full human model
+sparse housing-based hover-car traffic are supported. You arrive beside a parked personal flying
+car, whose position is saved with the campaign. People use Mesha's full human model
 nearby, with distance LODs prepared on the loading screen and cached to disk. On the street, pedestrians walk between
 real building doors on A* paths. Give speeches as a five-beat mini-game (pick a line for the crowd,
 hit the timing, rebut hecklers, out-argue rival orators), hand out pamphlets, and recruit passers-by.
