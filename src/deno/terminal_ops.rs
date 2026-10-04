@@ -194,7 +194,7 @@ impl TerminalManager {
         // A shell runs the typed command so built-ins, globbing and PATH shims (npm/Volta `.cmd`)
         // resolve. Default to cmd.exe on Windows: PowerShell resolves Volta's `.ps1` shims, which
         // are blocked by the execution policy here, whereas cmd runs the `.cmd` shims.
-        let (shell_bin, shell_args): (&'static str, Vec<String>) = {
+        let (shell_bin, shell_args): (&str, Vec<String>) = {
             #[cfg(target_os = "windows")]
             {
                 if shell == Some("powershell") {

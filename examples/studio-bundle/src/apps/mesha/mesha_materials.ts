@@ -21,6 +21,12 @@ export interface MaterialPreset {
     /** Glass and similar: rendered as a tinted, glossy, slightly see-through-looking surface. */
     transmission?: number;
     /**
+     * Window glass you can really see through: the share of the pane the viewport leaves out (in
+     * a fine ordered dither, fewer at grazing angles where glass mirrors more), so an interior
+     * shows behind it. Opaque pipelines need no sorting for it.
+     */
+    clear?: number;
+    /**
      * Foliage: a second color each leaf (or grass tip) leans toward by the fraction its uv.y
      * carries (see mesha_plants.ts), so an autumn crown mixes orange and red.
      */
@@ -34,6 +40,10 @@ const hex = (h: string): [number, number, number] => {
 
 const m = (id: string, label: string, color: string, roughness: number, metallic: number, pattern: Pattern = "none", transmission?: number): MaterialPreset =>
     ({ id, label, color: hex(color), roughness, metallic, pattern, ...(transmission ? { transmission } : {}) });
+
+/** Window glass: tinted, glossy, and `clear` of it really see-through (see MaterialPreset.clear). */
+const g = (id: string, label: string, color: string, clear: number): MaterialPreset =>
+    ({ id, label, color: hex(color), roughness: 0.03, metallic: 0, pattern: "none", transmission: 0.85, clear });
 
 /** Foliage: leaves, needles, grass and petals, with a second color they vary toward. */
 const f = (id: string, label: string, color: string, tint: string, roughness = 0.55): MaterialPreset =>
@@ -175,6 +185,25 @@ export const MATERIALS: MaterialPreset[] = [
     m("fruit.orange", "Orange fruit", "#e5821f", 0.35, 0, "speckle"),
     m("flower.center", "Seed head", "#4a3219", 0.85, 0, "speckle"),
     m("flower.pollen", "Pollen yellow", "#e6ac1f", 0.8, 0, "speckle"),
+    // Transit: see-through window glass, liveries, and what street cars are fitted out with.
+    g("glass.window", "Clear window glass", "#cfe2e4", 0.72),
+    g("glass.windowTinted", "Tinted window glass", "#3f4c55", 0.5),
+    g("glass.windowBronze", "Bronze window glass", "#6e5640", 0.55),
+    g("glass.windowGreen", "Sea-green window glass", "#7fae9e", 0.62),
+    m("paint.cream", "Cream enamel", "#ebe0c3", 0.32, 0),
+    m("paint.crimson", "Crimson enamel", "#9e2329", 0.3, 0),
+    m("paint.brunswick", "Brunswick green", "#1e4634", 0.34, 0),
+    m("paint.signal", "Signal yellow", "#e5b021", 0.38, 0),
+    m("paint.silver", "Silver livery", "#c3c7cb", 0.28, 0.6),
+    m("wood.teak", "Varnished teak", "#8b5a2d", 0.32, 0, "wood"),
+    m("fabric.moquette", "Transit moquette", "#2e3a6a", 0.95, 0, "fabric"),
+    m("fabric.moquetteRed", "Red moquette", "#7a2430", 0.95, 0, "fabric"),
+    m("leather.green", "Green leatherette", "#2f5440", 0.42, 0, "speckle"),
+    m("rubber.floor", "Ribbed rubber floor", "#45484c", 0.82, 0, "corrugated"),
+    m("stone.cobble", "Granite setts", "#77726b", 0.85, 0, "speckle"),
+    m("stone.ballast", "Track ballast", "#6e6b67", 0.95, 0, "speckle"),
+    m("wood.sleeper", "Creosoted sleepers", "#40332a", 0.9, 0, "wood"),
+    m("glow.warmWhite", "Warm white light", "#fff0d4", 0.3, 0, "glow"),
 ];
 
 export const MATERIAL_BY_ID: ReadonlyMap<string, MaterialPreset> = new Map(MATERIALS.map(p => [p.id, p]));

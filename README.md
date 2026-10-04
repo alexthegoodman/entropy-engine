@@ -593,8 +593,8 @@ flies to Ember and on to Glacia, then goes to Earth and the Matterhorn in the re
 checks the captures (under `xvfb-run -a` on a headless box).
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
-library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), gear, bolt and
-rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
+library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted
+interior behind see-through glazing, gear, bolt and rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
 meaningful controls, press **Variation** for another sensible design (lock what you want kept),
 compose several into a scene and export ordinary GLB geometry. `npm run test:mesha` and
 `npm run mesha:verify` (the parameter fuzzer and contact sheets) run without a window;
@@ -638,14 +638,15 @@ share one **Instruments** menu so the header keeps its room.
 ## Linux
 
 Linux support is new: the engine, addon runtime, entropy_gui, audio and MCP server all build and
-run, verified with the `theme-gallery` example on Ubuntu 24.04. Other examples haven't been
-exercised on Linux yet.
+run, verified with the `theme-gallery` example on Ubuntu 24.04, and Mesha's live BDD suite
+(`xvfb-run -a cargo test --release --test mesha_live`) passes there too. Other examples haven't
+been exercised on Linux yet.
 
 System packages (Ubuntu/Debian):
 
 ```bash
 sudo apt install build-essential pkg-config libasound2-dev libudev-dev libxkbcommon-dev \
-    libgtk-3-dev libssl-dev libxdo-dev mesa-vulkan-drivers
+    libgtk-3-dev libssl-dev libxdo-dev mesa-vulkan-drivers libxkbcommon-x11-0
 ```
 
 You also need the [Deno CLI](https://deno.com/) for bundling (`npm i -g deno` works too). The
@@ -664,6 +665,8 @@ Differences from Windows:
 
 - The swapchain on X11/Vulkan only offers BGRA formats, so the frame is rendered to an offscreen
   `Rgba8Unorm` texture and blitted to the window (`src/core/surface_blit.rs`). Windows is unchanged.
+- `libxkbcommon-x11-0` is a runtime dependency (winit loads it to read the X11 keyboard); without
+  it every windowed example panics at startup.
 - With no audio output device the engine logs a warning and keeps running with audio muted
   (previously it panicked; this applies on Windows too).
 - UI icon fallback fonts and the monospace font come from DejaVu/Noto instead of Segoe/Cascadia.

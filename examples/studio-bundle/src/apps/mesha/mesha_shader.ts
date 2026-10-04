@@ -176,6 +176,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let a = in.color.a;
     var metal = select(0.0, 1.0, a >= 0.5);
     var rough = clamp((a - metal * 0.5) / 0.49, 0.03, 1.0);
+
+    if (pattern == 16) {
+        // See-through window glass (alpha carries its clear share): leave that share of the pane
+        // unpainted in a 4 x 4 ordered dither, fewer pixels at grazing angles where glass mirrors
+        // more, so whatever is behind it shows through without sorting or blending.
+        let fr = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+        let keep = 1.0 - a * (1.0 - fr);
+        let c = vec2<u32>(in.clip_position.xy);
+        let b2 = ((c.x ^ c.y) & 1u) * 2u + (c.y & 1u);
+        let b4 = b2 * 4u + (((c.x >> 1u) ^ (c.y >> 1u)) & 1u) * 2u + ((c.y >> 1u) & 1u);
+        if ((f32(b4) + 0.5) / 16.0 > keep) { discard; }
+        metal = 0.0;
+        rough = 0.03;
+    }
     var sheen = 0.0;
     var spec_scale = 1.0;
     var foliage = 0.0;       // leaves: soft wrap lighting and light through them from behind
@@ -288,7 +302,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let through = pow(max(dot(-n, key), 0.0), 1.5) * (0.35 + 0.65 * pow(max(dot(-v, key), 0.0), 2.0));
     col = col + foliage * base * vec3<f32>(1.0, 1.12, 0.62) * studio.key_color.rgb * studio.key_color.w * through * 0.5 * crown;
 
-    if (pattern == 5) {
+    if (pattern == 5 || pattern == 16) {
         // Glass: tinted body, strong fresnel reflections, a bright caustic-ish glint through it.
         let body = base * (0.35 + 0.45 * pow(nv, 0.5)) * (hemi + key_light * 0.25);
         col = body + env * (0.08 + fresnel * 1.1) + studio.key_color.rgb * spec * 1.2;

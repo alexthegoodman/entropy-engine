@@ -72,6 +72,12 @@ export function shade(mat: MaterialPreset, n: Vec3, view: Vec3, occlusion = 1): 
     return out;
 }
 
+/** The viewport shader's 4 x 4 ordered-dither threshold at a pixel, in (0, 1). */
+function bayer4(x: number, y: number): number {
+    const b2 = ((x ^ y) & 1) * 2 + (y & 1);
+    return (b2 * 4 + (((x >> 1) ^ (y >> 1)) & 1) * 2 + ((y >> 1) & 1) + 0.5) / 16;
+}
+
 interface Tri { p: Vec3[]; n: Vec3[]; uv: [number, number][]; mat: MaterialPreset }
 
 /**
@@ -218,12 +224,14 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                 const z = 1 / qs;
                 const idx = y * W + x;
                 if (z >= depth[idx]) continue;
-                depth[idx] = z;
                 const a = q0 / qs, bb = q1 / qs, c = q2 / qs;
                 let n = normalize3([t.n[0][0] * a + t.n[1][0] * bb + t.n[2][0] * c, t.n[0][1] * a + t.n[1][1] * bb + t.n[2][1] * c, t.n[0][2] * a + t.n[1][2] * bb + t.n[2][2] * c]);
                 const wp: Vec3 = [t.p[0][0] * a + t.p[1][0] * bb + t.p[2][0] * c, t.p[0][1] * a + t.p[1][1] * bb + t.p[2][1] * c, t.p[0][2] * a + t.p[1][2] * bb + t.p[2][2] * c];
                 const view = normalize3(sub3(eye, wp));
                 if (dot3(n, view) < 0) n = scale3(n, -1); // backfaces of open shells shade like fronts
+                // See-through window glass: the viewport's ordered dither, averaged by the supersampling.
+                if (t.mat.clear && bayer4(x, y) > 1 - t.mat.clear * (1 - (1 - Math.max(0, dot3(n, view))) ** 3)) continue;
+                depth[idx] = z;
                 // Cheap occlusion toward the floor, so feet and undersides settle.
                 // Smoothstep, not a clamped ramp: a ramp's end leaves a visible brightness line.
                 const lift = clamp01((wp[1] - floorY) / (radius * 0.5));

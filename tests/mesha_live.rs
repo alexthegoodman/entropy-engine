@@ -69,10 +69,10 @@ fn mesha_live_feature() {
 
     // What the app persisted: that scene, plus the facade, lamps, coffee makers, domes, houses, a
     // door, the foliage (trees, conifers, palms, ferns, shrubs, grasses, flowers, pots and a garden)
-    // and the themed buildings: hab lodges, wasteland depots and arcane emporiums.
+    // the themed buildings (hab lodges, wasteland depots and arcane emporiums) and the street cars.
     let session = read(&data.join("Mesha").join("session.json"));
     let saved = session["scene"]["instances"].as_array().unwrap();
-    assert_eq!(saved.len(), 44);
+    assert_eq!(saved.len(), 48);
     assert_eq!(saved[4]["objectId"], "architecture.facade");
     assert_eq!(saved[4]["values"]["windowCount"], 6);
     let lamp = &reply("mesha_vary", 1)["instance"];
@@ -271,6 +271,37 @@ fn mesha_live_feature() {
     assert_eq!(&themed_glb[..4], b"glTF");
     assert!(themed_export["triangles"].as_u64().unwrap() > foliage_export["triangles"].as_u64().unwrap());
 
+    // Street cars: shutting the doors keeps the car whole, lifting the roof takes the roof, ceiling
+    // and pantograph away; the three-section light rail outweighs the city tram; Variation keeps
+    // the light rail's body, cabs and livery.
+    let city = &reply("mesha_add", 43)["instance"];
+    assert_eq!(city["objectId"], "transport.street_car");
+    assert_eq!(city["violations"].as_array().unwrap().len(), 0, "{city:#}");
+    let shut = &reply("mesha_set", 22)["instance"];
+    assert_eq!(shut["values"]["doorOpen"], 0);
+    assert_eq!(shut["triangles"], city["triangles"]);
+    assert_eq!(reply("mesha_set", 23)["instance"]["triangles"], city["triangles"]);
+    let open_top = &reply("mesha_set", 24)["instance"];
+    assert!(open_top["triangles"].as_u64().unwrap() < shut["triangles"].as_u64().unwrap());
+    assert_eq!(saved[44]["values"]["roofVisible"], false);
+    for (nth, preset_floor) in [(44, 0.78), (45, 0.9)] {
+        let heritage = &reply("mesha_add", nth)["instance"];
+        assert_eq!(heritage["values"]["floorHeight"], preset_floor);
+        assert_eq!(heritage["violations"].as_array().unwrap().len(), 0, "{heritage:#}");
+    }
+    let lrv = &reply("mesha_add", 46)["instance"];
+    assert_eq!(lrv["values"]["sections"], 3);
+    assert!(lrv["triangles"].as_u64().unwrap() > city["triangles"].as_u64().unwrap() * 2);
+    let lrv_varied = &reply("mesha_vary", 9)["instance"];
+    for key in ["sections", "bays", "bayWidth", "width", "cabLength", "noseLength", "bluntness", "rake", "bodyFinish", "lowerFinish", "glassFinish"] {
+        assert_eq!(lrv_varied["values"][key], lrv["values"][key], "locked street car control moved: {key}");
+    }
+    assert!(reply("mesha_vary", 9)["changed"].as_array().unwrap().len() >= 2);
+    assert_eq!(lrv_varied["violations"].as_array().unwrap().len(), 0, "{lrv_varied:#}");
+    assert_eq!(saved[47]["values"], lrv_varied["values"]);
+    let transit_glb = fs::read(reply("mesha_export", 7)["path"].as_str().unwrap()).unwrap();
+    assert_eq!(&transit_glb[..4], b"glTF");
+
     // The GLB: a real glTF binary with one mesh per object material.
     let export = reply("mesha_export", 0);
     let glb = fs::read(export["path"].as_str().unwrap()).expect("GLB written");
@@ -320,5 +351,12 @@ fn mesha_live_feature() {
     assert!(green > 0.04, "the oak's crown is barely green on screen ({green:.3})");
     let orange = share("33-tree-autumn-backlit", &|p| p[0] as i32 > p[1] as i32 + 30 && p[1] as i32 > p[2] as i32);
     assert!(orange > 0.03, "the autumn maple is barely orange on screen ({orange:.3})");
+    // See-through glazing reached the screen: with the doors shut (and a neutral studio backdrop),
+    // the seats' blue moquette shows through the city tram's windows, and ordinary glass hides it.
+    let blue = |p: [u8; 3]| p[2] as i32 > p[0] as i32 + 25 && p[2] as i32 > p[1] as i32 + 10;
+    let through = share("70-tram-doors-shut", &blue);
+    let hidden = share("71-tram-opaque-glass", &blue);
+    assert!(through > 0.005, "the seats barely show through the tram's windows ({through:.4})");
+    assert!(through > hidden * 3.0, "see-through glass shows no more of the seats than ordinary glass ({through:.4} vs {hidden:.4})");
     println!("Mesha live BDD: {}", root.display());
 }
