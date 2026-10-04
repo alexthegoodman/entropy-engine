@@ -80,6 +80,7 @@ pub(crate) static ML_TEST_RNG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new
 /// an arbitrary program, so both sides have to read the same list.
 #[cfg(not(target_arch = "wasm32"))]
 pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
+    "allegiance",
     "app-launcher",
     "canvas-surface-demo",
     "cc-manager",
