@@ -325,6 +325,37 @@ describe("taking power", () => {
     });
 });
 
+describe("a long campaign", () => {
+    it("an active party takes regions and holds them", () => {
+        const c = newCampaign({ seed: 11, spawn: "lagos" });
+        let here = "lagos";
+        for (let d = 0; d < 240; d++) {
+            const rs = c.regions[here];
+            for (let k = 0; k < 4; k++) applySpeech(c, here, { score: 0.8, crowd: 25, joined: 6, karma: 0.5 });
+            if (d % 3 === 0) autoOrganize(c);
+            if (c.party.funds > 3000) startScheme(c, "charity", here);
+            if (rs.governor !== PARTY) {
+                if (rs.gov === "democracy") callElection(c, here);
+                else {
+                    if (rs.army < rs.garrison * 0.6 && rs.members > 50) armMembers(c, here, Math.min(rs.members - 1, Math.floor(c.party.funds / 150)));
+                    if (coupChance(c, here) > 0.5) attemptCoup(c, here);
+                }
+            } else {
+                if (rs.army < 200 && rs.members > 300) armMembers(c, here, Math.min(rs.members / 4, Math.floor(c.party.funds / 300)));
+                const next = [here, ...Object.values(c.regions).filter(r => r.governor === PARTY).map(r => r.id)].flatMap(id => neighbors(id, 6))
+                    .filter(id => c.regions[id].governor !== PARTY).sort((a, b) => partyShare(c.regions[b]) - partyShare(c.regions[a]))[0];
+                if (next) here = next;
+            }
+            advanceDay(c, here);
+        }
+        const held = Object.values(c.regions).filter(r => r.governor === PARTY).length;
+        expect(held).toBeGreaterThanOrEqual(8);
+        expect(governedShare(c)).toBeGreaterThan(0.12);
+        expect(worldSupport(c)).toBeGreaterThan(0.15);
+        expect(c.outcome).toBeNull();
+    });
+});
+
 describe("schemes, travel and the end", () => {
     it("runs a scheme to completion", () => {
         const c = newCampaign({ seed: 19, spawn: "seoul" });

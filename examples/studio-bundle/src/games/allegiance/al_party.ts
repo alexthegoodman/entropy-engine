@@ -445,7 +445,7 @@ export function dailyLedger(c: Campaign): Ledger {
         l.dues += (organized + (rs.members - organized) * 0.15) * c.party.duesRate * def.wealth * collect;
         if (rs.governor === PARTY) {
             l.taxes += def.pop * 1e6 * def.wealth * rs.taxRate * 0.00012 * collect;
-            l.admin += def.pop * 6;
+            l.admin += def.pop * 2 * (0.5 + def.wealth * 0.5);
         }
         if (c.party.karma > 0) l.donations += rs.support[PARTY] * def.pop * def.wealth * 4 * (c.party.karma / 100);
         l.army += rs.army * ARMY_UPKEEP;

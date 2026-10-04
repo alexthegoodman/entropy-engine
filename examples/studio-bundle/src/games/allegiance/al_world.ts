@@ -537,11 +537,22 @@ function counterOffensives(c: Campaign, r: Rng): void {
         // Insurgents grow with unrest.
         rs.garrison += Math.round(baseGarrison(def, "democracy") * 0.01 * Math.max(0, rs.unrest - 0.3));
         const insurgency = rs.unrest > 0.75 && rs.garrison > rs.army * 0.5;
-        const invasion = r.next() < 0.015 + share * 0.08;
+        // Invasions are rare while the party is small and grow with its share of the world; their
+        // size depends on how much of the region's bloc is still loyal to the old order.
+        const blocRegions = REGIONS.filter(d => d.bloc === def.bloc);
+        const loyal = blocRegions.filter(d => c.regions[d.id].governor !== PARTY).length / blocRegions.length;
+        const invasion = loyal > 0 && r.next() < 0.004 + Math.max(0, share - 0.05) * 0.06;
         if (insurgency || invasion) {
             const attacker = strongestRival(rs);
-            const force = insurgency ? rs.garrison : rs.garrison + Math.round(baseGarrison(def, "technocracy") * (0.3 + share));
+            const force = insurgency ? rs.garrison : rs.garrison + Math.round(baseGarrison(def, "technocracy") * (0.15 + share * 0.8) * loyal);
             rs.garrison = force;
+            // A popular government's people take up arms to defend it; minority rule gets no one.
+            const volunteers = Math.round(Math.min(rs.members * 0.04, partyShare(rs) > 0.4 ? partyShare(rs) * def.pop * 1e6 * 0.0001 : 0));
+            if (volunteers > 0) {
+                rs.army += volunteers;
+                rs.members -= volunteers;
+                pushNews(c, `${volunteers.toLocaleString("en-US")} citizens of ${def.name} volunteer to defend the party's government.`, "good");
+            }
             rs.war = newWar(attacker, PARTY, rs.army, force);
             c.stats.wars++;
             pushNews(c, insurgency
@@ -642,7 +653,19 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
         for (const def of REGIONS) {
             const share = partyShare(c.regions[def.id]);
             if (share < 0.15) continue;
-            for (const n of near(def.id)) shiftSupport(c.regions[n], PARTY, (share - 0.1) * 0.004);
+            for (const n of near(def.id)) shiftSupport(c.regions[n], PARTY, (share - 0.1) * 0.012);
+        }
+        // The bandwagon: once the party governs much of humanity, sympathetic regions come over peacefully.
+        const gov = governedShare(c);
+        if (gov >= 0.3) {
+            for (const def of REGIONS) {
+                const rs = c.regions[def.id];
+                if (rs.governor === PARTY || rs.war || partyShare(rs) < 0.45) continue;
+                if (r.next() < 0.02 + (gov - 0.3) * 0.1) {
+                    takeRegion(c, rs, "election");
+                    pushNews(c, `${def.name} joins the party's government without a shot fired.`, "good");
+                }
+            }
         }
         counterOffensives(c, r);
         resolveSchemes(c, r);

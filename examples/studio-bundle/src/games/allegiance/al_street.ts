@@ -487,7 +487,7 @@ export function spawnSquad(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     return n;
 }
 
-function spawnOrator(st: StreetState, nav: NavGrid | null, ctx: StreetContext, r: Rng): void {
+export function spawnOrator(st: StreetState, nav: NavGrid | null, ctx: StreetContext, r: Rng): void {
     const rivals = RIVALS.map(id => ctx.rivalShares[id] ?? 0);
     const faction = RIVALS[weighted(r, rivals)];
     const at = spawnPoint(st, nav, r, 30, 55);

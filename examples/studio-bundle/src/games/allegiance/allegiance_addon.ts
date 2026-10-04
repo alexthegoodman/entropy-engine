@@ -39,7 +39,7 @@ import { startSpeech, stepSpeech, chooseCard, deliver, rebutHeckler, autoplay, b
 import {
     type StreetState, type Actor, type StreetContext, newStreet, stepStreet, startCrowd, setCrowdTarget, endCrowd, convertListeners,
     nearestActor, persuade, tryRecruit, recruitChance, givePamphlet, playerShoot, castShot, shiftStreet, resetStreet, spawnSquad,
-    listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot,
+    listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot, spawnOrator,
 } from "./al_street";
 import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toWorld, dirToWorld, buildingToRect, type LocalFrame } from "./al_nav";
 import { type PlayerBody, type PlayerInput, NO_PLAYER_INPUT, newBody, stepBody, bodyCamera, EYE } from "./al_player";
@@ -1336,6 +1336,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 } break;
                 case "face": if (typeof a.yaw === "number") body.yaw = a.yaw; if (typeof a.pitch === "number") body.pitch = a.pitch; break;
                 case "shoot": fire(c?.player.weapon ?? "pistol"); break;
+                case "rally": spawnOrator(street, nav, streetContext(), rng); out.rally = street.rally; break;
                 case "squad": out.spawned = spawnSquad(street, nav, streetContext(), rng, typeof a.count === "number" ? a.count : 4, false); break;
                 case "rest": act("rest"); break;
                 case "days": if (c) for (let i = 0; i < (typeof a.days === "number" ? a.days : 1); i++) advanceDay(c, region); if (c?.outcome) mode = "outcome"; break;
@@ -1442,6 +1443,10 @@ addon.onUpdatePlus("Global", () => {
         street.player.x = body.x; street.player.z = body.z; street.player.y = body.y; street.player.heading = body.yaw;
         street.player.moving = body.speed > 0.5;
         stepWeapon(dt);
+        // Out of a fight, wounds slowly heal (faster with Toughness).
+        if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
+            street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
+        }
         stepStreet(street, nav, streetContext(), dt, rng, heightAt);
         handleStreetEvents();
         if (speech) { stepSpeech(speech, dt); setCrowdTarget(street, speech.crowd); }
