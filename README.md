@@ -613,6 +613,9 @@ only. `npm run test:allegiance` runs the TypeScript tier, and
 `cargo test --release --test allegiance_live -- --nocapture --test-threads=1` plays it in the real
 window and checks the captures (under `xvfb-run -a` on a headless box).
 
+See the [performance investigation and proposed instancing API](docs/ALLEGIANCE_PERFORMANCE.md)
+for live profiling observations and optimization priorities.
+
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
 library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted
 interior behind see-through glazing, gear, bolt and rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
