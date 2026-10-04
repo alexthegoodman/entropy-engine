@@ -135,7 +135,7 @@ function worldMap(ui: UiFrame, g: GameView, x: number, y: number, w: number, h: 
         if (py < y || py > y + h) continue;
         const s = 3 + Math.sqrt(r.pop) * 0.45;
         const rs = c?.regions[r.id];
-        const col = rs ? factionColor(c, rs.governor) : [0.2, 0.2, 0.2, 1] as Color;
+        const col = rs ? factionColor(c, rs.governor) : THEME.red;
         const lvl = rs ? controlLevel(rs) : "none";
         if (lvl === "stronghold" || lvl === "presence") p.rect(px - s / 2 - 2, py - s / 2 - 2, s + 4, s + 4, partyColor(c));
         p.rect(px - s / 2, py - s / 2, s, s, col, 1, THEME.black);
@@ -256,7 +256,7 @@ export function drawLoading(g: GameView, ui: UiFrame): void {
     p.rect(px + 40, py + ph - 120, pw - 80, 2, THEME.black);
     p.text("COMRADE'S HANDBOOK", px + 40, py + ph - 108, 13, THEME.red, FONT.head);
     p.text(L.tip, px + 40, py + ph - 84, 16, THEME.black, FONT.body, pw - 80, 60);
-    p.textR(`${L.elapsed.toFixed(0)} s`, px + pw - 40, py + ph - 108, 13, THEME.grey, FONT.mono);
+    p.textR(`${L.elapsed.toFixed(0)} s`, px + pw - 40, py + ph - 108, 13, THEME.inkSoft, FONT.mono);
 }
 
 export const LOADING_TIPS = [
@@ -361,15 +361,16 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     // Toasts.
     let ty = 110;
     for (const t of g.toasts.slice(0, 4)) {
-        const tw3 = Math.min(W * 0.5, textWidth(t.text, 16, FONT.body) + 40);
-        p.rect(cx - tw3 / 2, ty, tw3, 34, t.kind === "bad" ? withAlpha(THEME.redDark, 0.9) : t.kind === "good" ? [0.1, 0.25, 0.12, 0.9] : [0.05, 0.05, 0.05, 0.85], 2, THEME.gold);
-        p.textC(t.text, cx, ty + 7, 16, THEME.cream, FONT.body);
+        const tw3 = Math.min(W * 0.6, textWidth(t.text, 16, FONT.mono) + 40);
+        p.rect(cx - tw3 / 2, ty, tw3, 34, t.kind === "bad" ? withAlpha(THEME.redDark, 0.92) : t.kind === "good" ? [0.1, 0.3, 0.12, 0.92] : [0.05, 0.05, 0.05, 0.9], 2, THEME.gold);
+        p.textC(t.text, cx, ty + 7, 16, THEME.cream, FONT.mono);
         ty += 40;
     }
     // Controls hint and org warnings.
     const report = orgReport(c);
     const hint = `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK  F PAMPHLET  B SPEECH  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
-    p.text(hint, 440, 8, 12, report.warnings.length ? THEME.gold : THEME.dim, FONT.head, W - 440 - 380);
+    p.rect(436, 4, W - 436 - 370, 26, [0.04, 0.035, 0.035, 0.7]);
+    p.text(hint, 444, 9, 12, report.warnings.length ? THEME.gold : THEME.cream, FONT.head, W - 440 - 380);
     if (g.debug) p.text(g.debug, 440, 30, 12, THEME.dim, FONT.mono, W - 840);
 }
 
@@ -423,7 +424,8 @@ export function drawSpeech(g: GameView, ui: UiFrame): void {
     // Bottom: the cards, the delivery bar or the heckler.
     if (s.phase === "choose") {
         const cw = Math.min(330, (W - 120) / 3), ch = 210, total = cw * 3 + 40, x0 = (W - total) / 2, y0 = H - ch - 40;
-        p.textC("CHOOSE YOUR NEXT LINE  [1] [2] [3]", W / 2, y0 - 40, 18, THEME.cream, FONT.head);
+        p.rect(W / 2 - 260, y0 - 48, 520, 36, THEME.black, 2, THEME.red);
+        p.textC("CHOOSE YOUR NEXT LINE  [1] [2] [3]", W / 2, y0 - 42, 18, THEME.cream, FONT.head);
         s.hand.forEach((card, i) => {
             const x = x0 + i * (cw + 20);
             const id = `card-${i}`;
@@ -434,13 +436,15 @@ export function drawSpeech(g: GameView, ui: UiFrame): void {
             p.textR(card.tone.toUpperCase(), x + cw - 12, y0 + 12, 13, card.tone === "hope" ? THEME.black : THEME.cream, FONT.head);
             p.text(card.title.toUpperCase(), x + 12, y0 + 54, 16, THEME.red, FONT.head, cw - 24, 44);
             p.text(`"${card.line}"`, x + 12, y0 + 100, 15, THEME.black, FONT.body, cw - 24, 80);
-            p.text(`POWER ${card.power.toFixed(1)}${s.usedTopics.includes(card.topic) ? "  - REPEATED" : ""}${s.rival && s.rival.topic === card.topic ? "  - REBUTS!" : ""}`, x + 12, y0 + ch - 26, 12, THEME.grey, FONT.head);
+            p.text(`POWER ${card.power.toFixed(1)}${s.usedTopics.includes(card.topic) ? "  - REPEATED" : ""}${s.rival && s.rival.topic === card.topic ? "  - REBUTS!" : ""}`, x + 12, y0 + ch - 26, 12, THEME.inkSoft, FONT.head);
             ui.hotspot(id, x, y0, cw, ch, () => g.act("speech-card", i));
         });
-        p.text(`${Math.max(0, Math.ceil(9 - s.phaseTime))}`, W / 2 - 8, H - 34, 20, THEME.gold, FONT.num);
+        p.rect(W / 2 - 22, H - 36, 44, 30, THEME.black);
+        p.textC(`${Math.max(0, Math.ceil(9 - s.phaseTime))}`, W / 2, H - 34, 22, THEME.gold, FONT.num);
     } else if (s.phase === "deliver" && s.hand) {
         const bw = Math.min(900, W - 200), bx = (W - bw) / 2, by = H - 150;
-        p.textC("DELIVER IT!  PRESS SPACE IN THE GOLD", W / 2, by - 50, 20, THEME.cream, FONT.head);
+        p.rect(W / 2 - 290, by - 58, 580, 38, THEME.black, 2, THEME.red);
+        p.textC("DELIVER IT!  PRESS SPACE IN THE GOLD", W / 2, by - 52, 20, THEME.cream, FONT.head);
         p.rect(bx - 6, by - 6, bw + 12, 56, THEME.black);
         p.rect(bx, by, bw, 44, [0.25, 0.2, 0.18, 1]);
         p.rect(bx + (s.sweet - s.sweetHalf) * bw, by, s.sweetHalf * 2 * bw, 44, [0.85, 0.65, 0.15, 1]);
@@ -462,7 +466,7 @@ export function drawSpeech(g: GameView, ui: UiFrame): void {
         p.textC(r.score >= 0.8 ? "TRIUMPH" : r.score >= 0.6 ? "WELL SPOKEN" : r.score >= 0.45 ? "POLITE APPLAUSE" : "THEY WALKED AWAY", W / 2, py + 26, 34, THEME.red, FONT.head);
         p.textC(`SCORE ${Math.round(r.score * 100)}   CROWD ${r.crowd}   JOINED ${r.joined}`, W / 2, py + 82, 22, THEME.black, FONT.head);
         if (r.rival) p.textC(r.rival.won ? `You out-argued ${s.rival?.name ?? "the rival"}.` : `${s.rival?.name ?? "The rival"} won the crowd.`, W / 2, py + 120, 18, r.rival.won ? THEME.black : THEME.red, FONT.body);
-        p.textC(r.karma > 0 ? "Hope spreads. (+karma)" : r.karma < 0 ? "Fear takes root. (-karma)" : "", W / 2, py + 150, 15, THEME.grey, FONT.body);
+        p.textC(r.karma > 0 ? "Hope spreads. (+karma)" : r.karma < 0 ? "Fear takes root. (-karma)" : "", W / 2, py + 150, 15, THEME.inkSoft, FONT.body);
         ui.button("speech-close", W / 2 - 120, py + ph - 70, 240, 48, "STEP DOWN", "red", () => g.act("speech-close"));
     }
 }
@@ -478,7 +482,7 @@ export function drawDialogue(g: GameView, ui: UiFrame): void {
     posterFrame(ui, px, py, pw, ph);
     p.text(d.name.toUpperCase(), px + 30, py + 26, 24, THEME.black, FONT.head, pw - 60);
     const seg = d.segment[0].toUpperCase() + d.segment.slice(1);
-    p.text(d.orator ? `Orator for ${factionById(d.lean).name}` : `${seg.replace(/s$/, "")}${d.member ? " - PARTY MEMBER" : ""} - leans ${factionById(d.lean).short}`, px + 30, py + 62, 14, THEME.grey, FONT.body, pw - 60);
+    p.text(d.orator ? `Orator for ${factionById(d.lean).name}` : `${seg.replace(/s$/, "")}${d.member ? " - PARTY MEMBER" : ""} - leans ${factionById(d.lean).short}`, px + 30, py + 62, 14, THEME.inkSoft, FONT.body, pw - 60);
     if (!d.orator) {
         p.text(opinionLabel(d.opinion), px + 30, py + 88, 14, d.opinion >= 0.15 ? THEME.red : THEME.black, FONT.head);
         p.bar(px + 180, py + 90, pw - 210, 14, (d.opinion + 1) / 2, partyColor(c), [0.3, 0.3, 0.3, 1]);
@@ -506,7 +510,7 @@ export function drawConsole(g: GameView, ui: UiFrame): void {
     const { p, W, H } = ui;
     const c = g.c;
     if (!c) return;
-    p.rect(0, 0, W, H, [0.07, 0.05, 0.05, 0.94]);
+    p.rect(0, 0, W, H, [0.07, 0.05, 0.05, 0.985]);
     p.rect(0, 0, W, 64, THEME.black);
     p.rect(0, 64, W, 5, partyColor(c));
     p.text(`${c.party.name.toUpperCase()}  -  COMMAND`, 20, 16, 24, THEME.cream, FONT.head);
@@ -852,7 +856,7 @@ export function drawOutcome(g: GameView, ui: UiFrame): void {
     p.textC(o.kind === "victory" ? "VICTORY" : "DEFEAT", W / 2, py + 36, 52, THEME.cream, FONT.head);
     p.textC(o.title, W / 2, py + 100, 20, THEME.gold, FONT.head);
     p.text(o.text, px + 50, py + 160, 20, THEME.black, FONT.body, pw - 100, 120);
-    p.textC(`Day ${o.day}. ${c.stats.speeches} speeches, ${c.stats.recruits} recruited in person, ${c.stats.regionsTaken} regions taken, ${c.stats.kills} enemies fallen.`, W / 2, py + 300, 15, THEME.grey, FONT.body);
+    p.textC(`Day ${o.day}. ${c.stats.speeches} speeches, ${c.stats.recruits} recruited in person, ${c.stats.regionsTaken} regions taken, ${c.stats.kills} enemies fallen.`, W / 2, py + 300, 15, THEME.inkSoft, FONT.body);
     ui.button("outcome-title", W / 2 - 150, py + ph - 90, 300, 54, "RETURN TO TITLE", "red", () => g.act("title"), { size: 18 });
 }
 

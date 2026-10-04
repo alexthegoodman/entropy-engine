@@ -22,6 +22,8 @@ export const THEME = {
     paper: [0.9, 0.84, 0.7, 1] as Color,
     gold: [0.98, 0.78, 0.2, 1] as Color,
     grey: [0.55, 0.52, 0.48, 1] as Color,
+    /** Secondary text on cream paper. */
+    inkSoft: [0.3, 0.26, 0.22, 1] as Color,
     dim: [0.72, 0.68, 0.6, 1] as Color,
     green: [0.35, 0.8, 0.4, 1] as Color,
     blue: [0.35, 0.6, 0.95, 1] as Color,
@@ -30,10 +32,10 @@ export const THEME = {
 };
 
 /** Fonts: a stencil-poster face for headlines, a condensed one for numbers, a plain one for prose. */
-export const FONT = { head: "Bungee", num: "Vina Sans", body: "Exo", mono: "Play" };
+export const FONT = { head: "Bungee", num: "Vina Sans", body: "Play", mono: "Play" };
 
 /** Rough advance width per character (fraction of the font size), for centering and fitting. */
-const ADVANCE: Record<string, number> = { Bungee: 0.78, "Vina Sans": 0.42, Exo: 0.52, Play: 0.55 };
+const ADVANCE: Record<string, number> = { Bungee: 0.72, "Vina Sans": 0.42, Exo: 0.52, Play: 0.5 };
 
 export function textWidth(text: string, size: number, font: string = FONT.body): number {
     return text.length * size * (ADVANCE[font] ?? 0.55);

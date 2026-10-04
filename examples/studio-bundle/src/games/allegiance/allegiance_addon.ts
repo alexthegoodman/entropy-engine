@@ -710,7 +710,7 @@ function onKey(k: string): void {
     }
     if (mode === "outcome" || mode === "title" || mode === "setup" || mode === "loading") return;
     // Play.
-    if (k === "Tab" || lower === "m") { mode = "console"; selectedRegion = region; return; }
+    if (k === "Tab" || lower === "m" || k === "Escape") { mode = "console"; selectedRegion = region; return; }
     if (lower === "e") interact();
     else if (lower === "f") quickPamphlet();
     else if (lower === "b") { const err = beginSpeech(); if (err) toast(err, "bad"); }
@@ -977,7 +977,7 @@ function drawProps(): void {
     if (mode === "speech" && speech) {
         if (!podiumAt) podiumAt = { x: body.x, z: body.z, yaw: body.yaw };
         const fx = Math.sin(podiumAt.yaw), fz = Math.cos(podiumAt.yaw);
-        writeItem(podiumItem, personMatrix(podiumAt.x + fx * 0.75, heightAt(podiumAt.x + fx * 0.75, podiumAt.z + fz * 0.75), podiumAt.z + fz * 0.75, podiumAt.yaw + Math.PI, false), [color[0], color[1], color[2], 0]);
+        writeItem(podiumItem, personMatrix(podiumAt.x + fx * 0.75, heightAt(podiumAt.x + fx * 0.75, podiumAt.z + fz * 0.75), podiumAt.z + fz * 0.75, podiumAt.yaw, false), [color[0], color[1], color[2], 0]);
         const sx = podiumAt.x - Math.cos(podiumAt.yaw) * 2.2, sz = podiumAt.z + Math.sin(podiumAt.yaw) * 2.2;
         writeItem(flagItem, personMatrix(sx, heightAt(sx, sz), sz, podiumAt.yaw + Math.PI / 2, false), [color[0], color[1], color[2], 0]);
     } else {
@@ -1028,7 +1028,9 @@ function cameraForMode(dt: number): { position: Vec3; target: Vec3; up: Vec3 } {
         const eye = toWorld(frame, Math.sin(yaw) * -40, heightAt(0, 0) + 25, Math.cos(yaw) * -40);
         return { position: eye, target: toWorld(frame, 0, heightAt(0, 0) + 2, 0), up: frame.up };
     }
-    const cam = bodyCamera(body, heightAt);
+    // A speech is filmed from the crowd's side, looking back at the speaker and the podium.
+    const cam = bodyCamera(body, heightAt, mode === "speech" ? 2.7 : 0);
+    if (mode === "speech") return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, body.x, body.y + 1.5, body.z), up: frame.up };
     return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, ...cam.target), up: frame.up };
 }
 
@@ -1128,6 +1130,17 @@ function snapshot() {
 /** Runs the loading screen to completion (streams, builds houses, builds the street map). */
 function settle(timeoutMs: number) {
     const start = Date.now();
+    if (mode !== "loading") {
+        // Not loading a place: just stream until the terrain around the camera is complete.
+        while (Date.now() - start < timeoutMs) {
+            stream(Infinity, Infinity);
+            if (stats && stats.pending === 0 && stats.waitingForData === 0) break;
+            const wait = Date.now() + 15;
+            while (Date.now() < wait) { /* elevation tiles download on Rust threads */ }
+        }
+        writeWorld();
+        return { settled: !!stats && stats.pending === 0, ms: Date.now() - start };
+    }
     while (mode === "loading" && Date.now() - start < timeoutMs) {
         const wait = Date.now() + 15;
         while (Date.now() < wait) { /* tiles download and houses simplify on Rust threads */ }
@@ -1270,6 +1283,43 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     street.player.x = body.x; street.player.z = body.z;
                     break;
                 }
+                case "approach": {
+                    // Stand in front of the nearest civilian (or orator), facing them.
+                    const want = typeof a.weapon === "string" ? a.weapon : "civilian";
+                    const target = street.actors.filter(x => alive(x) && x.kind === want).sort((p, q) => Math.hypot(p.x - body.x, p.z - body.z) - Math.hypot(q.x - body.x, q.z - body.z))[0];
+                    if (!target) throw new Error(`No ${want} nearby.`);
+                    target.state = "idle"; target.stateTime = -20; target.path = []; target.speed = 0;
+                    body.x = target.x - Math.sin(target.heading + Math.PI) * -1.6;
+                    body.z = target.z - Math.cos(target.heading + Math.PI) * -1.6;
+                    body.yaw = Math.atan2(target.x - body.x, target.z - body.z);
+                    target.heading = body.yaw + Math.PI;
+                    body.y = heightAt(body.x, body.z);
+                    street.player.x = body.x; street.player.z = body.z; street.player.heading = body.yaw;
+                    out.target = target.name;
+                    break;
+                }
+                case "govern": if (c) {
+                    // Debug: the party takes the most populous regions up to `amount` of humanity.
+                    let share = governedShare(c);
+                    for (const d of [...REGIONS].sort((x, y) => y.pop - x.pop)) {
+                        if (share >= (typeof a.amount === "number" ? a.amount : 0.8)) break;
+                        if (c.regions[d.id].governor === PARTY) continue;
+                        c.regions[d.id].governor = PARTY;
+                        share = governedShare(c);
+                    }
+                    advanceDay(c, region);
+                    if (c.outcome) mode = "outcome";
+                } break;
+                case "followers": if (c) {
+                    // The best fighters walk with you (armed if the treasury allows).
+                    const n = typeof a.count === "number" ? a.count : 2;
+                    for (const m of [...c.members].filter(x => x.role === "none" && !x.follower).sort((x, y) => y.combat - x.combat).slice(0, n)) setFollower(c, m.id, true);
+                    out.followers = followers(c).map(m => m.name);
+                } break;
+                case "face-enemy": {
+                    const foe = soldiers(street).sort((p, q) => Math.hypot(p.x - body.x, p.z - body.z) - Math.hypot(q.x - body.x, q.z - body.z))[0];
+                    if (foe) { body.yaw = Math.atan2(foe.x - body.x, foe.z - body.z); street.player.heading = body.yaw; out.enemyDistance = r2(Math.hypot(foe.x - body.x, foe.z - body.z)); }
+                } break;
                 case "face": if (typeof a.yaw === "number") body.yaw = a.yaw; if (typeof a.pitch === "number") body.pitch = a.pitch; break;
                 case "shoot": fire(c?.player.weapon ?? "pistol"); break;
                 case "squad": out.spawned = spawnSquad(street, nav, streetContext(), rng, typeof a.count === "number" ? a.count : 4, false); break;

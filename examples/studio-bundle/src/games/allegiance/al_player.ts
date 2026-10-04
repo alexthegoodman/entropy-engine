@@ -80,15 +80,17 @@ export function stepBody(b: PlayerBody, input: PlayerInput, dt: number, nav: Nav
 export interface CameraLocal { eye: [number, number, number]; target: [number, number, number]; forward: [number, number, number] }
 
 /** Where the camera is (local): over the right shoulder, or at the eyes. */
-export function bodyCamera(b: PlayerBody, groundAt: (x: number, z: number) => number): CameraLocal {
+export function bodyCamera(b: PlayerBody, groundAt: (x: number, z: number) => number, yawOffset = 0): CameraLocal {
     const cp = Math.cos(b.pitch), sp = Math.sin(b.pitch);
-    const f: [number, number, number] = [Math.sin(b.yaw) * cp, sp, Math.cos(b.yaw) * cp];
+    const yaw = b.yaw + yawOffset;
+    const f: [number, number, number] = [Math.sin(yaw) * cp, sp, Math.cos(yaw) * cp];
     if (b.firstPerson) {
         const eye: [number, number, number] = [b.x + Math.sin(b.yaw) * 0.12, b.y + EYE, b.z + Math.cos(b.yaw) * 0.12];
         return { eye, target: [eye[0] + f[0] * 10, eye[1] + f[1] * 10, eye[2] + f[2] * 10], forward: f };
     }
-    const rx = Math.cos(b.yaw), rz = -Math.sin(b.yaw);
-    const pivot: [number, number, number] = [b.x + rx * 0.55, b.y + 1.65, b.z + rz * 0.55];
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const shoulder = yawOffset ? 0 : 0.55;
+    const pivot: [number, number, number] = [b.x + rx * shoulder, b.y + 1.65, b.z + rz * shoulder];
     let eye: [number, number, number] = [pivot[0] - f[0] * b.camDistance, pivot[1] - f[1] * b.camDistance + 0.25, pivot[2] - f[2] * b.camDistance];
     const g = groundAt(eye[0], eye[2]) + 0.4;
     if (eye[1] < g) eye = [eye[0], g, eye[2]];

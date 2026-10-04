@@ -73,8 +73,8 @@ export function buildPerson(l: PersonLook): ModelMesh {
             m.ellipsoid([0, 1.69, 0.015], [0.112, 0.075, 0.12], l.hair, MAT_BODY, seg, ring);
             if (l.female) m.ellipsoid([0, 1.55, 0.07], [0.1, 0.16, 0.06], l.hair, MAT_BODY, seg, ring);
             if (l.hat) {
-                m.box([0, 1.76, 0], [0.12, 0.035, 0.13], [0.15, 0.13, 0.12], MAT_BODY);
-                m.box([0, 1.735, -0.12], [0.11, 0.008, 0.06], [0.15, 0.13, 0.12], MAT_BODY);
+                m.ellipsoid([0, 1.735, 0.005], [0.118, 0.07, 0.125], [0.18, 0.15, 0.13], MAT_BODY, seg, ring);
+                m.box([0, 1.71, -0.13], [0.1, 0.008, 0.055], [0.18, 0.15, 0.13], MAT_BODY);
             }
         }
         if (l.sash) m.hexa([

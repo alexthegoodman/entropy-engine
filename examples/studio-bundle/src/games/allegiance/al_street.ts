@@ -108,6 +108,7 @@ export interface StreetState {
     squadAlive: number;
     /** Path requests served this frame (A* is budgeted). */
     pathBudget: number;
+    fighterBudget: number;
     civilianTarget: number;
 }
 
@@ -126,7 +127,7 @@ export function newStreet(): StreetState {
         actors: [], nextId: 1, shots: [], events: [],
         player: { x: 0, z: 0, y: 0, heading: 0, health: 100, armor: 0, absorb: 0, dead: false, moving: false },
         alarm: null, speech: null, rally: null,
-        squadTimer: 40, rallyTimer: 90, squadAlive: 0, pathBudget: 0, civilianTarget: CIVILIAN_TARGET,
+        squadTimer: 40, rallyTimer: 90, squadAlive: 0, pathBudget: 0, fighterBudget: 0, civilianTarget: CIVILIAN_TARGET,
     };
 }
 
@@ -506,11 +507,14 @@ function followPath(st: StreetState, a: Actor, speed: number, dt: number, nav: N
     return a.path.length === 0;
 }
 
-function requestPath(st: StreetState, a: Actor, nav: NavGrid | null, tx: number, tz: number): void {
-    if (!nav) { a.path = [[tx, tz]]; return; }
-    if (st.pathBudget <= 0) { a.path = []; a.repath = 0.2; return; }
-    st.pathBudget--;
-    a.path = nav.findPath(a.x, a.z, tx, tz, 6000) ?? [];
+/** Finds a path now if this frame's A* budget allows (fighters have their own, larger one). */
+function requestPath(st: StreetState, a: Actor, nav: NavGrid | null, tx: number, tz: number): boolean {
+    if (!nav) { a.path = [[tx, tz]]; return true; }
+    const fighter = a.kind === "soldier" || a.kind === "follower";
+    if (fighter ? st.fighterBudget <= 0 : st.pathBudget <= 0) { a.path = []; a.repath = 0.15 + (a.id % 5) * 0.05; return false; }
+    if (fighter) st.fighterBudget--; else st.pathBudget--;
+    a.path = nav.findPath(a.x, a.z, tx, tz, fighter ? 30000 : 8000) ?? [];
+    return true;
 }
 
 function civilianGoal(st: StreetState, a: Actor, nav: NavGrid | null, r: Rng): void {
@@ -542,8 +546,25 @@ function stepCivilian(st: StreetState, a: Actor, dt: number, nav: NavGrid | null
             const center = sp ?? (rally ? { x: rally.x, z: rally.z } : null);
             if (!center) { a.state = "idle"; a.slot = null; return; }
             if (!a.slot) {
-                const ang = r.next() * Math.PI * 2, rad = 3.5 + r.next() * 6;
-                a.slot = [center.x + Math.sin(ang) * rad, center.z + Math.cos(ang) * rad];
+                // A free spot in the ring with a clear line to the speaker (not inside a wall).
+                for (let t = 0; t < 24 && !a.slot; t++) {
+                    const ang = r.next() * Math.PI * 2, rad = 3 + r.next() * (5 + t * 0.4);
+                    let sx = center.x + Math.sin(ang) * rad, sz = center.z + Math.cos(ang) * rad;
+                    if (nav) {
+                        const w = nav.nearestWalkable(sx, sz, 3);
+                        if (!w || !nav.sightClear(w[0], w[1], center.x, center.z)) continue;
+                        [sx, sz] = w;
+                    }
+                    a.slot = [sx, sz];
+                }
+                if (!a.slot) { a.state = "idle"; a.stateTime = 0; return; }
+                a.path = [];
+                if (dist2(a.x, a.z, a.slot[0], a.slot[1]) > 36) requestPath(st, a, nav, a.slot[0], a.slot[1]);
+            }
+            if (a.path.length) { followPath(st, a, WALK * 1.5, dt, nav); return; }
+            if (nav && dist2(a.x, a.z, a.slot[0], a.slot[1]) > 36 && !nav.lineClear(a.x, a.z, a.slot[0], a.slot[1])) {
+                if ((a.repath -= dt) <= 0) requestPath(st, a, nav, a.slot[0], a.slot[1]);
+                return;
             }
             if (moveToward(a, a.slot[0], a.slot[1], WALK * 1.3, dt, nav)) a.heading = turn(a.heading, Math.atan2(center.x - a.x, center.z - a.z), dt * 4);
             return;
@@ -601,7 +622,9 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
     if (target && a.weapon !== "fists") {
         const d = Math.sqrt(dist2(a.x, a.z, target.x, target.z));
         a.heading = turn(a.heading, Math.atan2(target.x - a.x, target.z - a.z), dt * 8);
-        if (d > w.range * 0.7) moveToward(a, target.x, target.z, RUN * 0.8, dt, nav);
+        // Soldiers press in to fighting distance; followers hold a little farther back.
+        const engage = w.range * (a.kind === "soldier" ? 0.35 : 0.55);
+        if (d > engage) moveToward(a, target.x, target.z, RUN * 0.8, dt, nav);
         else {
             // Strafe a little while shooting.
             const side = (a.id % 2 ? 1 : -1) * Math.sin(st.squadTimer + a.id);
@@ -612,14 +635,15 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
         if (a.cooldown <= 0 && a.reload <= 0 && d <= w.range) {
             if (a.mag <= 0) { a.reload = w.reload; return; }
             a.mag--;
-            a.cooldown = 1 / w.rate * (1 + r.next() * 0.6);
-            const hitP = a.accuracy * clamp(1 - d / w.range * 0.6, 0.15, 1) * (target.id === null && st.player.moving ? 0.75 : 1);
+            // People fire in short, aimed bursts, not at the weapon's cyclic rate.
+            a.cooldown = 1 / Math.min(w.rate, 1.6) * (1 + r.next() * 0.8);
+            const hitP = a.accuracy * 0.55 * clamp(1 - d / w.range * 0.8, 0.1, 1) * (target.id === null && st.player.moving ? 0.7 : 1);
             const hit = r.next() < hitP;
             const ty = target.y + 1.2 + (hit ? 0 : (r.next() - 0.5) * 1.5);
             const miss = hit ? 0 : 1.2;
             st.shots.push({ ax: a.x, ay: a.y + 1.4, az: a.z, bx: target.x + (r.next() - 0.5) * miss, by: ty, bz: target.z + (r.next() - 0.5) * miss, side: a.side, hit, age: 0 });
             if (hit) {
-                const dmg = w.damage * w.pellets * 0.6 * (0.8 + 0.4 * r.next());
+                const dmg = w.damage * Math.min(w.pellets, 3) * 0.45 * (0.8 + 0.4 * r.next());
                 if (target.id === null) damagePlayer(st, dmg);
                 else { const b = actorById(st, target.id); if (b) damageActor(st, b, dmg, a.side, false); }
             }
@@ -634,15 +658,16 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
         const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
         const tx = p.x - fx * 2.5 + fz * k * 1.4, tz = p.z - fz * 2.5 - fx * k * 1.4;
         const d = Math.sqrt(dist2(a.x, a.z, tx, tz));
-        if (d > 30 && (a.repath -= dt) <= 0) { requestPath(st, a, nav, tx, tz); a.repath = 2; }
+        if (d > 30 && (a.repath -= dt) <= 0 && requestPath(st, a, nav, tx, tz)) a.repath = 2;
         if (a.path.length && d > 8) followPath(st, a, RUN, dt, nav);
         else if (d > 1.2) moveToward(a, tx, tz, d > 6 ? RUN : WALK * 1.2, dt, nav);
         else { a.speed = 0; a.heading = turn(a.heading, p.heading, dt * 3); }
     } else {
         const p = st.player;
-        if ((a.repath -= dt) <= 0) { requestPath(st, a, nav, p.x, p.z); a.repath = 3; }
+        if ((a.repath -= dt) <= 0 && requestPath(st, a, nav, p.x, p.z)) a.repath = 4;
         if (!followPath(st, a, RUN * 0.7, dt, nav)) return;
-        moveToward(a, p.x, p.z, WALK, dt, nav);
+        // No path (yet): close in directly only when nothing stands in the way.
+        if (!nav || nav.lineClear(a.x, a.z, p.x, p.z)) moveToward(a, p.x, p.z, WALK, dt, nav);
     }
 }
 
@@ -672,6 +697,7 @@ export function endRally(st: StreetState): void {
 export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetContext, dt: number, r: Rng, heightAt: (x: number, z: number) => number): void {
     st.events.length = 0;
     st.pathBudget = 4;
+    st.fighterBudget = 2;
     if (st.alarm) { st.alarm.time -= dt; if (st.alarm.time <= 0) st.alarm = null; }
     for (const s of st.shots) s.age += dt;
     st.shots = st.shots.filter(s => s.age < 0.12);
