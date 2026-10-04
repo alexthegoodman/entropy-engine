@@ -11,16 +11,23 @@
 //!   budget and a triangle budget.
 //! - `elevation`: streamed, cached SRTM-derived elevation tiles (and local .hgt files).
 //! - `geo`: OpenStreetMap place search (Nominatim), to anchor Earth to real places.
+//! - `mvt`, `osm`: OpenStreetMap vector tiles (buildings and roads, from OpenFreeMap by default).
+//! - `city`: those buildings and roads placed on Earth's ground and streamed around the viewer:
+//!   a box per building and road ribbons as one mesh per tile, and placements the addon draws
+//!   its own models at (houses).
 //!
 //! The addon supplies the render pipeline and a "world" uniform buffer; each chunk gets its own
 //! small uniform (its placement relative to the render origin, see `ITEM_FLOATS`), so chunks stay
 //! exact near the camera however far the planet is from the world origin.
 
+pub mod city;
 pub mod elevation;
 pub mod geo;
 pub mod math;
 pub mod mesh;
+pub mod mvt;
 pub mod noise;
+pub mod osm;
 pub mod planet;
 pub mod quadtree;
 pub mod streamer;
@@ -33,6 +40,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use self::city::{CityConfig, CityEnv, CityLayer, HouseRule};
 use self::geo::Geocoder;
 use self::math::*;
 use self::planet::{ChunkDetail, Planet, PlanetDef};
@@ -72,6 +80,10 @@ pub struct QuadPlanetConfig {
     /// A Nominatim endpoint for place search (default the public OpenStreetMap one).
     #[serde(default)]
     pub geocoder_url: Option<String>,
+    /// OpenStreetMap buildings and roads on Earth (city.rs); on by default for an Earth planet
+    /// that isn't offline.
+    #[serde(default)]
+    pub city: Option<CityConfig>,
 }
 
 /// A live chunk's uniform buffer and where it sits.
@@ -92,6 +104,7 @@ pub struct QuadPlanetSystem {
     pub items: HashMap<String, ChunkItem>,
     pub geocoder: Geocoder,
     pub default_detail: Option<ChunkDetail>,
+    pub city: Option<CityLayer>,
 }
 
 #[derive(Serialize)]
@@ -117,6 +130,21 @@ impl QuadPlanetSystem {
         let mut lod = LodSettings::default();
         if let Some(s) = config.split_factor { lod.split_factor = s.clamp(0.25, 8.0); }
         if let Some(m) = config.min_level { lod.min_level = m; }
+        let city_config = config.city.clone().unwrap_or(CityConfig { enabled: true, tile_url: None, radius: None, max_altitude: None, house: None });
+        let city = if !city_config.enabled { None } else {
+            planets.iter().position(|p| p.elevation.is_some() && !p.is_offline()).map(|i| {
+                let p = &planets[i];
+                let env = CityEnv {
+                    center: p.def.center,
+                    radius: p.def.radius,
+                    has_sea: p.def.has_sea,
+                    spacing: p.finest_spacing(),
+                    elevation: p.elevation.clone().unwrap(),
+                    rule: HouseRule::default(),
+                };
+                CityLayer::new(i, &city_config, env, cache.clone())
+            })
+        };
         let budget = config.triangle_budget.map(|b| b.max(10_000.0) as usize).unwrap_or(DEFAULT_TRIANGLE_BUDGET);
         Ok(Self {
             id: config.id.unwrap_or_else(|| "quadplanet".into()),
@@ -129,6 +157,7 @@ impl QuadPlanetSystem {
             items: HashMap::new(),
             geocoder: Geocoder::new(config.geocoder_url),
             default_detail: config.default_chunk_detail,
+            city,
         })
     }
 

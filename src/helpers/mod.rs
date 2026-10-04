@@ -4,4 +4,7 @@ pub mod utilities;
 pub mod timelines;
 pub mod load_project;
 pub mod wasm_loaders;
-pub mod session_state;pub mod addon_store;
+pub mod session_state;
+pub mod addon_store;
+pub mod mesh_simplify;
+pub mod mesh_cache;

@@ -34,9 +34,22 @@
 // Material ids ride in uv.x's integer part and the chunk's quadtree level in uv.y's; terrain
 // chunks put their local grid position in the fractions (mesh.rs pack_chunk_uv) so the debug
 // view can color each level and outline each chunk.
+//
+// Earth's cities (city.rs, qp_city.ts) add:
+// - 11 / 6: house surfaces (matte paint, brick, roofing...); 6 is a house's foundation, whose
+//   bottom is pushed down by the item's tex_origin.w so it reaches the lowest ground under it.
+// - 7: see-through window glass (a full house, which has rooms to see): an ordered dither leaves
+//   the color's alpha share of the pane out, like Mesha's viewport.
+// - 8: building boxes (level of detail 2), one mesh per city tile. Each vertex knows its
+//   building's anchor: uv.x's fraction and uv.y's fraction hold the x/z offset from it
+//   ((f - 0.5) * 4000 m), the color's alpha the height above it; uv.y's integer part is 1 for a
+//   house. A house box within world.city.x of the camera is folded away: the house model is
+//   there instead. Walls get rows of windows from the height above the anchor.
+// - 10: roads, faded out past world.city.y and nudged toward the camera in depth so they stay
+//   over the ground they are draped on, even where a coarser terrain chunk is drawn.
 
-/** Floats in the World uniform (11 vec4). */
-export const WORLD_FLOATS = 44;
+/** Floats in the World uniform (12 vec4). */
+export const WORLD_FLOATS = 48;
 /** Floats in the per-object Item uniform: model matrix, tint, texture origin. */
 export const ITEM_FLOATS = 24;
 /** The texture noise repeats every this many meters (a power of two: see the shader). */
@@ -52,6 +65,8 @@ export interface WorldUniform {
     /** Outline every chunk (independent of the level tint). */
     debugOutlines?: boolean;
     planets: { center: [number, number, number]; radius: number; atmosphere: [number, number, number]; atmosphereHeight: number }[];
+    /** Cities: house boxes within `hideRadius` of the camera are folded away; roads end at `roadDistance`. */
+    city?: { hideRadius: number; roadDistance: number };
 }
 
 export function packWorld(w: WorldUniform): Float32Array {
@@ -65,6 +80,7 @@ export function packWorld(w: WorldUniform): Float32Array {
         out.set([...p.center, p.radius], 12 + i * 4);
         out.set([...p.atmosphere, p.atmosphereHeight], 12 + MAX_PLANETS * 4 + i * 4);
     }
+    out.set([w.city?.hideRadius ?? 0, w.city?.roadDistance ?? 3000, 0, 0], 12 + MAX_PLANETS * 8);
     return out;
 }
 
@@ -72,6 +88,11 @@ export const MATERIAL_PAINT = 3;
 export const MATERIAL_GLOW = 4;
 export const MATERIAL_GLASS = 5;
 export const MATERIAL_SKY = 9;
+export const MATERIAL_FOUNDATION = 6;
+export const MATERIAL_HOUSE = 11;
+export const MATERIAL_CLEAR_GLASS = 7;
+export const MATERIAL_BUILDING_BOX = 8;
+export const MATERIAL_ROAD = 10;
 
 export const QUADPLANET_SHADER = /* wgsl */ `
 struct Camera {
@@ -86,6 +107,7 @@ struct World {
     params: vec4<f32>,         // x = exposure, y = LOD debug tint, z = planet count, w = chunk outlines
     planet: array<vec4<f32>, ${MAX_PLANETS}>,     // center xyz (relative to the render origin), radius
     atmosphere: array<vec4<f32>, ${MAX_PLANETS}>, // color rgb, shell thickness
+    city: vec4<f32>,           // x = house box hide radius, y = road distance
 };
 @group(2) @binding(0) var<uniform> world: World;
 
@@ -111,6 +133,7 @@ struct VertexOutput {
     @location(3) color: vec4<f32>,
     @location(4) tex_pos: vec3<f32>,
     @location(5) view_w: f32,
+    @location(6) local_normal: vec3<f32>,
 };
 
 struct FragmentOutput {
@@ -140,8 +163,21 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         out.world_pos = w;
         out.normal = in.normal;
     } else {
-        let w = item.model * vec4<f32>(in.position, 1.0);
+        var pos = in.position;
+        if (material == 6 && pos.y < 0.01) {
+            // A house's foundation reaches down to the lowest ground under it.
+            pos.y = pos.y - item.tex_origin.w;
+        }
+        let w = item.model * vec4<f32>(pos, 1.0);
         clip = camera.view_proj * w;
+        if (material == 8 && in.tex_coords.y >= 1.0) {
+            // A house box: fold it away where the house model is drawn instead (see the top).
+            let anchor = in.position - vec3<f32>((fract(in.tex_coords.x) - 0.5) * 4000.0, in.color.a, (fract(in.tex_coords.y) - 0.5) * 4000.0);
+            let a = item.model * vec4<f32>(anchor, 1.0);
+            if (length(a.xyz - camera.view_pos.xyz) < world.city.x) {
+                clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+            }
+        }
         // Logarithmic depth (rewritten exactly per fragment); anything in front of the camera
         // stays inside the clip volume, however near or far.
         clip.z = log_depth(clip.w) * clip.w;
@@ -153,6 +189,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.tex_pos = in.position + item.tex_origin.xyz;
     out.uv = in.tex_coords;
     out.color = in.color;
+    out.local_normal = in.normal;
     return out;
 }
 
@@ -430,6 +467,10 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     // (Derivatives are taken here, in uniform control flow, for every material.)
     let footprint = max(length(fwidth(in.tex_pos)), 1.0e-4);
     let chunk_edge_fw = fwidth(in.uv);
+    // Building box windows: cells along the wall and up it (used by material 8).
+    let wall_dir = normalize(vec2<f32>(-in.local_normal.z, in.local_normal.x) + vec2<f32>(1.0e-6, 0.0));
+    let win_uv = vec2<f32>(dot(in.tex_pos.xz, wall_dir) / 3.0, in.color.a / 3.2);
+    let win_fw = max(fwidth(win_uv.x), fwidth(win_uv.y));
 
     if (material == 9) {
         let d = normalize(in.world_pos - cam);
@@ -446,6 +487,23 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         return out;
     }
     out.depth = log_depth(in.view_w);
+    if (material == 10) {
+        // Roads: gone past the road distance, and pulled toward the camera in depth (a few meters
+        // at a kilometer) so they stay over whatever terrain chunk is drawn under them.
+        if (in.view_w > world.city.y) { discard; }
+        out.depth = log_depth(max(in.view_w * 0.996 - 0.05, 0.01));
+    }
+    if (material == 7) {
+        // See-through window glass: leave the alpha share of the pane unpainted (4 x 4 ordered
+        // dither), less at grazing angles where glass mirrors more.
+        let vv = normalize(camera.view_pos.xyz - in.world_pos);
+        let fr = pow(1.0 - abs(dot(normalize(in.normal), vv)), 3.0);
+        let keep = 1.0 - in.color.a * (1.0 - fr);
+        let c = vec2<u32>(in.clip_position.xy);
+        let b2 = ((c.x ^ c.y) & 1u) * 2u + (c.y & 1u);
+        let b4 = b2 * 4u + (((c.x >> 1u) ^ (c.y >> 1u)) & 1u) * 2u + ((c.y >> 1u) & 1u);
+        if ((f32(b4) + 0.5) / 16.0 > keep) { discard; }
+    }
 
     let pi = planet_of(in.world_pos);
     let pc = world.planet[pi].xyz;
@@ -461,13 +519,13 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 
     if (material == 4) {
         col = base * (1.1 + item.tint.w * 2.2);
-    } else if (material == 5) {
+    } else if (material == 5 || material == 7) {
         let r = reflect(-v, n);
         let fres = 0.08 + 0.92 * pow(1.0 - max(dot(n, v), 0.0), 4.0);
         let sky_amb = atmo * (0.22 + 0.18 * max(dot(n, up), 0.0)) * day + vec3<f32>(0.012, 0.014, 0.02);
         col = base * 0.12 + sky_amb * 0.6 * fres + world.sun_color.rgb * pow(max(dot(r, sun), 0.0), 180.0) * 3.0;
     } else {
-        if (material == 3) { base = base * item.tint.rgb; }
+        if (material == 3 || material == 6 || material == 11) { base = base * item.tint.rgb; }
         var spec = 0.0;
         var shin = 16.0;
         var ao = 1.0;
@@ -492,6 +550,28 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             n = bump(n, waves.yzw * 0.12 + chop.yzw * 0.03);
             spec = 1.2;
             shin = 140.0;
+        } else if (material == 8) {
+            // Building boxes: rows of windows on the walls (from the height above the building's
+            // anchor and the distance along the wall), faded to their average once a window is
+            // under a couple of pixels.
+            let ln = normalize(in.local_normal);
+            if (abs(ln.y) < 0.5) {
+                let v = win_uv.y;
+                let fw = win_fw;
+                let cell = fract(win_uv);
+                let inside = step(0.22, cell.x) * step(cell.x, 0.78) * step(0.3, cell.y) * step(cell.y, 0.82) * step(1.0, v);
+                let glass = vec3<f32>(0.05, 0.065, 0.085);
+                let w = mix(inside, 0.29 * step(1.0, v), smoothstep(0.15, 0.4, fw));
+                base = mix(base, glass, w);
+                spec = 0.6 * w;
+                shin = 90.0;
+            }
+        } else if (material == 10) {
+            // Roads: a little grain and wear.
+            let g = fbm(t, 1.0 / 2.0, 4, 0.5, footprint);
+            base = base * (0.9 + 0.12 * g.x);
+            spec = 0.08;
+            shin = 20.0;
         } else if (material == 2) {
             // Ice: smooth sheets with pale fracture lines.
             let sheet = fbm(t, 1.0 / 16.0, 5, 0.5, footprint);
@@ -503,6 +583,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             shin = 40.0;
         }
         if (material == 3) { spec = 0.35; shin = 48.0; }
+        if (material == 6 || material == 11) { spec = 0.12; shin = 24.0; }
         let ndl = max(dot(n, sun), 0.0);
         // Sky light from above (colored by the atmosphere by day) and a little starlight at night.
         let sky_amb = atmo * (0.22 + 0.18 * max(dot(n, up), 0.0)) * day + vec3<f32>(0.012, 0.014, 0.02);
@@ -512,7 +593,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         let lit = ndl * smoothstep(-0.12, 0.2, dot(up, sun));
         col = base * (world.sun_color.rgb * lit * 1.35 + sky_amb * ao) + world.sun_color.rgb * s * smoothstep(-0.12, 0.2, dot(up, sun));
         // Ship and suit: a faint fill from the camera so a back-lit model still reads.
-        if (material == 3) { col = col + base * 0.14 * max(dot(n, v), 0.0); }
+        if (material == 3 || material == 6 || material == 8 || material == 11) { col = col + base * 0.14 * max(dot(n, v), 0.0); }
         if (material == 1) {
             let fres = pow(1.0 - max(dot(n, v), 0.0), 5.0);
             col = col + atmo * fres * 0.5 * day;

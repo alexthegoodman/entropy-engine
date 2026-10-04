@@ -762,6 +762,58 @@ function createAddonContextualAPI(resolveTarget) {
             destroy: (id) => ops.op_quadplanet_destroy(id),
             geocode: (id, query) => ops.op_quadplanet_geocode(id, query),
             placeName: (id, lat, lon) => ops.op_quadplanet_place_name(id, lat, lon).name ?? null,
+            buildings: (id, position, radius, options) => ops.op_quadplanet_buildings(id, {
+                position, radius, kind: options?.kind ?? null, limit: options?.limit ?? null,
+            }),
+        },
+        // Generated meshes kept on disk (src/deno/mesh_cache_ops.rs), like a shader cache: build
+        // a mesh once, `put` it, and `createMesh` spawns it from the cache from then on.
+        MeshCache: {
+            status: (namespace, key) => ops.op_mesh_cache_status(namespace, key),
+            put: (namespace, key, mesh, options) => {
+                const bytes = (data, Ctor) => {
+                    const typed = data instanceof Ctor ? data : new Ctor(data);
+                    return new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
+                };
+                ops.op_mesh_cache_put(
+                    namespace, key,
+                    bytes(mesh.vertexData, Float32Array), bytes(mesh.indexData, Uint32Array),
+                    mesh.meta === undefined ? "" : JSON.stringify(mesh.meta),
+                    options ?? null,
+                );
+            },
+            get: (namespace, key) => {
+                const v = ops.op_mesh_cache_vertices(namespace, key);
+                const i = ops.op_mesh_cache_indices(namespace, key);
+                if (!v || !i) return null;
+                const view = (u8, Ctor) => u8.byteOffset % 4 === 0
+                    ? new Ctor(u8.buffer, u8.byteOffset, u8.byteLength / 4)
+                    : new Ctor(u8.slice().buffer);
+                const meta = ops.op_mesh_cache_meta(namespace, key);
+                return { vertexData: view(v, Float32Array), indexData: view(i, Uint32Array), meta: meta ? JSON.parse(meta) : undefined };
+            },
+            meta: (namespace, key) => {
+                const meta = ops.op_mesh_cache_meta(namespace, key);
+                return meta ? JSON.parse(meta) : null;
+            },
+            info: (namespace, key) => {
+                const info = ops.op_mesh_cache_info(namespace, key);
+                return info ? { vertexCount: info.vertexCount, triangleCount: info.triangleCount, meta: info.meta ? JSON.parse(info.meta) : undefined } : null;
+            },
+            createMesh: (namespace, key, config) => ops.op_mesh_cache_create_mesh(resolveTarget(), namespace, key, {
+                id: config.id ?? null,
+                position: config.position ?? null,
+                rotation: config.rotation ?? null,
+                scale: config.scale ?? null,
+                pipelineId: config.pipelineId,
+                renderRole: config.renderRole ?? null,
+                bindings: config.bindings ?? null,
+            }),
+            remove: (namespace, key) => ops.op_mesh_cache_remove(namespace, key),
+            clear: (namespace) => ops.op_mesh_cache_clear(namespace),
+            prune: (namespace, maxBytes) => ops.op_mesh_cache_prune(namespace, maxBytes),
+            stats: (namespace) => ops.op_mesh_cache_stats(namespace),
+            failure: (namespace, key) => ops.op_mesh_cache_failure(namespace, key) ?? null,
         },
         Landscape: {
             create: (config) => ops.op_landscape_create(resolveTarget(), {
@@ -1315,6 +1367,7 @@ globalThis.Entropy = {
                 },
                 Landscape3D: contextualAPI.Landscape3D,
                 QuadPlanet: contextualAPI.QuadPlanet,
+                MeshCache: contextualAPI.MeshCache,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -2632,6 +2685,7 @@ globalThis.Entropy = {
     Landscape: globalContextualAPI.Landscape,
     Landscape3D: globalContextualAPI.Landscape3D,
     QuadPlanet: globalContextualAPI.QuadPlanet,
+    MeshCache: globalContextualAPI.MeshCache,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
     Texture: textureAPI,

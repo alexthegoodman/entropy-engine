@@ -115,9 +115,9 @@ export const PLANETS: PlanetDef[] = [
         atmosphereColor: [0.66, 0.84, 1.0], atmosphereHeight: 5000, gravity: 7.4, polarCaps: 1.0,
     },
     {
-        // Earth's heights are real (only rockHeight and detailHeight, the small-scale ground
-        // texture below what the data resolves, are used from the noise parameters). Its frame:
-        // +Y is the north pole, latitude 0 / longitude 0 faces +Z, east is +X.
+        // Earth's heights are the real elevation data and nothing else (none of the noise
+        // parameters raise its ground), so OpenStreetMap buildings and roads sit right on it.
+        // Its frame: +Y is the north pole, latitude 0 / longitude 0 faces +Z, east is +X.
         id: "earth", name: "Earth", center: [-18_000_000, 2_000_000, 9_000_000], radius: 6_371_000, seed: 1969,
         continentHeight: 1000, mountainHeight: 5000, hillHeight: 0, rockHeight: 10, detailHeight: 0.9, terraceStep: 0, continentFrequency: 1,
         hasSea: true, frozenSea: false,

@@ -18,6 +18,7 @@ use crate::heightfield_landscapes::QuadPlanet::elevation::{Access, Lookup};
 use crate::heightfield_landscapes::QuadPlanet::geo::Place;
 use crate::heightfield_landscapes::QuadPlanet::math::{dir_to_lat_lon, normalize, V3};
 use crate::heightfield_landscapes::QuadPlanet::planet::{ChunkDetail, SurfaceSample};
+use crate::heightfield_landscapes::QuadPlanet::city::{tile_uniform, CityStats, LiveTile, Placement};
 use crate::heightfield_landscapes::QuadPlanet::streamer::StreamStats;
 use crate::heightfield_landscapes::QuadPlanet::{ChunkItem, PlanetInfo, QuadPlanetConfig, QuadPlanetSystem, ITEM_FLOATS};
 
@@ -43,6 +44,19 @@ fn clear_all(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem) {
     }
 }
 
+fn drop_city_tile(ctx: &mut AddonContext, addon_name: &str, tile: LiveTile) {
+    ctx.pending_meshes.retain(|(name, config)| !(name == addon_name && config.id.as_deref() == Some(tile.mesh_id.as_str())));
+    ctx.pending_mesh_clears.push((addon_name.to_string(), tile.mesh_id));
+    ctx.buffers.remove(&tile.buffer_id);
+}
+
+/// Removes every city tile's mesh (they stream back in on the next update).
+fn clear_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem) {
+    let Some(city) = sys.city.as_mut() else { return };
+    let tiles: Vec<LiveTile> = city.live.drain().map(|(_, t)| t).collect();
+    for t in tiles { drop_city_tile(ctx, &sys.addon_name, t); }
+}
+
 /// Creates a planet system; returns its id. Re-creating an id (a hot reload) replaces it.
 #[op2]
 #[string]
@@ -50,7 +64,7 @@ pub fn op_quadplanet_create(state: &mut OpState, #[string] addon_name: String, #
     let ctx = state.try_borrow_mut::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
     let sys = QuadPlanetSystem::new(addon_name, config, ctx.data_dir.clone()).map_err(err)?;
     let id = sys.id.clone();
-    if let Some(mut old) = ctx.quadplanets.remove(&id) { clear_all(ctx, &mut old); }
+    if let Some(mut old) = ctx.quadplanets.remove(&id) { clear_all(ctx, &mut old); clear_city(ctx, &mut old); }
     ctx.quadplanets.insert(id.clone(), sys);
     Ok(id)
 }
@@ -71,7 +85,7 @@ pub struct UpdateArgs {
 /// places every chunk relative to `renderOrigin`.
 #[op2]
 #[serde]
-pub fn op_quadplanet_update(state: &mut OpState, #[string] id: String, #[serde] args: UpdateArgs) -> Result<StreamStats, JsErrorBox> {
+pub fn op_quadplanet_update(state: &mut OpState, #[string] id: String, #[serde] args: UpdateArgs) -> Result<UpdateOut, JsErrorBox> {
     let ctx = state.try_borrow_mut::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
     let mut sys = ctx.quadplanets.remove(&id).ok_or_else(|| err(format!("no QuadPlanet {id:?}")))?;
     let result = update(ctx, &mut sys, args);
@@ -79,7 +93,16 @@ pub fn op_quadplanet_update(state: &mut OpState, #[string] id: String, #[serde] 
     result
 }
 
-fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) -> Result<StreamStats, JsErrorBox> {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOut {
+    #[serde(flatten)]
+    stats: StreamStats,
+    /// Earth's buildings and roads (null without a city layer).
+    city: Option<CityStats>,
+}
+
+fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) -> Result<UpdateOut, JsErrorBox> {
     let Some(gpu) = ctx.gpu_resources.clone() else { return Err(err("GPU resources not available")) };
     let budget = |v: Option<f64>, d: f64| { let v = v.unwrap_or(d); if v.is_finite() { v.max(0.0) } else { f64::MAX } };
     let max_builds = budget(args.max_builds, 10.0).min(usize::MAX as f64) as usize;
@@ -91,6 +114,13 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         for item in sys.items.values() {
             if let Some(buffer) = ctx.buffers.get(&item.buffer_id) {
                 gpu.queue.write_buffer(buffer, 0, bytemuck::cast_slice(&sys.item_uniform(item)));
+            }
+        }
+        if let Some(city) = &sys.city {
+            for t in city.live.values() {
+                if let Some(buffer) = ctx.buffers.get(&t.buffer_id) {
+                    gpu.queue.write_buffer(buffer, 0, bytemuck::cast_slice(&tile_uniform(t.origin, t.basis, origin)));
+                }
             }
         }
     }
@@ -135,7 +165,86 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         let item = sys.items.remove(&key);
         drop_chunk(ctx, &sys.addon_name, &key, item);
     }
-    Ok(out.stats)
+    let city = update_city(ctx, sys, &gpu, args.viewer, allowed);
+    Ok(UpdateOut { stats: out.stats, city })
+}
+
+/// Streams Earth's city tiles around the viewer: each finished tile becomes one mesh (its
+/// buildings' boxes and its roads) with a uniform placing its frame relative to the render origin.
+fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<crate::core::gpu_resources::GpuResources>, viewer: V3, allowed: bool) -> Option<CityStats> {
+    let render_origin = sys.render_origin;
+    let city = sys.city.as_mut()?;
+    let out = city.update(viewer);
+    for t in out.destroyed { drop_city_tile(ctx, &sys.addon_name, t); }
+    for (tile, built) in out.created {
+        let mesh_id = format!("{}:city:{}:{}:{}", sys.id, tile.z, tile.x, tile.y);
+        let buffer_id = format!("{mesh_id}:item");
+        let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("QuadPlanet city tile {}/{}/{}", tile.z, tile.x, tile.y)),
+            size: (ITEM_FLOATS * 4) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&tile_uniform(built.origin, built.basis, render_origin)));
+        ctx.buffers.insert(buffer_id.clone(), Arc::new(buffer));
+        let triangles = built.indices.len() / 3;
+        if allowed && triangles > 0 {
+            ctx.pending_meshes.push((sys.addon_name.clone(), MeshConfig {
+                id: Some(mesh_id.clone()),
+                position: [0.0; 3],
+                rotation: None,
+                scale: None,
+                vertex_data: built.vertices,
+                index_data: built.indices,
+                pipeline_id: sys.pipeline_id.clone(),
+                render_role: None,
+                instance_count: Some(1),
+                bindings: Some(vec![
+                    BindingConfig { group: 2, binding: 0, resource: ResourceType::Buffer { id: sys.world_buffer_id.clone() } },
+                    BindingConfig { group: 2, binding: 1, resource: ResourceType::Buffer { id: buffer_id.clone() } },
+                ]),
+                physics: None,
+                behavior_id: None,
+                yumon_id: None,
+                is_npc: None,
+                player: None,
+            }));
+        }
+        city.live.insert(tile, LiveTile { mesh_id, buffer_id, origin: built.origin, basis: built.basis, placements: built.placements, triangles, roads: built.roads });
+    }
+    Some(city.stats())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildingsArgs {
+    position: V3,
+    radius: f64,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    limit: Option<f64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearBuilding {
+    distance: f64,
+    #[serde(flatten)]
+    placement: Placement,
+}
+
+/// Earth's buildings (from the city tiles streamed so far) within `radius` of `position`, nearest
+/// first: where each stands, which way it faces, its size and the ground under it.
+#[op2]
+#[serde]
+pub fn op_quadplanet_buildings(state: &mut OpState, #[string] id: String, #[serde] args: BuildingsArgs) -> Result<Vec<NearBuilding>, JsErrorBox> {
+    with_system(state, &id, |sys| {
+        let Some(city) = &sys.city else { return Ok(Vec::new()) };
+        let limit = args.limit.filter(|l| l.is_finite()).map(|l| l.max(0.0) as usize).unwrap_or(usize::MAX);
+        Ok(city.near(args.position, args.radius.max(0.0), args.kind.as_deref(), limit).into_iter()
+            .map(|(distance, p)| NearBuilding { distance, placement: p.clone() }).collect())
+    })
 }
 
 #[derive(Serialize)]
@@ -193,6 +302,19 @@ pub struct SystemInfo {
     min_level: u32,
     triangle_budget: usize,
     stats: StreamStats,
+    city: Option<CityInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CityInfo {
+    planet: String,
+    radius: f64,
+    max_altitude: f64,
+    stats: CityStats,
+    house_rule: crate::heightfield_landscapes::QuadPlanet::city::HouseRule,
+    /// The last few tiles that couldn't be loaded, and why.
+    errors: Vec<String>,
 }
 
 #[op2]
@@ -204,6 +326,14 @@ pub fn op_quadplanet_info(state: &mut OpState, #[string] id: String) -> Result<S
         min_level: sys.streamer.lod.min_level,
         triangle_budget: sys.streamer.triangle_budget,
         stats: sys.streamer.stats().clone(),
+        city: sys.city.as_ref().map(|c| CityInfo {
+            planet: sys.planets[c.planet].def.name.clone(),
+            radius: c.radius,
+            max_altitude: c.max_altitude,
+            stats: c.stats(),
+            house_rule: c.env().rule.clone(),
+            errors: c.last_errors.clone(),
+        }),
     }))
 }
 
@@ -257,6 +387,7 @@ pub fn op_quadplanet_clear(state: &mut OpState, #[string] id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if let Some(mut sys) = ctx.quadplanets.remove(&id) {
             clear_all(ctx, &mut sys);
+            clear_city(ctx, &mut sys);
             ctx.quadplanets.insert(id, sys);
         }
     }
@@ -265,7 +396,7 @@ pub fn op_quadplanet_clear(state: &mut OpState, #[string] id: String) {
 #[op2(fast)]
 pub fn op_quadplanet_destroy(state: &mut OpState, #[string] id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        if let Some(mut sys) = ctx.quadplanets.remove(&id) { clear_all(ctx, &mut sys); }
+        if let Some(mut sys) = ctx.quadplanets.remove(&id) { clear_all(ctx, &mut sys); clear_city(ctx, &mut sys); }
     }
 }
 

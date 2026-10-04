@@ -166,9 +166,10 @@ at the equator, SRTM's own resolution; `maxZoom` goes to 15).
 - **SRTM files.** `srtmDir` points at a directory of SRTM `.hgt` files (`N45E007.hgt`, 1 or 3
   arc-seconds, as distributed by USGS and mirrors); wherever it has a file, chunks fine enough to
   show its resolution read it instead of the tiles.
-- **Small-scale ground.** The data stops at ~20 m and the ground you walk on needs detail down to
-  ~0.3 m, so the procedural rock, boulder, scree and bump layers go on top (at a few meters of
-  amplitude; steep slopes from the data's own gradient are rocky). Biome colors come from
+- **Ground.** Earth's ground is the elevation data and nothing else: unlike the procedural
+  planets, no rock, boulder, scree or bump layers are added, so OpenStreetMap buildings and roads
+  (see [Cities](#cities)) sit exactly on it. Steep slopes from the data's own gradient are
+  colored and textured as rock. Biome colors come from
   latitude and real elevation: forest and grassland, the subtropical desert belts, tundra, a snow
   line from ~5 km in the tropics down to sea level at the poles, and pack ice on polar seas.
 
@@ -188,8 +189,85 @@ Nominatim asks for at most one request a second, an identifying User-Agent and c
 are done, and `geocoderUrl` points at your own instance for heavier use.
 
 Attribution: elevation from Terrain Tiles (SRTM, GMTED, NED, ETOPO1 and others; see the
-dataset's attribution page), places © OpenStreetMap contributors (ODbL). The HUD shows both on
+dataset's attribution page), places, buildings and roads © OpenStreetMap contributors (ODbL),
+vector tiles by OpenFreeMap. The HUD shows both on
 Earth.
+
+## Cities
+
+On Earth, the buildings and roads around you are the real ones, from OpenStreetMap, and houses
+are Mesha's procedural [House](MESHA_CATALOG.md) - full models with rooms close by. Nothing is
+prepared ahead: everything streams in around you and is cached as you go.
+
+![A street in Levittown, New York: OpenStreetMap houses as Mesha houses](../public/quadplanet-levittown-street.png)
+
+**The map data** (`osm.rs`, `mvt.rs`). [OpenFreeMap](https://openfreemap.org) serves free
+OpenMapTiles-schema vector tiles of the whole planet (no key; commercial use allowed with
+attribution, shown in the HUD). Its TileJSON names the current weekly build's tile URL; any other
+OpenMapTiles-schema source works (`city.tileUrl`: a TileJSON URL or a `{z}/{x}/{y}` template).
+The city reads zoom 14, the schema's most detailed: ~2.4 km tiles, ~0.6 m precision. A tile is
+50-700 KB, fetched once and kept for good under `<cache>/osm/14/x/y.pbf`, so a place stays as you
+first saw it. From each tile come building footprints (`render_height`, `render_min_height`,
+`colour`; outlines drawn by their parts are skipped; at zoom 14 equal buildings are merged into
+multipolygons, so every exterior ring is one building, and a building on a tile edge belongs to
+the tile its centroid is in) and road center lines with a class (motorway ... path, rail;
+tunnels skipped; lines clipped to the tile).
+
+**Placing them** (`city.rs`). Two worker threads take the nearest wanted tile, decode it, and
+place everything on the same ground the terrain is drawn from (Earth's ground is the elevation
+data alone, see above). A tile whose ground is still downloading waits and is retried, like a
+terrain chunk. Each footprint gets the minimum-area rectangle around it (non-rectangular
+footprints are approximated by it for now), the lowest and highest ground under it (nine
+samples), and a key and seed hashed from its position, so the same building is the same on every
+visit. Buildings whose rectangle fits the house model's size range (the house rule, which the
+addon derives from House's own parameter ranges: about 7.7-18 m wide, 6-16 m deep, up to 13.5 m
+high, at least 40 m²) are **houses**, turned to face the nearest street (or with the long side to
+the front). Tiles within 3 km load (`city.radius`), below 8 km altitude (`city.maxAltitude`).
+
+**Level of detail.**
+
+| LOD | Range (default) | What | Made by |
+|---|---|---|---|
+| 0 | the 8 nearest houses within 45 m | the full Mesha house: rooms, stairs, doors, see-through windows (50-350k triangles) | `qp_city.ts`, cached |
+| 1 | houses within 350 m | the same house's exterior, simplified to 5 cm on a Rust thread (5-15k triangles) | `qp_city.ts` + `Entropy.MeshCache`, cached |
+| 2 | every building, out to the city radius | a box per building with rows of windows in the shader; roads as ribbons | `city.rs`, one mesh per tile |
+
+All houses together stay within a triangle budget (3M by default; the LOD radii are where
+houses stop, the budget can stop them sooner). A house's box is folded away by the shader inside
+`hideRadius`, which the addon keeps at the nearest house it isn't drawing yet, so a box only goes
+once its house is there. A house's floor sits just above the highest ground under it, and its
+foundation reaches down to the lowest (the shader stretches the foundation's bottom by the
+house's skirt depth). Roads float 12 cm over the ground, end at 2.5 km, and are nudged toward the
+camera in depth so a coarser terrain chunk under them doesn't swallow them.
+
+**House meshes.** A placement's house parameters are deterministic: its seed picks one of
+House's six presets as the style, its footprint is rounded to half meters, and its storeys come
+from the OSM height (one storey where the depth is too shallow for a stair). So a street of
+similar houses shares a handful of meshes. Making one is a Mesha evaluation (10-150 ms, on the
+addon thread: the script runtime has no workers), at most one per frame, nearest first; LOD 1 is
+then simplified on a Rust thread, and LOD 0 (megabytes, with every room) is only kept for houses
+someone came close to. Both go to `Entropy.MeshCache` (below), so the next time - this session or
+any later one - a house costs a disk read. The cache is pruned to 4 GB, least recently used first.
+
+### Entropy.MeshCache
+
+A disk cache of generated meshes for any addon, like a shader cache (`src/helpers/mesh_cache.rs`,
+`src/deno/mesh_cache_ops.rs`): build a mesh the first time it is wanted and `put` it; from then
+on `createMesh` spawns it from the cache on the Rust side, without the geometry crossing into
+JavaScript. Meshes are in the engine's packed `mesh` layout (12 floats a vertex) under a
+namespace (a folder of `<data dir>/mesh-cache/`) and a key; put everything that identifies the
+geometry in the key (generator and version, parameters, LOD), so a changed generator just misses.
+
+| Call | What it does |
+|---|---|
+| `put(ns, key, { vertexData, indexData, meta? }, { simplify?, background? })` | Stores a mesh. `simplify: { maxError, minFeature?, targetRatio? }` makes a level of detail first, on a background thread: per surface (vertex color and material id), vertices welded, parts under `minFeature` meters dropped, meshoptimizer to `maxError` meters, flat shaded. |
+| `status(ns, key)` | `"ready"`, `"pending"` (a background put is still working) or `"missing"`. |
+| `createMesh(ns, key, { id, pipelineId, bindings, ... })` | Spawns it like `Entropy.Model.createMesh`; false if it isn't cached. |
+| `info(ns, key)` / `meta(ns, key)` / `get(ns, key)` | Size and metadata / metadata / the geometry itself as typed arrays. |
+| `prune(ns, maxBytes)` / `clear(ns)` / `remove(ns, key)` / `stats(ns)` / `failure(ns, key)` | Housekeeping; why a background put failed. |
+
+Files are named by a stable hash of the key and hold the key, so a collision is a miss; writes go
+through a temporary file and a rename. Recently used meshes stay decoded in memory (512 MB).
 
 ## Rendering at planet scale
 
@@ -236,13 +314,14 @@ Engine support added for this:
 
 | Call | What it does |
 |---|---|
-| `create({ id?, planets, defaultChunkDetail?, pipelineId, worldBufferId, splitFactor?, minLevel?, triangleBudget?, cacheDir?, geocoderUrl? })` | A planet system (re-creating an id, as a hot reload does, replaces it). Each chunk mesh uses `pipelineId`, with `worldBufferId` at group 2 binding 0 and its own 24-float uniform (model matrix, tint, texture origin) at binding 1. |
+| `create({ id?, planets, defaultChunkDetail?, pipelineId, worldBufferId, splitFactor?, minLevel?, triangleBudget?, cacheDir?, geocoderUrl?, city? })` | A planet system (re-creating an id, as a hot reload does, replaces it). Each chunk mesh uses `pipelineId`, with `worldBufferId` at group 2 binding 0 and its own 24-float uniform (model matrix, tint, texture origin) at binding 1. |
 | `update(id, viewer, { renderOrigin?, maxBuilds?, maxMs? })` | Streams around `viewer` within the budget (`Infinity` for everything now), places chunks relative to `renderOrigin`, and returns the stream stats (live, pending, waitingForData, triangles, splitFactor, per planet counts and depths...). |
 | `sample(id, planet, direction, { wait?, spacing? })` | The ground along a direction: `terrain`, `surface`, `sea`, `rock`, `radius` (center to surface), `lat`, `lon`. Finest detail unless `spacing`; `wait` blocks the calling thread until missing elevation tiles load - a one-off tooling/test knob, never used by the game loop, which always falls back to coarser data instead. |
 | `normal(id, planet, direction, step?)` / `findLandingSite(id, planet, preferred)` | Surface normal; a flat dry spot for the ship near `preferred` (non-blocking, same coarser-data fallback). |
 | `info(id)` / `configure(id, { planet?, chunkDetail?, splitFactor?, minLevel?, triangleBudget? })` | Per-planet levels, vertices per level, relief and elevation tile counts; change detail (rebuilds the terrain) or LOD settings. |
 | `clear(id)` / `destroy(id)` | Drop every chunk (they stream back) / the whole system. |
 | `geocode(id, query)` / `placeName(id, lat, lon)` | OpenStreetMap place search (blocks for the request); the name at a coordinate once looked up in the background, else null. |
+| `buildings(id, position, radius, { kind?, limit? })` | Earth's OpenStreetMap buildings near a point, nearest first: anchor, axes (right, up, forward: the front faces the street), width, depth, height, the ground under it, `kind` ("house" or "box"), key and seed. `city: { enabled?, tileUrl?, radius?, maxAltitude?, house? }` in `create` configures them; `update` reports `city` stats. |
 
 The app points its simulation at it through a `TerrainBackend` (`qp_planet.ts`), so the walker's
 feet meet exactly the ground that is drawn.
@@ -289,8 +368,10 @@ longitude, elevation and place name; chunk counts and depth per planet, elevatio
 `exposure`, `chunkDetail`, `splitFactor`, `triangleBudget`), `quadplanet_interact` (E),
 `quadplanet_autopilot` (`target`), `quadplanet_goto` (`place`, or `lat` and `lon`; `mode` fly or
 teleport; `keepSun`), `quadplanet_settle` (stream until nothing is pending, elevation downloads
-included, up to `timeoutMs`: for reproducible captures), and `quadplanet_view` (`orbit` /
-`overhead` / `follow`).
+included, the city's tiles and its house meshes too, up to `timeoutMs`: for reproducible
+captures), `quadplanet_city` (the city's tiles, buildings and houses per LOD, the house mesh
+cache and the nearest buildings; sets `lod0Radius`, `maxLod0`, `lod1Radius`, `triangleBudget`;
+`clearHouseCache`), and `quadplanet_view` (`orbit` / `overhead` / `follow`).
 
 ## Tests
 
@@ -300,7 +381,17 @@ included, up to `timeoutMs`: for reproducible captures), and `quadplanet_view` (
   LOD selection, the triangle budget, streaming that never drops drawn ground, band limiting,
   landing sites, noise and terrain values matching the TypeScript originals, and Earth: the
   built-in tile's continents, zoom selection, bicubic continuity across tile seams, and chunks
-  waiting for tiles in flight.
+  waiting for tiles in flight. Cities: vector tile decoding, tile coordinates, line clipping,
+  edge buildings kept in one tile, the TileJSON URL; rectangle fitting, houses facing the street
+  and standing on the ground, deterministic keys, every box and road triangle facing out or up,
+  box vertices encoding their anchor, waiting for elevation, and streaming tiles around a viewer
+  and querying them. `cargo test --release --lib mesh_` covers the mesh cache (disk round trip,
+  bad input, background simplification, pruning) and the simplifier.
+- `npm run test:quadplanet` also runs `tests/quadplanet_city.test.ts`, which covers the houses: parameters from a placement
+  (deterministic, rounded, storeys), the floor and foundation on sloping ground, LOD 0 / LOD 1
+  packing and materials, and the streaming against a fake engine: nearest first, one evaluation
+  a frame, shared meshes, boxes hidden only behind drawn houses, LOD swaps, render origin moves,
+  the triangle budget, and LOD 0 only written for houses someone came close to.
 - `npm run test:quadplanet` (`tests/quadplanet.test.ts`) covers the simulation over a stand-in
   terrain: walking on the far side of a planet, boarding, autopilot flights to every planet and to
   a chosen place on Earth, latitude/longitude, landmarks, and the render data.
@@ -312,7 +403,9 @@ included, up to `timeoutMs`: for reproducible captures), and `quadplanet_view` (
   Matterhorn's latitude, longitude and elevation) and the captured pixels (a blue sky over green
   ground, black space between planets, orange Ember, several LOD colors, ice on Glacia, Earth's
   oceans and continents). `ENTROPY_QUADPLANET_BDD_FEATURE=<file>` plays another feature file
-  instead, without rebuilding (ad-hoc captures of other places).
+  instead, without rebuilding (ad-hoc captures of other places);
+  `tests/features/quadplanet_city_live.feature` is a street in Levittown, New York, its houses
+  and the city around it from overhead.
 
 ## Limits
 
@@ -328,3 +421,9 @@ included, up to `timeoutMs`: for reproducible captures), and `quadplanet_view` (
 - Earth doesn't rotate; the sun moves instead when you go somewhere (see Places).
 - There are no cast shadows, and the ship lands only where the autopilot finds flat ground or
   where you set it down.
+- Cities: only the House model so far, so only house-sized buildings (most of a suburb or a
+  village, under a tenth of a city center) become models; everything else stays a box. Every
+  footprint is drawn as its fitted rectangle. Nothing collides yet: you walk through buildings
+  (the walker only knows the ground), so the interiors can be seen but not walked. Bridges lie on
+  the ground. Making a house the first time is a 10-150 ms hitch (no script workers); cached
+  houses aren't.

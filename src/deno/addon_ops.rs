@@ -55,7 +55,7 @@ use base64::Engine as _;
 /// etc.) should read and write under. An embedded app's dev-controlled `data_dir` takes
 /// priority; Studio's `project_id`-keyed CommonOS project folder is the fallback for the
 /// editor/game/game_addon binaries, which never set `data_dir`.
-fn resolve_addon_root(ctx: &AddonContext) -> Option<PathBuf> {
+pub(crate) fn resolve_addon_root(ctx: &AddonContext) -> Option<PathBuf> {
     if let Some(dir) = &ctx.data_dir {
         std::fs::create_dir_all(dir).ok();
         Some(dir.clone())

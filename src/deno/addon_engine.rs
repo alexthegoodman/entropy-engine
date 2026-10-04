@@ -61,7 +61,10 @@ use crate::deno::matter_ops::{
 use crate::deno::quadplanet_ops::{
     op_quadplanet_create, op_quadplanet_update, op_quadplanet_sample, op_quadplanet_normal, op_quadplanet_landing_site,
     op_quadplanet_info, op_quadplanet_configure, op_quadplanet_clear, op_quadplanet_destroy, op_quadplanet_geocode,
-    op_quadplanet_place_name,
+    op_quadplanet_place_name, op_quadplanet_buildings,
+};
+use crate::deno::mesh_cache_ops::{
+    op_mesh_cache_status, op_mesh_cache_put, op_mesh_cache_meta, op_mesh_cache_info, op_mesh_cache_vertices, op_mesh_cache_indices, op_mesh_cache_create_mesh, op_mesh_cache_remove, op_mesh_cache_clear, op_mesh_cache_prune, op_mesh_cache_stats, op_mesh_cache_failure,
 };
 use crate::deno::water_ops::{
     op_water_info, op_water_remove, op_audio_water_prepare, op_audio_play_water_on_track, op_audio_water_remove,
@@ -531,6 +534,19 @@ extension!(
         op_quadplanet_destroy,
         op_quadplanet_geocode,
         op_quadplanet_place_name,
+        op_quadplanet_buildings,
+        op_mesh_cache_status,
+        op_mesh_cache_put,
+        op_mesh_cache_meta,
+        op_mesh_cache_info,
+        op_mesh_cache_vertices,
+        op_mesh_cache_indices,
+        op_mesh_cache_create_mesh,
+        op_mesh_cache_remove,
+        op_mesh_cache_clear,
+        op_mesh_cache_prune,
+        op_mesh_cache_stats,
+        op_mesh_cache_failure,
         op_yumon_brain_create,
         op_yumon_brain_observe,
         op_yumon_brain_infer,
