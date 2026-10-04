@@ -1577,6 +1577,7 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
                             Button::LeftThumb => "LeftThumb",
+                            Button::RightThumb => "RightThumb",
                             Button::RightTrigger2 => "RightTrigger2",
                             Button::LeftTrigger2 => "LeftTrigger2",
                             Button::LeftTrigger => "LeftTrigger",
@@ -1604,6 +1605,7 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
                             Button::LeftThumb => "LeftThumb",
+                            Button::RightThumb => "RightThumb",
                             Button::RightTrigger2 => "RightTrigger2",
                             Button::LeftTrigger2 => "LeftTrigger2",
                             Button::LeftTrigger => "LeftTrigger",
@@ -1615,6 +1617,14 @@ impl ApplicationHandler<UserEvent> for Application {
                                 if let Some(editor) = window.pipeline.export_editor.as_mut() {
                                     crate::handlers::handle_gamepad_button(editor, button_name, false);
                                 }
+                            }
+                        }
+                    },
+                    gilrs::EventType::Disconnected => {
+                        if let Some(editor) = self.windows.values_mut().next().and_then(|w| w.pipeline.export_editor.as_mut()) {
+                            crate::handlers::handle_gamepad_input(editor, (0.0, 0.0), (0.0, 0.0));
+                            for button in ["South", "East", "North", "West", "Start", "LeftThumb", "RightThumb", "RightTrigger2", "LeftTrigger2", "LeftTrigger", "RightTrigger", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"] {
+                                crate::handlers::handle_gamepad_button(editor, button, false);
                             }
                         }
                     },

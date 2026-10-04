@@ -30,6 +30,8 @@ declare global {
     buildMs: number;
     /** Earth's OpenStreetMap city tiles (null without one). */
     city?: QuadPlanetCityStats | null;
+    /** Populated places discovered in the currently streamed OpenStreetMap tiles. */
+    settlements?: Array<{ name: string; kind: string; lat: number; lon: number }>;
   }
 
   interface QuadPlanetCityStats {

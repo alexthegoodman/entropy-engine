@@ -1745,6 +1745,8 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
         }
     }
 
+    if state.addon_engine.selected_addon_name.as_deref() == Some("Allegiance") { return; }
+
     let renderer_state = match state.renderer_state.as_mut() {
         Some(rs) => rs,
         None => return,
@@ -1829,7 +1831,6 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
 }
 
 pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
-    println!("handle_gamepad_button {:?}", button.to_string());
 
     // Push event to Addons
     {

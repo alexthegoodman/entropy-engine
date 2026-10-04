@@ -3,7 +3,7 @@
 // crackdowns, victory). The street layer (speeches, pedestrians, combat) has its own tests in
 // allegiance_street.test.ts; the live tier is tests/features/allegiance_live.feature.
 import { describe, expect, it } from "vitest";
-import { REGIONS, WORLD_POPULATION, PARTY, UNDECIDED, BLOCS, SCHEMES, regionDefById } from "../src/games/allegiance/al_data";
+import { REGIONS, WORLD_POPULATION, PARTY, UNDECIDED, BLOCS, SCHEMES, countryOf, regionDefById } from "../src/games/allegiance/al_data";
 import {
     newCampaign, regionAt, neighbors, normalizeSupport, shiftSupport, partyShare, totalMembers, dateLabel, karmaTitle,
     type Campaign,
@@ -81,8 +81,8 @@ describe("a new campaign", () => {
         expect(dateLabel(31)).toBe("1 APR 2100");
     });
 
-    it("lets the Concordat govern most of the world and the Vanguard its juntas", () => {
-        expect(c.regions.cairo.governor).toBe("vanguard");
+    it("assigns country governments across their regional territories", () => {
+        for (const d of REGIONS) expect(c.regions[d.id].governor).toBe(countryOf(d).ruler);
         const concordat = Object.values(c.regions).filter(r => r.governor === "concordat").length;
         expect(concordat).toBeGreaterThan(REGIONS.length / 2);
         expect(c.regions["new-york"].garrison).toBeGreaterThan(c.regions.auckland.garrison);

@@ -211,3 +211,24 @@ fn allegiance_travel_live_feature() {
     assert!(paris > 0.7, "Paris is drawn ({paris:.3})");
     println!("Allegiance travel live BDD: {}", root.display());
 }
+
+#[test]
+fn allegiance_iteration1_live_feature() {
+    let (result, artifacts, _) = run("iteration1", Some("tests/features/allegiance_iteration1_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 5);
+    assert_eq!(s[0]["mode"], "setup", "controller opens New Campaign");
+    assert_eq!(s[1]["mode"], "play");
+    assert_eq!(s[1]["region"]["name"], "Levittown");
+    assert_eq!(s[1]["region"]["country"], "The Workers States of America");
+    assert!(s[1]["settlements"].as_array().unwrap().iter().any(|d| d["name"] == "Levittown"));
+    assert_ne!(s[1]["player"]["yaw"], s[2]["player"]["yaw"], "right stick turns the player camera");
+    assert_eq!(s[3]["mode"], "console");
+    assert_eq!(s[3]["tab"], "territory", "shoulders navigate console tabs");
+    assert_eq!(s[4]["region"]["id"], s[1]["region"]["id"], "save restores independent hometown identity");
+    assert_eq!(s[4]["mode"], "play");
+    let traffic = s[1]["traffic"]["count"].as_u64().unwrap();
+    assert!(traffic <= 12);
+    if s[1]["terrain"]["city"]["houses"].as_u64().unwrap_or(0) > 50 { assert!(traffic > 0); }
+    assert_eq!(artifacts.len(), 4);
+}

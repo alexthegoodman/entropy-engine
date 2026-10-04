@@ -124,3 +124,17 @@ export function buildRing(radius: number, color: RGB): ModelMesh {
 }
 
 export { buildSky, type ModelMesh };
+
+/** A cabin-sized electric multicopter with four large horizontal rotors. */
+export function buildFlyingCar(): ModelMesh {
+    const m = new MeshBuilder();
+    m.ellipsoid([0, 0.35, 0], [1, 0.55, 1.8], [0.62, 0.66, 0.72], MATERIAL_PAINT, 12, 6);
+    m.ellipsoid([0, 0.7, -0.4], [0.85, 0.45, 1.1], [0.12, 0.32, 0.44], MATERIAL_PAINT, 12, 6);
+    for (const x of [-1.8, 1.8]) for (const z of [-1.5, 1.5]) {
+        m.box([x / 2, 0.1, z / 2], [Math.abs(x) / 2, 0.09, 0.1], [0.22, 0.24, 0.27], MATERIAL_PAINT);
+        m.ellipsoid([x, 0.15, z], [0.95, 0.07, 0.95], [0.18, 0.2, 0.23], MATERIAL_PAINT, 16, 4);
+        m.ellipsoid([x, 0.24, z], [0.82, 0.015, 0.82], [0.45, 0.56, 0.61], MATERIAL_PAINT, 16, 4);
+        m.box([x, -0.04, z], [0.16, 0.04, 0.16], [0.15, 0.75, 0.95], MATERIAL_GLOW);
+    }
+    return m.build();
+}

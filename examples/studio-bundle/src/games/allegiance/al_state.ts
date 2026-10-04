@@ -3,7 +3,7 @@
 
 import {
     BLOCS, FACTIONS, FIRST_NAMES, IDEOLOGIES, LAST_NAMES, PARTY, PARTY_COLORS, REGIONS, RIVALS, TOPIC_IDS, UNDECIDED,
-    blocById, type GovType, type RGBA, type SkillId, type RegionDef, regionDefById,
+    countryOf, registerSettlement, blocById, type GovType, type RGBA, type SkillId, type RegionDef, regionDefById,
 } from "./al_data";
 import { type Rng, makeRng, range, hashString, clamp01 } from "./al_rng";
 
@@ -127,6 +127,8 @@ export interface Campaign {
     members: Member[];
     nextMemberId: number;
     regions: Record<string, RegionState>;
+    /** Discovered settlements persist with their independent support, governments and armies. */
+    settlements?: RegionDef[];
     schemes: ActiveScheme[];
     nextSchemeId: number;
     news: NewsItem[];
@@ -146,6 +148,7 @@ export interface NewCampaignOptions {
     /** Region id to start in. */
     spawn?: string;
     /** Exact start point (defaults to the spawn region's city). */
+    hometown?: { name: string; lat: number; lon: number; kind?: string };
     lat?: number;
     lon?: number;
 }
@@ -179,12 +182,7 @@ function initialRegion(def: RegionDef, rng: Rng): RegionState {
     const gov: GovType = def.gov ?? blocById(def.bloc).gov;
     const support: Record<string, number> = { [PARTY]: 0, [UNDECIDED]: 0 };
     for (const r of RIVALS) support[r] = 0.05 + topicFit(def, r) * range(rng, 0.05, 0.22);
-    // Who governs: the Concordat runs most of the world; juntas belong to the Vanguard, some
-    // oligarchies to the Free Current. The governor starts with the strongest base.
-    let governor = "concordat";
-    if (gov === "junta") governor = "vanguard";
-    else if (gov === "oligarchy" && rng.next() < 0.4) governor = "current";
-    else if (gov === "democracy" && rng.next() < 0.18) governor = rng.next() < 0.5 ? "verdant" : "current";
+    const governor = countryOf(def).ruler;
     support[governor] += range(rng, 0.18, 0.3);
     support[UNDECIDED] = range(rng, 0.25, 0.4);
     normalizeSupport(support);
@@ -209,7 +207,13 @@ export function angularDistance(lat1: number, lon1: number, lat2: number, lon2: 
 export const EARTH_RADIUS_KM = 6371;
 
 /** The region a point on Earth belongs to: the one whose city is nearest. */
-export function regionAt(lat: number, lon: number): RegionDef {
+export function regionAt(lat: number, lon: number, c?: Campaign | null): RegionDef {
+    let local: RegionDef | undefined, localDistance = Infinity;
+    for (const d of c?.settlements ?? []) {
+        const km = angularDistance(lat, lon, d.lat, d.lon) * EARTH_RADIUS_KM;
+        if (km <= (d.radiusKm ?? 2) && km < localDistance) { local = d; localDistance = km; }
+    }
+    if (local) return local;
     let best = REGIONS[0], bestD = Infinity;
     for (const r of REGIONS) {
         const d = angularDistance(lat, lon, r.lat, r.lon);
@@ -219,10 +223,10 @@ export function regionAt(lat: number, lon: number): RegionDef {
 }
 
 /** The `n` regions nearest to region `id` (its neighbors: support spreads between them). */
-export function neighbors(id: string, n = 4): string[] {
+export function neighbors(id: string, n = 4, c?: Campaign): string[] {
     const me = regionDefById(id);
     if (!me) return [];
-    return REGIONS.filter(r => r.id !== id)
+    return (c ? campaignRegions(c) : REGIONS).filter(r => r.id !== id)
         .map(r => ({ id: r.id, d: angularDistance(me.lat, me.lon, r.lat, r.lon) }))
         .sort((a, b) => a.d - b.d).slice(0, n).map(x => x.id);
 }
@@ -233,7 +237,8 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
     const ideology = IDEOLOGIES.find(i => i.id === opts.ideology) ?? IDEOLOGIES[0];
     const regions: Record<string, RegionState> = {};
     for (const def of REGIONS) regions[def.id] = initialRegion(def, rng);
-    const spawn = regionDefById(opts.spawn ?? "") ?? REGIONS[0];
+    const requested = regionDefById(opts.spawn ?? "");
+    const spawn = opts.hometown ? regionAt(opts.hometown.lat, opts.hometown.lon) : (requested?.parent ? regionDefById(requested.parent)! : requested ?? REGIONS[0]);
     const home = regions[spawn.id];
     // You arrive with a handful of believers and a little awareness at home.
     home.members = 12;
@@ -276,7 +281,7 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
         },
         members: [],
         nextMemberId: 1,
-        regions,
+        regions, settlements: [],
         schemes: [],
         nextSchemeId: 1,
         news: [],
@@ -285,10 +290,18 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
         outlawedDay: 0,
         outcome: null,
     };
+    const homePlace = opts.hometown ?? (requested?.parent ? requested : undefined) ?? (!opts.spawn && opts.lat !== undefined && opts.lon !== undefined
+        ? { name: `${opts.lat.toFixed(4)}, ${opts.lon.toFixed(4)}`, lat: opts.lat, lon: opts.lon, kind: "village" } : null);
+    if (homePlace) {
+        const d = discoverSettlement(c, homePlace);
+        home.members = 0; home.support[PARTY] = 0; normalizeSupport(home.support);
+        c.regions[d.id].members = 12; shiftSupport(c.regions[d.id], PARTY, 0.01);
+        c.party.hq = d.id; c.player.lat = d.lat; c.player.lon = d.lon;
+    }
     // Three founding comrades to fill your first posts.
-    for (let k = 0; k < 3; k++) addTalent(c, spawn.id, rng, false);
+    for (let k = 0; k < 3; k++) addTalent(c, c.party.hq, rng, false);
     c.rngState = rng.state();
-    pushNews(c, `${c.party.name} is founded in ${spawn.name}. ${ideology.slogan}`, "good");
+    pushNews(c, `${c.party.name} is founded in ${regionDefById(c.party.hq)!.name}. ${ideology.slogan}`, "good");
     return c;
 }
 
@@ -388,3 +401,47 @@ export function strongestRival(rs: RegionState, except = PARTY): string {
 }
 
 export { BLOCS, TOPIC_IDS, clamp01 };
+
+/** Regional population is a fixed budget, partitioned as settlements are discovered. */
+export function campaignRegions(c: Campaign): RegionDef[] {
+    const locals = c.settlements ?? [];
+    const used = new Map<string, number>();
+    for (const d of locals) used.set(d.parent!, (used.get(d.parent!) ?? 0) + d.pop);
+    return [...REGIONS.map(d => ({ ...d, pop: Math.max(0.000001, d.pop - (used.get(d.id) ?? 0)) })), ...locals];
+}
+
+export function restoreSettlements(c: Campaign): Campaign {
+    c.settlements ??= [];
+    for (const d of c.settlements) registerSettlement(d);
+    return c;
+}
+
+const discoveryIndex = new WeakMap<Campaign, Map<string, RegionDef>>();
+
+export function discoverSettlement(c: Campaign, place: { name: string; kind?: string; lat: number; lon: number }): RegionDef {
+    if (!place.name.trim() || !Number.isFinite(place.lat) || !Number.isFinite(place.lon) || Math.abs(place.lat) > 90 || Math.abs(place.lon) > 180)
+        throw new Error("Give a place name and valid latitude/longitude.");
+    // Tile and geocoder coordinates can differ slightly. Reuse a same-name nearby place.
+    const name = place.name.split(",")[0].trim();
+    const key = `${name.toLowerCase()}:${place.lat.toFixed(3)}:${place.lon.toFixed(3)}`;
+    let index = discoveryIndex.get(c);
+    if (!index) { index = new Map(); discoveryIndex.set(c, index); }
+    const cached = index.get(key);
+    if (cached) return cached;
+    const existing = (c.settlements ?? []).find(d => d.name.toLocaleLowerCase() === name.toLocaleLowerCase()
+        && angularDistance(d.lat, d.lon, place.lat, place.lon) * EARTH_RADIUS_KM < 5);
+    if (existing) { index.set(key, existing); return existing; }
+    const parent = regionAt(place.lat, place.lon);
+    const kind = (place.kind ?? "village").split("/").pop()!;
+    const people: Record<string, number> = { city: 100000, town: 15000, village: 2000, hamlet: 250, isolated_dwelling: 25 };
+    const reserved = (c.settlements ?? []).filter(d => d.parent === parent.id).reduce((n, d) => n + d.pop, 0);
+    const pop = Math.min((people[kind] ?? 2000) / 1e6, Math.max(0.000001, parent.pop - reserved) * 0.01);
+    const id = `place-${hashString(`${name.toLowerCase()}:${place.lat.toFixed(3)}:${place.lon.toFixed(3)}`).toString(16)}`;
+    const def: RegionDef = { ...parent, id, name, lat: place.lat, lon: place.lon, pop, parent: parent.id, kind,
+        radiusKm: kind === "city" ? 8 : kind === "town" ? 4 : kind === "village" ? 2 : 0.75 };
+    (c.settlements ??= []).push(def); registerSettlement(def);
+    const state = initialRegion(def, makeRng(hashString(`${c.seed}:${id}`)));
+    // Taking the hinterland never silently conquers undiscovered towns. Each begins under its 2100 country.
+    c.regions[id] = state; index.set(key, def);
+    return def;
+}

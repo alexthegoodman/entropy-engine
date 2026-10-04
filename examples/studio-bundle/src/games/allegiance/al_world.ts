@@ -17,10 +17,10 @@
 // unrest can turn into an insurgency. Govern three quarters of humanity and the planet is yours.
 
 import {
-    BLOCS, PARTY, REGIONS, RIVALS, SCHEMES, UNDECIDED, WORLD_POPULATION, blocById, factionById, regionDefById, type GovType,
+    BLOCS, PARTY, RIVALS, SCHEMES, UNDECIDED, WORLD_POPULATION, blocById, factionById, regionDefById, type GovType,
 } from "./al_data";
 import {
-    type Campaign, type RegionState, type War, addKarma, baseGarrison, neighbors, partyShare, pushNews, shiftSupport,
+    campaignRegions, type Campaign, type RegionState, type War, addKarma, baseGarrison, neighbors, partyShare, pushNews, shiftSupport,
     strongestRival, topicFit, totalMembers, withRng, karmaTitle, angularDistance, EARTH_RADIUS_KM, normalizeSupport,
 } from "./al_state";
 import {
@@ -35,24 +35,19 @@ export const TROOPS_PER_SOLDIER = 25;
 /** Share of the world's population the party must govern to win. */
 export const VICTORY_SHARE = 0.75;
 
-const neighborCache = new Map<string, string[]>();
-const near = (id: string): string[] => {
-    let n = neighborCache.get(id);
-    if (!n) { n = neighbors(id, 4); neighborCache.set(id, n); }
-    return n;
-};
+const near = (c: Campaign, id: string): string[] => neighbors(id, 4, c);
 
 // --- Shares --------------------------------------------------------------------------------------
 
 /** The party's support across the world, weighted by population. */
 export function worldSupport(c: Campaign): number {
-    return REGIONS.reduce((s, d) => s + partyShare(c.regions[d.id]) * d.pop, 0) / WORLD_POPULATION;
+    return campaignRegions(c).reduce((s, d) => s + partyShare(c.regions[d.id]) * d.pop, 0) / WORLD_POPULATION;
 }
 
 /** Share of the world's population living under each faction. */
 export function governedShares(c: Campaign): Record<string, number> {
     const out: Record<string, number> = {};
-    for (const d of REGIONS) {
+    for (const d of campaignRegions(c)) {
         const g = c.regions[d.id].governor;
         out[g] = (out[g] ?? 0) + d.pop / WORLD_POPULATION;
     }
@@ -491,9 +486,8 @@ function stepWar(c: Campaign, rs: RegionState, r: Rng, playerRegion: string | nu
     const lossP = Math.min(rs.army, Math.round(k * rs.garrison * qE * (0.8 + 0.4 * r.next())));
     rs.garrison -= lossE;
     rs.army -= lossP;
-    // The regime calls up reserves from the rest of its bloc.
-    const bloc = def.bloc;
-    const blocRegions = REGIONS.filter(d => d.bloc === bloc);
+    // The regime calls up reserves from the rest of its country.
+    const blocRegions = campaignRegions(c).filter(d => d.country === def.country);
     const loyal = blocRegions.filter(d => c.regions[d.id].governor !== PARTY).length / blocRegions.length;
     if (w.attacker === PARTY) rs.garrison += Math.round(baseGarrison(def, rs.gov) * 0.012 * loyal);
     w.partyStrength = rs.army;
@@ -538,8 +532,8 @@ function counterOffensives(c: Campaign, r: Rng): void {
         rs.garrison += Math.round(baseGarrison(def, "democracy") * 0.01 * Math.max(0, rs.unrest - 0.3));
         const insurgency = rs.unrest > 0.75 && rs.garrison > rs.army * 0.5;
         // Invasions are rare while the party is small and grow with its share of the world; their
-        // size depends on how much of the region's bloc is still loyal to the old order.
-        const blocRegions = REGIONS.filter(d => d.bloc === def.bloc);
+        // size depends on how much of the region's country is still loyal to the old order.
+        const blocRegions = campaignRegions(c).filter(d => d.country === def.country);
         const loyal = blocRegions.filter(d => c.regions[d.id].governor !== PARTY).length / blocRegions.length;
         const invasion = loyal > 0 && r.next() < 0.004 + Math.max(0, share - 0.05) * 0.06;
         if (insurgency || invasion) {
@@ -629,7 +623,7 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
     const report = orgReport(c);
     const radio = hasFacility(c, "radio");
     withRng(c, r => {
-        for (const def of REGIONS) {
+        for (const def of campaignRegions(c)) {
             const rs = c.regions[def.id];
             const ro = report.regions[def.id];
             const organized = ro && ro.members > 0 ? ro.organized / ro.members : 1;
@@ -650,15 +644,15 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
             }
         }
         // Support spreads to neighbors from strongholds.
-        for (const def of REGIONS) {
+        for (const def of campaignRegions(c)) {
             const share = partyShare(c.regions[def.id]);
             if (share < 0.15) continue;
-            for (const n of near(def.id)) shiftSupport(c.regions[n], PARTY, (share - 0.1) * 0.012);
+            for (const n of near(c, def.id)) shiftSupport(c.regions[n], PARTY, (share - 0.1) * 0.012);
         }
         // The bandwagon: once the party governs much of humanity, sympathetic regions come over peacefully.
         const gov = governedShare(c);
         if (gov >= 0.3) {
-            for (const def of REGIONS) {
+            for (const def of campaignRegions(c)) {
                 const rs = c.regions[def.id];
                 if (rs.governor === PARTY || rs.war || partyShare(rs) < 0.45) continue;
                 if (r.next() < 0.02 + (gov - 0.3) * 0.1) {

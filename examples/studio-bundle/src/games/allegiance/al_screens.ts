@@ -2,10 +2,10 @@
 // addon implements it; the tests use a stand-in. Buttons call `g.act(name, arg)`.
 
 import {
-    ARMORS, BLOCS, FACILITIES, IDEOLOGIES, PAMPHLETS, PARTY, PARTY_COLORS, REGIONS, SCHEMES, SKILLS, SKILL_MAX, TOPICS, WEAPONS,
-    factionById, ideologyById, regionDefById, skillCost, weaponById, type RegionDef,
+    ARMORS, BLOCS, COUNTRIES, FACILITIES, IDEOLOGIES, PAMPHLETS, PARTY, PARTY_COLORS, REGIONS, SCHEMES, SKILLS, SKILL_MAX, TOPICS, WEAPONS,
+    countryOf, factionById, ideologyById, regionDefById, skillCost, weaponById, type RegionDef,
 } from "./al_data";
-import { type Campaign, dateLabel, karmaTitle, partyShare, totalMembers, strongestRival, INNER_CIRCLE, type Member } from "./al_state";
+import { angularDistance, campaignRegions, regionAt, type Campaign, dateLabel, karmaTitle, partyShare, totalMembers, strongestRival, INNER_CIRCLE, type Member } from "./al_state";
 import {
     ROLE_NAMES, orgReport, holder, maxHealth, xpForLevel, followers, followerLimit, ammoPrice, pamphletPrice, schemeChance,
     schemeCost, hasFacility, ARM_COST, blocOf,
@@ -24,7 +24,10 @@ export interface SetupState {
     ideology: string;
     color: number;
     spawn: string | null;
-    focus: "party" | "leader" | null;
+    focus: "party" | "leader" | "hometown" | null;
+    hometownQuery?: string;
+    hometown?: { name: string; lat: number; lon: number; kind?: string };
+    places?: Array<{ name: string; lat: number; lon: number; kind: string }>;
 }
 
 export interface LoadingInfo {
@@ -68,6 +71,7 @@ export interface GameView {
     selectedRegion: string | null;
     selectedMember: number | null;
     memberPage: number;
+    settlementPage?: number;
     prompt: string | null;
     street: { civilians: number; listeners: number; soldiers: number; followers: number; rally: string | null; rallyTime: number };
     weapon: { name: string; mag: number; reserve: number; reloading: boolean; magazine: number };
@@ -88,7 +92,7 @@ export class UiFrame {
     constructor(public p: Painter, public W: number, public H: number) {}
     button(id: string, x: number, y: number, w: number, h: number, label: string, style: ButtonStyle, onClick: () => void, opts: ButtonOpts = {}): void {
         this.p.button(id, x, y, w, h, label, style, opts);
-        this.handlers.set(id, onClick);
+        if (!opts.disabled) this.handlers.set(id, onClick);
     }
     /** An invisible click area (map dots, list rows). */
     hotspot(id: string, x: number, y: number, w: number, h: number, onClick: () => void): void {
@@ -120,17 +124,29 @@ function posterFrame(ui: UiFrame, x: number, y: number, w: number, h: number): v
     p.rect(x + 10, y + 10, w - 20, h - 20, THEME.clear, 2, THEME.red);
 }
 
+const territoryGrid = new WeakMap<LandRuns, Map<number, RegionDef>>();
 function worldMap(ui: UiFrame, g: GameView, x: number, y: number, w: number, h: number, pick: ((id: string) => void) | null, selected: string | null): void {
     const p = ui.p;
     p.rect(x, y, w, h, [0.1, 0.16, 0.22, 1], 3, THEME.black);
     const land = g.land;
     if (land) {
         const cw = w / land.cols, ch = h / land.rows;
-        for (const [row, a, b] of land.runs) p.rect(x + a * cw, y + row * ch, (b - a + 1) * cw, ch + 0.5, [0.78, 0.72, 0.58, 1]);
+        let grid = territoryGrid.get(land);
+        if (!grid) { grid = new Map(); territoryGrid.set(land, grid); }
+        const palette: Color[] = [[0.7, 0.62, 0.35, 1], [0.55, 0.68, 0.4, 1], [0.62, 0.68, 0.76, 1], [0.72, 0.52, 0.48, 1], [0.45, 0.61, 0.73, 1], [0.6, 0.48, 0.7, 1], [0.76, 0.66, 0.5, 1], [0.45, 0.69, 0.59, 1], [0.73, 0.52, 0.62, 1], [0.55, 0.6, 0.76, 1]];
+        for (const [row, a, b] of land.runs) for (let col = a; col <= b; col++) {
+            const cell = row * land.cols + col;
+            let def = grid.get(cell);
+            if (!def) { def = regionAt(MAP_LAT_TOP - (row + 0.5) / land.rows * (MAP_LAT_TOP - MAP_LAT_BOTTOM), (col + 0.5) / land.cols * 360 - 180); grid.set(cell, def); }
+            const governor = g.c?.regions[def.id]?.governor;
+            const countryColor = palette[Math.max(0, COUNTRIES.findIndex(country => country.name === def!.country)) % palette.length];
+            const color = governor === PARTY ? partyColor(g.c) : countryColor;
+            p.rect(x + col * cw, y + row * ch, cw + 0.5, ch + 0.5, withAlpha(color, 0.75));
+        }
     }
     const toXY = (lat: number, lon: number): [number, number] => [x + (lon + 180) / 360 * w, y + (MAP_LAT_TOP - lat) / (MAP_LAT_TOP - MAP_LAT_BOTTOM) * h];
     const c = g.c;
-    for (const r of REGIONS) {
+    for (const r of c ? campaignRegions(c) : REGIONS) {
         const [px, py] = toXY(r.lat, r.lon);
         if (py < y || py > y + h) continue;
         const s = 3 + Math.sqrt(r.pop) * 0.45;
@@ -227,11 +243,17 @@ export function drawSetup(g: GameView, ui: UiFrame): void {
         const gov = g.c?.regions[def.id]?.gov ?? def.gov ?? bloc.gov;
         p.text(`Government: ${gov.toUpperCase()}. ${gov === "democracy" ? "Win it at the ballot box." : "No elections here: a coup or a war."}`, mx, sy + 62, 15, THEME.cream, FONT.body, mw);
     } else {
-        p.text("Click a city on the map. Every point on Earth belongs to its nearest city.", mx, sy, 15, THEME.dim, FONT.body, mw);
+        p.text("Choose a territory, or search for your own town below.", mx, sy, 15, THEME.dim, FONT.body, mw);
     }
-    ui.button("setup-random", mx, H - 80, 200, 50, "RANDOM CITY", "dark", () => g.act("setup-random"));
+    const hy = sy + 98;
+    p.text("HOME TOWN (name, region/country, or lat, lon)", mx, hy, 13, THEME.gold, FONT.head);
+    ui.button("setup-hometown", mx, hy + 24, Math.max(100, mw - 116), 38, (s.hometownQuery || "click to type") + (s.focus === "hometown" ? "_" : ""), "paper", () => g.act("setup-focus", "hometown"), { size: 15 });
+    ui.button("setup-search", mx + mw - 108, hy + 24, 108, 38, "SEARCH", "dark", () => g.act("setup-search"));
+    (s.places ?? []).slice(0, 3).forEach((place, i) => ui.button(`setup-place-${i}`, mx, hy + 70 + i * 36, mw, 32, place.name, "dark", () => g.act("setup-place", i), { size: 12 }));
+    if (s.hometown) p.text(`Start: ${s.hometown.name}`, mx, Math.min(H - 112, hy + 184), 15, THEME.gold, FONT.body, mw);
+    ui.button("setup-random", mx, H - 80, 200, 50, "RANDOM TERRITORY", "dark", () => g.act("setup-random"));
     ui.button("setup-back", lx, H - 80, 160, 50, "BACK", "ghost", () => g.act("title"));
-    const ready = !!s.spawn;
+    const ready = !!s.spawn || !!s.hometown;
     ui.button("setup-begin", W - 300, H - 86, 260, 62, "BEGIN", "red", () => g.act("begin"), { disabled: !ready, size: 24 });
 }
 
@@ -711,8 +733,8 @@ function drawTerritory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
     let sy = ly + 30;
     p.text("YOUR STRONGEST REGIONS", 20, sy, 13, THEME.gold, FONT.head);
     sy += 22;
-    const best = REGIONS.map(r => ({ r, rs: c.regions[r.id] })).filter(x => x.rs.members > 0 || partyShare(x.rs) > 0.005)
-        .sort((a, b) => partyShare(b.rs) - partyShare(a.rs)).slice(0, Math.max(3, Math.floor((H - sy - 20) / 22)));
+    const best = campaignRegions(c).map(r => ({ r, rs: c.regions[r.id] })).filter(x => x.rs.members > 0 || partyShare(x.rs) > 0.005)
+        .sort((a, b) => partyShare(b.rs) - partyShare(a.rs)).slice(0, 3);
     for (const { r, rs } of best) {
         const lvl = controlLevel(rs);
         p.text(`${r.name}`, 20, sy, 14, THEME.cream, FONT.body);
@@ -720,6 +742,19 @@ function drawTerritory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
         ui.hotspot(`best-${r.id}`, 20, sy, mw, 20, () => g.act("select-region", r.id));
         sy += 22;
     }
+    sy += 10;
+    p.text("DISCOVERED TOWNS AND VILLAGES", 20, sy, 13, THEME.gold, FONT.head); sy += 24;
+    const locals = [...(c.settlements ?? [])].sort((a, b) => angularDistance(c.player.lat, c.player.lon, a.lat, a.lon) - angularDistance(c.player.lat, c.player.lon, b.lat, b.lon));
+    const rows = Math.max(1, Math.min(8, Math.floor((H - sy - 64) / 26)));
+    const page = Math.min(g.settlementPage ?? 0, Math.max(0, Math.ceil(locals.length / rows) - 1));
+    for (const d of locals.slice(page * rows, (page + 1) * rows)) {
+        const rs = c.regions[d.id];
+        ui.button(`settlement-${d.id}`, 20, sy, mw, 24, `${d.name}  -  ${d.kind}  -  ${pct(partyShare(rs))} support  -  ${factionName(c, rs.governor)}`, "dark", () => g.act("select-region", d.id), { size: 12, active: g.selectedRegion === d.id });
+        sy += 26;
+    }
+    if (!locals.length) { p.text("Places appear as their map tiles load. Search a hometown when founding your party.", 20, sy, 13, THEME.dim, FONT.body, mw); sy += 26; }
+    ui.button("settlements-prev", 20, sy + 4, 100, 28, "PREVIOUS", "dark", () => g.act("settlement-page", -1), { size: 11, disabled: page === 0 });
+    ui.button("settlements-next", 130, sy + 4, 100, 28, "NEXT", "dark", () => g.act("settlement-page", 1), { size: 11, disabled: (page + 1) * rows >= locals.length });
     // Region detail.
     const id = g.selectedRegion ?? g.region ?? c.party.hq;
     const def = regionDefById(id);
@@ -730,9 +765,9 @@ function drawTerritory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
     p.rect(dx, y, dw, 48, factionColor(c, rs.governor));
     p.text(def.name.toUpperCase(), dx + 12, y + 10, 22, rs.governor === PARTY || factionById(rs.governor).id === "current" ? THEME.black : THEME.cream, FONT.head, dw - 20);
     y += 58;
-    p.text(`${def.country}, ${BLOCS.find(b => b.id === def.bloc)!.name}`, dx, y, 14, THEME.dim, FONT.body, dw);
+    p.text(`${def.country}  -  ruling ideology: ${ideologyById(countryOf(def).ideology).name}`, dx, y, 14, THEME.dim, FONT.body, dw);
     y += 22;
-    p.text(`${def.pop}M people  -  ${rs.gov.toUpperCase()}  -  ruled by ${factionName(c, rs.governor)}`, dx, y, 14, THEME.cream, FONT.body, dw);
+    p.text(`${fmt(Math.round(def.pop * 1e6))} people  -  ${rs.gov.toUpperCase()}  -  ruled by ${factionName(c, rs.governor)}`, dx, y, 14, THEME.cream, FONT.body, dw);
     y += 30;
     const shares = Object.entries(rs.support).sort((a, b) => b[1] - a[1]);
     for (const [f, v] of shares) {

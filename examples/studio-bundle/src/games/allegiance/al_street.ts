@@ -164,7 +164,7 @@ function newActor(st: StreetState, kind: ActorKind, x: number, z: number, r: Rng
 
 /** A civilian's starting opinion of the party, from the region's support. */
 export function initialOpinion(partyShare: number, r: Rng): number {
-    return clamp(gauss(r, -0.35 + partyShare * 2.2, 0.32), -1, 1);
+    return clamp(gauss(r, -0.18 + partyShare * 2.2, 0.32), -1, 1);
 }
 
 export function opinionLabel(o: number): string {
@@ -207,7 +207,7 @@ export const soldiers = (st: StreetState) => st.actors.filter(a => a.kind === "s
 export function persuade(a: Actor, persuasion: number, r: Rng): { ok: boolean; delta: number } {
     if (a.talkCooldown > 0) return { ok: false, delta: 0 };
     a.talkCooldown = 25;
-    const p = clamp(0.45 + persuasion * 0.08 + (a.opinion > 0 ? 0.1 : -0.1), 0.1, 0.95);
+    const p = clamp(0.55 + persuasion * 0.08 + (a.opinion > 0 ? 0.1 : -0.1), 0.1, 0.95);
     const ok = r.next() < p;
     const delta = ok ? 0.12 + persuasion * 0.025 + r.next() * 0.08 : -0.05;
     a.opinion = clamp(a.opinion + delta, -1, 1);

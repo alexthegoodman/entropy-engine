@@ -1,3 +1,4 @@
+import { campaignRegions } from "./al_state";
 // The party: its hierarchy, its money and what it can buy.
 //
 // Hierarchy. Members join faster than one leader can organize them, so the party needs a chain of
@@ -18,7 +19,7 @@
 // forces, facilities and governing cost money every day.
 
 import {
-    ARMORS, BLOCS, FACILITIES, PAMPHLETS, REGIONS, SCHEMES, SKILL_MAX, WEAPONS, PARTY,
+    ARMORS, BLOCS, FACILITIES, PAMPHLETS, SCHEMES, SKILL_MAX, WEAPONS, PARTY,
     armorById, regionDefById, skillCost, weaponById, type SkillId,
 } from "./al_data";
 import {
@@ -115,7 +116,7 @@ export function orgReport(c: Campaign): OrgReport {
     const regions: Record<string, RegionOrg> = {};
     let organized = 0, total = 0;
     const warnings: string[] = [];
-    for (const def of REGIONS) {
+    for (const def of campaignRegions(c)) {
         const rs = c.regions[def.id];
         if (!rs || (rs.members <= 0 && !chiefs.some(ch => ch.post === def.id))) continue;
         const chief = chiefs.find(ch => ch.post === def.id) ?? null;
@@ -438,7 +439,7 @@ export function dailyLedger(c: Campaign): Ledger {
     const bank = hasFacility(c, "bank") ? 1.15 : 1;
     const inside = c.party.posture === "inside" ? 1.1 : c.party.posture === "mixed" ? 1.05 : 1;
     const collect = bank * inside * (1 + (treasurer ? treasurer.admin / 20 : 0));
-    for (const def of REGIONS) {
+    for (const def of campaignRegions(c)) {
         const rs = c.regions[def.id];
         const ro = report.regions[def.id];
         const organized = ro ? ro.organized : 0;

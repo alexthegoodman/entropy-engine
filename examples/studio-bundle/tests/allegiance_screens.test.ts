@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { Painter } from "../src/games/allegiance/al_ui";
 import { UiFrame, drawScreen, objective, type GameView, type Mode, type ConsoleTab } from "../src/games/allegiance/al_screens";
-import { newCampaign } from "../src/games/allegiance/al_state";
+import { discoverSettlement, newCampaign } from "../src/games/allegiance/al_state";
 import { startSpeech } from "../src/games/allegiance/al_speech";
 import { recruitInPerson, autoOrganize } from "../src/games/allegiance/al_party";
 import { applySpeech, takeRegion } from "../src/games/allegiance/al_world";
@@ -66,6 +66,23 @@ describe("screens", () => {
         for (const id of ["setup-party", "setup-leader", "setup-ideo-order", "setup-color-3", "map-lagos", "setup-begin", "setup-random"]) expect(ids).toContain(id);
     });
 
+    it("offers hometown search and enables Begin for a selected place without a fixed spawn", () => {
+        const g = view("setup", { setup: { party: "Dawn", leader: "Ada", ideology: "liberty", color: 0, spawn: null, focus: "hometown", hometownQuery: "Levittown", hometown: { name: "Levittown", lat: 40.7259, lon: -73.5143 } } });
+        const { ids, painter, ui } = render(g);
+        expect(ids).toContain("setup-search");
+        expect(ids).toContain("setup-hometown");
+        expect(painter.buttons.find(b => b.id === "setup-begin")!.disabled).toBeFalsy();
+        expect(ui.handlers.has("setup-begin")).toBe(true);
+    });
+    it("lists discovered villages as selectable territory targets and skips disabled controller actions", () => {
+        const g = view("console", { tab: "territory" });
+        const village = discoverSettlement(g.c!, { name: "Test village", kind: "village", lat: 51.6, lon: 0.1 });
+        const { ids, ui } = render(g);
+        expect(ids).toContain(`settlement-${village.id}`);
+        ui.handlers.get(`settlement-${village.id}`)!();
+        expect(g.acts).toContainEqual(["select-region", village.id]);
+        expect(ui.handlers.has("settlements-prev")).toBe(false);
+    });
     it("loading shows the progress bar and what is streaming", () => {
         const { log } = render(view("loading"));
         expect(log.strings).toContain("40%");

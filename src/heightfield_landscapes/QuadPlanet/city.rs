@@ -130,6 +130,7 @@ pub struct BuiltTile {
     pub vertices: Vec<f32>,
     pub indices: Vec<u32>,
     pub placements: Vec<Placement>,
+    pub settlements: Vec<super::osm::OsmSettlement>,
     pub buildings: usize,
     pub roads: usize,
 }
@@ -471,6 +472,7 @@ pub fn build_tile(id: TileId, data: &OsmTile, env: &CityEnv, lk: &mut Lookup) ->
         basis,
         vertices: mesh.v,
         indices: mesh.i,
+        settlements: data.settlements.clone(),
         buildings: placements.len(),
         placements,
         roads: road_count,
@@ -507,6 +509,7 @@ pub struct LiveTile {
     pub origin: V3,
     pub basis: [V3; 3],
     pub placements: Vec<Placement>,
+    pub settlements: Vec<super::osm::OsmSettlement>,
     pub triangles: usize,
     pub roads: usize,
 }
@@ -833,6 +836,7 @@ mod tests {
         let id = osm::tile_of(46.02, 7.75, CITY_ZOOM);
         let env = flat_env(1600.0);
         let data = OsmTile {
+            settlements: vec![],
             buildings: vec![
                 // 12 x 9 m, long side along east; the street runs east-west 20 m to its south.
                 building(footprint(id, [0.0, 0.0], 12.0, 9.0, 0.0), 7.0),
@@ -879,7 +883,7 @@ mod tests {
     fn box_vertices_encode_their_anchor() {
         let id = osm::tile_of(40.0, -74.0, CITY_ZOOM);
         let env = flat_env(12.0);
-        let data = OsmTile { buildings: vec![building(footprint(id, [300.0, -150.0], 10.0, 8.0, 20.0), 6.0)], roads: vec![] };
+        let data = OsmTile { settlements: vec![], buildings: vec![building(footprint(id, [300.0, -150.0], 10.0, 8.0, 20.0), 6.0)], roads: vec![] };
         let t = build_tile(id, &data, &env, &mut Lookup::new(Access::Block)).unwrap();
         let p = &t.placements[0];
         let [e, u, s] = t.basis;
@@ -900,7 +904,7 @@ mod tests {
         let id = osm::tile_of(46.02, 7.75, CITY_ZOOM);
         let slow = Loader::Custom(Arc::new(|_| { std::thread::sleep(Duration::from_millis(50)); Some(Tile { heights: vec![5.0; TILE * TILE] }) }));
         let env = CityEnv { center: [0.0; 3], radius: R, has_sea: true, spacing: 0.6, elevation: Arc::new(ElevationSource::new(slow, 13, R, None)), rule: HouseRule::default() };
-        let data = OsmTile { buildings: vec![building(footprint(id, [0.0, 0.0], 10.0, 8.0, 0.0), 6.0)], roads: vec![] };
+        let data = OsmTile { settlements: vec![], buildings: vec![building(footprint(id, [0.0, 0.0], 10.0, 8.0, 0.0), 6.0)], roads: vec![] };
         let mut lk = Lookup::new(Access::Gate);
         assert!(build_tile(id, &data, &env, &mut lk).is_none() && lk.missing);
         assert!(env.elevation.wait_idle(Duration::from_secs(5)));
@@ -936,7 +940,7 @@ mod tests {
             let u = city.update(viewer);
             for (tid, t) in u.created {
                 created += 1;
-                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, placements: t.placements });
+                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, settlements: t.settlements, placements: t.placements });
             }
             if !city.busy() { break; }
             assert!(start.elapsed() < Duration::from_secs(20), "stuck: {:?}", city.stats());

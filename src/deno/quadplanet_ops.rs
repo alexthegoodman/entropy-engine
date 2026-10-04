@@ -100,6 +100,7 @@ pub struct UpdateOut {
     stats: StreamStats,
     /// Earth's buildings and roads (null without a city layer).
     city: Option<CityStats>,
+    settlements: Vec<crate::heightfield_landscapes::QuadPlanet::osm::OsmSettlement>,
 }
 
 /// Radius around a mesh's own origin that holds every vertex (12-float vertices, position first),
@@ -186,7 +187,8 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         drop_chunk(ctx, &sys.addon_name, &key, item);
     }
     let city = update_city(ctx, sys, &gpu, args.viewer, allowed);
-    Ok(UpdateOut { stats: out.stats, city })
+    let settlements = sys.city.as_ref().map(|c| c.live.values().flat_map(|t| t.settlements.clone()).collect()).unwrap_or_default();
+    Ok(UpdateOut { stats: out.stats, city, settlements })
 }
 
 /// Streams Earth's city tiles around the viewer: each finished tile becomes one mesh (its
@@ -234,7 +236,7 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
                 player: None,
             }));
         }
-        city.live.insert(tile, LiveTile { mesh_id, buffer_id, radius, origin: built.origin, basis: built.basis, placements: built.placements, triangles, roads: built.roads });
+        city.live.insert(tile, LiveTile { mesh_id, buffer_id, radius, origin: built.origin, basis: built.basis, placements: built.placements, settlements: built.settlements, triangles, roads: built.roads });
     }
     Some(city.stats())
 }

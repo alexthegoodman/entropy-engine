@@ -1,7 +1,7 @@
 # Allegiance
 
 **Allegiance** is a political conquest game on the full-scale Earth of 2100. You start with a
-dozen believers in a city of your choice. Make speeches, hand out pamphlets and recruit party
+dozen believers in a real hometown of your choice. Make speeches, hand out pamphlets and recruit party
 members. Build a chain of command, scheme against your rivals, and arm your followers. Then take
 the planet one region at a time, by election, by coup or by war. You can do it as a liberator
 or as a tyrant.
@@ -30,8 +30,33 @@ in `examples/studio-bundle/src/games/allegiance/`. Every screen is drawn with
 | Liberty | BREAK THE SENSORS. | Liberty, Corruption | Security |
 | Ascendancy | TOMORROW BELONGS TO US. | Progress, Climate | Tradition |
 
-Then pick a party color and a starting city on the world map (or **Random City**). Every point
-on Earth belongs to its nearest city, so the 113 regions cover the whole planet.
+Then pick a party color and search **Home Town** by name (include a region or country to avoid
+ambiguous names), select a result, and press **Begin**. A `latitude, longitude` search also works
+offline. The map and **Random Territory** offer quick starts at their regional centers.
+
+The 108 original centers now anchor surrounding territories. Populated places are discovered
+from the streamed [OpenMapTiles place layer](https://openmaptiles.org/docs/schema/#place): cities,
+towns, villages, hamlets and isolated dwellings. Each gets its own support, members, elections,
+army and government; taking one never automatically takes its neighbors. Newly discovered towns
+remain independent even if the surrounding hinterland has already fallen. The territory console
+lists discovered places, with pagination, for selection and travel. Place definitions and their
+political state persist in campaign saves; version-1 saves remain readable.
+
+Countries belong to 2100: western former-US territories form **New America** (Liberty, Free Current),
+and eastern territories form **The Workers States of America** (Solidarity, Verdant Accord).
+Other territories belong to the existing future federations and assemblies. Countries extend
+across the countryside; map land cells show their territories, while settlement markers show
+local governors. Party-held hinterland uses your color. Country ideology establishes the incumbent,
+not a recruitment lock: every movement can persuade people, give speeches and win support.
+Uncommitted civilians are less hostile and initial persuasion has a higher success chance.
+
+**Population and scope.** The fixed world budget is 7.038 billion fictional inhabitants.
+Regional numbers include their hinterlands, not just municipal populations. Discovered-place
+estimates are currently 100,000 for a city, 15,000 for a town, 2,000 for a village, 250 for a hamlet,
+and 25 for an isolated dwelling, deducted from the surrounding territory. These are balance
+estimates, not census data or forecasts. Population drives recruitment, taxes, garrisons and
+population-weighted victory. Nearby NPCs remain a bounded simulation with a target of 34 civilians,
+plus followers and soldiers. A village does not spawn thousands of meshes.
 
 **The loading screen.** Your city streams in while a propaganda poster tracks the progress:
 terrain chunks and elevation tiles, OpenStreetMap tiles and buildings, Mesha houses and people
@@ -60,6 +85,32 @@ Generator/version/parameters/LOD identify disk entries. Returning or restarting 
 | B | take the stage: start a speech |
 | V | first / third person; mouse wheel zooms the camera |
 | Tab, M or Esc | the command console (time stops while it is open) |
+
+Xbox and DualShock use the same semantic mappings:
+
+| Controller | Action |
+|---|---|
+| Left stick / click left stick | Analog walk / sprint |
+| Right stick / click right stick | Look / first-person toggle |
+| A / Cross | Jump; confirm a menu item; deliver or close a speech |
+| X / Square | Talk; first speech card; rebut a heckler |
+| Y / Triangle | Start speech; second speech card |
+| B / Circle | Reload; third speech card; close dialogue/console |
+| RT / R2 | Fire (hold for automatic weapons) |
+| LT / L2 | Raise the weapon to aim |
+| LB/RB / L1/R1 | Cycle weapons; switch console tabs |
+| D-pad up/down in play | Hand out / cycle pamphlet |
+| D-pad or left stick in menus | Move focus; A/Cross activates it |
+| Menu / Options | Open/close the command console |
+
+Typing party and hometown names uses a keyboard. Stick drift is filtered with a radial 0.18
+deadzone; movement retains analog speed. Disconnects and stale input release held actions.
+
+**Aerial traffic.** Cabin-sized multicopters with four horizontal rotors cruise above local
+rooftops, with some hovering. Housing within 400 m sets traffic density, capped at twelve
+cars. Sparse areas have little or no traffic; separated altitude lanes keep dense areas readable.
+Tall blocks contribute a provisional apartment estimate from their floor area, since the current
+map bridge does not expose residential use. These are ambient vehicles in this iteration.
 
 The HUD shows your party, the date and the time of day, your funds, members, world support and
 reputation. It also shows the region you are in (who rules it, your share against the strongest
@@ -259,12 +310,13 @@ frame. Fonts: Bungee for headlines, Vina Sans for numbers, Play for prose.
 These tools also drive the live test:
 
 - `allegiance_state`: mode, loading, region, campaign, player, street, nav, speech, terrain, UI.
-- `allegiance_new`: start a campaign at a region (optionally an exact `lat`/`lon`).
+- `allegiance_new`: start at `hometown` by name, or `hometown` plus exact `lat`/`lon`; legacy `spawn` territory ids remain supported.
 - `allegiance_settle`: run the loading screen to the end.
 - `allegiance_config`: `fixedStep` for reproducible runs.
 - `allegiance_ui`: open a screen, tab or selection.
 - `allegiance_click`: a button by id or coordinates.
 - `allegiance_key`: a key press.
+- `allegiance_controller`: semantic button press/release or `left`/`right` stick vectors (positive Y up).
 - `allegiance_speech`: `start` / `choose` / `deliver` / `rebut` / `auto` / `close`.
 - `allegiance_act`: street and campaign actions such as `talk`, `pamphlet`, `persuade`,
   `recruit`, `follow`, `approach`, `walk`, `face`, `shoot`, `squad`, `rally`, `followers`,
@@ -287,15 +339,18 @@ These tools also drive the live test:
   window: title, founding, loading London, walking, a speech, a conversation, every console tab,
   a street battle and victory. It also plays `allegiance_travel_live.feature`: a rival rally and a
   debate, travel to Paris, save and continue. It checks the tools' replies and the captured
-  frames. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  frames. `allegiance_iteration1_live.feature` covers hometown start, controller movement and menus,
+  density-limited traffic, and save/resume. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
 
 ## Limits
 
 - Buildings are their fitted rectangles to the nav grid and to bullets; you can't go inside. The
   houses' interiors are there to see, not to walk.
-- People are simple procedural figures. There are no vehicles yet, and travel between cities is
-  instant (it costs days and credits).
-- The campaign simulates 113 regions; the street layer simulates the few hundred meters around
-  you. Distant battles are resolved strategically.
+- Hover cars are ambient traffic; they cannot be driven yet. Long-distance travel is instant
+  (it costs days and credits).
+- Settlements become individual targets as their map tiles load or a hometown is selected.
+  Coverage depends on mapped place labels. Political hinterlands use nearest regional centers;
+  local settlement extents use provisional radii, not surveyed municipal boundaries. The street
+  layer simulates the few hundred meters around you; distant battles resolve strategically.
 - The sun never sets: the day runs from 07:00 to 19:00.
 - First iteration: balance is tuned by simulation and short play sessions, not long campaigns.

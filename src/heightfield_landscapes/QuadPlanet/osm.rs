@@ -108,6 +108,7 @@ pub struct OsmRoad {
 
 #[derive(Clone, Debug, Default)]
 pub struct OsmTile {
+    pub settlements: Vec<OsmSettlement>,
     pub buildings: Vec<OsmBuilding>,
     pub roads: Vec<OsmRoad>,
 }
@@ -208,7 +209,7 @@ pub fn clip_polyline(line: &[[f64; 2]], lo: f64, hi: f64) -> Vec<Vec<[f64; 2]>> 
 
 /// Reads one tile's buildings and roads. `radius` is the planet's, for footprint areas.
 pub fn parse_tile(id: TileId, bytes: &[u8], radius: f64) -> Result<OsmTile, String> {
-    let layers = mvt::decode(bytes, &["building", "transportation"])?;
+    let layers = mvt::decode(bytes, &["building", "transportation", "place"])?;
     let mut tile = OsmTile::default();
     for layer in &layers {
         let ext = layer.extent;
@@ -247,6 +248,18 @@ pub fn parse_tile(id: TileId, bytes: &[u8], radius: f64) -> Result<OsmTile, Stri
                     });
                 }
             },
+            "place" => for f in &layer.features {
+                if f.geom_type != GeomType::Point { continue; }
+                let kind = f.string("class").unwrap_or("");
+                if !matches!(kind, "city" | "town" | "village" | "hamlet" | "isolated_dwelling") { continue; }
+                let Some(name) = f.string("name").or_else(|| f.string("name:en")) else { continue; };
+                for point in f.geometry.iter().flatten() {
+                    let (x, y) = (point[0] as f64, point[1] as f64);
+                    if x < 0.0 || y < 0.0 || x >= e || y >= e { continue; }
+                    let [lat, lon] = tile_point_to_lat_lon(id, ext, x, y);
+                    tile.settlements.push(OsmSettlement { name: name.into(), kind: kind.into(), lat, lon });
+                }
+            },
             "transportation" => for f in &layer.features {
                 if f.geom_type != GeomType::LineString { continue; }
                 let Some(class) = f.string("class").and_then(RoadClass::from_omt) else { continue };
@@ -268,6 +281,15 @@ pub fn parse_tile(id: TileId, bytes: &[u8], radius: f64) -> Result<OsmTile, Stri
         }
     }
     Ok(tile)
+}
+
+/// Populated places from the same cached tiles as streets and buildings.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct OsmSettlement {
+    pub name: String,
+    pub kind: String,
+    pub lat: f64,
+    pub lon: f64,
 }
 
 /// Where tiles come from.
@@ -420,6 +442,21 @@ mod tests {
         assert_eq!(t.roads[0].class, RoadClass::Minor);
         let east_edge = tile_point_to_lat_lon(id, 4096, 4096.0, 0.0)[1];
         assert!((t.roads[0].points.last().unwrap()[1] - east_edge).abs() < 1e-9, "clipped at the tile edge");
+    }
+
+    #[test]
+    fn reads_populated_places_and_owns_each_tile_edge_once() {
+        let id = TileId { z: 14, x: 8544, y: 5827 };
+        let mut points = Vec::new();
+        for kind in ["city", "town", "village", "hamlet", "isolated_dwelling", "country"] {
+            points.push((1, vec![("class", Value::String(kind.into())), ("name", Value::String(format!("Place {kind}")))], vec![vec![[100, 100]]]));
+        }
+        points.push((1, vec![("class", Value::String("village".into())), ("name", Value::String("Neighbor".into()))], vec![vec![[-1, 100]]]));
+        let tile = parse_tile(id, &encode_layer("place", &points), 6_371_000.0).unwrap();
+        assert_eq!(tile.settlements.len(), 5);
+        assert_eq!(tile.settlements[2].kind, "village");
+        let [lat, lon] = tile_point_to_lat_lon(id, 4096, 100.0, 100.0);
+        assert_eq!((tile.settlements[2].lat, tile.settlements[2].lon), (lat, lon));
     }
 
     #[test]

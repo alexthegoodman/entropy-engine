@@ -76,6 +76,10 @@ export interface RegionDef {
     wealth: number;
     /** Overrides the bloc's government type. */
     gov?: GovType;
+    /** Local settlement carved out of a surrounding territory. */
+    parent?: string;
+    kind?: string;
+    radiusKm?: number;
 }
 
 const R = (name: string, country: string, lat: number, lon: number, pop: number, bloc: string, wealth: number, gov?: GovType): RegionDef => ({
@@ -202,9 +206,22 @@ export const REGIONS: RegionDef[] = [
     R("Auckland", "New Zealand", -36.8485, 174.7633, 8, "indopac", 1.5),
 ];
 
+export interface CountryDef { name: string; ideology: string; ruler: string }
+export const COUNTRIES: CountryDef[] = [
+    { name: "New America", ideology: "liberty", ruler: "current" },
+    { name: "The Workers States of America", ideology: "solidarity", ruler: "verdant" },
+    ...BLOCS.map(b => ({ name: b.name, ideology: b.gov === "junta" ? "order" : b.gov === "technocracy" ? "ascendancy" : "solidarity", ruler: b.gov === "junta" ? "vanguard" : "concordat" })),
+];
+// The old country labels are geographic provenance only; sovereign territories belong to 2100 states.
+for (const r of REGIONS) r.country = r.country === "USA"
+    ? (r.lon < -100 ? "New America" : "The Workers States of America") : blocById(r.bloc).name;
+export const countryOf = (r: RegionDef): CountryDef => COUNTRIES.find(c => c.name === r.country) ?? COUNTRIES[0];
+const settlementDefs = new Map<string, RegionDef>();
+export function registerSettlement(def: RegionDef): void { settlementDefs.set(def.id, def); }
+
 export const WORLD_POPULATION = REGIONS.reduce((s, r) => s + r.pop, 0);
 
-export const regionDefById = (id: string): RegionDef | undefined => REGIONS.find(r => r.id === id);
+export const regionDefById = (id: string): RegionDef | undefined => REGIONS.find(r => r.id === id) ?? settlementDefs.get(id);
 
 // --- Factions ------------------------------------------------------------------------------------
 

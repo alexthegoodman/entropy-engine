@@ -1,3 +1,5 @@
+import { Controller } from "./al_controller";
+import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
 //
 // Make speeches, hand out pamphlets, recruit party members, build a chain of command, scheme,
@@ -25,11 +27,11 @@ import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from ".
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
 import { CrowdBatches, maybeVisible } from "./al_crowd";
-import { buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
+import { buildFlyingCar, buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
 import {
     PARTY, PARTY_COLORS, REGIONS, RIVALS, IDEOLOGIES, blocById, regionDefById, weaponById, armorById, pamphletById, factionById,
 } from "./al_data";
-import { type Campaign, newCampaign, regionAt, partyShare, shiftSupport, pushNews, addKarma, SAVE_VERSION } from "./al_state";
+import { campaignRegions, discoverSettlement, restoreSettlements, type Campaign, newCampaign, regionAt, partyShare, shiftSupport, pushNews, addKarma, SAVE_VERSION } from "./al_state";
 import {
     advanceDay, applySpeech, applyRivalSpeech, applyPamphlet, reportFieldBattle, travel, moveHq, playerDied, callElection, attemptCoup,
     declareWar, proposePeace, suspendElections, setTaxRate, DAY_SECONDS, governedShare, worldSupport,
@@ -44,7 +46,7 @@ import {
     nearestActor, persuade, tryRecruit, recruitChance, givePamphlet, playerShoot, castShot, shiftStreet, resetStreet, spawnSquad,
     listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot, spawnOrator,
 } from "./al_street";
-import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toWorld, dirToWorld, buildingToRect, type LocalFrame } from "./al_nav";
+import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toLocal, toWorld, dirToWorld, buildingToRect, type LocalFrame } from "./al_nav";
 import { type PlayerBody, type PlayerInput, NO_PLAYER_INPUT, newBody, stepBody, bodyCamera, EYE } from "./al_player";
 import { enginePainter, THEME, type DrawApi } from "./al_ui";
 import {
@@ -222,7 +224,7 @@ function loadSave(): Campaign | null {
         const text = addon.IO.store.read(SAVE_PATH);
         if (!text) return null;
         const c = JSON.parse(text) as Campaign;
-        return c.version === SAVE_VERSION ? c : null;
+        return c.version === SAVE_VERSION ? restoreSettlements(c) : null;
     } catch {
         return null;
     }
@@ -232,9 +234,10 @@ function loadSave(): Campaign | null {
 
 /** Starts loading the place at lat/lon: terrain, the city, its houses, then the street. */
 function startLoading(lat: number, lon: number): void {
-    const def = regionAt(lat, lon);
+    const def = regionAt(lat, lon, campaign);
     region = def.id;
     mode = "loading";
+    settlementPage = 0;
     speech = null;
     dialogue = null;
     resetStreet(street);
@@ -246,6 +249,7 @@ function startLoading(lat: number, lon: number): void {
     const origin = surfaceAt(lat, lon);
     frame = makeLocalFrame(origin);
     renderOrigin = [Math.round(origin[0]), Math.round(origin[1]), Math.round(origin[2])];
+    controller.reset(); trafficSampleTime = -Infinity; trafficHouses = [];
     body = newBody(0, 0, 0);
     body.y = heightAt(0, 0);
     focus = toWorld(frame, 0, 2, 0);
@@ -643,7 +647,7 @@ function stepWeapon(dt: number): void {
     if (!c) return;
     const w = weaponNow();
     fireCooldown = Math.max(0, fireCooldown - dt);
-    aimHold = Math.max(0, aimHold - dt);
+    aimHold = controller.held.has("LeftTrigger2") ? 0.2 : Math.max(0, aimHold - dt);
     if (reloadLeft > 0) {
         reloadLeft -= dt;
         if (reloadLeft <= 0) {
@@ -654,7 +658,7 @@ function stepWeapon(dt: number): void {
         }
         return;
     }
-    const wants = triggerHeld && (w.auto || triggerFresh);
+    const wants = (triggerHeld || controller.held.has("RightTrigger2")) && (w.auto || triggerFresh);
     if (!wants || fireCooldown > 0 || mode !== "play") return;
     triggerFresh = false;
     if (magOf(w.id) <= 0) { startReload(); return; }
@@ -684,16 +688,71 @@ function fire(weaponId: string, aimDir?: Vec3): void {
     }
 }
 
+function resolvePlaces(query: string): Array<{ name: string; lat: number; lon: number; kind: string }> {
+    const coords = query.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+    if (coords) {
+        const lat = Number(coords[1]), lon = Number(coords[2]);
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("Latitude must be -90..90; longitude -180..180.");
+        return [{ name: query.trim(), lat, lon, kind: "village" }];
+    }
+    if (!query.trim()) return [];
+    return Entropy.QuadPlanet.geocode(terrainId, query.trim());
+}
+
+const controller = new Controller();
+let settlementPage = 0;
+let controllerFocus: string | null = null;
+let lastMenuAxis = 0;
+function menuMove(direction: number): void {
+    if (!ui) return;
+    const ids = [...ui.handlers.keys()].filter(id => !id.startsWith("map-"));
+    if (!ids.length) return;
+    const current = controllerFocus ? ids.indexOf(controllerFocus) : -1;
+    controllerFocus = ids[(Math.max(-1, current) + direction + ids.length) % ids.length];
+    ui.p.hover = controllerFocus;
+}
+function controllerButton(button: string, pressed: boolean): void {
+    const fresh = controller.button(button, pressed);
+    if (!fresh) return;
+    if (mode === "play") {
+        const actions: Record<string, string> = { West: "e", East: "r", North: "b", Start: "Tab", DPadUp: "f", DPadDown: "q", RightThumb: "v" };
+        if (actions[button]) onKey(actions[button]);
+        if ((button === "RightTrigger" || button === "LeftTrigger") && campaign) {
+            const weapons = campaign.player.weapons;
+            const delta = button === "RightTrigger" ? 1 : -1;
+            campaign.player.weapon = weapons[(weapons.indexOf(campaign.player.weapon) + delta + weapons.length) % weapons.length]; reloadLeft = 0;
+        }
+        if (button === "RightTrigger2") triggerFresh = true;
+    } else if (mode === "speech" && speech) {
+        const card = { West: 0, North: 1, East: 2 }[button];
+        if (speech.phase === "choose" && card !== undefined) chooseCard(speech, card);
+        else if (button === "South") onKey(speech.phase === "done" ? "Enter" : " ");
+        else if (speech.phase === "heckle" && button === "West") rebutHeckler(speech, speech.heckler!.key);
+    } else if (mode === "console" && (button === "LeftTrigger" || button === "RightTrigger")) {
+        const tabs: ConsoleTab[] = ["overview", "organization", "territory", "armory", "skills"];
+        tab = tabs[(tabs.indexOf(tab) + (button === "RightTrigger" ? 1 : -1) + tabs.length) % tabs.length];
+        controllerFocus = null;
+    } else if (button === "East" || button === "Start") {
+        if (mode === "console" || mode === "dialogue") onKey("Escape");
+        else if (mode === "setup") act("title");
+    } else if (button.startsWith("DPad")) menuMove(button === "DPadUp" || button === "DPadLeft" ? -1 : 1);
+    else if (button === "South" && ui) {
+        if (!controllerFocus || !ui.handlers.has(controllerFocus)) menuMove(1);
+        if (controllerFocus) ui.handlers.get(controllerFocus)?.();
+    }
+}
+
 // --- Input ---------------------------------------------------------------------------------------
 
 const key = (k: string) => Entropy.Input.isKeyPressed(k) || Entropy.Input.isKeyPressed(k.toUpperCase());
 
 function readInput(): PlayerInput {
     if (mode !== "play" && mode !== "speech") return NO_PLAYER_INPUT;
-    if (mode === "speech") return { ...NO_PLAYER_INPUT, turnLeft: key("ArrowLeft"), turnRight: key("ArrowRight") };
+    if (mode === "speech") return { ...NO_PLAYER_INPUT, lookX: controller.right[0], turnLeft: key("ArrowLeft"), turnRight: key("ArrowRight") };
     return {
+        moveX: controller.left[0], moveY: controller.left[1], lookX: controller.right[0], lookY: controller.right[1],
         forward: key("w"), back: key("s"), left: key("a"), right: key("d"),
-        jump: key(" "), sprint: Entropy.Input.isShiftPressed(),
+        jump: key(" ") || controller.held.has("South"), sprint: Entropy.Input.isShiftPressed() || controller.held.has("LeftThumb"),
         turnLeft: key("ArrowLeft"), turnRight: key("ArrowRight"), lookUp: key("ArrowUp"), lookDown: key("ArrowDown"),
     };
 }
@@ -701,12 +760,12 @@ function readInput(): PlayerInput {
 function typeInto(k: string): void {
     const field = setup.focus;
     if (!field) return;
-    let v = field === "party" ? setup.party : setup.leader;
+    let v = field === "hometown" ? setup.hometownQuery ?? "" : field === "party" ? setup.party : setup.leader;
     if (k === "Backspace") v = v.slice(0, -1);
-    else if (k === "Enter" || k === "Tab" || k === "Escape") { setup.focus = k === "Tab" && field === "party" ? "leader" : null; return; }
-    else if (k.length === 1 && v.length < 28 && /[\w \-'.!&]/.test(k)) v += k;
+    else if (k === "Enter" || k === "Tab" || k === "Escape") { if (field === "hometown" && k === "Enter") act("setup-search"); setup.focus = k === "Tab" && field === "party" ? "leader" : null; return; }
+    else if (k.length === 1 && v.length < (field === "hometown" ? 120 : 28) && !/[\x00-\x1f]/.test(k)) v += k;
     else return;
-    if (field === "party") setup.party = v; else setup.leader = v;
+    if (field === "hometown") { setup.hometownQuery = v; setup.hometown = undefined; setup.places = []; } else if (field === "party") setup.party = v; else setup.leader = v;
 }
 
 function onKey(k: string): void {
@@ -750,6 +809,8 @@ function onKey(k: string): void {
 }
 
 function setupInput(): void {
+    Entropy.Input.onGamepadAxis((left, right) => controller.axis(left, right, time));
+    Entropy.Input.onGamepadButton(controllerButton);
     Entropy.Input.onKeyDown((k: string) => onKey(k));
     Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
         if (button === 1) { lookButtonDown = true; lookDrag = [x, y]; return; }
@@ -792,11 +853,17 @@ function act(name: string, arg?: unknown): void {
             startLoading(saved.player.lat, saved.player.lon);
             break;
         }
-        case "setup-focus": setup.focus = arg as "party" | "leader"; break;
+        case "setup-focus": setup.focus = arg as SetupState["focus"]; break;
         case "setup-ideology": setup.ideology = String(arg); setup.color = Math.max(0, PARTY_COLORS.findIndex(pc => pc.color.join() === IDEOLOGIES.find(i => i.id === arg)!.color.join())); break;
         case "setup-color": setup.color = Number(arg); break;
-        case "setup-spawn": setup.spawn = String(arg); break;
-        case "setup-random": setup.spawn = REGIONS[Math.floor(Math.random() * REGIONS.length)].id; break;
+        case "setup-spawn": setup.hometown = undefined; setup.places = []; setup.spawn = String(arg); break;
+        case "setup-random": setup.hometown = undefined; setup.places = []; setup.spawn = REGIONS[Math.floor(Math.random() * REGIONS.length)].id; break;
+        case "setup-search": {
+            try { setup.places = resolvePlaces(setup.hometownQuery ?? ""); if (!setup.places.length) toast("No places found. Add a region or country to the town name.", "info"); }
+            catch (e) { toast((e as Error).message, "bad"); }
+            setup.focus = null; break;
+        }
+        case "setup-place": { const p = setup.places?.[Number(arg)]; if (p) { setup.hometown = p; setup.spawn = null; setup.places = []; } break; }
         case "begin": beginCampaign(); break;
         case "tab": tab = arg as ConsoleTab; break;
         case "close-console": mode = "play"; break;
@@ -810,6 +877,7 @@ function act(name: string, arg?: unknown): void {
         case "appoint": if (c) { const a = arg as { id: number; role: Parameters<typeof appoint>[2]; post: string | null }; err(appoint(c, a.id, a.role, a.post), "Appointed."); } break;
         case "follower": if (c) { const m = c.members.find(x => x.id === Number(arg)); if (m) err(setFollower(c, m.id, !m.follower)); } break;
         case "armed": if (c) { const m = c.members.find(x => x.id === Number(arg)); if (m) err(setArmed(c, m.id, !m.armed), m.armed ? undefined : `${m.name} joins the armed forces.`); } break;
+        case "settlement-page": settlementPage = Math.max(0, settlementPage + Number(arg)); break;
         case "select-region": selectedRegion = String(arg); break;
         case "travel": if (c) { const id = String(arg); const e = travel(c, id); if (e) toast(e, "bad"); else { const d = regionDefById(id)!; startLoading(d.lat, d.lon); } } break;
         case "move-hq": if (c) err(moveHq(c, String(arg)), "Headquarters moved."); break;
@@ -840,14 +908,14 @@ function act(name: string, arg?: unknown): void {
 }
 
 function beginCampaign(): void {
-    if (!setup.spawn) return;
-    const def = regionDefById(setup.spawn)!;
+    if (!setup.spawn && !setup.hometown) return;
+    const def = setup.spawn ? regionDefById(setup.spawn) : null;
     campaign = newCampaign({
-        partyName: setup.party, leader: setup.leader, ideology: setup.ideology, color: PARTY_COLORS[setup.color].color, spawn: def.id,
+        partyName: setup.party, leader: setup.leader, ideology: setup.ideology, color: PARTY_COLORS[setup.color].color, spawn: def?.id, hometown: setup.hometown ?? (def ? { name: def.name, lat: def.lat, lon: def.lon, kind: "city" } : undefined),
         seed: Math.floor(Math.random() * 2 ** 31),
     });
     for (const k of Object.keys(mags)) delete mags[k];
-    startLoading(def.lat, def.lon);
+    startLoading(campaign.player.lat, campaign.player.lon);
     save();
 }
 
@@ -863,7 +931,7 @@ function view(): GameView {
     }
     const rallyActor = street.rally ? actorById(street, street.rally.orator) : undefined;
     return {
-        mode, tab, c, setup, loading, speech, dialogue, toasts, region, selectedRegion, selectedMember, memberPage, prompt,
+        mode, tab, c, setup, loading, speech, dialogue, toasts, region, selectedRegion, selectedMember, memberPage, settlementPage, prompt,
         street: {
             civilians: street.actors.filter(a => a.kind === "civilian" && alive(a)).length,
             listeners: listeners(street).length, soldiers: soldiers(street).length,
@@ -1035,6 +1103,27 @@ function setupProps(): void {
     }
 }
 
+const trafficItems: string[] = [];
+let trafficVisible = 0;
+let trafficHouses: QuadPlanetBuilding[] = [];
+let trafficSampleTime = -Infinity;
+function drawTraffic(): void {
+    const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue");
+    if (visible && time - trafficSampleTime > 2) {
+        trafficSampleTime = time;
+        trafficHouses = Entropy.QuadPlanet.buildings(terrainId, toWorld(frame!, body.x, body.y, body.z), 400, { limit: 1500 });
+    }
+    trafficVisible = visible ? trafficCount(housingUnits(trafficHouses)) : 0;
+    const roof = trafficHouses.reduce((h, b) => Math.max(h, toLocal(frame!, b.anchor)[1] + b.height), body.y);
+    for (let i = 0; i < TRAFFIC_LIMIT; i++) {
+        if (i < trafficVisible) {
+            const pose = trafficPose(i, time, body.x, body.z, roof);
+            writeItem(trafficItems[i], personMatrix(pose.x, pose.y, pose.z, pose.yaw, false), [1, 1, 1, 0]);
+        }
+        showProp(`al-car-${i}`, i < trafficVisible);
+    }
+}
+
 let podiumAt: { x: number; z: number; yaw: number } | null = null;
 
 function drawProps(): void {
@@ -1151,6 +1240,8 @@ function drawUi(dt: number, force = false): void {
     uiTimer = 0;
     const [W, H] = Entropy.Window.getSize();
     ui.W = W; ui.H = H;
+    ui.handlers.clear();
+    if (controllerFocus) ui.p.hover = controllerFocus;
     ui.p.begin();
     drawScreen(view(), ui);
     ui.p.flush();
@@ -1167,7 +1258,7 @@ function snapshot() {
     return {
         mode, tab, frames: frameCount, time: r2(time),
         loading: { progress: r2(loading.progress), stage: loading.stage, lines: loading.lines, elapsed: r2(loading.elapsed) },
-        region: region ? { id: region, name: regionDefById(region)?.name, governor: rs?.governor, partyShare: rs ? Math.round(partyShare(rs) * 10000) / 10000 : 0, members: rs?.members, army: rs?.army, garrison: rs?.garrison, war: !!rs?.war, heat: rs ? r2(rs.heat) : 0 } : null,
+        region: region ? { id: region, name: regionDefById(region)?.name, country: regionDefById(region)?.country, population: Math.round((regionDefById(region)?.pop ?? 0) * 1e6), kind: regionDefById(region)?.kind ?? "territory", governor: rs?.governor, partyShare: rs ? Math.round(partyShare(rs) * 10000) / 10000 : 0, members: rs?.members, army: rs?.army, garrison: rs?.garrison, war: !!rs?.war, heat: rs ? r2(rs.heat) : 0 } : null,
         campaign: c ? {
             party: c.party.name, leader: c.party.leader, ideology: c.party.ideology, day: c.day, dayClock: r2(c.dayClock), funds: Math.round(c.party.funds), karma: r2(c.party.karma),
             members: Object.values(c.regions).reduce((s, x) => s + x.members, 0), named: c.members.length, followers: followers(c).length,
@@ -1197,6 +1288,8 @@ function snapshot() {
             batches: crowd?.lastStats ?? null },
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
+        traffic: { count: trafficVisible, limit: TRAFFIC_LIMIT },
+        settlements: c?.settlements?.map(d => ({ id: d.id, name: d.name, country: d.country, parent: d.parent, governor: c.regions[d.id].governor })) ?? [],
         fixedStep,
     };
 }
@@ -1245,15 +1338,17 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_new",
-        description: "Starts a new campaign and loads its spawn point. spawn is a region id (e.g. 'levittown' is not one - use 'new-york', 'london', 'lagos').",
-        parameters: { type: "object", properties: { party: { type: "string" }, leader: { type: "string" }, ideology: { type: "string" }, color: { type: "integer" }, spawn: { type: "string" }, seed: { type: "integer" }, lat: { type: "number" }, lon: { type: "number" } }, required: ["spawn"] },
+        description: "Starts a new campaign and loads its spawn point. Give a hometown place name, exact lat/lon with a hometown label, or a legacy territory spawn id.",
+        parameters: { type: "object", properties: { hometown: { type: "string" }, party: { type: "string" }, leader: { type: "string" }, ideology: { type: "string" }, color: { type: "integer" }, spawn: { type: "string" }, seed: { type: "integer" }, lat: { type: "number" }, lon: { type: "number" } } },
         run: a => {
             const def = regionDefById(String(a.spawn));
-            if (!def) throw new Error(`Unknown region ${a.spawn}`);
+            const hometown = typeof a.hometown === "string" ? (typeof a.lat === "number" && typeof a.lon === "number"
+                ? { name: a.hometown, lat: a.lat, lon: a.lon, kind: "village" } : resolvePlaces(a.hometown)[0]) : undefined;
+            if (!def && !hometown) throw new Error("Give a known territory or a hometown name/coordinates.");
             campaign = newCampaign({
                 partyName: typeof a.party === "string" ? a.party : "People's Front", leader: typeof a.leader === "string" ? a.leader : undefined,
                 ideology: typeof a.ideology === "string" ? a.ideology : "solidarity", color: PARTY_COLORS[typeof a.color === "number" ? a.color : 0].color,
-                spawn: def.id, seed: typeof a.seed === "number" ? a.seed : 2100, lat: typeof a.lat === "number" ? a.lat : undefined, lon: typeof a.lon === "number" ? a.lon : undefined,
+                spawn: def?.id, hometown, seed: typeof a.seed === "number" ? a.seed : 2100, lat: typeof a.lat === "number" ? a.lat : undefined, lon: typeof a.lon === "number" ? a.lon : undefined,
             });
             startLoading(campaign.player.lat, campaign.player.lon);
             return snapshot();
@@ -1308,6 +1403,16 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
             } else clicked = ui.click(Number(a.x), Number(a.y));
             drawUi(0, true);
             return { clicked, ...snapshot() };
+        },
+    },
+    {
+        name: "allegiance_controller",
+        description: "Drive semantic Xbox/DualShock input: button and pressed, or left/right stick vectors (positive Y up).",
+        parameters: { type: "object", properties: { button: { type: "string" }, pressed: { type: "boolean" }, left: { type: "array", items: { type: "number" } }, right: { type: "array", items: { type: "number" } } } },
+        run: a => {
+            if (typeof a.button === "string") controllerButton(a.button, a.pressed !== false);
+            if (Array.isArray(a.left) || Array.isArray(a.right)) controller.axis((a.left as [number, number]) ?? [0, 0], (a.right as [number, number]) ?? [0, 0], time);
+            drawUi(0, true); return snapshot();
         },
     },
     {
@@ -1381,7 +1486,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 case "govern": if (c) {
                     // Debug: the party takes the most populous regions up to `amount` of humanity.
                     let share = governedShare(c);
-                    for (const d of [...REGIONS].sort((x, y) => y.pop - x.pop)) {
+                    for (const d of campaignRegions(c).sort((x, y) => y.pop - x.pop)) {
                         if (share >= (typeof a.amount === "number" ? a.amount : 0.8)) break;
                         if (c.regions[d.id].governor === PARTY) continue;
                         c.regions[d.id].governor = PARTY;
@@ -1498,6 +1603,11 @@ addon.onInit(() => {
     }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1 });
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
+    const flyingCar = buildFlyingCar();
+    for (let i = 0; i < TRAFFIC_LIMIT; i++) {
+        const item = uniform(ITEM_FLOATS); trafficItems.push(item);
+        spawnMesh(`al-car-${i}`, flyingCar, item); showProp(`al-car-${i}`, false);
+    }
     land = computeLand();
     hasSave = !!loadSave();
     writeWorld();
@@ -1529,6 +1639,10 @@ addon.onUpdatePlus("Global", () => {
     const dt = fixedStep ?? real;
     time += dt;
     frameCount++;
+    controller.expire(time);
+    if (mode !== "play" && mode !== "speech" && Math.abs(controller.left[1]) > 0.55 && time - lastMenuAxis > 0.22) {
+        menuMove(controller.left[1] > 0 ? -1 : 1); lastMenuAxis = time;
+    }
     for (const t of toasts) t.age += dt;
     toasts = toasts.filter(t => t.age < 5);
 
@@ -1557,7 +1671,7 @@ addon.onUpdatePlus("Global", () => {
             const ll = dirToLatLon(pos);
             campaign.player.lat = ll.lat;
             campaign.player.lon = ll.lon;
-            const now2 = regionAt(ll.lat, ll.lon).id;
+            const now2 = regionAt(ll.lat, ll.lon, campaign).id;
             if (now2 !== region) { region = now2; toast(`Entering ${regionDefById(now2)!.name}.`, "info"); }
         }
     }
@@ -1577,6 +1691,7 @@ addon.onUpdatePlus("Global", () => {
     if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") timed("    al people", drawPeople);
     else hideWorld();
     drawProps();
+    drawTraffic();
     const loadingNow = mode === "loading";
     const orbit = mode === "title" || mode === "setup";
     // A fixed-step run streams everything it wants every frame, so it looks the same on any machine.
@@ -1584,6 +1699,7 @@ addon.onUpdatePlus("Global", () => {
         if (fixedStep) stream(Infinity, Infinity);
         else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
     });
+    if (campaign && frameCount % 30 === 0) for (const place of stats?.settlements ?? []) discoverSettlement(campaign, place);
     timed("    al houses", () => updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10));
     writeWorld();
     if (loadingNow) loadingStep();

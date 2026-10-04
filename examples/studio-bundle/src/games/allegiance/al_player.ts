@@ -5,6 +5,7 @@
 import { type NavGrid } from "./al_nav";
 
 export interface PlayerInput {
+    moveX?: number; moveY?: number; lookX?: number; lookY?: number;
     forward: boolean; back: boolean; left: boolean; right: boolean;
     jump: boolean; sprint: boolean;
     turnLeft: boolean; turnRight: boolean; lookUp: boolean; lookDown: boolean;
@@ -38,9 +39,9 @@ export function newBody(x = 0, z = 0, y = 0): PlayerBody {
 }
 
 export function stepBody(b: PlayerBody, input: PlayerInput, dt: number, nav: NavGrid | null, heightAt: (x: number, z: number) => number, slow = 1): void {
-    const turn = (input.turnRight ? 1 : 0) - (input.turnLeft ? 1 : 0);
+    const turn = (input.lookX ?? 0) + (input.turnRight ? 1 : 0) - (input.turnLeft ? 1 : 0);
     b.yaw += turn * 2.0 * dt;
-    const look = (input.lookUp ? 1 : 0) - (input.lookDown ? 1 : 0);
+    const look = (input.lookY ?? 0) + (input.lookUp ? 1 : 0) - (input.lookDown ? 1 : 0);
     b.pitch = Math.max(-1.2, Math.min(1.0, b.pitch + look * 1.4 * dt));
     const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw);
     const rx = Math.cos(b.yaw), rz = -Math.sin(b.yaw);
@@ -49,15 +50,17 @@ export function stepBody(b: PlayerBody, input: PlayerInput, dt: number, nav: Nav
     if (input.back) { mx -= fx; mz -= fz; }
     if (input.right) { mx += rx; mz += rz; }
     if (input.left) { mx -= rx; mz -= rz; }
+    mx += rx * (input.moveX ?? 0) + fx * (input.moveY ?? 0);
+    mz += rz * (input.moveX ?? 0) + fz * (input.moveY ?? 0);
     const len = Math.hypot(mx, mz);
     const moving = len > 0;
-    const sprinting = moving && input.sprint && b.stamina > 0.05 && input.forward;
+    const sprinting = moving && input.sprint && b.stamina > 0.05 && (input.forward || (input.moveY ?? 0) > 0.1);
     b.stamina = Math.max(0, Math.min(1, b.stamina + (sprinting ? -0.18 : 0.12) * dt));
     const speed = (sprinting ? SPRINT_SPEED : WALK_SPEED) * slow * (input.back && !input.forward ? 0.7 : 1);
     let nx = b.x, nz = b.z;
     if (moving) {
-        nx += mx / len * speed * dt;
-        nz += mz / len * speed * dt;
+        nx += mx / Math.max(1, len) * speed * dt;
+        nz += mz / Math.max(1, len) * speed * dt;
     }
     if (nav) {
         // Walls push you out; open water (and the grid's edge) stops you.
