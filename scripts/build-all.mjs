@@ -16,6 +16,7 @@ if (!Number.isSafeInteger(bundleJobs) || bundleJobs < 1) {
 
 // Keep this list aligned with the bundle paths in src/bin/example.rs.
 const bundles = [
+  ["allegiance", "src/games/allegiance/allegiance_addon.ts", "allegiance.js"],
   ["app-launcher", "src/apps/app_launcher_addon.ts", "app_launcher.js"],
   ["canvas-surface-demo", "src/apps/canvas_surfaces/canvas_surface_addon.ts", "canvas_surfaces.js"],
   ["cc-manager", "src/apps/cc_manager_addon.ts", "cc_manager.js"],
