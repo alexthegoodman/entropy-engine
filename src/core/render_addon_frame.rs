@@ -391,6 +391,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         } // end lighting_pipeline_ready
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        if crate::core::frame_profile::enabled() && !renderer_state.gpu_timer_tried {
+            renderer_state.gpu_timer_tried = true;
+            renderer_state.gpu_timer = crate::core::gpu_timer::GpuTimer::new(device, queue);
+            if renderer_state.gpu_timer.is_none() { println!("[frame-profile] GPU pass timing unavailable (no TIMESTAMP_QUERY)"); }
+        }
+        // Held outside RendererState for the frame (the UI updates at the end borrow the editor).
+        let mut gpu_timer = renderer_state.gpu_timer.take();
+        if let Some(t) = gpu_timer.as_mut() { t.collect(device); }
 
         // --- Alpha Renderer Pass ---
         if let Some(alpha) = &mut pipeline.alpha_renderer {
@@ -424,6 +432,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut pbr_addon_models = Vec::new();
         let mut non_pbr_addon_models = Vec::new();
         let mut mesh_stats = MeshDrawStats::default();
+        // Addon meshes with bounds (Model.setBounds) outside the view are not drawn.
+        let frustum = crate::core::frustum::Frustum::from_view_proj(&camera.view_projection_matrix);
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -544,6 +554,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     for mesh in meshes {
                         // An emptied batch or a hidden pooled mesh (Model.setInstanceCount(id, 0)).
                         if mesh.instance_count == 0 { continue; }
+                        if let Some((center, radius)) = mesh.bounds {
+                            if !frustum.sphere_visible(center, radius) { mesh_stats.culled += 1; continue; }
+                        }
                         let mut is_pbr = true;
                         if let Some(config) = ctx.pipeline_configs.get(&mesh.pipeline_id) {
                             is_pbr = config.pbr.unwrap_or(true);
@@ -669,7 +682,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu PBR geometry pass")),
                 occlusion_query_set: None,
             });
 
@@ -1113,7 +1126,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu lighting pass")),
                 occlusion_query_set: None,
             });
 
@@ -1171,7 +1184,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu non-PBR pass")),
                 occlusion_query_set: None,
             });
 
@@ -1753,9 +1766,12 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         quest_ui::update_quest_ui(editor, device, queue);
 
         mesh_stats.report();
+        if let Some(t) = gpu_timer.as_mut() { t.resolve(&mut encoder); }
 
         let command_buffer = encoder.finish();
         queue.submit(std::iter::once(command_buffer));
+        if let Some(t) = gpu_timer.as_mut() { t.after_submit(); }
+        if let Some(rs) = editor.renderer_state.as_mut() { rs.gpu_timer = gpu_timer; }
     }
 
 /// Addon mesh counts for one frame, reported to the frame profiler (ENTROPY_FRAME_PROFILE).
@@ -1765,6 +1781,7 @@ struct MeshDrawStats {
     instances: u64,
     triangles: u64,
     transform_uploads: u32,
+    culled: u32,
 }
 
 impl MeshDrawStats {
@@ -1780,5 +1797,6 @@ impl MeshDrawStats {
         count("#mesh instances", self.instances as f64);
         count("#mesh triangles (k)", self.triangles as f64 / 1000.0);
         count("#mesh transform uploads", self.transform_uploads as f64);
+        count("#mesh culled", self.culled as f64);
     }
 }

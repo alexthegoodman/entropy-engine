@@ -125,6 +125,10 @@ pub struct CustomMesh {
     /// Instances drawn (`@builtin(instance_index)` 0..instance_count). 0 skips the draw
     /// entirely: Entropy.Model.setInstanceCount hides a pooled mesh without destroying it.
     pub instance_count: u32,
+    /// Bounding sphere (center, radius) in the space the camera draws in (render space), for
+    /// frustum culling; None: always drawn. The engine cannot derive it when an addon's own
+    /// uniforms place the mesh (Entropy.Model.setBounds / createMesh `bounds` supply it).
+    pub bounds: Option<([f32; 3], f32)>,
     /// Keeps geometry shared with other meshes alive (MeshCache-spawned meshes); None when this
     /// mesh owns its buffers outright.
     pub geometry: Option<Arc<SharedGeometry>>,
@@ -226,6 +230,7 @@ impl CustomMesh {
             index_buffer: geometry.index_buffer.clone(),
             num_indices: geometry.num_indices,
             instance_count,
+            bounds: None,
             geometry: shared.then_some(geometry),
             pipeline,
             pipeline_id,

@@ -766,6 +766,14 @@ function createAddonContextualAPI(resolveTarget) {
                 position, radius, kind: options?.kind ?? null, limit: options?.limit ?? null,
             }),
         },
+        // Background jobs in isolates of their own (src/deno/worker_ops.rs): `script` is a bundled
+        // classic script setting globalThis.onJob; input and result cross as JSON.
+        Worker: {
+            start: (script, input) => ops.op_worker_start(String(script), JSON.stringify(input ?? null)),
+            poll: (id) => ops.op_worker_poll(id),
+            cancel: (id) => ops.op_worker_cancel(id),
+            pending: () => ops.op_worker_pending(),
+        },
         // Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE).
         Profile: {
             enabled: () => ops.op_frame_profile_enabled(),
@@ -815,6 +823,7 @@ function createAddonContextualAPI(resolveTarget) {
                 renderRole: config.renderRole ?? null,
                 bindings: config.bindings ?? null,
                 instanceCount: config.instanceCount ?? null,
+                bounds: config.bounds ?? null,
             }),
             remove: (namespace, key) => ops.op_mesh_cache_remove(namespace, key),
             clear: (namespace) => ops.op_mesh_cache_clear(namespace),
@@ -1306,6 +1315,11 @@ globalThis.Entropy = {
                     setInstanceCount: (meshId, count) => {
                         ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
                     },
+                    // Render-space bounding sphere for frustum culling; null (or a negative radius) clears it.
+                    setBounds: (meshId, center, radius) => {
+                        if (!center) ops.op_mesh_set_bounds(meshId, 0, 0, 0, -1);
+                        else ops.op_mesh_set_bounds(meshId, center[0], center[1], center[2], radius);
+                    },
                     clearMeshes: () => {
                         ops.op_meshes_clear(getAddonName());
                     },
@@ -1379,6 +1393,7 @@ globalThis.Entropy = {
                 QuadPlanet: contextualAPI.QuadPlanet,
                 MeshCache: contextualAPI.MeshCache,
                 Profile: contextualAPI.Profile,
+                Worker: contextualAPI.Worker,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -2698,6 +2713,7 @@ globalThis.Entropy = {
     QuadPlanet: globalContextualAPI.QuadPlanet,
     MeshCache: globalContextualAPI.MeshCache,
     Profile: globalContextualAPI.Profile,
+    Worker: globalContextualAPI.Worker,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
     Texture: textureAPI,
@@ -2761,6 +2777,11 @@ globalThis.Entropy = {
         // Instances drawn from now on (0 hides the mesh without destroying it).
         setInstanceCount: (meshId, count) => {
             ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
+        },
+        // Render-space bounding sphere for frustum culling; null (or a negative radius) clears it.
+        setBounds: (meshId, center, radius) => {
+            if (!center) ops.op_mesh_set_bounds(meshId, 0, 0, 0, -1);
+            else ops.op_mesh_set_bounds(meshId, center[0], center[1], center[2], radius);
         },
         // Opens a native Save As dialog and writes a self-contained .glb built from
         // already-world-space mesh data the caller supplies directly (no engine-side mesh

@@ -95,10 +95,11 @@ describe("instanced crowds", () => {
     });
 
     it("reads each person's record by instance index in both shader stages", () => {
-        expect(PEOPLE_SHADER).toContain("var<storage, read> people: array<PersonRecord>");
+        expect(PEOPLE_SHADER).toContain("var<storage, read> instances: array<PersonRecord>");
         expect(PEOPLE_SHADER).toContain("@builtin(instance_index) instance: u32");
         expect(PEOPLE_SHADER).toContain("@location(7) @interpolate(flat) instance: u32");
-        expect(PEOPLE_SHADER.match(/load_person\(in\.instance\)/g)?.length).toBe(2);
+        expect(PEOPLE_SHADER.match(/load_instance\(in\.instance\)/g)?.length).toBe(2);
+        expect(PEOPLE_SHADER).toContain("person_colors = PersonColors(r.skin, r.hair)");
         expect(PEOPLE_SHADER).not.toContain("var<uniform> item: Item");
         // The record is the 32 floats al_crowd.ts packs.
         expect(PERSON_FLOATS).toBe(16 + 4 * 4);

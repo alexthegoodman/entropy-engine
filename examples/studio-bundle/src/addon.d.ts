@@ -151,6 +151,8 @@ declare global {
       /** Instances drawn (default 1); the shader places each by `@builtin(instance_index)`. 0
        * draws nothing until `Model.setInstanceCount`. */
       instanceCount?: number;
+      /** Render-space bounding sphere [x, y, z, radius] for frustum culling (see Model.setBounds). */
+      bounds?: [number, number, number, number];
     }) => boolean;
     remove: (namespace: string, key: string) => boolean;
     clear: (namespace: string) => number;
@@ -446,6 +448,8 @@ export interface ScopedAPI {
       clearMesh: (meshId: string) => void;
       /** Instances drawn from the next frame on; 0 hides the mesh without destroying it. */
       setInstanceCount: (meshId: string, count: number) => void;
+      /** Render-space bounding sphere: outside the view, the mesh is not drawn. null clears it. */
+      setBounds: (meshId: string, center: [number, number, number] | null, radius: number) => void;
       setBoneTransform: (config: {
           modelId: string;
           boneName: string;
@@ -504,6 +508,18 @@ export interface ScopedAPI {
   /** Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE=1): `record`
    * adds milliseconds to a named phase of this frame, `count` adds to a per-frame counter. Both
    * do nothing while profiling is off; `enabled` says whether it is on. */
+  /**
+   * Background jobs on engine worker threads, each script in a JavaScript isolate of its own
+   * (src/deno/worker_ops.rs). `script` is a path to a bundled classic script that sets
+   * `globalThis.onJob = input => result`; input and result cross as JSON. Workers can write
+   * meshes into the mesh cache (`EntropyWorker.MeshCache.put`) and nothing else of the engine.
+   */
+  Worker: {
+    start: (script: string, input: unknown) => number;
+    poll: (id: number) => { status: "pending" | "done" | "failed" | "unknown"; result?: unknown; error?: string };
+    cancel: (id: number) => boolean;
+    pending: () => number;
+  };
   Profile: { enabled: () => boolean; record: (name: string, ms: number) => void; count: (name: string, value: number) => void };
   Landscape3D: {
     create: (config: {
@@ -4095,6 +4111,8 @@ export interface EntropyAPI {
     clearMesh: (meshId: string) => void;
     /** Instances drawn from the next frame on; 0 hides the mesh without destroying it. */
     setInstanceCount: (meshId: string, count: number) => void;
+    /** Render-space bounding sphere: outside the view, the mesh is not drawn. null clears it. */
+    setBounds: (meshId: string, center: [number, number, number] | null, radius: number) => void;
     /** Opens a native Save As dialog and writes a self-contained .glb (each mesh's texture
      * PNG-encoded and embedded, no external file references) from already-world-space mesh
      * data supplied directly - doesn't touch the engine's own mesh registry, so it works for
@@ -4131,6 +4149,18 @@ export interface EntropyAPI {
   QuadPlanet: QuadPlanetAPI;
   MeshCache: MeshCacheAPI;
   /** Addon phases and counters in the native frame profiler (see the other declaration). */
+  /**
+   * Background jobs on engine worker threads, each script in a JavaScript isolate of its own
+   * (src/deno/worker_ops.rs). `script` is a path to a bundled classic script that sets
+   * `globalThis.onJob = input => result`; input and result cross as JSON. Workers can write
+   * meshes into the mesh cache (`EntropyWorker.MeshCache.put`) and nothing else of the engine.
+   */
+  Worker: {
+    start: (script: string, input: unknown) => number;
+    poll: (id: number) => { status: "pending" | "done" | "failed" | "unknown"; result?: unknown; error?: string };
+    cancel: (id: number) => boolean;
+    pending: () => number;
+  };
   Profile: { enabled: () => boolean; record: (name: string, ms: number) => void; count: (name: string, value: number) => void };
   Noise: {
     create: (config: NoiseConfig) => string;

@@ -127,6 +127,9 @@ pub struct RendererState {
     /// 1x1 placeholder textures + sampler every addon mesh's model bind group shares (made on
     /// the first addon mesh). Before, each CustomMesh made its own three textures and sampler.
     pub mesh_fallback_material: Option<std::sync::Arc<crate::core::custom_mesh::FallbackMaterial>>,
+    /// GPU time per addon render pass (ENTROPY_FRAME_PROFILE with TIMESTAMP_QUERY); made on first use.
+    pub gpu_timer: Option<crate::core::gpu_timer::GpuTimer>,
+    pub gpu_timer_tried: bool,
     pub spheres: Vec<Sphere>,
     pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
@@ -314,6 +317,8 @@ impl RendererState {
             addon_cubes: HashMap::new(),
             addon_meshes: HashMap::new(),
             mesh_fallback_material: None,
+            gpu_timer: None,
+            gpu_timer_tried: false,
             spheres,
             debug_rays: Vec::new(),
             pyramids,

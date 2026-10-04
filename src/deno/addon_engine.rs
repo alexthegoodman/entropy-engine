@@ -126,7 +126,7 @@ use crate::deno::addon_ops::{
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
     op_gizmo_update, op_gizmo_update_rotation, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
-    op_mesh_get_data, op_mesh_update_vertices, op_mesh_write_vertices, op_mesh_set_instance_count, op_frame_profile_record, op_frame_profile_count, op_frame_profile_enabled, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
+    op_mesh_get_data, op_mesh_update_vertices, op_mesh_write_vertices, op_mesh_set_instance_count, op_mesh_set_bounds, op_frame_profile_record, op_frame_profile_count, op_frame_profile_enabled, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
     op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
@@ -507,6 +507,7 @@ extension!(
         op_mesh_get_data,
         op_mesh_update_vertices,
         op_mesh_set_instance_count,
+        op_mesh_set_bounds,
         op_frame_profile_record,
         op_frame_profile_count,
         op_frame_profile_enabled,
@@ -547,6 +548,10 @@ extension!(
         op_mesh_cache_vertices,
         op_mesh_cache_indices,
         op_mesh_cache_create_mesh,
+        crate::deno::worker_ops::op_worker_start,
+        crate::deno::worker_ops::op_worker_poll,
+        crate::deno::worker_ops::op_worker_cancel,
+        crate::deno::worker_ops::op_worker_pending,
         op_mesh_cache_remove,
         op_mesh_cache_clear,
         op_mesh_cache_prune,
@@ -574,6 +579,10 @@ pub struct AddonEngine {
     pub runtime: JsRuntime,
     /// Selected addon from the last tab UI pass, cached for scene rendering.
     pub selected_addon_name: Option<String>,
+    /// UI rects/texts from the last redraw, by their full description: a redraw that repeats one
+    /// reuses it instead of building new GPU objects (and, for text, rasterizing glyphs again).
+    ui_rect_pool: HashMap<String, Vec<Polygon>>,
+    ui_text_pool: HashMap<String, Vec<TextRenderer>>,
     pub project_id: Option<String>,
     /// Overrides art-asset path resolution (`Entropy.Model.load`/`Entropy.Texture.load`) to read
     /// straight from this directory instead of Studio's `project_id`-keyed MidPoint convention -
@@ -901,6 +910,8 @@ impl AddonEngine {
             quadplanets: HashMap::new(),
             shared_geometry: HashMap::new(),
             pending_instance_counts: Vec::new(),
+            worker_pool: None,
+            pending_mesh_bounds: Vec::new(),
             yumon_sims: HashMap::new(),
             yumon_brains: HashMap::new(),
             yumon_runtime_actions: HashMap::new(),
@@ -925,6 +936,8 @@ impl AddonEngine {
         runtime.op_state().borrow_mut().put(context);
 
         AddonEngine {
+            ui_rect_pool: HashMap::new(),
+            ui_text_pool: HashMap::new(),
             runtime,
             selected_addon_name: None,
             project_id,
@@ -1265,8 +1278,17 @@ impl AddonEngine {
         current_addon_name: String,
         mut alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
+        // Section timings for the frame profiler (ENTROPY_FRAME_PROFILE); cheap when it is off.
+        let mut lap_at = std::time::Instant::now();
+        macro_rules! lap { ($name:literal) => {
+            if crate::core::frame_profile::enabled() {
+                crate::core::frame_profile::record($name, lap_at.elapsed());
+                lap_at = std::time::Instant::now();
+            }
+        } }
         self.check_hot_reload();
         self.run_expired_timers();
+        lap!("  addon: hot reload + timers");
 
         // Poll Yumon background trainers
         {
@@ -1354,6 +1376,7 @@ impl AddonEngine {
             apply_pending_camera(context, camera, camera_binding, gpu_resources);
         }
 
+        lap!("  addon: setup");
         // 0. Execute Entity Behaviors
         let mut entity_behaviors = Vec::new();
         let mut processed_ids = std::collections::HashSet::new();
@@ -1849,6 +1872,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  addon: behaviors + yumon");
         // 0. Run onUpdate callbacks
         // let callbacks = {
         //     let state = self.runtime.op_state();
@@ -1907,6 +1931,7 @@ impl AddonEngine {
             apply_pending_camera(context, camera, camera_binding, gpu_resources);
         }
 
+        lap!("  addon: js callbacks");
         // 1. Process UI Events
         let events = {
             let mut op_state = self.runtime.op_state();
@@ -1979,6 +2004,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  addon: ui + input events");
         // 2. Process pending resources
         let (pending_cubes, 
             pending_models, 
@@ -2320,10 +2346,24 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: queue take + entity ops");
+        // A redraw: what it draws again is taken from the last one (see ui_rect_pool).
+        const UI_RECT: &str = "JS UI Rect|";
+        const UI_TEXT: &str = "JS UI Text|";
         if pending_ui_clear {
-            ui_polygons.clear();
-            ui_textboxes.clear();
+            self.ui_rect_pool.clear();
+            self.ui_text_pool.clear();
+            for p in ui_polygons.drain(..) {
+                if let Some(key) = p.name.strip_prefix(UI_RECT) { self.ui_rect_pool.entry(key.to_string()).or_default().push(p); }
+            }
+            for t in ui_textboxes.drain(..) {
+                if let Some(key) = t.name.strip_prefix(UI_TEXT) { self.ui_text_pool.entry(key.to_string()).or_default().push(t); }
+            }
         }
+        // Built for the viewport size too (a resize builds everything anew).
+        let viewport = format!("{}x{}", camera.viewport.width, camera.viewport.height);
+        let bits = |v: &[f32]| v.iter().map(|f| format!("{:08x}", f.to_bits())).collect::<String>();
+        let (mut ui_reused, mut ui_built) = (0u32, 0u32);
 
         if !pending_ui_rects.is_empty() {
             if let gpu = &gpu_resources {
@@ -2335,6 +2375,13 @@ impl AddonEngine {
                 // let group_bind_group_layout = group_bind_group_layout.as_ref().expect("No group layout");
 
                 for (_addon_name, config) in pending_ui_rects {
+                    let key = format!("{viewport}|{}|{}|{}|{}|{}|{}", bits(&config.position), bits(&config.size), bits(&config.color), bits(&[config.stroke_thickness]), bits(&config.stroke_color), config.layer);
+                    if let Some(rect) = self.ui_rect_pool.get_mut(&key).and_then(Vec::pop) {
+                        ui_polygons.push(rect);
+                        ui_reused += 1;
+                        continue;
+                    }
+                    ui_built += 1;
                     // let poly_bg_pos = Point { 
                     //     x: config.position[0] + (config.size[0] / 2.0), 
                     //     y: config.position[1] + (config.size[1] / 2.0) 
@@ -2361,7 +2408,7 @@ impl AddonEngine {
                         config.color,
                         Stroke { thickness: config.stroke_thickness, fill: config.stroke_color },
                         config.layer,
-                        "JS UI Rect".to_string(),
+                        format!("{UI_RECT}{key}"),
                         id,
                         Uuid::nil(),
                     );
@@ -2380,6 +2427,13 @@ impl AddonEngine {
                 // let group_bind_group_layout = group_bind_group_layout.as_ref().expect("No group layout");
 
                 for (_addon_name, config) in pending_ui_texts {
+                    let key = format!("{viewport}|{}|{}|{}|{}|{}|{}|{}|{}", config.text, config.font_family, config.font_size, bits(&config.dimensions), bits(&config.position), bits(&config.color), bits(&config.background_fill), config.layer);
+                    if let Some(text) = self.ui_text_pool.get_mut(&key).and_then(Vec::pop) {
+                        ui_textboxes.push(text);
+                        ui_reused += 1;
+                        continue;
+                    }
+                    ui_built += 1;
                     let id = Uuid::new_v4();
                     let font_bytes = font_manager.get_font_by_name(&config.font_family)
                         .unwrap_or_else(|| &font_manager.font_data[0].1);
@@ -2407,7 +2461,8 @@ impl AddonEngine {
                         ],
                     };
                     
-                    let mut text_renderer = TextRenderer::new(
+                    let atlas = crate::renderer_text::text_due::atlas_for_text(&config.text, config.font_size as i32);
+                    let mut text_renderer = TextRenderer::new_with_atlas(
                         &gpu.device,
                         &gpu.queue,
                         ui_model_bind_group_layout,
@@ -2418,15 +2473,26 @@ impl AddonEngine {
                         text_config,
                         id,
                         Uuid::nil(),
-                        camera
+                        camera,
+                        // Fixed text: an atlas for its own glyphs (the default is 64 MB).
+                        atlas,
                     );
 
                     text_renderer.render_text(&gpu.device, &gpu.queue);
+                    text_renderer.name = format!("{UI_TEXT}{key}");
                     ui_textboxes.push(text_renderer);
                 }
             }
         }
 
+        // What the redraw didn't repeat goes.
+        self.ui_rect_pool.clear();
+        self.ui_text_pool.clear();
+        if ui_reused + ui_built > 0 {
+            crate::core::frame_profile::count("#ui items reused", ui_reused as f64);
+            crate::core::frame_profile::count("#ui items built", ui_built as f64);
+        }
+        lap!("  pend: ui rects + texts");
         // 2.1 Process Gizmo
         let gizmo_state = {
             let op_state = self.runtime.op_state();
@@ -2604,6 +2670,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: gizmo");
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {
                 renderer_state.addon_meshes.remove(&addon_name);
@@ -2850,6 +2917,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: clears/lights/cubes/models");
         if !pending_meshes.is_empty() {
             if let gpu = &gpu_resources {
                                 for (addon_name, config) in pending_meshes {
@@ -2979,6 +3047,7 @@ impl AddonEngine {
                          }
 
                          mesh.render_role = config.render_role;
+                         mesh.bounds = config.bounds.filter(|b| b.iter().all(|v| v.is_finite()) && b[3] >= 0.0).map(|b| ([b[0], b[1], b[2]], b[3]));
                          mesh.behavior_id = config.behavior_id.clone();
                          mesh.yumon_id = config.yumon_id.clone();
 
@@ -3035,21 +3104,29 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: meshes");
         // Entropy.Model.setInstanceCount, after this frame's new meshes so a mesh created and
         // resized in the same frame gets its count.
-        let pending_instance_counts: Vec<(String, u32)> = {
+        // Entropy.Model.setBounds likewise.
+        let (pending_instance_counts, pending_mesh_bounds) = {
             let op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
-            op_state.try_borrow_mut::<AddonContext>().map(|ctx| std::mem::take(&mut ctx.pending_instance_counts)).unwrap_or_default()
+            op_state.try_borrow_mut::<AddonContext>()
+                .map(|ctx| (std::mem::take(&mut ctx.pending_instance_counts), std::mem::take(&mut ctx.pending_mesh_bounds)))
+                .unwrap_or_default()
         };
-        if !pending_instance_counts.is_empty() {
+        if !pending_instance_counts.is_empty() || !pending_mesh_bounds.is_empty() {
             let mut counts: HashMap<String, u32> = HashMap::new();
             for (id, count) in pending_instance_counts { counts.insert(id, count); }
+            let mut bounds: HashMap<String, Option<([f32; 3], f32)>> = HashMap::new();
+            for (id, b) in pending_mesh_bounds { bounds.insert(id, b); }
             for mesh in renderer_state.addon_meshes.values_mut().flatten() {
                 if let Some(&count) = counts.get(&mesh.id) { mesh.instance_count = count; }
+                if let Some(&b) = bounds.get(&mesh.id) { mesh.bounds = b; }
             }
         }
 
+        lap!("  pend: counts + bounds");
         if !pending_landscapes.is_empty() {
             if let gpu = &gpu_resources {
                 for (addon_name, config) in pending_landscapes {
@@ -3243,6 +3320,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: landscapes");
         if !pending_quadscapes.is_empty() {
             if let gpu = &gpu_resources {
                 for (addon_name, config) in pending_quadscapes {
@@ -3390,6 +3468,7 @@ impl AddonEngine {
             }
         }
 
+        lap!("  pend: quadscapes + textures");
         if !pending_grasses.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
                 for (addon_name, config) in pending_grasses {
@@ -3560,6 +3639,7 @@ impl AddonEngine {
                 }
             }
         }    
+        lap!("  pend: grasses");
     }
 
     pub fn set_resources(

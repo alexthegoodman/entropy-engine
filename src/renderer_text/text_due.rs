@@ -99,6 +99,34 @@ pub struct TextRenderer {
     pub duration_ms: i32,
 }
 
+/// Parsed fonts by their bytes' address and length: parsing a font is milliseconds of work, and
+/// every text item used to do it again (UI that redraws ten times a second made hundreds a second).
+fn parsed_font(font_data: &[u8]) -> Font {
+    thread_local! {
+        static FONTS: std::cell::RefCell<HashMap<(usize, usize), Font>> = std::cell::RefCell::new(HashMap::new());
+    }
+    let key = (font_data.as_ptr() as usize, font_data.len());
+    FONTS.with(|fonts| {
+        fonts.borrow_mut().entry(key)
+            .or_insert_with(|| Font::from_bytes(font_data, fontdue::FontSettings::default()).expect("Failed to load font"))
+            .clone()
+    })
+}
+
+/// The default glyph atlas (4096 x 4096 RGBA: 64 MB), big enough for any text an item may be
+/// changed to later.
+pub const DEFAULT_ATLAS: (u32, u32) = (4096, 4096);
+
+/// A glyph atlas big enough for `text`'s distinct glyphs at `font_size` (rows of glyphs about
+/// `font_size` wide and 1.4x tall, with slack), for text that won't change.
+pub fn atlas_for_text(text: &str, font_size: i32) -> (u32, u32) {
+    let glyphs = text.chars().collect::<std::collections::HashSet<_>>().len().max(1) as f64;
+    let fs = font_size.max(1) as f64 + 4.0;
+    let side = (fs * (2.0 * 1.4 * glyphs).sqrt() + fs * 2.0).ceil() as u32;
+    let side = side.next_power_of_two().clamp(64, DEFAULT_ATLAS.0);
+    (side, side)
+}
+
 impl TextRenderer {
     pub fn new(
         device: &Device,
@@ -113,13 +141,28 @@ impl TextRenderer {
         current_sequence_id: Uuid,
         camera: &Camera,
     ) -> Self {
-        // Load and initialize the font
-        // TODO: inefficient to load this font per text item
-        let font = Font::from_bytes(font_data, fontdue::FontSettings::default())
-            .expect("Failed to load font");
+        Self::new_with_atlas(device, queue, bind_group_layout, group_bind_group_layout, font_data, window_size, text, text_config, id, current_sequence_id, camera, DEFAULT_ATLAS)
+    }
+
+    /// `new` with a glyph atlas of `atlas_size` (see `atlas_for_text`). Glyphs that don't fit
+    /// are left out rather than written past the atlas.
+    pub fn new_with_atlas(
+        device: &Device,
+        queue: &Queue,
+        bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        font_data: &[u8],
+        window_size: &WindowSize,
+        text: String,
+        text_config: TextRendererConfig,
+        id: Uuid,
+        current_sequence_id: Uuid,
+        camera: &Camera,
+        atlas_size: (u32, u32),
+    ) -> Self {
+        let font = parsed_font(font_data);
 
         // Create texture atlas
-        let atlas_size = (4096, 4096);
         let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Glyph Atlas Texture"),
             size: wgpu::Extent3d {
@@ -322,6 +365,11 @@ impl TextRenderer {
             self.current_row_height = 0;
         }
 
+        // Out of atlas: leave the glyph out (an atlas sized for other text, see atlas_for_text).
+        if metrics.width as u32 > self.atlas_size.0 || self.next_atlas_position.1 + metrics.height as u32 > self.atlas_size.1 {
+            return AtlasGlyph { uv_rect: [0.0; 4], metrics: [0.0, 0.0, metrics.xmin as f32, metrics.ymin as f32] };
+        }
+
         // Update current row height if this glyph is taller
         self.current_row_height = self.current_row_height.max(metrics.height as u32);
 
@@ -388,8 +436,7 @@ impl TextRenderer {
     }
 
     pub fn update_font_family(&mut self, font_data: &[u8]) {
-        let font = Font::from_bytes(font_data, fontdue::FontSettings::default())
-            .expect("Failed to load font");
+        let font = parsed_font(font_data);
 
         self.font = font;
         self.glyph_cache = HashMap::new();
@@ -705,5 +752,30 @@ impl TextRenderer {
         tr.start_time_ms = config.start_time_ms;
         tr.duration_ms = config.duration_ms;
         tr
+    }
+}
+
+#[cfg(test)]
+mod atlas_tests {
+    use super::*;
+
+    #[test]
+    fn sizes_the_atlas_to_the_text() {
+        assert_eq!(atlas_for_text("12/36", 18), (128, 128));
+        let label = atlas_for_text("DAWN FRONT IS FOUNDED IN LONDON. ONE PEOPLE. ONE BREAD.", 16);
+        assert!(label.0 <= 256, "{label:?}");
+        // Every distinct glyph fits: rows of glyphs up to the font size wide, 1.4x tall.
+        for (text, size) in [("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 48), ("W", 200), ("Hello", 12)] {
+            let (w, h) = atlas_for_text(text, size);
+            let n = text.chars().collect::<std::collections::HashSet<_>>().len() as u32;
+            let per_row = w / (size as u32 + 4);
+            let rows = (n + per_row - 1) / per_row;
+            assert!(rows * (size as u32 + 4) * 14 / 10 <= h, "{text} at {size}: {w}x{h}");
+        }
+        // One distinct glyph, however long the text: a small atlas.
+        assert!(atlas_for_text(&"x".repeat(10_000), 40).0 <= 256);
+        // Hundreds of big distinct glyphs: capped at the default.
+        let many: String = (0x4e00u32..0x4e00 + 500).filter_map(char::from_u32).collect();
+        assert_eq!(atlas_for_text(&many, 400), DEFAULT_ATLAS);
     }
 }

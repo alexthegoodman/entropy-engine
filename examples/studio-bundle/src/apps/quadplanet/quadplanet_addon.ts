@@ -20,7 +20,8 @@ import {
     PLANETS, SUN_DIRECTION, planetById, surfacePoint, setTerrainBackend, setSunDirection, isEarth, latLonToDir, dirToLatLon,
     morningSunAt, findLandmark, DEFAULT_CHUNK_DETAIL, type ChunkDetail,
 } from "./qp_planet";
-import { QUADPLANET_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_shader";
+import { QUADPLANET_SHADER, QUADPLANET_INSTANCED_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_shader";
+import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "./qp_instances";
 import { buildShip, buildSky, buildWalkerBody, buildWalkerLeg, HIP_HEIGHT, type ModelMesh } from "./qp_models";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding, type CityOptions } from "./qp_city";
 import {
@@ -47,6 +48,8 @@ const WARM: [number, number, number, number] = [1.0, 0.72, 0.4, 1];
 /** Set in onInit, once the terrain can answer where the ground is. */
 let state: GameState = null as unknown as GameState;
 let pipelineId = "";
+/** Houses: instanced batches (qp_city.ts). */
+let housePipelineId = "";
 let worldBuffer = "";
 let skyItem = "";
 let shipItem = "";
@@ -598,18 +601,18 @@ function streamOnce(maxBuilds: number, maxMs: number): QuadPlanetStreamStats {
     return stats;
 }
 
-/** The houses, drawn through Entropy: meshes from the mesh cache, each with its own uniform. */
+/** The houses, drawn through Entropy: instanced batches of mesh-cache meshes, one draw per house mesh. */
 function makeHouses(options?: Partial<CityOptions>): CityHouses {
     return new CityHouses({
         buildings: (position, radius, limit) => Entropy.QuadPlanet.buildings(terrainId, position, radius, { kind: "house", limit }) as CityBuilding[],
         status: (ns, key) => Entropy.MeshCache.status(ns, key),
         put: (ns, key, mesh, options) => Entropy.MeshCache.put(ns, key, mesh, options),
         info: (ns, key) => Entropy.MeshCache.info(ns, key),
-        createMesh: (ns, key, meshId, item) => Entropy.MeshCache.createMesh(ns, key, { id: meshId, pipelineId, bindings: bindings(item) }),
-        clearMesh: meshId => Entropy.Model.clearMesh(meshId),
-        createItem: () => uniformBuffer(ITEM_FLOATS),
-        writeItem: (item, data) => Entropy.Buffer.write(item, data),
-        destroyItem: item => Entropy.Buffer.destroy(item),
+        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        // Mesha evaluations run in a worker isolate (Entropy.Worker); without the bundle they fail
+        // and CityHouses evaluates here instead.
+        generateInBackground: job => { try { return Entropy.Worker.start(HOUSE_WORKER_SCRIPT, job); } catch { return null; } },
+        pollBackground: id => Entropy.Worker.poll(id).status,
         now: () => Date.now(),
     }, options);
 }
@@ -640,6 +643,11 @@ addon.onInit(() => {
         ] }],
     });
     worldBuffer = uniformBuffer(WORLD_FLOATS);
+    housePipelineId = Entropy.Pipeline.create({
+        name: "QuadPlanet Houses", layout: "mesh", pbr: false,
+        vertexShader: QUADPLANET_INSTANCED_SHADER, fragmentShader: QUADPLANET_INSTANCED_SHADER,
+        extraBindGroups: INSTANCED_BIND_GROUPS,
+    });
     skyItem = uniformBuffer(ITEM_FLOATS);
     shipItem = uniformBuffer(ITEM_FLOATS);
     bodyItem = uniformBuffer(ITEM_FLOATS);

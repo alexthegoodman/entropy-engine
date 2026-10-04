@@ -17,7 +17,7 @@
 // storage-buffer record per instance, by @builtin(instance_index), instead of a uniform per
 // person. The vertex stage passes the index on (flat) so the fragment stage reads the same one.
 
-import { QUADPLANET_SHADER } from "../../apps/quadplanet/qp_shader";
+import { QUADPLANET_SHADER, instancedShader } from "../../apps/quadplanet/qp_shader";
 
 export const MAT_CLOTH_TOP = 12;
 export const MAT_CLOTH_BOTTOM = 13;
@@ -35,32 +35,6 @@ function inject(src: string, anchor: string, replacement: string): string {
 
 function build(people: boolean): string {
     let s = QUADPLANET_SHADER;
-    if (people) {
-        s = inject(s, "@group(2) @binding(1) var<uniform> item: Item;", `struct PersonColors {
-        skin: vec4<f32>,
-        hair: vec4<f32>,
-    };
-    // One per instance: al_crowd.ts PERSON_FLOATS.
-    struct PersonRecord {
-        model: mat4x4<f32>,
-        tint: vec4<f32>,
-        tex_origin: vec4<f32>,
-        skin: vec4<f32>,
-        hair: vec4<f32>,
-    };
-    @group(2) @binding(1) var<storage, read> people: array<PersonRecord>;
-    var<private> item: Item;
-    var<private> person_colors: PersonColors;
-    fn load_person(i: u32) {
-        let r = people[i];
-        item = Item(r.model, r.tint, r.tex_origin);
-        person_colors = PersonColors(r.skin, r.hair);
-    }`);
-        s = inject(s, "    @location(3) color: vec4<f32>,\n};\n\nstruct VertexOutput {", "    @location(3) color: vec4<f32>,\n    @builtin(instance_index) instance: u32,\n};\n\nstruct VertexOutput {");
-        s = inject(s, "    @location(6) local_normal: vec3<f32>,\n};", "    @location(6) local_normal: vec3<f32>,\n    @location(7) @interpolate(flat) instance: u32,\n};");
-        s = inject(s, "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n", "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n    load_person(in.instance);\n    out.instance = in.instance;\n");
-        s = inject(s, "fn fs_main(in: VertexOutput) -> FragmentOutput {\n", "fn fs_main(in: VertexOutput) -> FragmentOutput {\n    load_person(in.instance);\n");
-    }
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
         if (material >= 12 && material <= 16) {
@@ -99,8 +73,29 @@ function build(people: boolean): string {
         if (material >= 12 && material <= 16) { spec = 0.1; shin = 18.0; }`);
     s = inject(s, "        if (material == 3 || material == 6 || material == 8 || material == 11) { col = col + base * 0.14 * max(dot(n, v), 0.0); }",
         "        if (material == 3 || material == 6 || material == 8 || material == 11 || (material >= 12 && material <= 16)) { col = col + base * 0.18 * max(dot(n, v), 0.0); }");
+    if (people) s = instancedShader(s, {
+        recordType: "PersonRecord",
+        declarations: `struct PersonColors {
+    skin: vec4<f32>,
+    hair: vec4<f32>,
+};
+// One per instance: al_crowd.ts PERSON_FLOATS.
+struct PersonRecord {
+    model: mat4x4<f32>,
+    tint: vec4<f32>,
+    tex_origin: vec4<f32>,
+    skin: vec4<f32>,
+    hair: vec4<f32>,
+};
+var<private> person_colors: PersonColors;`,
+        load: `let r = instances[i];
+    item = Item(r.model, r.tint, r.tex_origin);
+    person_colors = PersonColors(r.skin, r.hair);`,
+    });
     return s;
 }
 
 export const ALLEGIANCE_SHADER = build(false);
+/** ALLEGIANCE_SHADER for instanced batches of Items (houses: qp_city.ts). */
+export const ALLEGIANCE_INSTANCED_SHADER = instancedShader(ALLEGIANCE_SHADER);
 export const PEOPLE_SHADER = build(true);

@@ -26,6 +26,8 @@ import { type Vec3, add, distance, scale, sub } from "./qp_math";
 import { evaluateObject, objectParamRange, resolveParams, defaultValues, type Evaluation, type ParamValues } from "../mesha/mesha_object";
 import { lookupObject } from "../mesha/library";
 import houseDef from "../mesha/library/house";
+import { InstanceBatches, type InstanceEngine } from "./qp_instances";
+import { ITEM_FLOATS } from "./qp_shader";
 
 export const HOUSE_NAMESPACE = "quadplanet-houses";
 /** Bump when house.ts, the parameter mapping or the packing below changes: old meshes then miss. */
@@ -88,10 +90,10 @@ const STYLES = (houseDef.presets ?? []).map(p => p.values);
  * House parameters for a placement: a style (a preset) picked by its seed, its footprint rounded
  * to half meters, and storeys from its OpenStreetMap height. Deterministic.
  */
-export function houseValues(b: Pick<CityBuilding, "seed" | "width" | "depth" | "height">): ParamValues {
+export function houseValues(b: Pick<CityBuilding, "seed" | "width" | "depth" | "height">, sizeStep = 0.5): ParamValues {
     const style = STYLES.length ? STYLES[b.seed % STYLES.length] : {};
-    const half = (x: number) => Math.round(x * 2) / 2;
-    const width = half(b.width), depth = half(b.depth);
+    const snap = (x: number) => Math.round(x / sizeStep) * sizeStep;
+    const width = snap(b.width), depth = snap(b.depth);
     // A stair needs about 8 m of depth: shallower houses get one storey.
     const storeys = depth < 8 ? 1 : Math.max(1, Math.min(3, Math.round((b.height - 1.5) / 3)));
     return resolveParams(houseDef, { ...style, width, depth, storeys, roofVisible: true, cutaway: 0 });
@@ -151,13 +153,23 @@ export interface CityEngine {
     put: (namespace: string, key: string, mesh: { vertexData: Float32Array; indexData: Uint32Array; meta?: unknown }, options?: { simplify?: { maxError: number; minFeature?: number }; background?: boolean }) => void;
     /** A cached mesh's real triangle count (after simplification), or null. */
     info: (namespace: string, key: string) => { triangleCount: number } | null;
-    createMesh: (namespace: string, key: string, meshId: string, item: string) => boolean;
-    clearMesh: (meshId: string) => void;
-    createItem: () => string;
-    writeItem: (item: string, data: Float32Array) => void;
-    destroyItem: (item: string) => void;
+    /**
+     * Instanced batches of HOUSE_NAMESPACE meshes: `createMesh(key, ...)` spawns cache key `key`
+     * with a pipeline drawing ITEM_FLOATS records per instance (qp_shader.ts instancedShader).
+     */
+    instances: InstanceEngine;
+    /**
+     * Optional: evaluates and caches a house off this thread (qp_house_worker.ts through
+     * Entropy.Worker). Returns a job handle, or null to evaluate here instead.
+     */
+    generateInBackground?: (job: HouseJob) => number | null;
+    /** A background job's state; "failed" falls back to evaluating that house here. */
+    pollBackground?: (job: number) => "pending" | "done" | "failed" | "unknown";
     now: () => number;
 }
+
+/** A house to evaluate and cache: its parameter values and the cache keys/LODs wanted. */
+export interface HouseJob { values: ParamValues; lod0Key: string | null; lod1Key: string | null }
 
 export interface CityOptions {
     /** Full houses (with interiors) within this many meters, at most `maxLod0` of them. */
@@ -170,9 +182,21 @@ export interface CityOptions {
     /** With a finite build budget, at least this long between Mesha evaluations (each holds its
      * frame for tens of milliseconds): a hitch now and then rather than a run of slow frames. */
     minBuildIntervalMs: number;
+    /**
+     * Footprints snap to this step (meters) before choosing a house, and each house is stretched
+     * to its real footprint (a few percent). Coarser steps make more buildings share one house
+     * mesh: fewer evaluations, fewer cached meshes, bigger instanced batches.
+     */
+    sizeStep: number;
 }
 
-export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000, minBuildIntervalMs: 0 };
+export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000, minBuildIntervalMs: 0, sizeStep: 0.5 };
+
+/** Background house evaluations queued at once (the worker runs them one by one). */
+const MAX_IN_FLIGHT = 4;
+
+/** The most a house is stretched to fit its footprint, either way. */
+const MAX_FIT = 0.12;
 
 /** Until a mesh's real size is known: typical house triangle counts. */
 const ESTIMATE = [150_000, 10_000];
@@ -188,7 +212,7 @@ interface Variant {
     wants: [boolean, boolean];
 }
 
-interface Shown { lod: 0 | 1; meshId: string; item: string; variant: string; origin: Vec3; skirt: number; building: CityBuilding }
+interface Shown { lod: 0 | 1; variant: string; origin: Vec3; skirt: number; fit: [number, number]; building: CityBuilding }
 
 export interface CityHouseStats {
     candidates: number;
@@ -200,6 +224,11 @@ export interface CityHouseStats {
     triangles: number;
     hideRadius: number;
     lastBuildMs: number;
+    /** Instanced draws (one per house mesh in view range) and their instances. */
+    batches: number;
+    instances: number;
+    /** Evaluations handed to a background worker. */
+    background: number;
 }
 
 export class CityHouses {
@@ -220,16 +249,37 @@ export class CityHouses {
     private lastCamera: Vec3 | null = null;
     private settled = false;
     hideRadius = 0;
-    lastStats: CityHouseStats = { candidates: 0, lod0: 0, lod1: 0, variants: 0, generated: 0, queued: 0, triangles: 0, hideRadius: 0, lastBuildMs: 0 };
+    lastStats: CityHouseStats = { candidates: 0, lod0: 0, lod1: 0, variants: 0, generated: 0, queued: 0, triangles: 0, hideRadius: 0, lastBuildMs: 0, batches: 0, instances: 0, background: 0 };
+    private batches: InstanceBatches;
+    /** The drawn set changed (or moved with the render origin) since the batches were written. */
+    private dirty = false;
+    private backgroundJobs = 0;
+    /** Variants being evaluated in the background (variant key -> job). */
+    private inFlight = new Map<string, number>();
+    /** Variants whose background evaluation failed: evaluated here from then on. */
+    private foreground = new Set<string>();
+    /** The last background failure, for the stats. */
+    lastBackgroundError: string | null = null;
 
     constructor(private engine: CityEngine, options: Partial<CityOptions> = {}) {
         this.options = { ...DEFAULT_CITY_OPTIONS, ...options };
+        this.batches = new InstanceBatches(engine.instances, ITEM_FLOATS, {
+            prefix: "qp-houses", idleFrames: 1,
+            // Evicted from the cache meanwhile: make it again.
+            onMissing: key => {
+                const i = key.lastIndexOf("|lod");
+                const v = this.variants.get(key.slice(0, i));
+                if (v) v.status[Number(key.slice(i + 4)) as 0 | 1] = null;
+                this.settled = false;
+                for (const [k, sh] of this.shown) if (sh.variant === key.slice(0, i)) this.shown.delete(k);
+            },
+        });
     }
 
     private variantFor(b: CityBuilding): Variant {
         let vk = this.variantOf.get(b.key);
         if (!vk) {
-            const values = houseValues(b);
+            const values = houseValues(b, this.options.sizeStep);
             vk = variantKey(values);
             this.variantOf.set(b.key, vk);
             if (!this.variants.has(vk)) this.variants.set(vk, { values, key: vk, status: [null, null], triangles: [ESTIMATE[0], ESTIMATE[1]], want: Infinity, wants: [false, false] });
@@ -254,7 +304,22 @@ export class CityHouses {
 
     /** A wanted LOD that is neither cached nor being made. */
     private needs(v: Variant, lod: 0 | 1): boolean {
-        return v.wants[lod] && !this.ready(v, lod) && v.status[lod] !== "pending";
+        return v.wants[lod] && !this.inFlight.has(v.key) && !this.ready(v, lod) && v.status[lod] !== "pending";
+    }
+
+    /** Collects finished background evaluations. */
+    private pollBackground(): void {
+        for (const [key, job] of this.inFlight) {
+            const state = this.engine.pollBackground?.(job) ?? "unknown";
+            if (state === "pending") continue;
+            this.inFlight.delete(key);
+            const v = this.variants.get(key);
+            if (state === "failed" || state === "unknown") {
+                this.foreground.add(key);
+                this.lastBackgroundError = `${state}: ${key}`;
+                if (v) v.status = [null, null];
+            }
+        }
     }
 
     /**
@@ -263,6 +328,17 @@ export class CityHouses {
      */
     private generate(v: Variant): void {
         const t0 = this.engine.now();
+        const lod0Key = this.needs(v, 0) ? this.meshKey(v, 0) : null;
+        const lod1Key = !this.ready(v, 1) && v.status[1] !== "pending" ? this.meshKey(v, 1) : null;
+        const job = this.foreground.has(v.key) ? null : this.engine.generateInBackground?.({ values: v.values, lod0Key, lod1Key }) ?? null;
+        if (job !== null) {
+            // The worker puts the meshes into the cache; until the job is over this variant is
+            // neither re-made nor counted missing (needs() checks inFlight).
+            this.inFlight.set(v.key, job);
+            this.backgroundJobs++;
+            this.lastBuildMs = this.engine.now() - t0;
+            return;
+        }
         const e = evaluateObject(houseDef, v.values, lookupObject);
         if (this.needs(v, 0)) {
             const lod0 = packHouse(e, 0);
@@ -279,27 +355,38 @@ export class CityHouses {
         this.lastBuildMs = this.engine.now() - t0;
     }
 
-    private writeItem(s: Shown): void {
-        const b = s.building;
-        const t = sub(s.origin, this.renderOrigin);
-        this.engine.writeItem(s.item, new Float32Array([
-            ...b.right, 0, ...b.up, 0, ...b.forward, 0, t[0], t[1], t[2], 1,
-            1, 1, 1, 0,
-            0, 0, 0, s.skirt,
-        ]));
+    /** Rewrites every batch from the drawn set: one record (an Item) per house. */
+    private writeBatches(): void {
+        this.batches.begin();
+        for (const s of this.shown.values()) {
+            const b = s.building;
+            const t = sub(s.origin, this.renderOrigin);
+            const [fx, fz] = s.fit;
+            // Center and radius of the house, generously (roof, porch, foundation skirt).
+            const h = b.height + 6;
+            const c = add(t, scale(b.up, h / 2 - s.skirt / 2));
+            const r = 0.5 * Math.hypot(b.width * 1.2, b.depth * 1.3, h + s.skirt) + 2;
+            const { data, offset: o } = this.batches.add(this.meshKey(this.variants.get(s.variant)!, s.lod), [c[0], c[1], c[2], r]);
+            data[o] = b.right[0] * fx; data[o + 1] = b.right[1] * fx; data[o + 2] = b.right[2] * fx; data[o + 3] = 0;
+            data[o + 4] = b.up[0]; data[o + 5] = b.up[1]; data[o + 6] = b.up[2]; data[o + 7] = 0;
+            data[o + 8] = b.forward[0] * fz; data[o + 9] = b.forward[1] * fz; data[o + 10] = b.forward[2] * fz; data[o + 11] = 0;
+            data[o + 12] = t[0]; data[o + 13] = t[1]; data[o + 14] = t[2]; data[o + 15] = 1;
+            data[o + 16] = 1; data[o + 17] = 1; data[o + 18] = 1; data[o + 19] = 0;
+            data[o + 20] = 0; data[o + 21] = 0; data[o + 22] = 0; data[o + 23] = s.skirt;
+        }
+        this.batches.flush();
+        this.dirty = false;
     }
 
     private remove(key: string): void {
-        const s = this.shown.get(key);
-        if (!s) return;
-        this.engine.clearMesh(s.meshId);
-        this.engine.destroyItem(s.item);
-        this.shown.delete(key);
+        if (this.shown.delete(key)) this.dirty = true;
     }
 
     /** Drops every drawn house (they come back on the next update). */
     clear(): void {
-        for (const key of [...this.shown.keys()]) this.remove(key);
+        this.shown.clear();
+        this.batches.clear();
+        this.dirty = false;
         this.candidates = [];
         this.queryCenter = null;
         this.settled = false;
@@ -350,15 +437,22 @@ export class CityHouses {
             v.wants[lod] = true;
         }
 
-        // Make missing meshes, nearest first: one Mesha evaluation per frame at most (each is tens
-        // of milliseconds), unless the budget is unlimited.
+        // Make missing meshes, nearest first. Here: one Mesha evaluation per frame at most (each
+        // is tens of milliseconds), unless the budget is unlimited. In the background: a few
+        // jobs in flight, whatever the frame budget, since they cost this thread nothing.
+        this.pollBackground();
         const missing = [...this.variants.values()].filter(v => v.want < Infinity && (this.needs(v, 0) || this.needs(v, 1)));
         missing.sort((a, b) => a.want - b.want);
         const started = this.engine.now();
         const throttled = buildMs !== Infinity && started - this.lastBuildAt < o.minBuildIntervalMs;
+        const background = !!this.engine.generateInBackground && buildMs !== Infinity;
         for (const v of missing) {
-            if (buildMs <= 0 || throttled) break;
+            if (buildMs <= 0) break;
+            if (background && !this.foreground.has(v.key)) {
+                if (this.inFlight.size >= MAX_IN_FLIGHT) continue;
+            } else if (throttled) break;
             this.generate(v);
+            if (this.inFlight.has(v.key)) continue;
             this.lastBuildAt = this.engine.now();
             if (buildMs !== Infinity) break;
             if (this.engine.now() - started > buildMs) break;
@@ -375,29 +469,21 @@ export class CityHouses {
             const lod = this.ready(v, lodWanted) ? lodWanted : this.ready(v, other) && (other === 1 || b.distance < o.lod0Radius * 2) ? other : null;
             if (lod !== lodWanted) complete = false;
             if (lod === null) { if (current && current.variant !== v.key) this.remove(b.key); continue; }
-            if (current && current.lod === lod && current.variant === v.key) {
-                if (originMoved) this.writeItem(current);
-                continue;
-            }
+            if (current && current.lod === lod && current.variant === v.key) continue;
             const plinth = Number(v.values.plinth ?? 0.5);
             const { origin, skirt } = houseOrigin(b, plinth);
-            const meshId = `qp-house:${b.key}:${lod}`;
-            const item = current?.item ?? this.engine.createItem();
-            const s: Shown = { lod, meshId, item, variant: v.key, origin, skirt, building: b };
-            this.writeItem(s);
-            if (!this.engine.createMesh(HOUSE_NAMESPACE, this.meshKey(v, lod), meshId, item)) {
-                // Evicted from the cache meanwhile: make it again.
-                complete = false;
-                v.status[lod] = null;
-                if (!current) this.engine.destroyItem(item);
-                continue;
-            }
-            if (current) this.engine.clearMesh(current.meshId);
-            this.shown.set(b.key, s);
+            // Stretch the (snapped) house over the building's real footprint.
+            const fit = (real: number, model: unknown) => {
+                const m = Number(model);
+                return m > 0 ? Math.min(1 + MAX_FIT, Math.max(1 - MAX_FIT, real / m)) : 1;
+            };
+            this.shown.set(b.key, { lod, variant: v.key, origin, skirt, fit: [fit(b.width, v.values.width), fit(b.depth, v.values.depth)], building: b });
+            this.dirty = true;
         }
         this.settled = complete;
         const inList = new Set(this.candidates.map(b => b.key));
         for (const key of [...this.shown.keys()]) if (!inList.has(key)) this.remove(key);
+        if (this.dirty || originMoved) this.writeBatches();
 
         // Boxes hide inside the nearest house we aren't drawing (and inside what the last
         // placement query is still sure to cover).
@@ -415,6 +501,7 @@ export class CityHouses {
         this.lastStats = {
             candidates: this.candidates.length, lod0, lod1, variants: this.variants.size, generated: this.generated,
             queued: missing.length, triangles: shownTriangles, hideRadius: Math.round(this.hideRadius * 10) / 10, lastBuildMs: Math.round(this.lastBuildMs),
+            batches: this.batches.lastStats.drawnBatches, instances: this.batches.lastStats.instances, background: this.backgroundJobs,
         };
         return this.hideRadius;
     }

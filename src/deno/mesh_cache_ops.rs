@@ -22,8 +22,7 @@ fn err(e: impl Into<String>) -> JsErrorBox { JsErrorBox::generic(e.into()) }
 
 fn cache(state: &mut OpState) -> Result<std::sync::Arc<MeshCache>, JsErrorBox> {
     let ctx = state.try_borrow::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
-    let root = resolve_addon_root(ctx).unwrap_or_else(|| std::path::PathBuf::from("data"));
-    Ok(cache_at(root.join("mesh-cache")))
+    Ok(cache_at(cache_root(ctx)))
 }
 
 fn floats(bytes: &[u8]) -> Result<Vec<f32>, JsErrorBox> {
@@ -66,6 +65,26 @@ pub struct SimplifyOptions {
     target_ratio: f32,
 }
 
+/// `put` for any thread: the addon op below and the worker isolates' (worker_ops.rs).
+pub fn put_mesh(c: &MeshCache, namespace: &str, key: &str, vertices: &[u8], indices: &[u8], meta: String, options: Option<PutOptions>) -> Result<(), String> {
+    let options = options.unwrap_or_default();
+    let (v, i) = (floats(vertices).map_err(|e| e.to_string())?, u32s(indices).map_err(|e| e.to_string())?);
+    match options.simplify {
+        Some(s) => {
+            if !(s.max_error.is_finite() && s.max_error >= 0.0) { return Err("simplify.maxError must be a number of meters >= 0".into()); }
+            let p = SimplifyParams { max_error: s.max_error, min_feature: s.min_feature.max(0.0), target_ratio: s.target_ratio.clamp(0.0, 1.0) };
+            c.put_async(namespace, key, v, i, meta, Some(p))
+        }
+        None if options.background => c.put_async(namespace, key, v, i, meta, None),
+        None => c.put(namespace, key, v, i, meta).map(|_| ()),
+    }
+}
+
+/// Where this addon's mesh cache lives (`<data dir>/mesh-cache`).
+pub fn cache_root(ctx: &AddonContext) -> std::path::PathBuf {
+    resolve_addon_root(ctx).unwrap_or_else(|| std::path::PathBuf::from("data")).join("mesh-cache")
+}
+
 /// Stores a mesh: packed vertices (12 floats each: position, normal, uv, color), u32 indices and
 /// a JSON string of the caller's own metadata.
 #[op2]
@@ -80,17 +99,7 @@ pub fn op_mesh_cache_put(
 ) -> Result<(), JsErrorBox> {
     let c = cache(state)?;
     forget_geometry(state, &namespace, &key);
-    let options = options.unwrap_or_default();
-    let (v, i) = (floats(vertices)?, u32s(indices)?);
-    match options.simplify {
-        Some(s) => {
-            if !(s.max_error.is_finite() && s.max_error >= 0.0) { return Err(err("simplify.maxError must be a number of meters >= 0")); }
-            let p = SimplifyParams { max_error: s.max_error, min_feature: s.min_feature.max(0.0), target_ratio: s.target_ratio.clamp(0.0, 1.0) };
-            c.put_async(&namespace, &key, v, i, meta, Some(p)).map_err(err)
-        }
-        None if options.background => c.put_async(&namespace, &key, v, i, meta, None).map_err(err),
-        None => c.put(&namespace, &key, v, i, meta).map(|_| ()).map_err(err),
-    }
+    put_mesh(&c, &namespace, &key, vertices, indices, meta, options).map_err(err)
 }
 
 /// The caller's metadata for a cached mesh, or null.
@@ -151,6 +160,9 @@ pub struct SpawnConfig {
     /// `Entropy.Model.setInstanceCount` raises it.
     #[serde(default)]
     instance_count: Option<u32>,
+    /// Bounding sphere [x, y, z, radius] in render space (see Entropy.Model.setBounds).
+    #[serde(default)]
+    bounds: Option<[f32; 4]>,
 }
 
 /// Forgets the shared GPU geometry of `namespace/key` (its cached mesh changed or went away):
@@ -197,6 +209,7 @@ pub fn op_mesh_cache_create_mesh(state: &mut OpState, #[string] addon_name: Stri
         vertex_data: Vec::new(),
         index_data: Vec::new(),
         shared_geometry: Some(geometry),
+        bounds: config.bounds,
         pipeline_id: config.pipeline_id,
         render_role: config.render_role,
         instance_count: Some(config.instance_count.unwrap_or(1)),

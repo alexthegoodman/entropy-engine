@@ -21,7 +21,8 @@ import {
 } from "../../apps/quadplanet/qp_planet";
 import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding } from "../../apps/quadplanet/qp_city";
-import { ALLEGIANCE_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
 import { CrowdBatches, maybeVisible } from "./al_crowd";
 import { buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
@@ -68,6 +69,7 @@ const WORLD_PLANETS = [EARTH];
 
 let pipelineId = "";
 let peoplePipelineId = "";
+let housePipelineId = "";
 let worldBuffer = "";
 let skyItem = "";
 let terrainId = "";
@@ -1452,6 +1454,12 @@ addon.onInit(() => {
         ] }],
     });
     worldBuffer = uniform(WORLD_FLOATS);
+    // Houses: instanced batches of Items, one draw per house mesh (qp_city.ts, qp_instances.ts).
+    housePipelineId = Entropy.Pipeline.create({
+        name: "Allegiance Houses", layout: "mesh", pbr: false,
+        vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
+        extraBindGroups: INSTANCED_BIND_GROUPS,
+    });
     peoplePipelineId = Entropy.Pipeline.create({
         name: "Allegiance People", layout: "mesh", pbr: false,
         vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
@@ -1480,13 +1488,14 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        createMesh: (ns, k, meshId, item) => Entropy.MeshCache.createMesh(ns, k, { id: meshId, pipelineId, bindings: bindings(item) }),
-        clearMesh: meshId => Entropy.Model.clearMesh(meshId),
-        createItem: () => uniform(ITEM_FLOATS),
-        writeItem: (item, data) => Entropy.Buffer.write(item, data),
-        destroyItem: item => Entropy.Buffer.destroy(item),
+        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        // Mesha evaluations run in a worker isolate (Entropy.Worker); without the bundle they fail
+        // and CityHouses evaluates here instead.
+        generateInBackground: job => { try { return Entropy.Worker.start(HOUSE_WORKER_SCRIPT, job); } catch { return null; } },
+        pollBackground: id => Entropy.Worker.poll(id).status,
         now: () => Date.now(),
-    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250 });
+    // 1 m size steps: similar footprints share one house mesh (and one instanced draw).
+    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1 });
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     land = computeLand();

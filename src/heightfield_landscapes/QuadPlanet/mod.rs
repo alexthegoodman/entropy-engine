@@ -91,6 +91,8 @@ pub struct ChunkItem {
     pub buffer_id: String,
     pub origin: V3,
     pub tex_origin: V3,
+    /// Every vertex lies within this distance of `origin` (frustum culling).
+    pub radius: f32,
 }
 
 pub struct QuadPlanetSystem {

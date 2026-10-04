@@ -232,9 +232,78 @@ Deterministic checks instead:
   describes; the chunk streamer now follows it.
 - **Counters** give the per-stage measurements the roadmap's performance budgets need.
 
+## Second pass (2026-10-04)
+
+### The biggest finding: UI redraws
+
+With the new section timings, `addon update` (~90 ms a frame in the replay) turned out to be
+~85 ms of **UI processing in the engine**, not game logic (Allegiance's own update is ~5 ms).
+Every HUD redraw (10-30 Hz) rebuilt every `UI.drawRect`/`drawText` from scratch: GPU buffers and
+bind groups per rect, and per text a font parse plus its own **4096 x 4096 RGBA glyph atlas
+(64 MB)**. Now:
+
+- A redraw reuses every rect and text it repeats exactly (same content, position, colors, layer and
+  viewport), keyed in `AddonEngine::ui_rect_pool` / `ui_text_pool`; only changed items are built.
+- UI text gets an atlas sized to its own distinct glyphs (`atlas_for_text`, typically 128-256 px
+  square instead of 4096); glyphs that would overflow an atlas are skipped instead of written
+  past it. Other text keeps the 4096 default (it can be edited to longer text later).
+- Parsed fonts are cached (`parsed_font`) instead of re-parsed per text item.
+
+Measured in the same London scene: UI processing **85 -> 2-4.5 ms** a frame, `addon update`
+**90 -> 8-12 ms**, ~26 items reused vs ~1.5 rebuilt per frame. Even on this container's software
+renderer the whole frame went from ~830-970 ms to ~390-480 ms. The capture is unchanged.
+This helps every addon that draws UI through `Entropy.UI`, not just Allegiance.
+
+### Engine-side frustum culling
+
+`CustomMesh::bounds` (a render-space sphere) is tested against the camera frustum's side planes
+(`core/frustum.rs`; near/far are ignored because QuadPlanet writes logarithmic depth). QuadPlanet
+gives every terrain chunk and city tile its sphere and refreshes them on render-origin rebases;
+instanced batches give a sphere around their instances. `Entropy.Model.setBounds(meshId, center,
+radius)` and `MeshCache.createMesh({ bounds })` expose it. In the London scene ~520 of ~730 meshes
+are culled a frame: draws ~737 -> 110-212, triangles 5.3-6.3M -> 1.1-2.6M (`#mesh culled`).
+Terrain chunks are not instanced: each one is unique geometry, so culling is the lever there.
+
+### Instanced houses with snapped sizes
+
+`qp_instances.ts` generalizes the people batching (`InstanceBatches`, any record size, optional
+per-batch bounds); `instancedShader` (qp_shader.ts) turns the QuadPlanet/Allegiance shader into one
+that reads its `Item` from a storage array by instance index. `CityHouses` now draws one instanced
+batch per house mesh (variant x LOD) instead of a mesh and uniform per house, rewriting batches only
+when the drawn set changes or the origin moves. `CityOptions.sizeStep` snaps footprints before
+choosing a house (Allegiance: 1 m; the QuadPlanet app keeps 0.5 m), and every house is stretched
+over its real footprint (at most 12%; a few percent in practice), so it fits its OSM building
+better than before while similar buildings share a mesh. Fewer variants also means fewer Mesha
+evaluations and cached meshes.
+
+### Mesha evaluation off the game thread
+
+`Entropy.Worker` (`src/deno/worker_ops.rs`) runs a bundled classic script's `onJob(input)` in a
+separate V8 isolate on a background thread (one or two threads). Workers see none of the engine
+except `EntropyWorker.MeshCache.put`, which writes into the same cache the game reads. The house
+worker (`qp_house_worker.ts`, bundled to `dist/qp_house_worker.js` by `build-allegiance`,
+`build-quadplanet` and build-all) evaluates a house and writes its LODs; `CityHouses` keeps up to
+four jobs in flight, never re-requests a variant that is in flight, and evaluates a house on the
+game thread only if its job fails (or the bundle is missing). Unlimited budgets (settle tools,
+`fixedStep`) stay synchronous and deterministic. A real house evaluated in a worker in ~0.3 s
+including isolate start-up, without touching the frame.
+
+### GPU timing
+
+`core/gpu_timer.rs` timestamps the PBR geometry, lighting and non-PBR passes when the adapter offers
+`TIMESTAMP_QUERY` (now requested when available) and profiling is on, reading results back through
+a ring of buffers so it never stalls. Rows appear as `gpu ... pass`. Section timings inside the
+engine's addon update (`addon: ...`, `pend: ...`) and UI reuse counters were added too.
+
+### Verification
+
+Rust library tests (585, including frustum, worker pool, a real house in a worker, atlas sizing),
+108 TypeScript tests (instanced houses: batches, bounds, snapping/fit, eviction, background jobs and
+fallback), both typechecks, all five shader variants validated with naga 27, and short live runs
+of the London scene (people feature and a custom check) with captures reviewed.
+
 ### Not done yet
 
-GPU timestamp queries, instancing houses (each house variant is one mesh per placement still,
-though their geometry is now shared), moving Mesha evaluation off the JS thread, frustum culling of
-terrain chunks and houses on the native side, and exterior-only house meshes. Bounds on city-tile
-uploads per frame (tiles are already built in the background) would complete the upload budget.
+Exterior-only house meshes when the player is outside; bounds on city-tile uploads per frame;
+GPU-driven culling/indirect draws (not needed at the current draw counts); hot reload of worker
+scripts (a rebuilt worker bundle is picked up on the next launch).

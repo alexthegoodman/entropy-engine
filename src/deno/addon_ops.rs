@@ -185,6 +185,9 @@ pub struct MeshConfig {
     pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
     pub physics: Option<PhysicsConfig>,
+    /// Bounding sphere [x, y, z, radius] in render space for frustum culling (Model.setBounds).
+    #[serde(default)]
+    pub bounds: Option<[f32; 4]>,
     /// GPU geometry already uploaded (MeshCache.createMesh), drawn instead of vertex/index data.
     #[serde(skip)]
     pub shared_geometry: Option<std::sync::Arc<crate::core::custom_mesh::SharedGeometry>>,
@@ -1521,6 +1524,10 @@ pub struct AddonContext {
     pub shared_geometry: HashMap<String, std::sync::Weak<crate::core::custom_mesh::SharedGeometry>>,
     /// Entropy.Model.setInstanceCount requests (mesh id, count), applied after this frame's new meshes.
     pub pending_instance_counts: Vec<(String, u32)>,
+    /// Entropy.Worker's background isolates (made on first use).
+    pub worker_pool: Option<std::sync::Arc<crate::deno::worker_ops::WorkerPool>>,
+    /// Entropy.Model.setBounds requests (mesh id, sphere or None), applied with instance counts.
+    pub pending_mesh_bounds: Vec<(String, Option<([f32; 3], f32)>)>,
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -4245,6 +4252,16 @@ pub fn op_frame_profile_count(#[string] name: &str, value: f64) {
 /// Whether ENTROPY_FRAME_PROFILE is on (addons can skip their timing work otherwise).
 #[op2(fast)]
 pub fn op_frame_profile_enabled() -> bool { crate::core::frame_profile::enabled() }
+
+/// Sets an addon mesh's bounding sphere in render space (Entropy.Model.setBounds); a negative or
+/// non-finite radius clears it (always drawn). Meshes outside the view are not drawn at all.
+#[op2(fast)]
+pub fn op_mesh_set_bounds(state: &mut OpState, #[string] mesh_id: String, x: f64, y: f64, z: f64, radius: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let ok = radius.is_finite() && radius >= 0.0 && x.is_finite() && y.is_finite() && z.is_finite();
+        ctx.pending_mesh_bounds.push((mesh_id, ok.then(|| ([x as f32, y as f32, z as f32], radius as f32))));
+    }
+}
 
 /// Sets how many instances of an addon mesh are drawn (Entropy.Model.setInstanceCount). 0 skips
 /// the mesh's draw entirely, so a pooled or instanced batch can be emptied and refilled without

@@ -502,6 +502,8 @@ struct Shared {
 pub struct LiveTile {
     pub mesh_id: String,
     pub buffer_id: String,
+    /// Every vertex lies within this distance of `origin` (frustum culling).
+    pub radius: f32,
     pub origin: V3,
     pub basis: [V3; 3],
     pub placements: Vec<Placement>,
@@ -934,7 +936,7 @@ mod tests {
             let u = city.update(viewer);
             for (tid, t) in u.created {
                 created += 1;
-                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, placements: t.placements });
+                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, placements: t.placements });
             }
             if !city.busy() { break; }
             assert!(start.elapsed() < Duration::from_secs(20), "stuck: {:?}", city.stats());
