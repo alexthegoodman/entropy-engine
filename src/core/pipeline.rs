@@ -621,7 +621,8 @@ impl EntropyPipeline {
                     required_features: wgpu::Features {
                         features_wgpu: wgpu::FeaturesWGPU::MULTI_DRAW_INDIRECT_COUNT,
                         ..Default::default()
-                    },
+                    // GPU pass timing for the frame profiler (core/gpu_timer.rs), where offered.
+                    } | (adapter.features() & wgpu::Features::TIMESTAMP_QUERY),
                     ..Default::default()
                 },
                 // None,

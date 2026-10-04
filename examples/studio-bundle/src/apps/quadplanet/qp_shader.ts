@@ -623,3 +623,33 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     return out;
 }
 `;
+
+function injectOnce(src: string, anchor: string, replacement: string): string {
+    if (src.split(anchor).length !== 2) throw new Error(`instancedShader: anchor not found exactly once: ${anchor}`);
+    return src.replace(anchor, replacement);
+}
+
+/**
+ * The same shader drawing many instances of one mesh (qp_instances.ts): instead of one Item
+ * uniform per object, group 2 binding 1 is a read-only storage array of records indexed by
+ * @builtin(instance_index). The vertex stage passes the index on as a flat varying so the
+ * fragment stage reads the same record. `load` fills the private `item` (and anything else the
+ * caller declared in `declarations`) from `instances[i]`; by default a record is an Item.
+ */
+export function instancedShader(src: string, options: { recordType?: string; declarations?: string; load?: string } = {}): string {
+    const record = options.recordType ?? "Item";
+    let s = injectOnce(src, "@group(2) @binding(1) var<uniform> item: Item;", `${options.declarations ?? ""}
+@group(2) @binding(1) var<storage, read> instances: array<${record}>;
+var<private> item: Item;
+fn load_instance(i: u32) {
+    ${options.load ?? "item = instances[i];"}
+}`);
+    s = injectOnce(s, "    @location(3) color: vec4<f32>,\n};\n\nstruct VertexOutput {", "    @location(3) color: vec4<f32>,\n    @builtin(instance_index) instance: u32,\n};\n\nstruct VertexOutput {");
+    s = injectOnce(s, "    @location(6) local_normal: vec3<f32>,\n};", "    @location(6) local_normal: vec3<f32>,\n    @location(7) @interpolate(flat) instance: u32,\n};");
+    s = injectOnce(s, "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n", "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n    load_instance(in.instance);\n    out.instance = in.instance;\n");
+    s = injectOnce(s, "fn fs_main(in: VertexOutput) -> FragmentOutput {\n", "fn fs_main(in: VertexOutput) -> FragmentOutput {\n    load_instance(in.instance);\n");
+    return s;
+}
+
+/** QUADPLANET_SHADER for instanced batches of Items (houses). */
+export const QUADPLANET_INSTANCED_SHADER = instancedShader(QUADPLANET_SHADER);

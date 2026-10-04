@@ -1,4 +1,6 @@
 pub mod Grid;
+pub mod frustum;
+pub mod gpu_timer;
 pub mod Rays;
 pub mod RendererState;
 pub mod SimpleCamera;

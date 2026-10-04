@@ -314,6 +314,56 @@ fn streams_nearest_first_and_never_drops_ground_before_its_replacement() {
 }
 
 #[test]
+fn background_streaming_never_blocks_bounds_handouts_and_keeps_ground_covered() {
+    let planets = std::sync::Arc::new(vec![planet(verdant())]);
+    let mut streamer = PlanetStreamer::new(LodSettings::default(), usize::MAX);
+    let a = eye(&planets[0]);
+    // The first call only queues: nothing is built on the calling thread.
+    let first = streamer.update_background(&planets, a, 4, 12.0);
+    assert!(first.created.is_empty());
+    assert!(first.stats.in_flight > 0);
+    let mut before: Vec<ChunkNode> = Vec::new();
+    let mut stats = first.stats;
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(60) {
+        let u = streamer.update_background(&planets, a, 4, 12.0);
+        assert!(u.created.len() <= 4, "at most max_builds chunks handed out per call");
+        let after: Vec<ChunkNode> = streamer.live_nodes().map(|(_, n)| *n).collect();
+        for w in &before { assert!(covered(w, &after), "ground stays drawn"); }
+        before = after;
+        stats = u.stats;
+        if stats.pending == 0 { break; }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(stats.pending, 0);
+    assert_eq!(stats.live, stats.wanted);
+    assert_eq!(stats.in_flight, 0);
+
+    // Flying away cancels queued work for the old place; chunks it finished are dropped, not shown.
+    let far = scale(a, 3.0);
+    streamer.update_background(&planets, far, 0, 12.0);
+    let back = streamer.update_background(&planets, a, 1000, 12.0);
+    let wanted_here: HashSet<String> = select_chunks(&planets[0], 0, a, &LodSettings::default()).leaves.into_iter().map(|(n, _)| n.key()).collect();
+    for (k, _, _) in &back.created { assert!(wanted_here.contains(k)); }
+
+    // clear() forgets in-flight work: nothing from before it is handed out after.
+    streamer.update_background(&planets, far, 0, 12.0);
+    streamer.clear();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let after_clear = streamer.update_background(&planets, a, 1000, 12.0);
+    assert!(after_clear.created.is_empty(), "results from before clear() are dropped");
+}
+
+#[test]
+fn background_streaming_with_an_unlimited_budget_builds_everything_now() {
+    let planets = std::sync::Arc::new(vec![planet(verdant())]);
+    let mut streamer = PlanetStreamer::new(LodSettings::default(), usize::MAX);
+    let s = streamer.update_background(&planets, eye(&planets[0]), usize::MAX, f64::MAX).stats;
+    assert_eq!(s.pending, 0);
+    assert_eq!(s.live, s.wanted);
+}
+
+#[test]
 fn keeps_within_the_triangle_budget() {
     let planets = vec![planet(verdant())];
     let e = eye(&planets[0]);

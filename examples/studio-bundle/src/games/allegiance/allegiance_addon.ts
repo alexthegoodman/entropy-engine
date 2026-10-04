@@ -21,8 +21,10 @@ import {
 } from "../../apps/quadplanet/qp_planet";
 import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding } from "../../apps/quadplanet/qp_city";
-import { ALLEGIANCE_SHADER, PEOPLE_SHADER } from "./al_shader";
-import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, type PersonLod } from "./al_people";
+import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
+import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
+import { CrowdBatches, maybeVisible } from "./al_crowd";
 import { buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
 import {
     PARTY, PARTY_COLORS, REGIONS, RIVALS, IDEOLOGIES, blocById, regionDefById, weaponById, armorById, pamphletById, factionById,
@@ -67,6 +69,7 @@ const WORLD_PLANETS = [EARTH];
 
 let pipelineId = "";
 let peoplePipelineId = "";
+let housePipelineId = "";
 let worldBuffer = "";
 let skyItem = "";
 let terrainId = "";
@@ -880,10 +883,15 @@ function view(): GameView {
 
 // --- Rendering people ----------------------------------------------------------------------------
 
-interface Drawn { mesh: string; item: string; colors: string; palette: string; key: string; lod: PersonLod }
-const drawn = new Map<number, Drawn>();
-const freeItems: string[] = [];
-let meshSerial = 0;
+/** Each person's last level of detail (hysteresis) while within drawing range. */
+const personLods = new Map<number, PersonLod>();
+let crowd: CrowdBatches | null = null;
+/** Scales people's LOD distances (allegiance_config peopleDetail): lower is faster. */
+let peopleDetail = 1;
+/** Caps drawn people's cost (allegiance_config peopleMaxFull / peopleTriangles). */
+let peopleBudget: PeopleBudget = { ...DEFAULT_PEOPLE_BUDGET };
+/** People per level of detail last frame (including you), for the state report. */
+let lodCounts: [number, number, number] = [0, 0, 0];
 
 function weaponClass(id: string): string {
     if (id === "fists") return "none";
@@ -898,38 +906,28 @@ function lookOf(a: Actor): PersonLook {
 
 const PLAYER_LOOK_BASE = { skin: [0.85, 0.66, 0.5] as [number, number, number], hair: [0.12, 0.09, 0.07] as [number, number, number], hat: false, female: false, soldier: false, sash: true };
 
-function ensureDrawn(id: number, look: PersonLook, lod: PersonLod): Drawn | null {
-    const key = people.ensure(look, lod);
-    if (!key) return null;
-    let d = drawn.get(id);
-    const palette = [...look.skin, ...look.hair].join(",");
-    if (d && d.palette !== palette) {
-        Entropy.Buffer.write(d.colors, new Float32Array([...look.skin, 1, ...look.hair, 1]));
-        d.palette = palette;
-    }
-    if (d?.key === key) return d;
-    const item = d?.item ?? freeItems.pop() ?? uniform(ITEM_FLOATS);
-    const colors = d?.colors ?? uniform(8);
-    Entropy.Buffer.write(colors, new Float32Array([...look.skin, 1, ...look.hair, 1]));
-    const meshId = `al-person-${meshSerial++}`;
-    if (!Entropy.MeshCache.createMesh(PEOPLE_NAMESPACE, key, { id: meshId, pipelineId: peoplePipelineId, bindings: [...bindings(item),
-        { group: 2, binding: 2, resource: { type: "Buffer", value: { id: colors } } }] })) {
-        if (!d) { freeItems.push(item); Entropy.Buffer.destroy(colors); }
-        return d ?? null;
-    }
-    if (d) Entropy.Model.clearMesh(d.mesh);
-    d = { mesh: meshId, item, colors, palette, key, lod };
-    drawn.set(id, d);
-    return d;
+function makeCrowd(): CrowdBatches {
+    return new CrowdBatches({
+        createBuffer: bytes => Entropy.Buffer.create({ size: bytes, usage: "Storage" }),
+        destroyBuffer: id => Entropy.Buffer.destroy(id),
+        writeBuffer: (id, data) => Entropy.Buffer.write(id, data),
+        createMesh: (key, meshId, buffer, instances) => Entropy.MeshCache.createMesh(PEOPLE_NAMESPACE, key, { id: meshId, pipelineId: peoplePipelineId, instanceCount: instances, bindings: [
+            { group: 2, binding: 0, resource: { type: "Buffer", value: { id: worldBuffer } } },
+            { group: 2, binding: 1, resource: { type: "Buffer", value: { id: buffer } } },
+        ] }),
+        clearMesh: meshId => Entropy.Model.clearMesh(meshId),
+        setInstanceCount: (meshId, count) => Entropy.Model.setInstanceCount(meshId, count),
+    }, { prefix: "al-crowd", onMissing: key => people.forget(key) });
 }
 
-function releaseDrawn(id: number): void {
-    const d = drawn.get(id);
-    if (!d) return;
-    Entropy.Model.clearMesh(d.mesh);
-    freeItems.push(d.item);
-    Entropy.Buffer.destroy(d.colors);
-    drawn.delete(id);
+/** Appends one person to their body variant's batch. */
+function addPerson(key: string, matrix: number[], tint: readonly number[], extra: readonly number[], skin: readonly number[], hair: readonly number[]): void {
+    const { data, offset } = crowd!.add(key);
+    data.set(matrix, offset);
+    data[offset + 16] = tint[0]; data[offset + 17] = tint[1]; data[offset + 18] = tint[2]; data[offset + 19] = tint[3];
+    data[offset + 20] = extra[0]; data[offset + 21] = extra[1]; data[offset + 22] = extra[2]; data[offset + 23] = extra[3];
+    data[offset + 24] = skin[0]; data[offset + 25] = skin[1]; data[offset + 26] = skin[2]; data[offset + 27] = 1;
+    data[offset + 28] = hair[0]; data[offset + 29] = hair[1]; data[offset + 30] = hair[2]; data[offset + 31] = 1;
 }
 
 function personMatrix(x: number, y: number, z: number, heading: number, dead: boolean): number[] {
@@ -942,16 +940,37 @@ function personMatrix(x: number, y: number, z: number, heading: number, dead: bo
 
 function drawPeople(): void {
     if (!frame) return;
+    crowd ??= makeCrowd();
+    crowd.begin();
     const c = campaign;
     const party = c ? c.party.color : THEME.red;
-    const seen = new Set<number>();
     const anyEnemy = soldiers(street).length > 0;
+    const counts: [number, number, number] = [0, 0, 0];
+    const cam = lastCamera;
+    const forward = cam ? normalize(sub(cam.target, cam.position)) : null;
+    // Who is drawn this frame, nearest first, with the LOD their distance asks for.
+    const shown: { a: Actor; distance: number; lod: PersonLod }[] = [];
     for (const a of street.actors) {
-        if (Math.hypot(a.x - body.x, a.z - body.z) > 160) continue;
-        seen.add(a.id);
-        const actorDistance = lastCamera ? distance(lastCamera.position, toWorld(frame, a.x, a.y + 0.9, a.z)) : Math.hypot(a.x - body.x, a.z - body.z);
-        const d = ensureDrawn(a.id, lookOf(a), personLod(actorDistance, drawn.get(a.id)?.lod));
-        if (!d) continue;
+        if (Math.hypot(a.x - body.x, a.z - body.z) > 160) { personLods.delete(a.id); continue; }
+        const center = toWorld(frame, a.x, a.y + 0.9, a.z);
+        const actorDistance = cam ? distance(cam.position, center) : Math.hypot(a.x - body.x, a.z - body.z);
+        const lod = personLod(actorDistance, personLods.get(a.id), peopleDetail);
+        // Off screen: no draw, but the simulation (and the LOD hysteresis) carries on.
+        if (cam && forward && !maybeVisible(cam.position, forward, center)) { personLods.set(a.id, lod); counts[lod]++; continue; }
+        shown.push({ a, distance: actorDistance, lod });
+    }
+    // You are drawn in full and count against the budget first.
+    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
+    shown.sort((x, y) => x.distance - y.distance);
+    const budget = { maxFull: Math.max(0, peopleBudget.maxFull - (playerVisible ? 1 : 0)), triangleBudget: Math.max(0, peopleBudget.triangleBudget - (playerVisible ? PERSON_TRIANGLES[0] : 0)) };
+    const lods = budgetLods(shown.map(s => s.lod), budget);
+    shown.forEach((s, i) => {
+        const a = s.a, lod = lods[i];
+        personLods.set(a.id, lod);
+        counts[lod]++;
+        const look = lookOf(a);
+        const key = people.ensure(look, lod);
+        if (!key) return;
         const dead = a.state === "dead";
         const shirt = a.kind === "soldier" ? a.look.shirt : (a.member || a.kind === "follower") ? [party[0], party[1], party[2]] : a.look.shirt;
         const amp = dead ? 0 : Math.min(0.75, a.speed * 0.22);
@@ -960,20 +979,25 @@ function drawPeople(): void {
         const listening = a.state === "listen" && !dead;
         // Listeners cheer: arms up with the crowd's fervor during a speech.
         const cheer = listening && speech && speech.phase === "react" && (a.id % 3 === 0);
-        writeItem(d.item, personMatrix(a.x, a.y, a.z, a.heading, dead), [shirt[0], shirt[1], shirt[2], cheer ? 0.9 : amp], [a.look.pants[0], a.look.pants[1], a.look.pants[2], aiming || cheer ? -phase - (cheer ? time * 6 : 0) : phase]);
+        addPerson(key, personMatrix(a.x, a.y, a.z, a.heading, dead), [shirt[0], shirt[1], shirt[2], cheer ? 0.9 : amp],
+            [a.look.pants[0], a.look.pants[1], a.look.pants[2], aiming || cheer ? -phase - (cheer ? time * 6 : 0) : phase], look.skin, look.hair);
+    });
+    if (personLods.size > street.actors.length * 2) {
+        const ids = new Set(street.actors.map(a => a.id));
+        for (const id of [...personLods.keys()]) if (!ids.has(id)) personLods.delete(id);
     }
-    for (const id of [...drawn.keys()]) if (id > 0 && !seen.has(id)) releaseDrawn(id);
     // You.
-    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
+    counts[0]++;
     const look: PersonLook = { ...PLAYER_LOOK_BASE, weapon: weaponClass(c?.player.weapon ?? "fists") };
-    const d = ensureDrawn(-1, look, 0);
-    if (!d) return;
-    if (!playerVisible) writeItem(d.item, HIDDEN, [1, 1, 1, 0]);
-    else {
+    const key = people.ensure(look, 0);
+    if (key && playerVisible) {
         const amp = Math.min(0.8, body.speed * 0.2);
         const aiming = aimHold > 0 || lookButtonDown;
-        writeItem(d.item, personMatrix(body.x, body.y, body.z, body.yaw, false), [party[0], party[1], party[2], amp], [0.15, 0.14, 0.14, aiming ? -(body.stride % 6.28) - 0.001 : (body.stride % 6.28) + 0.001]);
+        addPerson(key, personMatrix(body.x, body.y, body.z, body.yaw, false), [party[0], party[1], party[2], amp],
+            [0.15, 0.14, 0.14, aiming ? -(body.stride % 6.28) - 0.001 : (body.stride % 6.28) + 0.001], look.skin, look.hair);
     }
+    lodCounts = counts;
+    crowd.flush();
 }
 
 // Props: the podium and party flag during a speech, and tracer rounds.
@@ -982,6 +1006,16 @@ let flagItem = "";
 const tracerItems: string[] = [];
 const TRACERS = 20;
 
+/** Whether each prop mesh is drawn: hidden props draw no instances (no draw call), rather than a
+ * collapsed matrix the GPU still processes. */
+const propShown = new Map<string, boolean>();
+
+function showProp(meshId: string, shown: boolean): void {
+    if (propShown.get(meshId) === shown) return;
+    propShown.set(meshId, shown);
+    Entropy.Model.setInstanceCount(meshId, shown ? 1 : 0);
+}
+
 function setupProps(): void {
     podiumItem = uniform(ITEM_FLOATS);
     flagItem = uniform(ITEM_FLOATS);
@@ -989,12 +1023,15 @@ function setupProps(): void {
     spawnMesh("al-flag", buildFlag(), flagItem);
     writeItem(podiumItem, HIDDEN, [1, 1, 1, 0]);
     writeItem(flagItem, HIDDEN, [1, 1, 1, 0]);
+    showProp("al-podium", false);
+    showProp("al-flag", false);
     const party = buildTracer([1, 0.85, 0.4]), enemy = buildTracer([1, 0.35, 0.25]);
     for (let i = 0; i < TRACERS; i++) {
         const item = uniform(ITEM_FLOATS);
         tracerItems.push(item);
         spawnMesh(`al-tracer-${i}`, i % 2 ? enemy : party, item);
         writeItem(item, HIDDEN, [1, 1, 1, 0]);
+        showProp(`al-tracer-${i}`, false);
     }
 }
 
@@ -1009,10 +1046,12 @@ function drawProps(): void {
         writeItem(podiumItem, personMatrix(podiumAt.x + fx * 0.75, heightAt(podiumAt.x + fx * 0.75, podiumAt.z + fz * 0.75), podiumAt.z + fz * 0.75, podiumAt.yaw, false), [color[0], color[1], color[2], 0]);
         const sx = podiumAt.x - Math.cos(podiumAt.yaw) * 2.2, sz = podiumAt.z + Math.sin(podiumAt.yaw) * 2.2;
         writeItem(flagItem, personMatrix(sx, heightAt(sx, sz), sz, podiumAt.yaw + Math.PI / 2, false), [color[0], color[1], color[2], 0]);
+        showProp("al-podium", true);
+        showProp("al-flag", true);
     } else {
         podiumAt = null;
-        writeItem(podiumItem, HIDDEN, [1, 1, 1, 0]);
-        writeItem(flagItem, HIDDEN, [1, 1, 1, 0]);
+        showProp("al-podium", false);
+        showProp("al-flag", false);
     }
     // Tracers: party rounds on even slots, enemy rounds on odd ones.
     let even = 0, odd = 1;
@@ -1030,13 +1069,16 @@ function drawProps(): void {
         const w = 0.025;
         const p = toRender(a);
         writeItem(tracerItems[slot], [r[0] * w, r[1] * w, r[2] * w, 0, u[0] * w, u[1] * w, u[2] * w, 0, -f[0] * len, -f[1] * len, -f[2] * len, 0, p[0], p[1], p[2], 1], [1, 1, 1, 1.5]);
+        showProp(`al-tracer-${slot}`, true);
     }
-    for (let i = even; i < TRACERS; i += 2) writeItem(tracerItems[i], HIDDEN, [1, 1, 1, 0]);
-    for (let i = odd; i < TRACERS; i += 2) writeItem(tracerItems[i], HIDDEN, [1, 1, 1, 0]);
+    for (let i = even; i < TRACERS; i += 2) showProp(`al-tracer-${i}`, false);
+    for (let i = odd; i < TRACERS; i += 2) showProp(`al-tracer-${i}`, false);
 }
 
 function hideWorld(): void {
-    for (const id of [...drawn.keys()]) if (id > 0) releaseDrawn(id);
+    crowd?.clear();
+    personLods.clear();
+    lodCounts = [0, 0, 0];
 }
 
 // --- Camera, sun and world uniform ---------------------------------------------------------------
@@ -1151,9 +1193,8 @@ function snapshot() {
         terrain: stats ? { live: stats.live, pending: stats.pending, waitingForData: stats.waitingForData, triangles: stats.triangles, city: stats.city ?? null } : null,
         houses: houses?.lastStats ?? null,
         people: { generated: people?.generated ?? 0, cache: Entropy.MeshCache.stats(PEOPLE_NAMESPACE),
-            lod0: [...drawn.values()].filter(d => d.lod === 0).length,
-            lod1: [...drawn.values()].filter(d => d.lod === 1).length,
-            lod2: [...drawn.values()].filter(d => d.lod === 2).length },
+            lod0: lodCounts[0], lod1: lodCounts[1], lod2: lodCounts[2], detail: peopleDetail, budget: peopleBudget,
+            batches: crowd?.lastStats ?? null },
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
         fixedStep,
@@ -1226,9 +1267,15 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_config",
-        description: "fixedStep: seconds per frame (reproducible runs), or null for real time.",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] } } },
-        run: a => { if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null; return snapshot(); },
+        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000).",
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" } } },
+        run: a => {
+            if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null;
+            if (typeof a.peopleDetail === "number" && a.peopleDetail > 0) peopleDetail = Math.min(4, a.peopleDetail);
+            if (typeof a.peopleMaxFull === "number" && a.peopleMaxFull >= 0) peopleBudget = { ...peopleBudget, maxFull: Math.floor(a.peopleMaxFull) };
+            if (typeof a.peopleTriangles === "number" && a.peopleTriangles >= 0) peopleBudget = { ...peopleBudget, triangleBudget: a.peopleTriangles };
+            return snapshot();
+        },
     },
     {
         name: "allegiance_ui",
@@ -1407,13 +1454,19 @@ addon.onInit(() => {
         ] }],
     });
     worldBuffer = uniform(WORLD_FLOATS);
+    // Houses: instanced batches of Items, one draw per house mesh (qp_city.ts, qp_instances.ts).
+    housePipelineId = Entropy.Pipeline.create({
+        name: "Allegiance Houses", layout: "mesh", pbr: false,
+        vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
+        extraBindGroups: INSTANCED_BIND_GROUPS,
+    });
     peoplePipelineId = Entropy.Pipeline.create({
         name: "Allegiance People", layout: "mesh", pbr: false,
         vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
+        // binding 1: every instance's PersonRecord (al_crowd.ts), read by instance index.
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
-            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
-            { binding: 2, visibility: ["Fragment"], resourceType: "Uniform" },
+            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "StorageReadOnly" },
         ] }],
     });
     people = new PeopleMeshes(Entropy.MeshCache);
@@ -1435,13 +1488,14 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        createMesh: (ns, k, meshId, item) => Entropy.MeshCache.createMesh(ns, k, { id: meshId, pipelineId, bindings: bindings(item) }),
-        clearMesh: meshId => Entropy.Model.clearMesh(meshId),
-        createItem: () => uniform(ITEM_FLOATS),
-        writeItem: (item, data) => Entropy.Buffer.write(item, data),
-        destroyItem: item => Entropy.Buffer.destroy(item),
+        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        // Mesha evaluations run in a worker isolate (Entropy.Worker); without the bundle they fail
+        // and CityHouses evaluates here instead.
+        generateInBackground: job => { try { return Entropy.Worker.start(HOUSE_WORKER_SCRIPT, job); } catch { return null; } },
+        pollBackground: id => Entropy.Worker.poll(id).status,
         now: () => Date.now(),
-    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260 });
+    // 1 m size steps: similar footprints share one house mesh (and one instanced draw).
+    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1 });
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     land = computeLand();
@@ -1452,8 +1506,20 @@ addon.onInit(() => {
     ui = new UiFrame(enginePainter(addon.UI as unknown as DrawApi), 1600, 900);
     setupInput();
     registerTools();
+    try { profiling = Entropy.Profile.enabled(); } catch { profiling = false; }
     Entropy.println("[allegiance] initialized");
 });
+
+// Per-phase timing into the native frame profiler (ENTROPY_FRAME_PROFILE=1); free when it is off.
+let profiling = false;
+const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+function timed<T>(phase: string, f: () => T): T {
+    if (!profiling) return f();
+    const t0 = clock();
+    const r = f();
+    Entropy.Profile.record(phase, clock() - t0);
+    return r;
+}
 
 addon.onUpdatePlus("Global", () => {
     if (!terrainId) return;
@@ -1476,14 +1542,14 @@ addon.onUpdatePlus("Global", () => {
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
         }
-        stepStreet(street, nav, streetContext(), dt, rng, heightAt);
+        timed("    al street sim", () => stepStreet(street, nav, streetContext(), dt, rng, heightAt));
         handleStreetEvents();
         if (speech) { stepSpeech(speech, dt); setCrowdTarget(street, speech.crowd); }
         if (dialogue) {
             const a = actorById(street, dialogue.actorId);
             if (!a || !alive(a) || Math.hypot(a.x - body.x, a.z - body.z) > 6) closeDialogue();
         }
-        maintainNav(dt);
+        timed("    al nav", () => maintainNav(dt));
         if (campaign) {
             campaign.dayClock += dt;
             if (campaign.dayClock >= DAY_SECONDS) { campaign.dayClock -= DAY_SECONDS; newDay(); }
@@ -1508,17 +1574,19 @@ addon.onUpdatePlus("Global", () => {
     lastCamera = { ...pose, up };
     focus = mode === "title" || mode === "setup" ? pose.position : (frame ? toWorld(frame, body.x, body.y + 1.6, body.z) : pose.position);
 
-    if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") drawPeople();
+    if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") timed("    al people", drawPeople);
     else hideWorld();
     drawProps();
     const loadingNow = mode === "loading";
     const orbit = mode === "title" || mode === "setup";
     // A fixed-step run streams everything it wants every frame, so it looks the same on any machine.
-    if (fixedStep) stream(Infinity, Infinity);
-    else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
-    updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10);
+    timed("    al terrain stream", () => {
+        if (fixedStep) stream(Infinity, Infinity);
+        else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
+    });
+    timed("    al houses", () => updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10));
     writeWorld();
     if (loadingNow) loadingStep();
-    drawUi(dt);
+    timed("    al ui", () => drawUi(dt));
     void length;
 });

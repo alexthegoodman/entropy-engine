@@ -91,12 +91,16 @@ pub struct ChunkItem {
     pub buffer_id: String,
     pub origin: V3,
     pub tex_origin: V3,
+    /// Every vertex lies within this distance of `origin` (frustum culling).
+    pub radius: f32,
 }
 
 pub struct QuadPlanetSystem {
     pub id: String,
     pub addon_name: String,
-    pub planets: Vec<Planet>,
+    /// Shared with the streamer's background chunk builders (immutable once built; a detail
+    /// change copies on write).
+    pub planets: std::sync::Arc<Vec<Planet>>,
     pub streamer: PlanetStreamer,
     pub pipeline_id: String,
     pub world_buffer_id: String,
@@ -149,7 +153,7 @@ impl QuadPlanetSystem {
         Ok(Self {
             id: config.id.unwrap_or_else(|| "quadplanet".into()),
             addon_name,
-            planets,
+            planets: std::sync::Arc::new(planets),
             streamer: PlanetStreamer::new(lod, budget),
             pipeline_id: config.pipeline_id,
             world_buffer_id: config.world_buffer_id,

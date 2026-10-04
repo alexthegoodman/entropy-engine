@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { type Vec3, add, scale } from "../src/apps/quadplanet/qp_math";
 import {
     CityHouses, HOUSE_NAMESPACE, INTERIOR_REGIONS, MAT_CLEAR_GLASS, MAT_FOUNDATION, MAT_GLASS, MAT_PAINT, houseOrigin, houseRule, houseValues,
-    packHouse, variantKey, type CityBuilding, type CityEngine,
+    packHouse, variantKey, LOD1_SIMPLIFY, type CityBuilding, type CityEngine, type HouseJob,
 } from "../src/apps/quadplanet/qp_city";
 import { packWorld, WORLD_FLOATS } from "../src/apps/quadplanet/qp_shader";
 import { evaluateObject, objectParamRange, resolveParams } from "../src/apps/mesha/mesha_object";
@@ -29,9 +29,10 @@ function building(key: string, x: number, z: number, over: Partial<CityBuilding>
 function fakeEngine(list: CityBuilding[]) {
     const cache = new Map<string, { triangles: number }>();
     const pending = new Set<string>();
-    const meshes = new Map<string, string>();
-    const items = new Map<string, Float32Array>();
-    let nextItem = 0;
+    // Instanced batches: mesh id -> its cache key, records buffer and instance count.
+    const meshes = new Map<string, { key: string; buffer: string; instances: number; bounds: number[] | null }>();
+    const buffers = new Map<string, Float32Array>();
+    let nextBuffer = 0;
     const log = { evaluations: 0, puts: [] as { key: string; simplify: boolean; triangles: number }[] };
     const engine: CityEngine = {
         buildings: (p, radius, limit) => list
@@ -49,16 +50,30 @@ function fakeEngine(list: CityBuilding[]) {
             setPendingDone.push(() => { pending.delete(k); cache.set(k, { triangles: options?.simplify ? Math.ceil(triangles / 20) : triangles }); });
         },
         info: (ns, key) => { const c = cache.get(`${ns}/${key}`); return c ? { triangleCount: c.triangles } : null; },
-        createMesh: (ns, key, meshId) => { if (!cache.has(`${ns}/${key}`)) return false; meshes.set(meshId, key); return true; },
-        clearMesh: id => { meshes.delete(id); },
-        createItem: () => `item${nextItem++}`,
-        writeItem: (item, data) => { items.set(item, data); },
-        destroyItem: item => { items.delete(item); },
+        instances: {
+            createBuffer: () => `buf${nextBuffer++}`,
+            destroyBuffer: id => { buffers.delete(id); },
+            writeBuffer: (id, data) => { buffers.set(id, new Float32Array(data)); },
+            createMesh: (key, meshId, buffer, instances) => {
+                if (!cache.has(`${HOUSE_NAMESPACE}/${key}`)) return false;
+                meshes.set(meshId, { key, buffer, instances, bounds: null }); return true;
+            },
+            clearMesh: id => { meshes.delete(id); },
+            setInstanceCount: (id, n) => { meshes.get(id)!.instances = n; },
+            setBounds: (id, c, r) => { meshes.get(id)!.bounds = c ? [...c, r] : null; },
+        },
         now: () => 0,
     };
     const setPendingDone: (() => void)[] = [];
     const land = () => { for (const f of setPendingDone.splice(0)) f(); };
-    return { engine, cache, meshes, items, log, land };
+    /** Every drawn house: its cache key (lod0/lod1) and its 24-float Item record. */
+    const drawn = () => [...meshes.values()].flatMap(m => {
+        const data = buffers.get(m.buffer)!;
+        return Array.from({ length: m.instances }, (_, i) => ({ key: m.key, lod: m.key.endsWith("lod0") ? 0 : 1, item: data.slice(i * 24, i * 24 + 24) }));
+    });
+    /** The drawn house standing at x/z (render space), if any. */
+    const at = (x: number, z: number) => drawn().find(d => Math.abs(d.item[12] - x) < 0.5 && Math.abs(d.item[14] - z) < 0.5);
+    return { engine, cache, meshes, buffers, log, land, drawn, at };
 }
 
 describe("house parameters from a placement", () => {
@@ -154,7 +169,19 @@ describe("streaming houses", () => {
         const s = city.lastStats;
         expect(s.lod0).toBe(3);
         expect(s.lod1).toBe(street.filter(b => Math.hypot(b.anchor[0], b.anchor[2]) < 300).length - 3);
-        expect(f.meshes.size).toBe(s.lod0 + s.lod1);
+        expect(f.drawn().length).toBe(s.lod0 + s.lod1);
+        // One instanced draw per house mesh (two styles, two LODs), not one per house.
+        expect([...f.meshes.values()].filter(m => m.instances > 0).length).toBe(4);
+        expect(s.batches).toBe(4);
+        expect(s.instances).toBe(s.lod0 + s.lod1);
+        // Each batch carries a sphere around its houses for the engine's frustum culling.
+        for (const m of f.meshes.values()) {
+            const [cx, cy, cz, r] = m.bounds!;
+            for (let i = 0; i < m.instances; i++) {
+                const d = f.buffers.get(m.buffer)!.slice(i * 24, i * 24 + 24);
+                expect(Math.hypot(d[12] - cx, d[13] - cy, d[14] - cz)).toBeLessThan(r);
+            }
+        }
         // Everything within 300 m is drawn; the first house that isn't is the hide radius.
         const firstUndrawn = Math.min(...street.map(b => Math.hypot(b.anchor[0] - camera[0], b.anchor[1] - camera[1], b.anchor[2] - camera[2])).filter(d => d >= 300));
         expect(hide).toBeCloseTo(firstUndrawn, 1);
@@ -184,19 +211,21 @@ describe("streaming houses", () => {
         const city = new CityHouses(f.engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300 });
         for (let frame = 0; frame < 6; frame++) { city.update(camera, [0, 0, 0], 1, Infinity); f.land(); }
         city.update(camera, [0, 0, 0], 1, Infinity);
-        expect([...f.meshes.keys()].filter(id => id.startsWith("qp-house:h0:")).map(id => id.slice(-1))).toEqual(["0"]);
+        expect(f.at(0, 0)?.lod).toBe(0);
         const far: Vec3 = add(camera, [400, 0, 0]);
         city.update(far, [0, 0, 0], 1, Infinity);
-        expect([...f.meshes.keys()].some(id => id.startsWith("qp-house:h0:"))).toBe(false); // ~400 m away now: a box
-        expect([...f.meshes.keys()].filter(id => id.startsWith("qp-house:h20:")).map(id => id.slice(-1))).toEqual(["0"]);
+        expect(f.at(0, 0)).toBeUndefined(); // ~400 m away now: a box
+        expect(f.at(400, 0)?.lod).toBe(0);
         // Rebasing the render origin rewrites each drawn house's placement.
-        const shown = [...f.items.entries()];
         city.update(far, [100, 0, 0], 1, Infinity);
-        const moved = [...f.items.entries()].find(([k]) => k === shown[0][0])!;
-        expect(moved[1][12]).toBeCloseTo(shown[0][1][12] - 100, 3);
-        // The item matrix carries the house frame, and its tex origin's w the foundation skirt.
-        expect([...moved[1].slice(0, 3)]).toEqual([1, 0, 0]);
-        expect(moved[1][23]).toBeGreaterThan(0.3);
+        const moved = f.at(300, 0)!;
+        expect(moved).toBeDefined();
+        // The item matrix carries the house frame (stretched over its footprint by a few percent
+        // at most), and its tex origin's w the foundation skirt.
+        expect(moved.item[0]).toBeGreaterThan(0.95);
+        expect(moved.item[0]).toBeLessThan(1.05);
+        expect([...moved.item.slice(1, 3)]).toEqual([0, 0]);
+        expect(moved.item[23]).toBeGreaterThan(0.3);
         expect(scale(UP, 1)).toEqual(UP);
     });
 
@@ -207,5 +236,145 @@ describe("streaming houses", () => {
         city.update(camera, [0, 0, 0], 1, Infinity);
         expect(city.lastStats.triangles).toBeLessThanOrEqual(50_000);
         expect(city.lastStats.lod0 + city.lastStats.lod1).toBeGreaterThan(0);
+    });
+});
+
+describe("house streaming costs", () => {
+    const street = Array.from({ length: 12 }, (_, i) => building(`c${i}`, i * 20, 0, { seed: i % 2, width: 11 }));
+    const camera: Vec3 = [0, 101.8, 0];
+
+    it("does no work for a still camera once its street is finished", () => {
+        const f = fakeEngine(street);
+        let calls = 0, status = 0;
+        const engine: CityEngine = { ...f.engine, buildings: (...a) => { calls++; return f.engine.buildings(...a); }, status: (...a) => { status++; return f.engine.status(...a); } };
+        const city = new CityHouses(engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300 });
+        for (let frame = 0; frame < 12; frame++) { city.update(camera, [0, 0, 0], 1, 12); f.land(); }
+        const before = { calls, status, meshes: f.meshes.size, stats: city.lastStats };
+        expect(city.busy()).toBe(false);
+        for (let frame = 0; frame < 5; frame++) city.update(camera, [0, 0, 0], 1, 12);
+        expect({ calls, status, meshes: f.meshes.size, stats: city.lastStats }).toEqual(before);
+        expect(city.lastStats).toBe(before.stats);
+        // Moving, a rebase or new city data still update.
+        city.update([0, 101.8, 2], [0, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(before.stats);
+        const moved = city.lastStats;
+        city.update([0, 101.8, 2], [10, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(moved);
+    });
+
+    it("spaces Mesha evaluations by minBuildIntervalMs", () => {
+        const f = fakeEngine(street.map((b, i) => ({ ...b, seed: i, width: 8 + i * 0.5 })));
+        let now = 0;
+        const city = new CityHouses({ ...f.engine, now: () => now }, { lod0Radius: 0, maxLod0: 0, lod1Radius: 300, minBuildIntervalMs: 250 });
+        for (let frame = 0; frame < 10; frame++) { city.update(camera, [0, 0, 0], 1, 12); now += 16; }
+        // 160 ms of frames: the first evaluation, then none until 250 ms have passed.
+        expect(f.log.evaluations).toBe(1);
+        for (let frame = 0; frame < 10; frame++) { city.update(camera, [0, 0, 0], 1, 12); now += 16; }
+        expect(f.log.evaluations).toBe(2);
+    });
+});
+
+describe("snapping house sizes for instancing", () => {
+    // Forty footprints of slightly different sizes, two styles.
+    const street = Array.from({ length: 40 }, (_, i) => building(`s${i}`, (i % 10) * 18, Math.floor(i / 10) * 18, {
+        seed: i % 2, width: 10 + ((i * 7) % 13) * 0.17, depth: 8.6 + ((i * 5) % 11) * 0.15,
+    }));
+    const camera: Vec3 = [0, 101.8, 0];
+    const settle = (sizeStep: number) => {
+        const f = fakeEngine(street);
+        const city = new CityHouses(f.engine, { lod0Radius: 0, maxLod0: 0, lod1Radius: 300, sizeStep });
+        for (let frame = 0; frame < 40; frame++) { city.update(camera, [0, 0, 0], 1, Infinity); f.land(); }
+        city.update(camera, [0, 0, 0], 1, Infinity);
+        return { f, city };
+    };
+
+    it("shares one mesh among similar footprints and stretches each house over its own", () => {
+        const half = settle(0.5), metre = settle(1);
+        expect(metre.city.lastStats.variants).toBeLessThan(half.city.lastStats.variants);
+        expect(metre.f.log.evaluations).toBe(metre.city.lastStats.variants);
+        expect(metre.city.lastStats.batches).toBeLessThan(half.city.lastStats.batches);
+        expect(metre.city.lastStats.instances).toBe(street.length);
+        for (const b of street) {
+            const d = metre.f.at(b.anchor[0], b.anchor[2])!;
+            const v = houseValues(b, 1);
+            // The drawn width/depth is the real footprint (within the stretch limit).
+            expect(Math.abs(d.item[0] * Number(v.width) - b.width)).toBeLessThan(0.01);
+            expect(Math.abs(d.item[10] * Number(v.depth) - b.depth)).toBeLessThan(0.01);
+        }
+    });
+
+    it("remakes a house mesh the cache lost, and draws it again", () => {
+        const { f, city } = settle(1);
+        const evaluations = f.log.evaluations;
+        const key = [...f.meshes.values()][0].key;
+        f.cache.delete(`${HOUSE_NAMESPACE}/${key}`);
+        // A live batch keeps its GPU geometry; spawning it again (after a clear) finds it gone.
+        city.update(camera, [5, 0, 0], 1, Infinity);
+        expect([...f.meshes.values()].some(m => m.key === key && m.instances > 0)).toBe(true);
+        city.clear();
+        city.update(camera, [5, 0, 0], 1, Infinity);
+        expect([...f.meshes.values()].some(m => m.key === key)).toBe(false);
+        for (let frame = 0; frame < 5; frame++) { city.update(camera, [5, 0, 0], 1, Infinity); f.land(); }
+        city.update(camera, [5, 0, 0], 1, Infinity);
+        expect(f.log.evaluations).toBe(evaluations + 1);
+        expect([...f.meshes.values()].some(m => m.key === key && m.instances > 0)).toBe(true);
+        expect(city.lastStats.instances).toBe(street.length);
+    });
+});
+
+describe("house evaluation off the game thread", () => {
+    const street = Array.from({ length: 16 }, (_, i) => building(`w${i}`, i * 15, 0, { seed: i % 4, width: 10 + (i % 3) }));
+    const camera: Vec3 = [0, 101.8, 0];
+
+    /** A fake Entropy.Worker: jobs finish (putting their meshes) when `finish` is called. */
+    function withWorker(fail = false) {
+        const f = fakeEngine(street);
+        const jobs = new Map<number, { job: HouseJob; state: "pending" | "done" | "failed" }>();
+        let next = 0, mainPuts = 0;
+        const engine: CityEngine = {
+            ...f.engine,
+            put: (...a) => { mainPuts++; f.engine.put(...a); },
+            generateInBackground: job => { jobs.set(++next, { job, state: "pending" }); return next; },
+            pollBackground: id => jobs.get(id)?.state ?? "unknown",
+        };
+        const finish = () => {
+            for (const j of jobs.values()) {
+                if (j.state !== "pending") continue;
+                if (fail) { j.state = "failed"; continue; }
+                const tri = { vertexData: new Float32Array(36), indexData: new Uint32Array([0, 1, 2]) };
+                if (j.job.lod0Key) f.engine.put(HOUSE_NAMESPACE, j.job.lod0Key, tri, { background: true });
+                if (j.job.lod1Key) f.engine.put(HOUSE_NAMESPACE, j.job.lod1Key, tri, { simplify: LOD1_SIMPLIFY });
+                j.state = "done";
+            }
+        };
+        return { f, engine, jobs, finish, mainPuts: () => mainPuts };
+    }
+
+    it("hands every evaluation to the worker and draws what it made", () => {
+        const w = withWorker();
+        const city = new CityHouses(w.engine, { lod0Radius: 20, maxLod0: 2, lod1Radius: 300, sizeStep: 1 });
+        city.update(camera, [0, 0, 0], 1, 12);
+        // Several jobs at once (they cost this thread nothing), none evaluated here.
+        expect(w.jobs.size).toBeGreaterThan(1);
+        expect(w.mainPuts()).toBe(0);
+        // Still running: not asked for again.
+        const queued = w.jobs.size;
+        city.update(camera, [0, 0, 0], 1, 12);
+        expect(w.jobs.size).toBe(queued);
+        for (let frame = 0; frame < 20; frame++) { w.finish(); w.f.land(); city.update(camera, [0, 0, 0], 1, 12); }
+        expect(w.mainPuts()).toBe(0);
+        expect(city.lastStats.instances).toBe(street.length);
+        expect(city.lastStats.background).toBe(city.lastStats.variants);
+        expect(city.busy()).toBe(false);
+    });
+
+    it("evaluates a house here when its background job fails", () => {
+        const w = withWorker(true);
+        const city = new CityHouses(w.engine, { lod0Radius: 0, maxLod0: 0, lod1Radius: 300, sizeStep: 1 });
+        city.update(camera, [0, 0, 0], 1, 12);
+        for (let frame = 0; frame < 20; frame++) { w.finish(); city.update(camera, [0, 0, 0], 1, 12); w.f.land(); }
+        expect(city.lastBackgroundError).toMatch(/^failed/);
+        expect(w.mainPuts()).toBeGreaterThan(0);
+        expect(city.lastStats.instances).toBe(street.length);
     });
 });

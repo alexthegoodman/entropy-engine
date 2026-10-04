@@ -6,7 +6,7 @@
 //!
 //! Unset, `begin_frame`/`record` cost one thread-local bool read. Phases are named by the call
 //! sites (`ui.js`, `ui.layout`, `gpu.upload`, ...), and a phase recorded several times in one
-//! frame accumulates. Everything runs on the main thread, where the V8 isolate and winit live.
+//! frame accumulates. Counters (`count`, named with a leading `#`) share the table in their own units. Everything runs on the main thread, where the V8 isolate and winit live.
 
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
@@ -17,6 +17,8 @@ struct Profiler {
     frame_start: Option<Instant>,
     /// Phase name -> this frame's accumulated time.
     current: Vec<(&'static str, Duration)>,
+    /// Counter name -> this frame's accumulated value.
+    counts: Vec<(&'static str, f64)>,
     /// Phase name -> one sample (ms) per frame in this window.
     window: Vec<(&'static str, Vec<f64>)>,
     intervals: Vec<f64>,
@@ -34,7 +36,7 @@ fn init() -> Option<Profiler> {
     }
     let every = std::env::var("ENTROPY_FRAME_PROFILE_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(300usize).max(1);
     let out = std::env::var_os("ENTROPY_FRAME_PROFILE_OUT").map(Into::into);
-    Some(Profiler { every, out, frame_start: None, current: Vec::new(), window: Vec::new(), intervals: Vec::new(), frames: 0 })
+    Some(Profiler { every, out, frame_start: None, current: Vec::new(), counts: Vec::new(), window: Vec::new(), intervals: Vec::new(), frames: 0 })
 }
 
 pub fn enabled() -> bool {
@@ -48,6 +50,19 @@ pub fn record(phase: &'static str, elapsed: Duration) {
             match p.current.iter_mut().find(|(name, _)| *name == phase) {
                 Some((_, total)) => *total += elapsed,
                 None => p.current.push((phase, elapsed)),
+            }
+        }
+    });
+}
+
+/// Adds `value` to the counter `name` for the frame in progress (draw calls, uploaded bytes...).
+/// Counters are reported beside the phases with the same statistics, in their own units.
+pub fn count(name: &'static str, value: f64) {
+    PROFILER.with(|p| {
+        if let Some(p) = p.borrow_mut().as_mut() {
+            match p.counts.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, total)) => *total += value,
+                None => p.counts.push((name, value)),
             }
         }
     });
@@ -79,12 +94,19 @@ pub fn begin_frame() {
                     None => p.window.push((phase, vec![ms])),
                 }
             }
+            for (name, value) in p.counts.drain(..) {
+                match p.window.iter_mut().find(|(n, _)| *n == name) {
+                    Some((_, samples)) => samples.push(value),
+                    None => p.window.push((name, vec![value])),
+                }
+            }
             p.frames += 1;
             if p.frames % p.every == 0 {
                 report(p);
             }
         }
         p.current.clear();
+        p.counts.clear();
         p.frame_start = Some(now);
     });
 }
@@ -123,4 +145,18 @@ fn report(p: &mut Profiler) {
     }
     p.intervals.clear();
     p.window.clear();
+}
+
+/// A `'static` name for a phase or counter named at runtime (an addon's `Entropy.Profile` call).
+/// Names are leaked once each, up to 256 of them; later new names share one bucket.
+pub fn intern(name: &str) -> &'static str {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+    let mut names = NAMES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = names.get(name) { return n; }
+    if names.len() >= 256 { return "  (other addon phases)"; }
+    let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+    names.insert(name.to_string(), leaked);
+    leaked
 }

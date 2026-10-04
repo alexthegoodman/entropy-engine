@@ -185,6 +185,12 @@ pub struct MeshConfig {
     pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
     pub physics: Option<PhysicsConfig>,
+    /// Bounding sphere [x, y, z, radius] in render space for frustum culling (Model.setBounds).
+    #[serde(default)]
+    pub bounds: Option<[f32; 4]>,
+    /// GPU geometry already uploaded (MeshCache.createMesh), drawn instead of vertex/index data.
+    #[serde(skip)]
+    pub shared_geometry: Option<std::sync::Arc<crate::core::custom_mesh::SharedGeometry>>,
     pub behavior_id: Option<String>,
     pub yumon_id: Option<String>,
     pub is_npc: Option<bool>,
@@ -1513,6 +1519,15 @@ pub struct AddonContext {
     pub pending_quadscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     /// Rust-side planet systems (`Entropy.QuadPlanet`), by id. See quadplanet_ops.rs.
     pub quadplanets: HashMap<String, crate::heightfield_landscapes::QuadPlanet::QuadPlanetSystem>,
+    /// GPU geometry of MeshCache entries with live meshes ("namespace/key"), shared by every mesh
+    /// spawned from that entry. Weak: the geometry goes when its last mesh does.
+    pub shared_geometry: HashMap<String, std::sync::Weak<crate::core::custom_mesh::SharedGeometry>>,
+    /// Entropy.Model.setInstanceCount requests (mesh id, count), applied after this frame's new meshes.
+    pub pending_instance_counts: Vec<(String, u32)>,
+    /// Entropy.Worker's background isolates (made on first use).
+    pub worker_pool: Option<std::sync::Arc<crate::deno::worker_ops::WorkerPool>>,
+    /// Entropy.Model.setBounds requests (mesh id, sphere or None), applied with instance counts.
+    pub pending_mesh_bounds: Vec<(String, Option<([f32; 3], f32)>)>,
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -4216,6 +4231,45 @@ pub fn op_mesh_write_vertices(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_vertex_writes.push((mesh_id, first_vertex, data.to_vec()));
+    }
+}
+
+/// Entropy.Profile.record: adds `ms` to an addon-named phase of this frame in the native frame
+/// profiler (ENTROPY_FRAME_PROFILE); a no-op when profiling is off.
+#[op2(fast)]
+pub fn op_frame_profile_record(#[string] name: &str, ms: f64) {
+    if !crate::core::frame_profile::enabled() || !ms.is_finite() || ms < 0.0 { return; }
+    crate::core::frame_profile::record(crate::core::frame_profile::intern(name), std::time::Duration::from_secs_f64(ms / 1000.0));
+}
+
+/// Entropy.Profile.count: adds `value` to an addon-named per-frame counter.
+#[op2(fast)]
+pub fn op_frame_profile_count(#[string] name: &str, value: f64) {
+    if !crate::core::frame_profile::enabled() || !value.is_finite() { return; }
+    crate::core::frame_profile::count(crate::core::frame_profile::intern(name), value);
+}
+
+/// Whether ENTROPY_FRAME_PROFILE is on (addons can skip their timing work otherwise).
+#[op2(fast)]
+pub fn op_frame_profile_enabled() -> bool { crate::core::frame_profile::enabled() }
+
+/// Sets an addon mesh's bounding sphere in render space (Entropy.Model.setBounds); a negative or
+/// non-finite radius clears it (always drawn). Meshes outside the view are not drawn at all.
+#[op2(fast)]
+pub fn op_mesh_set_bounds(state: &mut OpState, #[string] mesh_id: String, x: f64, y: f64, z: f64, radius: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let ok = radius.is_finite() && radius >= 0.0 && x.is_finite() && y.is_finite() && z.is_finite();
+        ctx.pending_mesh_bounds.push((mesh_id, ok.then(|| ([x as f32, y as f32, z as f32], radius as f32))));
+    }
+}
+
+/// Sets how many instances of an addon mesh are drawn (Entropy.Model.setInstanceCount). 0 skips
+/// the mesh's draw entirely, so a pooled or instanced batch can be emptied and refilled without
+/// destroying it. Applied after the frame's pending mesh creations.
+#[op2(fast)]
+pub fn op_mesh_set_instance_count(state: &mut OpState, #[string] mesh_id: String, count: u32) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_instance_counts.push((mesh_id, count));
     }
 }
 

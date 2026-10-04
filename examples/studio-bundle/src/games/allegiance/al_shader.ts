@@ -11,10 +11,13 @@
 // belongs to (0 rigid, 1/2 left/right leg, 3/4 left/right arm). Legs swing about the hip and
 // arms about the shoulder by sin(phase) * amplitude, with phase = |tex_origin.w| and amplitude
 // tint.w; uv.y's fractional part / 0.49 blends the limb into the torso. A negative
-// tex_origin.w raises the arms to aim a weapon. So a whole walking, aiming
-// person is one mesh and one 24-float uniform write per frame.
+// tex_origin.w raises the arms to aim a weapon.
+//
+// People are instanced (al_crowd.ts): the people shader reads its Item and colors from a
+// storage-buffer record per instance, by @builtin(instance_index), instead of a uniform per
+// person. The vertex stage passes the index on (flat) so the fragment stage reads the same one.
 
-import { QUADPLANET_SHADER } from "../../apps/quadplanet/qp_shader";
+import { QUADPLANET_SHADER, instancedShader } from "../../apps/quadplanet/qp_shader";
 
 export const MAT_CLOTH_TOP = 12;
 export const MAT_CLOTH_BOTTOM = 13;
@@ -32,12 +35,6 @@ function inject(src: string, anchor: string, replacement: string): string {
 
 function build(people: boolean): string {
     let s = QUADPLANET_SHADER;
-    if (people) s = inject(s, "@group(2) @binding(1) var<uniform> item: Item;", `struct PersonColors {
-        skin: vec4<f32>,
-        hair: vec4<f32>,
-    };
-    @group(2) @binding(2) var<uniform> person_colors: PersonColors;
-    @group(2) @binding(1) var<uniform> item: Item;`);
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
         if (material >= 12 && material <= 16) {
@@ -76,8 +73,29 @@ function build(people: boolean): string {
         if (material >= 12 && material <= 16) { spec = 0.1; shin = 18.0; }`);
     s = inject(s, "        if (material == 3 || material == 6 || material == 8 || material == 11) { col = col + base * 0.14 * max(dot(n, v), 0.0); }",
         "        if (material == 3 || material == 6 || material == 8 || material == 11 || (material >= 12 && material <= 16)) { col = col + base * 0.18 * max(dot(n, v), 0.0); }");
+    if (people) s = instancedShader(s, {
+        recordType: "PersonRecord",
+        declarations: `struct PersonColors {
+    skin: vec4<f32>,
+    hair: vec4<f32>,
+};
+// One per instance: al_crowd.ts PERSON_FLOATS.
+struct PersonRecord {
+    model: mat4x4<f32>,
+    tint: vec4<f32>,
+    tex_origin: vec4<f32>,
+    skin: vec4<f32>,
+    hair: vec4<f32>,
+};
+var<private> person_colors: PersonColors;`,
+        load: `let r = instances[i];
+    item = Item(r.model, r.tint, r.tex_origin);
+    person_colors = PersonColors(r.skin, r.hair);`,
+    });
     return s;
 }
 
 export const ALLEGIANCE_SHADER = build(false);
+/** ALLEGIANCE_SHADER for instanced batches of Items (houses: qp_city.ts). */
+export const ALLEGIANCE_INSTANCED_SHADER = instancedShader(ALLEGIANCE_SHADER);
 export const PEOPLE_SHADER = build(true);

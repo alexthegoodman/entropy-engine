@@ -102,6 +102,20 @@ pub struct UpdateOut {
     city: Option<CityStats>,
 }
 
+/// Radius around a mesh's own origin that holds every vertex (12-float vertices, position first),
+/// with a little slack: with the origin, the mesh's bounding sphere for frustum culling.
+fn local_radius(vertices: &[f32]) -> f32 {
+    let r2 = vertices.chunks_exact(crate::heightfield_landscapes::QuadPlanet::mesh::VERTEX_FLOATS)
+        .map(|v| v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        .fold(0.0f32, f32::max);
+    r2.sqrt() * 1.01 + 1.0
+}
+
+/// A mesh's bounding sphere in render space.
+fn render_bounds(origin: V3, radius: f32, render_origin: V3) -> ([f32; 3], f32) {
+    ([(origin[0] - render_origin[0]) as f32, (origin[1] - render_origin[1]) as f32, (origin[2] - render_origin[2]) as f32], radius)
+}
+
 fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) -> Result<UpdateOut, JsErrorBox> {
     let Some(gpu) = ctx.gpu_resources.clone() else { return Err(err("GPU resources not available")) };
     let budget = |v: Option<f64>, d: f64| { let v = v.unwrap_or(d); if v.is_finite() { v.max(0.0) } else { f64::MAX } };
@@ -111,24 +125,28 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
     let origin = args.render_origin.unwrap_or(sys.render_origin);
     if origin != sys.render_origin {
         sys.render_origin = origin;
-        for item in sys.items.values() {
+        for (key, item) in &sys.items {
             if let Some(buffer) = ctx.buffers.get(&item.buffer_id) {
                 gpu.queue.write_buffer(buffer, 0, bytemuck::cast_slice(&sys.item_uniform(item)));
             }
+            ctx.pending_mesh_bounds.push((key.clone(), Some(render_bounds(item.origin, item.radius, origin))));
         }
         if let Some(city) = &sys.city {
             for t in city.live.values() {
                 if let Some(buffer) = ctx.buffers.get(&t.buffer_id) {
                     gpu.queue.write_buffer(buffer, 0, bytemuck::cast_slice(&tile_uniform(t.origin, t.basis, origin)));
                 }
+                ctx.pending_mesh_bounds.push((t.mesh_id.clone(), Some(render_bounds(t.origin, t.radius, origin))));
             }
         }
     }
 
-    let out = sys.streamer.update(&sys.planets, args.viewer, max_builds, max_ms);
+    let out = sys.streamer.update_background(&sys.planets, args.viewer, max_builds, max_ms);
     let allowed = AddonEngine::is_render_allowed(&sys.addon_name);
     for (key, node, mesh) in out.created {
-        let item = ChunkItem { buffer_id: format!("{}:{key}", sys.id), origin: mesh.origin, tex_origin: sys.tex_origin(node.planet as usize, mesh.origin) };
+        let radius = local_radius(&mesh.vertex_data);
+        let item = ChunkItem { buffer_id: format!("{}:{key}", sys.id), origin: mesh.origin, tex_origin: sys.tex_origin(node.planet as usize, mesh.origin), radius };
+        let (bc, br) = render_bounds(mesh.origin, radius, sys.render_origin);
         let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(&format!("QuadPlanet chunk {key}")),
             size: (ITEM_FLOATS * 4) as u64,
@@ -139,6 +157,8 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
         ctx.buffers.insert(item.buffer_id.clone(), Arc::new(buffer));
         if allowed {
             ctx.pending_meshes.push((sys.addon_name.clone(), MeshConfig {
+                shared_geometry: None,
+                bounds: Some([bc[0], bc[1], bc[2], br]),
                 id: Some(key.clone()),
                 position: [0.0; 3],
                 rotation: None,
@@ -188,8 +208,12 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
         gpu.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&tile_uniform(built.origin, built.basis, render_origin)));
         ctx.buffers.insert(buffer_id.clone(), Arc::new(buffer));
         let triangles = built.indices.len() / 3;
+        let radius = local_radius(&built.vertices);
+        let (bc, br) = render_bounds(built.origin, radius, render_origin);
         if allowed && triangles > 0 {
             ctx.pending_meshes.push((sys.addon_name.clone(), MeshConfig {
+                shared_geometry: None,
+                bounds: Some([bc[0], bc[1], bc[2], br]),
                 id: Some(mesh_id.clone()),
                 position: [0.0; 3],
                 rotation: None,
@@ -210,7 +234,7 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
                 player: None,
             }));
         }
-        city.live.insert(tile, LiveTile { mesh_id, buffer_id, origin: built.origin, basis: built.basis, placements: built.placements, triangles, roads: built.roads });
+        city.live.insert(tile, LiveTile { mesh_id, buffer_id, radius, origin: built.origin, basis: built.basis, placements: built.placements, triangles, roads: built.roads });
     }
     Some(city.stats())
 }
@@ -369,7 +393,7 @@ pub fn op_quadplanet_configure(state: &mut OpState, #[string] id: String, #[serd
             // Validate once before changing anything.
             if let Some(d) = &detail { crate::heightfield_landscapes::QuadPlanet::planet::chunk_resolutions(d)?; }
             let default = sys.default_detail.clone();
-            for i in targets { sys.planets[i].set_detail(detail.clone(), default.as_ref())?; }
+            for i in targets { Arc::make_mut(&mut sys.planets)[i].set_detail(detail.clone(), default.as_ref())?; }
             clear_all(ctx, &mut sys);
         }
         if let Some(s) = args.split_factor { sys.streamer.lod.split_factor = s.clamp(0.25, 8.0); sys.streamer.invalidate(); }

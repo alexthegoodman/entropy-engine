@@ -37,6 +37,8 @@ const bundles = [
   ["ml-graph-demo", "src/apps/ml_graph_demo_addon.ts", "ml_graph_demo.js"],
   ["node-graph", "src/apps/node_graph_addon.ts", "node_graph.js"],
   ["quadplanet", "src/apps/quadplanet/quadplanet_addon.ts", "quadplanet.js"],
+  // Not an app: the Entropy.Worker script Allegiance and QuadPlanet evaluate houses in.
+  ["house-worker", "src/apps/quadplanet/qp_house_worker.ts", "qp_house_worker.js"],
   ["sheet", "src/apps/sheet/sheet_addon.ts", "sheet.js"],
   ["creative-suite", "src/creative_suite.ts", "creative_suite.js"],
   ["special-bundle", "src/special_bundle.ts", "special_bundle.js"],

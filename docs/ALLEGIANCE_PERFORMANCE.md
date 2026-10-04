@@ -1,6 +1,7 @@
 # Allegiance performance investigation
 
-Discussion proposal, 2026-10-04. No rendering or gameplay changes implemented.
+Discussion proposal, 2026-10-04. A first round of changes is now implemented: see
+[Implemented](#implemented-2026-10-04) at the end. The findings below describe the code before it.
 
 ## Source findings
 
@@ -92,3 +93,217 @@ At a later MCP checkpoint (frame 785), the game reported normal `fixedStep: null
 This establishes update and scene stalls in a cached street, not their root cause. `scene - addon update` averages about 87 ms in that window, but includes native rendering preparation, uploads and encoding, not isolated GPU execution. Surface acquisition may reflect GPU/presentation backpressure. The scene has far more terrain chunks than people; caching renderer resources across all custom meshes and measuring terrain visibility deserve attention alongside crowd instancing. Do not infer an FPS gain from these timings or assume all update time is JavaScript computation.
 
 The BDD driver completed successfully at frame 1506. Five 300-frame windows were recorded. Later window averages ranged from 242 to 267 ms, with p95 from 685 to 760 ms. Holding W moved the player only about two metres before collision constrained progress; this is not a substantial streaming-route measurement. A future replay should choose a traversable route and include travel/cold-cache scenarios. The successful driver result means the scripted actions completed, not that a performance threshold passed. Stopped the completed fixture process during background-job shutdown.
+
+## Implemented (2026-10-04)
+
+The first pass covers steps 2-5 of the suggested order where the source made the win clear, and
+adds the counters step 1 asked for. It changes no gameplay rules, and the default visual quality is
+unchanged except where noted.
+
+### Engine (Rust)
+
+- **Addon mesh resources are made once, not per frame.** `CustomMesh` now builds both group-1
+  bind groups (the model one and the non-PBR pass's `unlit_bind_group`) at creation. The non-PBR
+  pass used to create a bind group, three placeholder textures and a sampler per mesh every frame
+  (one set of textures per frame after an earlier fix); every addon mesh also made its own three
+  1x1 textures and sampler at creation. One `FallbackMaterial` (`RendererState::mesh_fallback_material`)
+  now serves every addon mesh. (`src/core/custom_mesh.rs`, `render_addon_frame.rs`)
+- **Unchanged transforms are not re-uploaded.** `CustomMesh::upload_transform` remembers the last
+  matrix written; the PBR, non-PBR and shadow passes use it. Terrain chunks, city tiles and houses
+  are static, so a street with ~700 chunks no longer does ~700 `write_buffer` calls a frame for
+  identity matrices.
+- **Inactive meshes are skipped entirely.** A mesh with `instance_count == 0` is left out of
+  every pass. `Entropy.Model.setInstanceCount(meshId, n)` (new; `op_mesh_set_instance_count`)
+  changes the count after creation, including to zero, and `Model.createMesh` now accepts
+  `instanceCount: 0`.
+- **Shared GPU geometry for cached meshes.** `Entropy.MeshCache.createMesh` uploads a cache entry's
+  vertex/index buffers once (`SharedGeometry`, tracked weakly in `AddonContext::shared_geometry`)
+  and every further spawn of that key draws the same buffers, without copying the geometry out of
+  the cache again. Houses of one variant and people of one body variant now share GPU memory.
+  `put`/`remove`/`clear` forget the entry so a changed mesh is uploaded fresh.
+  `MeshCache.createMesh` also takes `instanceCount` now (it was forced to 1).
+- **Terrain chunks build on persistent worker threads.** `PlanetStreamer::update_background`
+  (used by `Entropy.QuadPlanet.update`) queues the most important missing chunks for a small pool
+  of workers and only collects what they finished: the frame never joins a build. The queue is
+  rebuilt every update, so its order follows the viewer and jobs that stop being wanted are
+  cancelled before they start; finished chunks no longer wanted are dropped; at most `maxBuilds`
+  finished chunks are handed out per update, which bounds per-frame uploads. `clear` discards
+  in-flight work by epoch. An unlimited budget (`fixedStep`, the loading settle tool) still builds
+  everything within the call, as before. Stats gain `inFlight`, `ready` and `cancelled`.
+- **City tile race fixed.** `CityLayer::update` queued wanted tiles before draining finished ones,
+  and workers reported a tile before leaving `busy`; a tile finishing in that window was built and
+  handed out twice (it showed up as an intermittent `city::tests` failure under CPU load).
+  Finished tiles are now collected first, and reporting plus leaving `busy` is atomic with respect
+  to `update`.
+- **Addon phases in the profiler.** `Entropy.Profile.record(name, ms)` / `count(name, value)` /
+  `enabled()` feed the same table; Allegiance reports `al street sim`, `al nav`, `al people`,
+  `al terrain stream`, `al houses` and `al ui` (no cost when profiling is off).
+- **Profiler counters.** `frame_profile::count` adds per-frame counters to the
+  `ENTROPY_FRAME_PROFILE` table and JSON lines: `#mesh draws`, `#mesh instances`,
+  `#mesh triangles (k)` and `#mesh transform uploads`.
+
+### Allegiance and QuadPlanet (TypeScript)
+
+- **People are instanced** (`al_crowd.ts`). Every visible person of one body variant (sex, LOD and
+  gear: one MeshCache key) is an instance of one mesh. The people shader reads a 32-float record
+  (matrix, shirt + swing, pants + phase, skin, hair) from a read-only storage buffer by
+  `@builtin(instance_index)`, passing the index to the fragment stage as a flat varying. A frame
+  packs people into reused `Float32Array`s and does one buffer write per batch; a count change is
+  one `setInstanceCount`. Changing an actor's LOD moves them to another batch instead of spawning a
+  mesh. Batches grow by doubling, keep their mesh while empty (zero instances, no draw) and are
+  destroyed after 600 idle frames or on `hideWorld`. Before: one mesh, two uniform buffers and a
+  write per person, and a new native mesh on every LOD change.
+- **Conservative view culling for people**: people certainly behind the camera or outside a 66
+  degree cone are not packed. LOD selection and the simulation still run for them.
+- **People triangle budget.** Drawn people are sorted nearest first and `budgetLods` demotes them
+  once 6 are in full detail or 3 million person triangles are spent (you count first).
+  `allegiance_config { peopleMaxFull, peopleTriangles }` changes the limits. Without it a rally of
+  80 listeners within 25 m wanted ~20 million triangles; a quiet street fits unchanged (below).
+- **People LOD distance scale.** `allegiance_config { peopleDetail }` scales the LOD ranges (1 is
+  the previous behavior). A full-detail Mesha human is ~410k triangles, LOD 1 ~65-85k, LOD 2
+  ~5-7k (from `allegiance_people.test.ts`), so the 8/16/11 split observed earlier was roughly
+  4.5 million person triangles, more than all terrain. 0.3-0.5 is a sensible "low" setting.
+  This is a hook for a future graphics-quality menu, not a menu.
+- **Hidden props draw nothing.** The podium, flag and 20 tracers were drawn every frame with a
+  collapsed matrix; they now toggle between 0 and 1 instances.
+- **`PeopleMeshes` per-frame work.** Ready keys are remembered (no native status call per person
+  per frame) and the human cache key (a `JSON.stringify`) is memoized.
+- **Houses do no work for a still camera.** Once every wanted house is drawn at its wanted LOD and
+  nothing is being made, `CityHouses.update` returns immediately until the camera moves 5 cm, the
+  render origin moves or the city data changes. It used to re-sort up to 4,000 candidates and
+  recheck caches every frame.
+- **Spaced house evaluations.** `CityOptions.minBuildIntervalMs` (Allegiance: 250 ms) keeps a
+  cold street from producing a run of consecutive 10-150 ms frames; it becomes an occasional hitch
+  until the disk cache is warm. Moving Mesha evaluation off the JS thread still needs a worker
+  runtime or pre-generation (unchanged).
+- **Path search scratch reuse.** `NavGrid.findPath` reuses its g/came arrays across searches with
+  generation stamps instead of allocating and filling three 78,400-cell arrays per search, and the
+  heap swaps without array destructuring.
+
+### Tests
+
+- Rust: `background_streaming_never_blocks_bounds_handouts_and_keeps_ground_covered` and
+  `background_streaming_with_an_unlimited_budget_builds_everything_now` (QuadPlanet tests).
+- TypeScript: `tests/allegiance_crowd.test.ts` (batching, growth, idle cleanup, missing keys,
+  culling, shader contract) and two `quadplanet_city.test.ts` cases (still camera, build spacing).
+- The live people feature (`tests/allegiance_live.rs`, `allegiance_people_live_feature`) still
+  reports per-LOD counts; they now count everyone within range (including you), drawn or culled.
+
+### Verification in this container
+
+The container has no GPU (Mesa's software Vulkan): frames take ~1 s, nearly all of it rasterizing
+on the CPU, so live frame times cannot show these changes and were not used as evidence. One
+release replay of `allegiance_profile_live.feature` per build (pre-change `625b753` vs this work,
+same warm fixture, both stopped by the 900 s budget after 600 frames) gave equal `addon update`
+averages (~95 ms) and equal frame intervals within noise. The new counters from that replay:
+~737 mesh draws a frame (~700 of them terrain chunks), 0 transform uploads in steady state
+(previously one per mesh per frame), and 5.3-6.3 million triangles, mostly people. That is
+what motivated the triangle budget.
+
+Deterministic checks instead:
+
+- Live people feature with the final code: 35 people in range drew 18-26 visible instances in
+  7-10 instanced draws (one per body variant), the rest culled; it was one mesh and draw per
+  person, visible or not. Full-detail people stayed within the cap.
+- Crowd model (50 seeded crowds, measured per-LOD human triangle counts, the game's LOD, culling
+  and budget code; triangles of drawn people only):
+
+  | Scene | Draws before -> after | Person triangles before -> after (detail 1 / 0.6 / 0.4) |
+  | --- | ---: | ---: |
+  | Street, 34 civilians over 160 m | 34 -> at most 12 | 2.87M -> 1.44M / 0.98M / 0.60M |
+  | Rally, 80 listeners within 25 m | 80 -> at most 12 | 20.5M -> 2.93M / 2.93M / 2.86M |
+  | Battle, 34 civilians + 8 soldiers | 42 -> at most 18 | 3.68M -> 1.76M / 1.23M / 0.81M |
+
+- Unit tests: 581 Rust library tests (including the new streaming tests, and the city tests run
+  repeatedly under load), 104 Allegiance/QuadPlanet TypeScript tests, both typechecks.
+
+### How this sets up the AAA roadmap
+
+- **Instance records are the `Scene.submitInstances` contract in miniature.** Adding velocity
+  (previous matrix), animation state or material parameters for the roadmap's temporal AA, motion
+  blur and skinned crowds is a record-layout change plus a shader read, not a new submission path.
+- **Shadows and depth pre-passes multiply draws.** A shadow cascade, depth/normal or velocity pass
+  over people costs one draw per batch, not per person, once those passes use the same instanced
+  shader variants (the roadmap's requirement that color, shadow and velocity share deformation).
+- **Shared geometry is the asset-handle foundation** for modular facade kits, props and street
+  dressing: repeated pieces cost one upload. Moving houses to instanced kit pieces would make
+  their draws batchable the same way people's are.
+- **Bounded background jobs** are the pattern the roadmap's `WorldJobs.request/poll/cancel`
+  describes; the chunk streamer now follows it.
+- **Counters** give the per-stage measurements the roadmap's performance budgets need.
+
+## Second pass (2026-10-04)
+
+### The biggest finding: UI redraws
+
+With the new section timings, `addon update` (~90 ms a frame in the replay) turned out to be
+~85 ms of **UI processing in the engine**, not game logic (Allegiance's own update is ~5 ms).
+Every HUD redraw (10-30 Hz) rebuilt every `UI.drawRect`/`drawText` from scratch: GPU buffers and
+bind groups per rect, and per text a font parse plus its own **4096 x 4096 RGBA glyph atlas
+(64 MB)**. Now:
+
+- A redraw reuses every rect and text it repeats exactly (same content, position, colors, layer and
+  viewport), keyed in `AddonEngine::ui_rect_pool` / `ui_text_pool`; only changed items are built.
+- UI text gets an atlas sized to its own distinct glyphs (`atlas_for_text`, typically 128-256 px
+  square instead of 4096); glyphs that would overflow an atlas are skipped instead of written
+  past it. Other text keeps the 4096 default (it can be edited to longer text later).
+- Parsed fonts are cached (`parsed_font`) instead of re-parsed per text item.
+
+Measured in the same London scene: UI processing **85 -> 2-4.5 ms** a frame, `addon update`
+**90 -> 8-12 ms**, ~26 items reused vs ~1.5 rebuilt per frame. Even on this container's software
+renderer the whole frame went from ~830-970 ms to ~390-480 ms. The capture is unchanged.
+This helps every addon that draws UI through `Entropy.UI`, not just Allegiance.
+
+### Engine-side frustum culling
+
+`CustomMesh::bounds` (a render-space sphere) is tested against the camera frustum's side planes
+(`core/frustum.rs`; near/far are ignored because QuadPlanet writes logarithmic depth). QuadPlanet
+gives every terrain chunk and city tile its sphere and refreshes them on render-origin rebases;
+instanced batches give a sphere around their instances. `Entropy.Model.setBounds(meshId, center,
+radius)` and `MeshCache.createMesh({ bounds })` expose it. In the London scene ~520 of ~730 meshes
+are culled a frame: draws ~737 -> 110-212, triangles 5.3-6.3M -> 1.1-2.6M (`#mesh culled`).
+Terrain chunks are not instanced: each one is unique geometry, so culling is the lever there.
+
+### Instanced houses with snapped sizes
+
+`qp_instances.ts` generalizes the people batching (`InstanceBatches`, any record size, optional
+per-batch bounds); `instancedShader` (qp_shader.ts) turns the QuadPlanet/Allegiance shader into one
+that reads its `Item` from a storage array by instance index. `CityHouses` now draws one instanced
+batch per house mesh (variant x LOD) instead of a mesh and uniform per house, rewriting batches only
+when the drawn set changes or the origin moves. `CityOptions.sizeStep` snaps footprints before
+choosing a house (Allegiance: 1 m; the QuadPlanet app keeps 0.5 m), and every house is stretched
+over its real footprint (at most 12%; a few percent in practice), so it fits its OSM building
+better than before while similar buildings share a mesh. Fewer variants also means fewer Mesha
+evaluations and cached meshes.
+
+### Mesha evaluation off the game thread
+
+`Entropy.Worker` (`src/deno/worker_ops.rs`) runs a bundled classic script's `onJob(input)` in a
+separate V8 isolate on a background thread (one or two threads). Workers see none of the engine
+except `EntropyWorker.MeshCache.put`, which writes into the same cache the game reads. The house
+worker (`qp_house_worker.ts`, bundled to `dist/qp_house_worker.js` by `build-allegiance`,
+`build-quadplanet` and build-all) evaluates a house and writes its LODs; `CityHouses` keeps up to
+four jobs in flight, never re-requests a variant that is in flight, and evaluates a house on the
+game thread only if its job fails (or the bundle is missing). Unlimited budgets (settle tools,
+`fixedStep`) stay synchronous and deterministic. A real house evaluated in a worker in ~0.3 s
+including isolate start-up, without touching the frame.
+
+### GPU timing
+
+`core/gpu_timer.rs` timestamps the PBR geometry, lighting and non-PBR passes when the adapter offers
+`TIMESTAMP_QUERY` (now requested when available) and profiling is on, reading results back through
+a ring of buffers so it never stalls. Rows appear as `gpu ... pass`. Section timings inside the
+engine's addon update (`addon: ...`, `pend: ...`) and UI reuse counters were added too.
+
+### Verification
+
+Rust library tests (585, including frustum, worker pool, a real house in a worker, atlas sizing),
+108 TypeScript tests (instanced houses: batches, bounds, snapping/fit, eviction, background jobs and
+fallback), both typechecks, all five shader variants validated with naga 27, and short live runs
+of the London scene (people feature and a custom check) with captures reviewed.
+
+### Not done yet
+
+Exterior-only house meshes when the player is outside; bounds on city-tile uploads per frame;
+GPU-driven culling/indirect draws (not needed at the current draw counts); hot reload of worker
+scripts (a rebuilt worker bundle is picked up on the next launch).

@@ -766,6 +766,20 @@ function createAddonContextualAPI(resolveTarget) {
                 position, radius, kind: options?.kind ?? null, limit: options?.limit ?? null,
             }),
         },
+        // Background jobs in isolates of their own (src/deno/worker_ops.rs): `script` is a bundled
+        // classic script setting globalThis.onJob; input and result cross as JSON.
+        Worker: {
+            start: (script, input) => ops.op_worker_start(String(script), JSON.stringify(input ?? null)),
+            poll: (id) => ops.op_worker_poll(id),
+            cancel: (id) => ops.op_worker_cancel(id),
+            pending: () => ops.op_worker_pending(),
+        },
+        // Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE).
+        Profile: {
+            enabled: () => ops.op_frame_profile_enabled(),
+            record: (name, ms) => ops.op_frame_profile_record(String(name), Number(ms)),
+            count: (name, value) => ops.op_frame_profile_count(String(name), Number(value)),
+        },
         // Generated meshes kept on disk (src/deno/mesh_cache_ops.rs), like a shader cache: build
         // a mesh once, `put` it, and `createMesh` spawns it from the cache from then on.
         MeshCache: {
@@ -808,6 +822,8 @@ function createAddonContextualAPI(resolveTarget) {
                 pipelineId: config.pipelineId,
                 renderRole: config.renderRole ?? null,
                 bindings: config.bindings ?? null,
+                instanceCount: config.instanceCount ?? null,
+                bounds: config.bounds ?? null,
             }),
             remove: (namespace, key) => ops.op_mesh_cache_remove(namespace, key),
             clear: (namespace) => ops.op_mesh_cache_clear(namespace),
@@ -1285,7 +1301,7 @@ globalThis.Entropy = {
                             indexData: config.indexData || [],
                             pipelineId: config.pipelineId,
                             render_role: config.renderRole || null,
-                            instanceCount: config.instanceCount || 1,
+                            instanceCount: config.instanceCount ?? 1,
                             bindings: config.bindings || [],
                             behaviorId: config.behaviorId || null,
                             yumonId: config.yumonId || null,
@@ -1295,6 +1311,14 @@ globalThis.Entropy = {
                     },
                     clearMesh: (meshId) => {
                         ops.op_mesh_clear(getAddonName(), meshId);
+                    },
+                    setInstanceCount: (meshId, count) => {
+                        ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
+                    },
+                    // Render-space bounding sphere for frustum culling; null (or a negative radius) clears it.
+                    setBounds: (meshId, center, radius) => {
+                        if (!center) ops.op_mesh_set_bounds(meshId, 0, 0, 0, -1);
+                        else ops.op_mesh_set_bounds(meshId, center[0], center[1], center[2], radius);
                     },
                     clearMeshes: () => {
                         ops.op_meshes_clear(getAddonName());
@@ -1368,6 +1392,8 @@ globalThis.Entropy = {
                 Landscape3D: contextualAPI.Landscape3D,
                 QuadPlanet: contextualAPI.QuadPlanet,
                 MeshCache: contextualAPI.MeshCache,
+                Profile: contextualAPI.Profile,
+                Worker: contextualAPI.Worker,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -2686,6 +2712,8 @@ globalThis.Entropy = {
     Landscape3D: globalContextualAPI.Landscape3D,
     QuadPlanet: globalContextualAPI.QuadPlanet,
     MeshCache: globalContextualAPI.MeshCache,
+    Profile: globalContextualAPI.Profile,
+    Worker: globalContextualAPI.Worker,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
     Texture: textureAPI,
@@ -2735,7 +2763,7 @@ globalThis.Entropy = {
                 indexData: config.indexData || [],
                 pipelineId: config.pipelineId,
                 render_role: config.renderRole || null,
-                instanceCount: config.instanceCount || 1,
+                instanceCount: config.instanceCount ?? 1,
                 bindings: config.bindings || [],
                 behaviorId: config.behaviorId || null,
                 yumonId: config.yumonId || null,
@@ -2745,6 +2773,15 @@ globalThis.Entropy = {
         },
         clearMesh: (meshId) => {
             ops.op_mesh_clear(globalThis.__entropy_current_addon_context_override || "Global", meshId);
+        },
+        // Instances drawn from now on (0 hides the mesh without destroying it).
+        setInstanceCount: (meshId, count) => {
+            ops.op_mesh_set_instance_count(meshId, Math.max(0, Math.floor(count)) >>> 0);
+        },
+        // Render-space bounding sphere for frustum culling; null (or a negative radius) clears it.
+        setBounds: (meshId, center, radius) => {
+            if (!center) ops.op_mesh_set_bounds(meshId, 0, 0, 0, -1);
+            else ops.op_mesh_set_bounds(meshId, center[0], center[1], center[2], radius);
         },
         // Opens a native Save As dialog and writes a self-contained .glb built from
         // already-world-space mesh data the caller supplies directly (no engine-side mesh

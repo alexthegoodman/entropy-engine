@@ -502,6 +502,8 @@ struct Shared {
 pub struct LiveTile {
     pub mesh_id: String,
     pub buffer_id: String,
+    /// Every vertex lies within this distance of `origin` (frustum culling).
+    pub radius: f32,
     pub origin: V3,
     pub basis: [V3; 3],
     pub placements: Vec<Placement>,
@@ -626,20 +628,18 @@ impl CityLayer {
         let mut out = CityUpdate { created: Vec::new(), destroyed: Vec::new() };
         let gone: Vec<TileId> = self.live.keys().filter(|id| !keep.contains(id)).copied().collect();
         for id in gone { if let Some(t) = self.live.remove(&id) { out.destroyed.push(t); } }
-        {
-            let mut q = self.shared.queue.lock().unwrap();
-            q.retain(|j| keep.contains(&j.id));
-            let queued: HashSet<TileId> = q.iter().map(|j| j.id).collect();
-            let busy = self.shared.busy.lock().unwrap();
-            for id in &wanted {
-                if self.live.contains_key(id) || queued.contains(id) || busy.contains(id) || self.failed.contains(id) { continue; }
-                q.push(Job { id: *id, data: None, not_before: Instant::now(), attempts: 0 });
-            }
-        }
-        self.shared.wake.notify_all();
-        for r in std::mem::take(&mut *self.shared.done.lock().unwrap()) {
+        // Collect finished tiles before queueing, and read `busy` under the same `done` lock a
+        // worker holds while it reports a tile and leaves `busy` (see `finish`): every tile is then
+        // seen finished, busy or neither, never neither while it is done - which built (and
+        // handed out) some tiles twice.
+        let mut finished: HashSet<TileId> = HashSet::new();
+        let (results, busy) = {
+            let mut done = self.shared.done.lock().unwrap();
+            (std::mem::take(&mut *done), self.shared.busy.lock().unwrap().clone())
+        };
+        for r in results {
             match r {
-                Ok(t) if keep.contains(&t.id) && !self.live.contains_key(&t.id) => out.created.push((t.id, t)),
+                Ok(t) if keep.contains(&t.id) && !self.live.contains_key(&t.id) && finished.insert(t.id) => out.created.push((t.id, t)),
                 Ok(_) => {}
                 Err((id, e)) => {
                     self.failed.insert(id);
@@ -648,6 +648,16 @@ impl CityLayer {
                 }
             }
         }
+        {
+            let mut q = self.shared.queue.lock().unwrap();
+            q.retain(|j| keep.contains(&j.id));
+            let queued: HashSet<TileId> = q.iter().map(|j| j.id).collect();
+            for id in &wanted {
+                if self.live.contains_key(id) || finished.contains(id) || queued.contains(id) || busy.contains(id) || self.failed.contains(id) { continue; }
+                q.push(Job { id: *id, data: None, not_before: Instant::now(), attempts: 0 });
+            }
+        }
+        self.shared.wake.notify_all();
         self.wanted = wanted;
         out
     }
@@ -686,6 +696,14 @@ impl CityLayer {
     pub fn retry_failed(&mut self) { self.failed.clear(); }
 }
 
+/// Reports a tile and takes it off `busy` in one step for `CityLayer::update`, which reads both
+/// under the `done` lock.
+fn finish(shared: &Shared, id: TileId, result: Result<BuiltTile, (TileId, String)>) {
+    let mut done = shared.done.lock().unwrap();
+    done.push(result);
+    shared.busy.lock().unwrap().remove(&id);
+}
+
 fn worker(shared: Arc<Shared>) {
     loop {
         let job = {
@@ -719,8 +737,7 @@ fn worker(shared: Arc<Shared>) {
                 Ok(bytes) => match osm::parse_tile(id, &bytes, shared.env.radius) {
                     Ok(t) => job.data = Some(t),
                     Err(e) => {
-                        shared.done.lock().unwrap().push(Err((id, format!("unreadable: {e}"))));
-                        shared.busy.lock().unwrap().remove(&id);
+                        finish(&shared, id, Err((id, format!("unreadable: {e}"))));
                         continue;
                     }
                 },
@@ -728,8 +745,7 @@ fn worker(shared: Arc<Shared>) {
                 Err(LoadError::Transient(e)) => {
                     job.attempts += 1;
                     if job.attempts >= 4 {
-                        shared.done.lock().unwrap().push(Err((id, e)));
-                        shared.busy.lock().unwrap().remove(&id);
+                        finish(&shared, id, Err((id, e)));
                     } else {
                         let backoff = Duration::from_millis(500 << job.attempts);
                         requeue(job, backoff);
@@ -742,8 +758,7 @@ fn worker(shared: Arc<Shared>) {
         let built = build_tile(id, job.data.as_ref().unwrap(), &shared.env, &mut lk);
         match built {
             Some(t) => {
-                shared.done.lock().unwrap().push(Ok(t));
-                shared.busy.lock().unwrap().remove(&id);
+                finish(&shared, id, Ok(t));
             }
             // Elevation under it is still downloading: try again shortly.
             None => requeue(job, Duration::from_millis(120)),
@@ -921,7 +936,7 @@ mod tests {
             let u = city.update(viewer);
             for (tid, t) in u.created {
                 created += 1;
-                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, placements: t.placements });
+                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, placements: t.placements });
             }
             if !city.busy() { break; }
             assert!(start.elapsed() < Duration::from_secs(20), "stuck: {:?}", city.stats());

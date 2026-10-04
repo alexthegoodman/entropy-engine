@@ -16,13 +16,13 @@ use crate::deno::addon_engine::AddonEngine;
 use crate::deno::addon_ops::{resolve_addon_root, AddonContext, BindingConfig, MeshConfig};
 use crate::helpers::mesh_cache::{cache_at, CacheStats, MeshCache};
 use crate::helpers::mesh_simplify::SimplifyParams;
+use crate::core::custom_mesh::SharedGeometry;
 
 fn err(e: impl Into<String>) -> JsErrorBox { JsErrorBox::generic(e.into()) }
 
 fn cache(state: &mut OpState) -> Result<std::sync::Arc<MeshCache>, JsErrorBox> {
     let ctx = state.try_borrow::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
-    let root = resolve_addon_root(ctx).unwrap_or_else(|| std::path::PathBuf::from("data"));
-    Ok(cache_at(root.join("mesh-cache")))
+    Ok(cache_at(cache_root(ctx)))
 }
 
 fn floats(bytes: &[u8]) -> Result<Vec<f32>, JsErrorBox> {
@@ -65,6 +65,26 @@ pub struct SimplifyOptions {
     target_ratio: f32,
 }
 
+/// `put` for any thread: the addon op below and the worker isolates' (worker_ops.rs).
+pub fn put_mesh(c: &MeshCache, namespace: &str, key: &str, vertices: &[u8], indices: &[u8], meta: String, options: Option<PutOptions>) -> Result<(), String> {
+    let options = options.unwrap_or_default();
+    let (v, i) = (floats(vertices).map_err(|e| e.to_string())?, u32s(indices).map_err(|e| e.to_string())?);
+    match options.simplify {
+        Some(s) => {
+            if !(s.max_error.is_finite() && s.max_error >= 0.0) { return Err("simplify.maxError must be a number of meters >= 0".into()); }
+            let p = SimplifyParams { max_error: s.max_error, min_feature: s.min_feature.max(0.0), target_ratio: s.target_ratio.clamp(0.0, 1.0) };
+            c.put_async(namespace, key, v, i, meta, Some(p))
+        }
+        None if options.background => c.put_async(namespace, key, v, i, meta, None),
+        None => c.put(namespace, key, v, i, meta).map(|_| ()),
+    }
+}
+
+/// Where this addon's mesh cache lives (`<data dir>/mesh-cache`).
+pub fn cache_root(ctx: &AddonContext) -> std::path::PathBuf {
+    resolve_addon_root(ctx).unwrap_or_else(|| std::path::PathBuf::from("data")).join("mesh-cache")
+}
+
 /// Stores a mesh: packed vertices (12 floats each: position, normal, uv, color), u32 indices and
 /// a JSON string of the caller's own metadata.
 #[op2]
@@ -78,17 +98,8 @@ pub fn op_mesh_cache_put(
     #[serde] options: Option<PutOptions>,
 ) -> Result<(), JsErrorBox> {
     let c = cache(state)?;
-    let options = options.unwrap_or_default();
-    let (v, i) = (floats(vertices)?, u32s(indices)?);
-    match options.simplify {
-        Some(s) => {
-            if !(s.max_error.is_finite() && s.max_error >= 0.0) { return Err(err("simplify.maxError must be a number of meters >= 0")); }
-            let p = SimplifyParams { max_error: s.max_error, min_feature: s.min_feature.max(0.0), target_ratio: s.target_ratio.clamp(0.0, 1.0) };
-            c.put_async(&namespace, &key, v, i, meta, Some(p)).map_err(err)
-        }
-        None if options.background => c.put_async(&namespace, &key, v, i, meta, None).map_err(err),
-        None => c.put(&namespace, &key, v, i, meta).map(|_| ()).map_err(err),
-    }
+    forget_geometry(state, &namespace, &key);
+    put_mesh(&c, &namespace, &key, vertices, indices, meta, options).map_err(err)
 }
 
 /// The caller's metadata for a cached mesh, or null.
@@ -144,13 +155,50 @@ pub struct SpawnConfig {
     render_role: Option<String>,
     #[serde(default)]
     bindings: Option<Vec<BindingConfig>>,
+    /// Instances to draw (default 1). The pipeline's shader places each one from its own data,
+    /// e.g. a storage buffer indexed by `@builtin(instance_index)`; 0 draws nothing until
+    /// `Entropy.Model.setInstanceCount` raises it.
+    #[serde(default)]
+    instance_count: Option<u32>,
+    /// Bounding sphere [x, y, z, radius] in render space (see Entropy.Model.setBounds).
+    #[serde(default)]
+    bounds: Option<[f32; 4]>,
+}
+
+/// Forgets the shared GPU geometry of `namespace/key` (its cached mesh changed or went away):
+/// meshes already drawing it keep it, later spawns upload the new data.
+fn forget_geometry(state: &mut OpState, namespace: &str, key: &str) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.shared_geometry.remove(&format!("{namespace}/{key}"));
+    }
 }
 
 /// Spawns a cached mesh as an engine mesh (as `Entropy.Model.createMesh` does with geometry
 /// passed in). Returns false, spawning nothing, when the mesh isn't in the cache.
+///
+/// Every mesh spawned from one cache entry draws the same GPU vertex/index buffers: the first
+/// spawn uploads them, later ones (while any of those meshes lives) reuse them without copying
+/// the geometry at all.
 #[op2]
 pub fn op_mesh_cache_create_mesh(state: &mut OpState, #[string] addon_name: String, #[string] namespace: String, #[string] key: String, #[serde] config: SpawnConfig) -> Result<bool, JsErrorBox> {
-    let Some(mesh) = cache(state)?.get(&namespace, &key) else { return Ok(false) };
+    let geometry_key = format!("{namespace}/{key}");
+    let resident = state.try_borrow::<AddonContext>()
+        .and_then(|ctx| ctx.shared_geometry.get(&geometry_key))
+        .and_then(std::sync::Weak::upgrade);
+    let geometry = match resident {
+        Some(g) => g,
+        None => {
+            let Some(mesh) = cache(state)?.get(&namespace, &key) else { return Ok(false) };
+            if !AddonEngine::is_render_allowed(&addon_name) { return Ok(true); }
+            let ctx = state.try_borrow_mut::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
+            let gpu = ctx.gpu_resources.clone().ok_or_else(|| err("GPU resources not available"))?;
+            let g = std::sync::Arc::new(SharedGeometry::upload(&gpu.device, &geometry_key, bytemuck::cast_slice(&mesh.vertices), bytemuck::cast_slice(&mesh.indices)));
+            // Drop entries whose meshes are all gone before adding one.
+            ctx.shared_geometry.retain(|_, w| w.strong_count() > 0);
+            ctx.shared_geometry.insert(geometry_key, std::sync::Arc::downgrade(&g));
+            g
+        }
+    };
     if !AddonEngine::is_render_allowed(&addon_name) { return Ok(true); }
     let ctx = state.try_borrow_mut::<AddonContext>().ok_or_else(|| err("addon context unavailable"))?;
     ctx.pending_meshes.push((addon_name, MeshConfig {
@@ -158,11 +206,13 @@ pub fn op_mesh_cache_create_mesh(state: &mut OpState, #[string] addon_name: Stri
         position: config.position.unwrap_or([0.0; 3]),
         rotation: config.rotation,
         scale: config.scale,
-        vertex_data: mesh.vertices.clone(),
-        index_data: mesh.indices.clone(),
+        vertex_data: Vec::new(),
+        index_data: Vec::new(),
+        shared_geometry: Some(geometry),
+        bounds: config.bounds,
         pipeline_id: config.pipeline_id,
         render_role: config.render_role,
-        instance_count: Some(1),
+        instance_count: Some(config.instance_count.unwrap_or(1)),
         bindings: config.bindings,
         physics: None,
         behavior_id: None,
@@ -175,11 +225,16 @@ pub fn op_mesh_cache_create_mesh(state: &mut OpState, #[string] addon_name: Stri
 
 #[op2(fast)]
 pub fn op_mesh_cache_remove(state: &mut OpState, #[string] namespace: String, #[string] key: String) -> Result<bool, JsErrorBox> {
+    forget_geometry(state, &namespace, &key);
     Ok(cache(state)?.remove(&namespace, &key))
 }
 
 #[op2(fast)]
 pub fn op_mesh_cache_clear(state: &mut OpState, #[string] namespace: String) -> Result<u32, JsErrorBox> {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let prefix = format!("{namespace}/");
+        ctx.shared_geometry.retain(|k, _| !k.starts_with(&prefix));
+    }
     cache(state)?.clear(&namespace).map(|n| n as u32).map_err(err)
 }
 
