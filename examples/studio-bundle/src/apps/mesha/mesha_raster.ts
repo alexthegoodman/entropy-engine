@@ -106,6 +106,21 @@ function patterned(mat: MaterialPreset, uv: [number, number]): { mat: MaterialPr
         const k = Math.max(dash, patch);
         return { mat: { ...mat, color: mat.color.map(c => c * (1 - k) + 0.2 * k) as [number, number, number] }, dim: 1, leaf: false };
     }
+    if (mat.pattern === "skin" || mat.pattern === "hair") {
+        // Skin leans toward its flush by uv.y; hair toward its tint by each strand's random, with
+        // roots in shadow.
+        const t = mat.tint ?? mat.color;
+        const k = mat.pattern === "hair" ? 0.75 * uv[0] * uv[0] : Math.min(1, Math.max(0, uv[1]));
+        const root = mat.pattern === "hair" ? 0.55 + 0.45 * Math.min(1, Math.max(0, uv[1] / 0.3)) : 1;
+        const color = [0, 1, 2].map(i => (mat.color[i] + (t[i] - mat.color[i]) * k) * root) as [number, number, number];
+        return { mat: { ...mat, color }, dim: 1, leaf: false };
+    }
+    if (mat.pattern === "iris") {
+        // Collarette near the pupil, dark limbal ring at the rim.
+        const r = Math.min(1, Math.max(0, uv[1]));
+        const k = (1 + 0.6 * Math.max(0, 1 - r / 0.35)) * (1 - 0.8 * Math.max(0, (r - 0.78) / 0.22));
+        return { mat: { ...mat, color: mat.color.map(c => Math.min(1, c * k)) as [number, number, number] }, dim: 1, leaf: false };
+    }
     return { mat, dim: 1, leaf: false };
 }
 
@@ -237,7 +252,7 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                 const lift = clamp01((wp[1] - floorY) / (radius * 0.5));
                 const occ = 0.55 + 0.45 * lift * lift * (3 - 2 * lift);
                 let col: Vec3;
-                if (t.mat.pattern === "foliage" || t.mat.pattern === "bark" || t.mat.pattern === "birch") {
+                if (t.mat.pattern === "foliage" || t.mat.pattern === "bark" || t.mat.pattern === "birch" || t.mat.pattern === "skin" || t.mat.pattern === "hair" || t.mat.pattern === "iris") {
                     // Interpolate the foliage tint fraction, not uv.y itself: the whole part is a separate value.
                     const fr = (u: number) => u - Math.floor(u + 1e-6), wh = (u: number) => Math.floor(u + 1e-6);
                     const uvx = t.uv[0][0] * a + t.uv[1][0] * bb + t.uv[2][0] * c;

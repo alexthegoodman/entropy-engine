@@ -3,7 +3,7 @@
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
 export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark" | "birch"
-    | "glow" | "corrugated" | "rust" | "rustyCorrugated" | "panels";
+    | "glow" | "corrugated" | "rust" | "rustyCorrugated" | "panels" | "skin" | "hair" | "iris" | "denim" | "knit";
 
 export interface MaterialPreset {
     id: string;
@@ -15,7 +15,11 @@ export interface MaterialPreset {
      * A procedural surface detail the viewport shader draws on top of the base color. "glow" is
      * self-lit (light strips, crystals, lit windows); "corrugated" ribs sheet metal across each
      * face (down the slope on a roof); "rust" mottles and streaks it; "panels" draws the seams of
-     * a panelled hull on a 1.2 x 0.8 m grid.
+     * a panelled hull on a 1.2 x 0.8 m grid. "skin" scatters light under the surface (soft, warm
+     * terminators) with pores, and reddens where uv.y carries a flush (lips, cheeks, knuckles);
+     * "hair" is strands: a highlight along each strand (uv.y runs root to tip, uv.x is a per-strand
+     * random), darker roots and thinning tips; "iris" draws radial fibres, a collarette and a dark
+     * limbal ring from polar uv; "denim" is a diagonal twill, "knit" rows of stitches.
      */
     pattern: Pattern;
     /** Glass and similar: rendered as a tinted, glossy, slightly see-through-looking surface. */
@@ -48,6 +52,14 @@ const g = (id: string, label: string, color: string, clear: number): MaterialPre
 /** Foliage: leaves, needles, grass and petals, with a second color they vary toward. */
 const f = (id: string, label: string, color: string, tint: string, roughness = 0.55): MaterialPreset =>
     ({ id, label, color: hex(color), roughness, metallic: 0, pattern: "foliage", tint: hex(tint) });
+
+/** Skin: subsurface-lit, with a second, ruddier color the flush in uv.y leans toward. */
+const sk = (id: string, label: string, color: string, flush: string): MaterialPreset =>
+    ({ id, label, color: hex(color), roughness: 0.5, metallic: 0, pattern: "skin", tint: hex(flush) });
+
+/** Hair: strands with a tint toward which each strand's random leans (sun-lightened ends, grey). */
+const hr = (id: string, label: string, color: string, tint: string, roughness = 0.38): MaterialPreset =>
+    ({ id, label, color: hex(color), roughness, metallic: 0, pattern: "hair", tint: hex(tint) });
 
 export const MATERIALS: MaterialPreset[] = [
     m("wood.oak", "Oak", "#c49a6c", 0.55, 0, "wood"),
@@ -205,6 +217,76 @@ export const MATERIALS: MaterialPreset[] = [
     m("wood.sleeper", "Creosoted sleepers", "#40332a", 0.9, 0, "wood"),
     m("glow.warmWhite", "Warm white light", "#fff0d4", 0.3, 0, "glow"),
 ];
+
+// People: skin tones, lips, hair colors, eyes, and clothing fabrics. Pushed here so they sit
+// together in material pickers.
+MATERIALS.push(
+    sk("skin.porcelain", "Porcelain skin", "#f0d2c0", "#e8a59a"),
+    sk("skin.fair", "Fair skin", "#e6b9a0", "#e0948a"),
+    sk("skin.light", "Light skin", "#d9a588", "#cf7f72"),
+    sk("skin.medium", "Medium skin", "#c38a66", "#b8675a"),
+    sk("skin.olive", "Olive skin", "#ad7d57", "#a35e48"),
+    sk("skin.tan", "Tan skin", "#9c6945", "#93503c"),
+    sk("skin.brown", "Brown skin", "#7b4e33", "#7a3c2e"),
+    sk("skin.deep", "Deep brown skin", "#5a3725", "#5e2c22"),
+    sk("skin.ebony", "Ebony skin", "#3e261a", "#4a2219"),
+    sk("lips.natural", "Natural lips", "#c27a6c", "#b2584f"),
+    sk("lips.rose", "Rose lips", "#c45a6a", "#a83c50"),
+    sk("lips.berry", "Berry lips", "#8e2f45", "#741c36"),
+    sk("lips.red", "Red lips", "#b0232d", "#8f1420"),
+    sk("lips.nude", "Nude lips", "#c69281", "#b0705f"),
+    sk("lips.deep", "Deep lips", "#6e3a30", "#5a2a24"),
+    m("nails.natural", "Natural nails", "#e7c3b8", 0.25, 0),
+    m("nails.red", "Red polish", "#a3101e", 0.08, 0),
+    m("nails.black", "Black polish", "#18161a", 0.06, 0),
+    m("nails.nude", "Nude polish", "#d9a99a", 0.1, 0),
+    hr("hair.black", "Black hair", "#17120f", "#2a201a", 0.32),
+    hr("hair.darkBrown", "Dark brown hair", "#33221a", "#4c3222"),
+    hr("hair.brown", "Brown hair", "#553624", "#7a5236"),
+    hr("hair.chestnut", "Chestnut hair", "#6b3a22", "#8c5233"),
+    hr("hair.auburn", "Auburn hair", "#7e321d", "#a2482a"),
+    hr("hair.ginger", "Ginger hair", "#a9532a", "#c9773f"),
+    hr("hair.darkBlonde", "Dark blonde hair", "#8c6c45", "#ae8c5e"),
+    hr("hair.blonde", "Blonde hair", "#c09a64", "#e0c48e"),
+    hr("hair.platinum", "Platinum hair", "#ddd0b4", "#f2ead6"),
+    hr("hair.grey", "Grey hair", "#8a8681", "#c9c6c1"),
+    hr("hair.white", "White hair", "#d8d5cf", "#f4f2ee"),
+    hr("hair.saltPepper", "Salt and pepper hair", "#3a3633", "#bab6b0"),
+    hr("hair.pink", "Pink dyed hair", "#d36f98", "#f0a7c3"),
+    hr("hair.blue", "Blue dyed hair", "#2f5ea8", "#5f8fd6"),
+    hr("hair.lashes", "Lashes", "#141110", "#221b17", 0.4),
+    m("eye.sclera", "Eye white", "#efe8e2", 0.08, 0),
+    m("eye.pupil", "Pupil", "#050505", 0.1, 0),
+    { id: "eye.cornea", label: "Cornea", color: hex("#f4f7f8"), roughness: 0.02, metallic: 0, pattern: "none", transmission: 0.9, clear: 0.93 },
+    m("iris.brown", "Brown eyes", "#5a3720", 0.2, 0, "iris"),
+    m("iris.hazel", "Hazel eyes", "#7d6634", 0.2, 0, "iris"),
+    m("iris.green", "Green eyes", "#5a7d48", 0.2, 0, "iris"),
+    m("iris.blue", "Blue eyes", "#4a77a6", 0.2, 0, "iris"),
+    m("iris.grey", "Grey eyes", "#7a8790", 0.2, 0, "iris"),
+    m("iris.amber", "Amber eyes", "#a6702a", 0.2, 0, "iris"),
+    m("iris.dark", "Dark brown eyes", "#2e1d14", 0.2, 0, "iris"),
+    m("fabric.white", "White cotton", "#ecebe6", 0.92, 0, "fabric"),
+    m("fabric.black", "Black cotton", "#1e1e21", 0.92, 0, "fabric"),
+    m("fabric.heather", "Heather grey jersey", "#8f9095", 0.94, 0, "fabric"),
+    m("fabric.red", "Red cotton", "#a3222a", 0.92, 0, "fabric"),
+    m("fabric.forest", "Forest green cotton", "#2f4a36", 0.92, 0, "fabric"),
+    m("fabric.sky", "Sky blue cotton", "#8fb3d6", 0.92, 0, "fabric"),
+    m("fabric.mustard", "Mustard cotton", "#c99a2e", 0.92, 0, "fabric"),
+    m("fabric.blush", "Blush silk", "#e2b3ab", 0.55, 0, "fabric"),
+    m("fabric.khaki", "Khaki chino", "#b9a57d", 0.9, 0, "fabric"),
+    m("fabric.denim", "Indigo denim", "#2f4366", 0.95, 0, "denim"),
+    m("fabric.denimLight", "Washed denim", "#6c86ab", 0.95, 0, "denim"),
+    m("fabric.denimBlack", "Black denim", "#26272b", 0.95, 0, "denim"),
+    m("fabric.knitCream", "Cream knit", "#e3d8c2", 0.97, 0, "knit"),
+    m("fabric.knitGrey", "Grey knit", "#77787c", 0.97, 0, "knit"),
+    m("fabric.knitBurgundy", "Burgundy knit", "#6b2330", 0.97, 0, "knit"),
+    m("leather.brown", "Brown leather", "#5a3522", 0.42, 0, "speckle"),
+    m("leather.white", "White leather", "#eeece6", 0.4, 0, "speckle"),
+    m("leather.red", "Red patent", "#9a1520", 0.12, 0),
+    m("canvas.white", "White canvas", "#e9e6dc", 0.9, 0, "fabric"),
+    m("rubber.white", "White rubber sole", "#ece9e1", 0.75, 0),
+    m("rubber.gum", "Gum rubber sole", "#b98a52", 0.7, 0),
+);
 
 export const MATERIAL_BY_ID: ReadonlyMap<string, MaterialPreset> = new Map(MATERIALS.map(p => [p.id, p]));
 

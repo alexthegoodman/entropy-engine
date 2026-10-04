@@ -179,6 +179,7 @@ Getting geometry on screen, whether it is a loaded `.glb` file, a hand-built mes
 | `registerVisual` / `getVisual` / `getVisualProvider` | Registers a mesh + pipeline combo under a friendly name so `Visual.load`/`Model.load` can reference it by name instead of repeating shader/geometry wiring everywhere. |
 | `Mesh.getData(id)` | Reads back a mesh's live vertex/index buffers, e.g. for physics or custom collision. |
 | `Mesh.updateVertices` / `appendGeometry` / `removeGeometry` | Edits a mesh's geometry live at runtime: move vertices, add faces, or delete faces for sculpting tools and destructible geometry. |
+| `Mesh.writeVertices(id, firstVertex, vertices)` | Overwrites whole vertices (the 12-float `mesh` layout: position, normal, uv, color) from `firstVertex` on in one GPU write, for geometry animated every frame such as Mesha's simulated hair and cloth. |
 | `Mesh.getVertexWorldPosition` / `recalculateNormals` | Reads one vertex's world-space position, or recomputes lighting normals after an edit. |
 | `Selection.setMode(mode)` | Switches what a click selects: vertex, edge, face, or whole object for modeling and editing tools. |
 | `Selection.getSelected` / `raycast` / `highlightElements` / `clear` | Reads the current selection, casts a screen-space ray into the scene to pick something, highlights elements, or clears selection. |

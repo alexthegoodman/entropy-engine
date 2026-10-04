@@ -81,7 +81,7 @@ export function buildScene(instances: Instance[], lookup: ObjectLookup, cache = 
 // --- Library search ------------------------------------------------------------------------------
 
 /** How Add Object orders categories; any other category follows, alphabetically. */
-export const CATEGORY_ORDER = ["Furniture", "Household", "Architecture", "Transport", "Mechanical", "Nature"];
+export const CATEGORY_ORDER = ["People", "Furniture", "Household", "Architecture", "Transport", "Mechanical", "Nature"];
 
 /** Browsable objects ranked for `query` (all of them, by category, for an empty query). */
 export function searchLibrary(query: string, category?: string): ObjectDef[] {
@@ -109,13 +109,14 @@ export function searchLibrary(query: string, category?: string): ObjectDef[] {
 // --- Engine vertex packing -----------------------------------------------------------------------
 
 /** Pattern ids the viewport shader understands, carried in the normal's length (1 + id). */
-export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9, birch: 10, glow: 11, corrugated: 12, rust: 13, rustyCorrugated: 14, panels: 15, clearGlass: 16 } as const;
+export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9, birch: 10, glow: 11, corrugated: 12, rust: 13, rustyCorrugated: 14, panels: 15, clearGlass: 16, skin: 17, hair: 18, iris: 19, denim: 20, knit: 21 } as const;
 
 /**
  * The engine's `mesh` layout: position(3) normal(3) uv(2) color(4). Color is the material's sRGB
  * base color; alpha packs roughness and a metal flag (metal: 0.5 + 0.49 r, else 0.49 r); the
  * normal's length is 1 + the surface pattern id. The shader unpacks all three. Foliage bakes each
- * vertex's lean toward the material's tint (the fraction of uv.y) into its color. See-through window
+ * vertex's lean toward the material's tint (the fraction of uv.y) into its color, skin its flush
+ * (uv.y) and hair each strand's own shade (uv.x, its random). See-through window
  * glass is always smooth, so its alpha carries the clear share instead.
  */
 export function packVertices(mesh: RegionMesh): { vertexData: number[]; indexData: number[] } {
@@ -124,7 +125,7 @@ export function packVertices(mesh: RegionMesh): { vertexData: number[]; indexDat
     const alpha = m.clear ? m.clear : m.metallic > 0.5 ? 0.5 + 0.49 * m.roughness : 0.49 * m.roughness;
     const scale = 1 + pattern;
     const n = mesh.positions.length / 3;
-    const tint = m.pattern === "foliage" ? m.tint : undefined;
+    const tint = m.pattern === "foliage" || m.pattern === "skin" || m.pattern === "hair" ? m.tint : undefined;
     const vertexData = new Array<number>(n * 12);
     for (let v = 0; v < n; v++) {
         const o = v * 12;
@@ -132,7 +133,8 @@ export function packVertices(mesh: RegionMesh): { vertexData: number[]; indexDat
         vertexData[o + 3] = mesh.normals[v * 3] * scale; vertexData[o + 4] = mesh.normals[v * 3 + 1] * scale; vertexData[o + 5] = mesh.normals[v * 3 + 2] * scale;
         vertexData[o + 6] = mesh.uvs[v * 2]; vertexData[o + 7] = mesh.uvs[v * 2 + 1];
         if (tint) {
-            const uy = mesh.uvs[v * 2 + 1], k = Math.min(1, Math.max(0, uy - Math.floor(uy + 1e-6)));
+            const uy = mesh.uvs[v * 2 + 1];
+            const k = m.pattern === "hair" ? 0.75 * mesh.uvs[v * 2] ** 2 : Math.min(1, Math.max(0, uy - Math.floor(uy + 1e-6)));
             vertexData[o + 8] = m.color[0] + (tint[0] - m.color[0]) * k; vertexData[o + 9] = m.color[1] + (tint[1] - m.color[1]) * k; vertexData[o + 10] = m.color[2] + (tint[2] - m.color[2]) * k;
         } else { vertexData[o + 8] = m.color[0]; vertexData[o + 9] = m.color[1]; vertexData[o + 10] = m.color[2]; }
         vertexData[o + 11] = alpha;

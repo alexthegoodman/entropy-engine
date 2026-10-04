@@ -368,7 +368,12 @@ impl BrowserBddDriver {
         let source = if forum {
             include_str!("../tests/features/p2p_forum_live.feature")
         } else if mesha {
-            include_str!("../tests/features/mesha_live.feature")
+            // ENTROPY_MESHA_BDD_FEATURE: "human" plays the people feature; a path plays that file.
+            match std::env::var("ENTROPY_MESHA_BDD_FEATURE").as_deref() {
+                Ok("human") => include_str!("../tests/features/mesha_human_live.feature"),
+                Ok(path) if std::path::Path::new(path).is_file() => Box::leak(std::fs::read_to_string(path).unwrap_or_default().into_boxed_str()),
+                _ => include_str!("../tests/features/mesha_live.feature"),
+            }
         } else if quadplanet && allegiance {
             // ENTROPY_ALLEGIANCE_BDD_FEATURE plays another feature file without rebuilding.
             match std::env::var("ENTROPY_ALLEGIANCE_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {

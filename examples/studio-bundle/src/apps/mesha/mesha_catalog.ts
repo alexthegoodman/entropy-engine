@@ -13,6 +13,10 @@ import {
     bezier3, helix3, arc3, translate2, rotate2, scale2, resample, subdivideSegments,
 } from "./mesha_curves";
 import { leaf, tree, frond, blades, scatter, distributeOnSurface, stalk, shadeFoliage, LEAF_SHAPES, type LeafShape, type CrownShape } from "./mesha_plants";
+import { buildHuman, DEFAULT_HUMAN, type HumanParams } from "./mesha_human";
+import { POSES } from "./mesha_figure";
+import { TOPS, BOTTOMS, NECKLINES, SHOES } from "./mesha_cloth";
+import { HAIR_STYLES, PARTINGS, BEARDS } from "./mesha_hair";
 
 export type InputKind = "number" | "int" | "bool" | "vec2" | "vec3" | "enum" | "string" | "mesh" | "meshes" | "curve2" | "curves2" | "curve3" | "points3";
 export type OutputKind = "mesh" | "curve2" | "curves2" | "curve3";
@@ -29,7 +33,7 @@ export interface ComponentInput {
 
 export interface ComponentDef {
     type: string;
-    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Plants" | "Geometry";
+    category: "Mesh Primitives" | "Curve Primitives" | "Paths" | "Curve to Mesh" | "Deform" | "Instances" | "Plants" | "Figures" | "Geometry";
     label: string;
     description: string;
     inputs: ComponentInput[];
@@ -428,6 +432,48 @@ const LIST: ComponentDef[] = [
         description: "Shades geometry that isn't leaves (stylized puffs, conifer tiers, a hedge's body) like foliage: how deep in the crown it sits, lower parts deeper by `gradient`, and a random tint lean per part.",
         inputs: [{ name: "mesh", kind: "mesh", description: "Input." }, n("occlusion", 0, "How buried (0 outside, 1 deep inside).", 0, 1), n("gradient", 0.4, "Extra depth toward the bottom.", 0, 1), n("tintVariation", 0, "Random lean toward the tint per part.", 0, 1), int("seed", 0, "Seed.", -1e9, 1e9)],
         build: i => shadeFoliage(i.mesh, i as Parameters<typeof shadeFoliage>[1]),
+    },
+    // --- Figures -------------------------------------------------------------------------------
+    {
+        type: "figure.human", category: "Figures", label: "Human", output: "mesh",
+        description: "A person standing on the origin facing +Z: an anatomical body (blended forms over a posable skeleton, a sculpted face, eyes with iris and cornea), clothes cut to fit and draped by cloth physics, shoes, and styled hair settled by strand physics, with brows, lashes and an optional beard. Regions: skin, lips, nails, eyes, iris, pupil, cornea, top, bottom, shoes, soles, hair, hairCap, brows, lashes, beard. Hair and clothes keep simulating in the viewport.",
+        inputs: [
+            n("height", DEFAULT_HUMAN.height, "Standing height without shoes.", 1.2, 2.2), n("masculinity", DEFAULT_HUMAN.masculinity, "0 typical female build and face, 1 typical male.", 0, 1),
+            n("weight", DEFAULT_HUMAN.weight, "Body fat.", 0, 1), n("muscle", DEFAULT_HUMAN.muscle, "Muscle definition.", 0, 1),
+            n("shoulders", 1, "Shoulder width.", 0.8, 1.2), n("hips", 1, "Hip width.", 0.8, 1.2), n("waist", 1, "Waist width.", 0.8, 1.25), n("bust", DEFAULT_HUMAN.bust, "Bust (female builds).", 0, 1),
+            n("legLength", 1, "Leg length.", 0.88, 1.12), n("armLength", 1, "Arm length.", 0.9, 1.1), n("headSize", 1, "Head size.", 0.9, 1.1), n("neckLength", 1, "Neck length.", 0.6, 1.5),
+            ...(["jawWidth", "chin", "cheekbones", "noseLength", "noseWidth", "noseBridge", "lips", "mouthWidth", "eyeSize", "eyeSpacing", "browRidge", "earSize"] as const).map(k => n(k, 0.5, `Face: ${k} (0.5 average).`, 0, 1)),
+            n("smile", DEFAULT_HUMAN.smile, "Lifts the mouth's corners.", 0, 1),
+            { name: "pose", kind: "enum", default: "relaxed", options: [...POSES], description: "Body pose." },
+            n("armRaise", 0, "Degrees added to both arms' abduction.", -20, 60), n("elbowBend", 0, "Degrees added to both elbows.", -10, 60),
+            n("headTurn", 0, "Degrees the head turns (to its left).", -50, 50), n("headTilt", 0, "Degrees the head nods (down).", -25, 25),
+            n("fingerCurl", DEFAULT_HUMAN.fingerCurl, "How curled the fingers are.", 0, 1), n("stance", 0.5, "Feet apart.", 0, 1),
+            { name: "top", kind: "enum", default: DEFAULT_HUMAN.outfit.top, options: [...TOPS], description: "Top garment (a dress replaces the bottom)." },
+            n("sleeve", DEFAULT_HUMAN.outfit.sleeve, "Sleeve length as a share of the arm.", 0, 1), n("topLength", 1, "Top hem: 0 waist, 1 hip, 2 mid-thigh.", 0, 2),
+            { name: "neckline", kind: "enum", default: "crew", options: [...NECKLINES], description: "Neckline." }, n("topFit", DEFAULT_HUMAN.outfit.topFit, "0 fitted, 1 loose.", 0, 1),
+            { name: "bottom", kind: "enum", default: DEFAULT_HUMAN.outfit.bottom, options: [...BOTTOMS], description: "Bottom garment." },
+            n("bottomLength", 1, "Trousers: share of the leg; skirt or dress: hem from the waist toward the floor.", 0, 1), n("bottomFit", DEFAULT_HUMAN.outfit.bottomFit, "0 fitted, 1 loose.", 0, 1),
+            n("flare", DEFAULT_HUMAN.outfit.flare, "Skirt flare, 0 straight to 1 full circle.", 0, 1),
+            { name: "shoes", kind: "enum", default: DEFAULT_HUMAN.shoes, options: [...SHOES], description: "Footwear." },
+            { name: "hairStyle", kind: "enum", default: DEFAULT_HUMAN.hair.style, options: [...HAIR_STYLES], description: "Hairstyle." },
+            n("hairLength", 1, "Length relative to the style.", 0.4, 1.8), n("curl", DEFAULT_HUMAN.hair.curl, "0 straight to 1 tight curls.", 0, 1), n("volume", DEFAULT_HUMAN.hair.volume, "0 sleek to 1 full.", 0, 1),
+            { name: "part", kind: "enum", default: "side", options: [...PARTINGS], description: "Parting." }, n("bangs", 0, "Fringe: 0 swept back, 1 to the brows.", 0, 1),
+            n("density", 1, "Strands relative to normal.", 0.3, 2), { name: "beard", kind: "enum", default: "none", options: [...BEARDS], description: "Facial hair." },
+            n("browFullness", 0.5, "Brows, fine to bushy.", 0, 1), { name: "lashes", kind: "bool", default: true, description: "Eyelashes." },
+            n("wind", 0, "Wind (m/s) the clothes and hair settle in.", 0, 12),
+            { name: "quality", kind: "enum", default: "final", options: ["draft", "final"], description: "Draft builds a coarser person quickly." },
+            int("seed", 1, "Seed (individual asymmetry, strand placement).", -1e9, 1e9),
+        ],
+        build: i => {
+            const { top, sleeve, topLength, neckline, topFit, bottom, bottomLength, bottomFit, flare, shoes, hairStyle, hairLength, curl, volume, part, bangs, density, beard, browFullness, lashes, wind, quality, ...body } = i;
+            const p: HumanParams = {
+                ...DEFAULT_HUMAN, ...body,
+                outfit: { top, sleeve, topLength, neckline, topFit, bottom, bottomLength, bottomFit, flare },
+                shoes, wind, quality,
+                hair: { style: hairStyle, length: hairLength, curl, volume, part, bangs, density, beard, brows: browFullness, lashes },
+            } as HumanParams;
+            return buildHuman(p);
+        },
     },
     // --- Geometry ------------------------------------------------------------------------------
     {

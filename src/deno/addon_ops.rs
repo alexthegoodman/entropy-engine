@@ -1519,6 +1519,7 @@ pub struct AddonContext {
     pub pending_point_light_removals: Vec<(String, String)>, // (addon_name, light_id)
     pub pending_composites: Vec<(String, CompositeConfig)>,
     pub pending_mesh_updates: Vec<(String, Vec<u32>, Vec<f32>)>, // (mesh_id, indices, positions)
+    pub pending_vertex_writes: Vec<(String, u32, Vec<u8>)>, // (mesh_id, first vertex, whole vertices)
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     // Some(None) = reset the lighting pipeline to its built-in point-light shading;
     // Some(Some(src)) = recompile it with this addon-supplied WGSL function instead.
@@ -4200,6 +4201,21 @@ pub fn op_mesh_update_vertices(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_mesh_updates.push((mesh_id, indices, new_positions));
+    }
+}
+
+/// `Entropy.Mesh.writeVertices`: whole vertices (the engine's 48-byte layout: position, normal,
+/// uv, color) written over a mesh's vertex buffer from `first_vertex` on, in one buffer write.
+/// Animated geometry (cloth, hair) rewrites positions and normals every frame this way.
+#[op2(fast)]
+pub fn op_mesh_write_vertices(
+    state: &mut OpState,
+    #[string] mesh_id: String,
+    first_vertex: u32,
+    #[buffer] data: &[u8],
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_vertex_writes.push((mesh_id, first_vertex, data.to_vec()));
     }
 }
 
