@@ -1441,10 +1441,10 @@ addon.onInit(() => {
     peoplePipelineId = Entropy.Pipeline.create({
         name: "Allegiance People", layout: "mesh", pbr: false,
         vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
+        // binding 1: every instance's PersonRecord (al_crowd.ts), read by instance index.
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
-            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
-            { binding: 2, visibility: ["Fragment"], resourceType: "Uniform" },
+            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "StorageReadOnly" },
         ] }],
     });
     people = new PeopleMeshes(Entropy.MeshCache);
