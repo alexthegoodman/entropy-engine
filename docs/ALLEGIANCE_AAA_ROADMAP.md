@@ -1,10 +1,12 @@
 # Allegiance: a path to AAA visual quality
 
-Review date: 2026-10-04. Source baseline: Entropy commit `1acb489`, plus the working tree inspected during this review. Scope: Allegiance, its QuadPlanet dependencies, relevant Rust rendering/runtime systems, existing screenshots, and primary technical references.
+Scope: Allegiance, its QuadPlanet dependencies, relevant Rust rendering/runtime systems, existing screenshots, and primary technical references.
+
+Tentative: these plans are subject to change and should be discussed before implementation.
 
 ## Recommendation
 
-Invest in a **beautiful, playable London district first**, supported by reusable Entropy rendering and content tools. Keep the Earth-scale campaign, political identity, and TypeScript gameplay architecture. Build a dependable Rust rendering foundation beneath them, then prove the visual direction with authored environments, believable people, and coordinated atmosphere and effects.
+Invest in a **beautiful, playable London district first**, supported by reusable Entropy rendering and content tools. Keep the Earth-scale campaign, political identity, and TypeScript gameplay architecture. Build a dependable Rust rendering foundation beneath them, then prove the visual direction with detailed environments, believable people, and coordinated atmosphere and effects.
 
 The largest immediate visual gains should come from **coherent lighting and shadows, materials, character animation, and street composition**. Smoke, sparks, water, and cloth will make those improvements feel alive. Expensive effects layered onto the current figures and building boxes would still look like a prototype.
 
@@ -167,8 +169,6 @@ Begin cloth with authored secondary animation and shader deformation for banners
 
 ## 6. Characters, crowds and game feel
 
-Replace nearby procedural people with a small, consistent rigged character family. Inspect [`GLBImporter.rs`](../src/art_assets/GLBImporter.rs), [`animation_system.rs`](../src/core/animation_system.rs), and [`skinned_pipeline.rs`](../src/core/skinned_pipeline.rs) for reuse. Prove one imported character through Allegiance's renderer, shadows, velocity and origin changes before adding many assets.
-
 The first animation set should cover idle variants, walk/run, starts/stops, turns, jump/land, aim/fire/reload, stagger/death, talking, pointing, cheering, clapping, fear and escape. Add blend spaces, upper-body layers, additive recoil, head/eye tracking, animation events and foot placement. Define whether movement is simulation-driven or root-motion-driven for each state. Avoid letting both move the character independently.
 
 Named leaders and conversation partners need faces, readable expressions, distinctive clothes and controlled camera framing. Civilian variety should reflect occupation, climate and regional culture, with consistent scale and quality. Recolored identical bodies will remain conspicuous at speech distance.
@@ -270,47 +270,9 @@ These are dependency-ordered planning envelopes, not delivery estimates derived 
 
 | Milestone | Deliverable | Exit gate | Primary owners |
 |---|---|---|---|
-| M0: baseline and art target | Profile/capture harness, fixed London route, hardware choice, reference board, one authored character/material kit | Repeatable baseline; written look and performance targets; render integration decision | Rendering engineer, gameplay engineer, art lead |
 | M1: rendering foundation | Compatible depth/origin contract, HDR, sun shadows, PBR/IBL, cached resources, mixed-path regression scenes | A character and a small street look coherent in motion; no frame-time regression without explanation | Rendering engineer, technical artist |
-| M2: playable district | Authored street kit, animation/controller/camera improvements, background content jobs, spatial sound | Walk, talk, recruit, speech and fight in a finished district with stable loading/pacing | Gameplay/runtime engineers, environment and character artists, animator, audio |
 | M3: signature atmosphere | Wind, wetness, fog, water, six VFX recipes, UI polish and quality settings | The same playable route remains readable and meets target budgets in rain, night and conflict | Rendering/VFX, technical art, gameplay, QA |
 | M4: production scaling | Second contrasting district, repeatable content cooking, region overrides, save migration and campaign testing | A second district reaches the bar without bespoke renderer hacks; content cost is understood | Tools/runtime, content team, design, QA |
 | M5: optional advanced features | Selected dynamic GI/RT, richer cloth, clouds, fluid interaction or destruction | Measured quality gain justifies cost and retains a supported fallback | Specialist engineering and art |
 
-For investment planning, start with a discovery/prototype window of roughly 2-4 weeks for an experienced small team. Expect a convincing authored slice to be a multi-month effort once the foundations and content work are included. These are deliberately broad scope allowances, not a promise of AAA parity within that period. A solo effort should reduce the slice to one square and defer advanced systems.
-
-Fund roles as well as code: senior Rust/wgpu rendering, TypeScript gameplay/tools, environment/technical art, character/animation, VFX/audio and QA. People may cover multiple roles, but leaving content production unowned will limit the result. Determine loaded team cost and asset outsourcing needs after M0; a dollar estimate without staffing, assets and platform targets would be misleading.
-
-Recommended first implementation backlog:
-
-1. Record baseline screenshots/clips, frame timings, bridge traffic and residency for a fixed London route.
-2. Reproduce and repair mixed-pass gating/depth behavior; add explicit pipeline render states.
-3. Introduce the shared origin/depth/HDR contract and test it with one character and one street module.
-4. Add correct sun shadow receiving/casting, consistent materials and environment lighting.
-5. Cache per-mesh bind groups and establish native mesh assets plus batched instances.
-6. Replace synchronous house/chunk frame waits with owned jobs and bounded completions/uploads.
-7. Import one rigged hero/civilian, implement locomotion/gestures and a wall-aware camera.
-8. Author one plaza/street kit with matching collision and navigation.
-9. Add semantic presentation events, spatial audio, shared wind and the first three VFX recipes.
-10. Add temporal stability, quality presets and stress/capture scenarios before increasing scene density.
-
-Defer full path tracing, global fluid simulation, planet-wide detailed interiors, general structural destruction, massive fully simulated crowds, strand hair, vehicle simulation and multiplayer until the slice demonstrates a need and the production plan can support them. Hardware ray tracing should remain an optional quality tier; do not assume backend support or available SDK integration from Entropy's `wgpu = 27.0.1` declaration. Validate adapter capabilities and integration feasibility in a focused spike before budgeting it.
-
-## 12. First slice specification
-
-Use a recognizable London riverside district, roughly a few blocks, with one central speech square, an alley, a sheltered/interior transition, a river edge and a skyline view. Retain travel into and out of the global campaign. Author the nearby geometry to the chosen quality bar and let the existing world supply the distant context.
-
-The review route should last about 5-10 minutes: arrive after rain, walk through the street, talk to a named citizen, recruit a follower, give a speech with clear crowd reactions, encounter a small crackdown, then leave and return with campaign changes reflected locally. Include warm daylight and an evening/night preset. Use exactly the same route for captures and performance comparisons.
-
-Call the slice successful when it is beautiful at gameplay camera distance, coherent during movement, responsive in its controls, understandable in its political consequences, and stable on the agreed hardware. Evaluate it with graphics effects disabled as well: environment composition, characters and interaction still need to carry the scene.
-
-## 13. Verification performed for this document
-
-- Read project instructions, Allegiance/QuadPlanet documentation, relevant TypeScript game modules, shader and renderer paths, particle/animation/import foundations, and test harness source.
-- Inspected existing `public/allegiance-street-london.png` and `public/allegiance-debate.png`.
-- Ran `npm.cmd run test:allegiance -- --pool=threads --maxWorkers=1`: **66 tests passed in 3 files** (31 world, 23 street, 12 screens).
-- Ran `npm.cmd run typecheck:allegiance`: **passed**.
-- Initial `npm` invocation was blocked by PowerShell script policy; `npm.cmd` avoided that. Sandboxed Vitest attempts failed before tests ran with subprocess `EPERM`; the final test run succeeded with approved elevated execution. These setup failures are not Allegiance test failures.
-- No native Rust build, live BDD execution, new visual capture, GPU profiling, audio listening test or long campaign playtest was performed. Source hazards listed above require targeted reproduction before being labeled confirmed runtime defects.
-
-The existing Rust baseline declares edition 2024, wgpu 27.0.1, deno_core 0.332.0 and rapier3d 0.20.0 in `Cargo.toml`; these are manifest declarations, not a claim that every dependency was rebuilt or upgraded. Public technical references were consulted during this review and are linked beside the relevant recommendations.
+But do not defer full path tracing, global fluid simulation, planet-wide detailed interiors, general structural destruction, massive fully simulated crowds, strand hair, and vehicle simulation except in the case that it is unreasonable to do. Hardware ray tracing should remain an optional quality tier; do not assume backend support or available SDK integration from Entropy's `wgpu = 27.0.1` declaration. Validate adapter capabilities and integration feasibility in a focused spike before budgeting it.
