@@ -273,6 +273,28 @@ export const LOADING_TIPS = [
 
 // --- HUD -----------------------------------------------------------------------------------------
 
+/** What to do next: a running objective that teaches the game as it goes. */
+export function objective(c: Campaign, region: string | null): string {
+    const def = region ? regionDefById(region) : null;
+    const rs = region ? c.regions[region] : null;
+    const report = orgReport(c);
+    if (c.stats.speeches === 0) return "Give your first speech: find people and press B.";
+    if (c.stats.recruits < 3) return `Talk to sympathetic people (E) and invite them to join (${c.stats.recruits}/3).`;
+    if (!report.inner.treasurer && !report.inner.propaganda) return "Open COMMAND (TAB) > ORGANIZATION and appoint your officers.";
+    if (!def || !rs) return "Open COMMAND (TAB) > TERRITORY and choose where to go next.";
+    const share = partyShare(rs);
+    if (rs.governor !== PARTY) {
+        if (rs.war) return `WAR in ${def.name}: fight in the streets, or reinforce from COMMAND > TERRITORY.`;
+        if (rs.gov === "democracy") return share < 0.2
+            ? `Raise support in ${def.name} to 20% (now ${pct(share)}): speeches, pamphlets, schemes.`
+            : `Call a snap election in ${def.name} (COMMAND > TERRITORY) - or wait for the vote in ${rs.electionIn} days.`;
+        return rs.army < 10
+            ? `${def.name} holds no elections. Arm members (COMMAND > TERRITORY) for a coup or a war.`
+            : `Strike in ${def.name}: a coup (${Math.round(coupChance(c, def.id) * 100)}%) or a war.`;
+    }
+    return `You govern ${def.name}. Humanity governed: ${pct(governedShare(c))} of ${pct(VICTORY_SHARE, 0)}. Travel and take the next region.`;
+}
+
 export function drawHud(g: GameView, ui: UiFrame): void {
     const { p, W, H } = ui;
     const c = g.c;
@@ -287,6 +309,11 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     p.text(`${big(totalMembers(c))} MEMBERS`, 150, 64, 18, THEME.cream, FONT.num);
     p.text(`WORLD ${pct(worldSupport(c), 2)}`, 290, 64, 18, THEME.cream, FONT.num);
     p.textR(karmaTitle(c.party.karma), tw - 12, 40, 13, c.party.karma >= 0 ? THEME.green : THEME.red, FONT.head);
+    // The objective strip.
+    const obj = objective(c, g.region);
+    p.rect(0, 100, tw, 46, [0.6, 0.05, 0.07, 0.88]);
+    p.text("OBJECTIVE", 14, 104, 11, THEME.gold, FONT.head);
+    p.text(obj, 14, 118, 13, THEME.cream, FONT.body, tw - 24, 28);
     // Top-right: where you are.
     const def = g.region ? regionDefById(g.region) : null;
     if (def) {
@@ -359,7 +386,7 @@ export function drawHud(g: GameView, ui: UiFrame): void {
         p.text(news.text, nx + 122, H - 34, 15, THEME.cream, FONT.body, nw - 130, 28);
     }
     // Toasts.
-    let ty = 110;
+    let ty = 156;
     for (const t of g.toasts.slice(0, 4)) {
         const tw3 = Math.min(W * 0.6, textWidth(t.text, 16, FONT.mono) + 40);
         p.rect(cx - tw3 / 2, ty, tw3, 34, t.kind === "bad" ? withAlpha(THEME.redDark, 0.92) : t.kind === "good" ? [0.1, 0.3, 0.12, 0.92] : [0.05, 0.05, 0.05, 0.9], 2, THEME.gold);

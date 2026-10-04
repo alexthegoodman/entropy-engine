@@ -63,6 +63,10 @@ export interface Actor {
     look: { shirt: RGB; pants: RGB; skin: RGB; hair: RGB; hat: boolean; female: boolean };
     /** Where a listener stands in the ring. */
     slot: [number, number] | null;
+    /** An unnamed armed party member from the region's forces (joins street battles in a war). */
+    militia: boolean;
+    /** A weapon a fallen soldier dropped, waiting to be picked up. */
+    loot: string | null;
 }
 
 export interface Shot { ax: number; ay: number; az: number; bx: number; by: number; bz: number; side: Side; hit: boolean; age: number }
@@ -86,6 +90,8 @@ export interface StreetContext {
     enemyQuality: number;
     /** Named followers to keep walking with you. */
     followers: { id: number; name: string; armed: boolean; combat: number }[];
+    /** Armed party members from the region's forces fighting beside you (wars only). */
+    militia?: number;
     playerWeapon: string;
     /** Spawn a soldier squad now (tests and tools). */
     forceSquad?: boolean;
@@ -152,7 +158,7 @@ function newActor(st: StreetState, kind: ActorKind, x: number, z: number, r: Rng
         health: 100, maxHealth: 100, weapon: "fists", mag: 0, cooldown: 0, reload: 0, accuracy: 0.5,
         target: null, retarget: 0, repath: 0, stride: r.next() * 6, faction: null,
         look: { shirt: pick(r, CLOTHES), pants: pick(r, CLOTHES), skin: pick(r, SKINS), hair: pick(r, HAIR), hat: r.next() < 0.15, female },
-        slot: null,
+        slot: null, militia: false, loot: null,
     };
 }
 
@@ -337,6 +343,7 @@ function damageActor(st: StreetState, a: Actor, dmg: number, by: Side, byPlayer:
     a.stateTime = 0;
     a.path = [];
     if (a.kind === "soldier") {
+        if (a.weapon !== "fists" && (a.id * 7919) % 10 < 7) a.loot = a.weapon;
         st.events.push({ kind: "kill", victim: a.id, by, soldier: true });
         st.squadAlive = Math.max(0, st.squadAlive - 1);
         if (st.squadAlive === 0) st.events.push({ kind: "squad-defeated" });
@@ -413,10 +420,31 @@ function spawnCivilian(st: StreetState, nav: NavGrid | null, ctx: StreetContext,
 
 function ensureFollowers(st: StreetState, ctx: StreetContext, r: Rng): void {
     const want = new Map(ctx.followers.map(f => [f.id, f]));
+    let militia = 0;
     for (const a of st.actors) {
-        if (a.kind !== "follower") continue;
+        if (a.kind !== "follower" || !alive(a)) continue;
+        if (a.militia) {
+            // Stand down militia nobody needs any more (the war ended).
+            if (++militia > (ctx.militia ?? 0)) { a.state = "dead"; a.stateTime = 99; }
+            continue;
+        }
         if (a.memberId === null || !want.has(a.memberId)) { a.state = "dead"; a.stateTime = 99; continue; }
         want.delete(a.memberId);
+    }
+    for (let k = militia; k < (ctx.militia ?? 0); k++) {
+        const at = spawnPoint(st, null, r, 3, 8);
+        if (!at) break;
+        const a = newActor(st, "follower", at[0], at[1], r);
+        a.name = `Militia ${pick(r, LAST)}`;
+        a.militia = true;
+        a.member = true;
+        a.opinion = 1;
+        a.weapon = r.next() < 0.5 ? "rifle" : "smg";
+        a.mag = weaponById(a.weapon).magazine;
+        a.accuracy = 0.4;
+        a.maxHealth = a.health = 110;
+        a.state = "follow";
+        st.actors.push(a);
     }
     for (const f of want.values()) {
         const p = st.player;
@@ -686,6 +714,18 @@ function stepOrator(st: StreetState, a: Actor, dt: number): void {
     }
 }
 
+/** Picks up a weapon dropped within reach of (x, z); returns its id. */
+export function takeLoot(st: StreetState, x: number, z: number, reach = 1.8): string | null {
+    for (const a of st.actors) {
+        if (a.loot && a.state === "dead" && dist2(a.x, a.z, x, z) < reach * reach) {
+            const w = a.loot;
+            a.loot = null;
+            return w;
+        }
+    }
+    return null;
+}
+
 /** Ends a rival's rally early (you answered them in a debate, or they fled). */
 export function endRally(st: StreetState): void {
     const a = st.rally ? actorById(st, st.rally.orator) : undefined;
@@ -704,7 +744,7 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     const p = st.player;
 
     // Population: civilians around you, despawned far away.
-    st.actors = st.actors.filter(a => !(a.state === "dead" && a.stateTime > 25) && !(a.kind !== "follower" && dist2(a.x, a.z, p.x, p.z) > DESPAWN * DESPAWN && a.state !== "dead"));
+    st.actors = st.actors.filter(a => !(a.state === "dead" && a.stateTime > (a.loot ? 90 : 25)) && !(a.kind !== "follower" && dist2(a.x, a.z, p.x, p.z) > DESPAWN * DESPAWN && a.state !== "dead"));
     const civilians = st.actors.filter(a => a.kind === "civilian" && alive(a)).length;
     if (civilians < st.civilianTarget) spawnCivilian(st, nav, ctx, r, civilians < st.civilianTarget / 3);
     ensureFollowers(st, ctx, r);

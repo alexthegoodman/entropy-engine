@@ -39,7 +39,7 @@ import { startSpeech, stepSpeech, chooseCard, deliver, rebutHeckler, autoplay, b
 import {
     type StreetState, type Actor, type StreetContext, newStreet, stepStreet, startCrowd, setCrowdTarget, endCrowd, convertListeners,
     nearestActor, persuade, tryRecruit, recruitChance, givePamphlet, playerShoot, castShot, shiftStreet, resetStreet, spawnSquad,
-    listeners, soldiers, endRally, actorById, alive, opinionLabel,
+    listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot,
 } from "./al_street";
 import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toWorld, dirToWorld, buildingToRect, type LocalFrame } from "./al_nav";
 import { type PlayerBody, type PlayerInput, NO_PLAYER_INPUT, newBody, stepBody, bodyCamera, EYE } from "./al_player";
@@ -352,6 +352,7 @@ function streetContext(): StreetContext {
         heat: rs && rs.governor !== PARTY ? rs.heat : 0,
         enemyQuality: def ? blocById(def.bloc).quality : 0.6,
         followers: fl,
+        militia: rs?.war ? Math.min(4, Math.floor(rs.army / 25)) : 0,
         playerWeapon: campaign?.player.weapon ?? "fists",
         calm: mode === "loading" || mode === "console" || mode === "title" || mode === "setup",
     };
@@ -400,6 +401,19 @@ function handleStreetEvents(): void {
     }
     c.player.health = street.player.health;
     c.player.armor = street.player.armor;
+    // Walk over a fallen soldier to take their weapon (or its ammunition).
+    const loot = takeLoot(street, body.x, body.z);
+    if (loot) {
+        const w = weaponById(loot);
+        if (!c.player.weapons.includes(loot)) {
+            c.player.weapons.push(loot);
+            c.player.ammo[loot] = (c.player.ammo[loot] ?? 0) + w.magazine;
+            toast(`Picked up a ${w.name}. (number keys switch weapons)`, "good");
+        } else {
+            c.player.ammo[loot] = (c.player.ammo[loot] ?? 0) + w.magazine;
+            toast(`Took ${w.magazine} rounds for the ${w.name}.`, "info");
+        }
+    }
     if (street.player.dead) {
         const msg = playerDied(c, region);
         toast(msg, "bad");
