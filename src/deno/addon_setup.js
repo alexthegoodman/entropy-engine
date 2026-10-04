@@ -766,6 +766,12 @@ function createAddonContextualAPI(resolveTarget) {
                 position, radius, kind: options?.kind ?? null, limit: options?.limit ?? null,
             }),
         },
+        // Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE).
+        Profile: {
+            enabled: () => ops.op_frame_profile_enabled(),
+            record: (name, ms) => ops.op_frame_profile_record(String(name), Number(ms)),
+            count: (name, value) => ops.op_frame_profile_count(String(name), Number(value)),
+        },
         // Generated meshes kept on disk (src/deno/mesh_cache_ops.rs), like a shader cache: build
         // a mesh once, `put` it, and `createMesh` spawns it from the cache from then on.
         MeshCache: {
@@ -1372,6 +1378,7 @@ globalThis.Entropy = {
                 Landscape3D: contextualAPI.Landscape3D,
                 QuadPlanet: contextualAPI.QuadPlanet,
                 MeshCache: contextualAPI.MeshCache,
+                Profile: contextualAPI.Profile,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -2690,6 +2697,7 @@ globalThis.Entropy = {
     Landscape3D: globalContextualAPI.Landscape3D,
     QuadPlanet: globalContextualAPI.QuadPlanet,
     MeshCache: globalContextualAPI.MeshCache,
+    Profile: globalContextualAPI.Profile,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
     Texture: textureAPI,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CrowdBatches, PERSON_FLOATS, maybeVisible, type CrowdEngine } from "../src/games/allegiance/al_crowd";
 import { PEOPLE_SHADER } from "../src/games/allegiance/al_shader";
+import { budgetLods, PERSON_TRIANGLES, DEFAULT_PEOPLE_BUDGET, personLod, type PersonLod } from "../src/games/allegiance/al_people";
 
 function fakeEngine(cached: Set<string>) {
     const buffers = new Map<string, { bytes: number; data: Float32Array | null }>();
@@ -101,5 +102,32 @@ describe("instanced crowds", () => {
         expect(PEOPLE_SHADER).not.toContain("var<uniform> item: Item");
         // The record is the 32 floats al_crowd.ts packs.
         expect(PERSON_FLOATS).toBe(16 + 4 * 4);
+    });
+});
+
+describe("the people triangle budget", () => {
+    const cost = (lods: PersonLod[]) => lods.reduce((n, l) => n + PERSON_TRIANGLES[l], 0);
+
+    it("leaves a quiet street as its distances ask", () => {
+        const wanted: PersonLod[] = [0, 0, 1, 1, 1, 2, 2, 2, 2, 2];
+        expect(budgetLods(wanted)).toEqual(wanted);
+    });
+
+    it("keeps a packed rally within budget, nearest people in the most detail", () => {
+        // 80 listeners within 25 m: all want full or LOD 1 detail (~20M triangles).
+        const wanted = Array.from({ length: 80 }, (_, i): PersonLod => personLod(4 + i * 0.26));
+        expect(cost(wanted)).toBeGreaterThan(15_000_000);
+        const lods = budgetLods(wanted);
+        expect(cost(lods)).toBeLessThanOrEqual(DEFAULT_PEOPLE_BUDGET.triangleBudget + PERSON_TRIANGLES[2] * 80);
+        expect(lods.filter(l => l === 0).length).toBe(DEFAULT_PEOPLE_BUDGET.maxFull);
+        // Never more detail than wanted, and detail only falls with distance.
+        lods.forEach((l, i) => { expect(l).toBeGreaterThanOrEqual(wanted[i]); if (i) expect(l).toBeGreaterThanOrEqual(lods[i - 1]); });
+    });
+
+    it("honors a small budget for slow machines", () => {
+        const lods = budgetLods(Array(20).fill(0), { maxFull: 1, triangleBudget: 500_000 });
+        expect(lods[0]).toBe(0);
+        expect(lods.slice(1).every(l => l === 2 || l === 1)).toBe(true);
+        expect(cost(lods)).toBeLessThanOrEqual(500_000 + PERSON_TRIANGLES[2] * 20);
     });
 });

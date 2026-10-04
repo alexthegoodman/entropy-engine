@@ -146,3 +146,17 @@ fn report(p: &mut Profiler) {
     p.intervals.clear();
     p.window.clear();
 }
+
+/// A `'static` name for a phase or counter named at runtime (an addon's `Entropy.Profile` call).
+/// Names are leaked once each, up to 256 of them; later new names share one bucket.
+pub fn intern(name: &str) -> &'static str {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+    let mut names = NAMES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = names.get(name) { return n; }
+    if names.len() >= 256 { return "  (other addon phases)"; }
+    let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+    names.insert(name.to_string(), leaked);
+    leaked
+}

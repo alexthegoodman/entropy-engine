@@ -4227,6 +4227,25 @@ pub fn op_mesh_write_vertices(
     }
 }
 
+/// Entropy.Profile.record: adds `ms` to an addon-named phase of this frame in the native frame
+/// profiler (ENTROPY_FRAME_PROFILE); a no-op when profiling is off.
+#[op2(fast)]
+pub fn op_frame_profile_record(#[string] name: &str, ms: f64) {
+    if !crate::core::frame_profile::enabled() || !ms.is_finite() || ms < 0.0 { return; }
+    crate::core::frame_profile::record(crate::core::frame_profile::intern(name), std::time::Duration::from_secs_f64(ms / 1000.0));
+}
+
+/// Entropy.Profile.count: adds `value` to an addon-named per-frame counter.
+#[op2(fast)]
+pub fn op_frame_profile_count(#[string] name: &str, value: f64) {
+    if !crate::core::frame_profile::enabled() || !value.is_finite() { return; }
+    crate::core::frame_profile::count(crate::core::frame_profile::intern(name), value);
+}
+
+/// Whether ENTROPY_FRAME_PROFILE is on (addons can skip their timing work otherwise).
+#[op2(fast)]
+pub fn op_frame_profile_enabled() -> bool { crate::core::frame_profile::enabled() }
+
 /// Sets how many instances of an addon mesh are drawn (Entropy.Model.setInstanceCount). 0 skips
 /// the mesh's draw entirely, so a pooled or instanced batch can be emptied and refilled without
 /// destroying it. Applied after the frame's pending mesh creations.

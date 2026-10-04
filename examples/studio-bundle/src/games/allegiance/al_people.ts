@@ -35,6 +35,35 @@ export function personLod(distance: number, previous?: PersonLod, detail = 1): P
     return 2;
 }
 
+/** Typical triangles per person at each LOD (allegiance_people.test.ts measures the real ones). */
+export const PERSON_TRIANGLES: readonly [number, number, number] = [415_000, 75_000, 6_000];
+
+export interface PeopleBudget {
+    /** Full-detail people drawn at most (nearest first). */
+    maxFull: number;
+    /** Triangles all drawn people may take together. */
+    triangleBudget: number;
+}
+
+export const DEFAULT_PEOPLE_BUDGET: PeopleBudget = { maxFull: 6, triangleBudget: 3_000_000 };
+
+/**
+ * Caps what a crowd costs: given each drawn person's wanted LOD in order of distance (nearest
+ * first), demotes people once `maxFull` full-detail ones are drawn or the triangle budget would be
+ * passed, so a packed rally costs about as much as a quiet street. Returns the LODs to draw.
+ */
+export function budgetLods(wanted: readonly PersonLod[], budget: PeopleBudget = DEFAULT_PEOPLE_BUDGET): PersonLod[] {
+    let triangles = 0, full = 0;
+    return wanted.map(w => {
+        let lod = w;
+        if (lod === 0 && (full >= budget.maxFull || triangles + PERSON_TRIANGLES[0] > budget.triangleBudget)) lod = 1;
+        if (lod === 1 && triangles + PERSON_TRIANGLES[1] > budget.triangleBudget) lod = 2;
+        if (lod === 0) full++;
+        triangles += PERSON_TRIANGLES[lod];
+        return lod;
+    });
+}
+
 /** Preserves every vertex, normal and triangle of Mesha's evaluated human. Rotate 180 degrees
  * about Y to match Allegiance's -Z forward. UVs become the game's material/limb attributes. */
 export function packHuman(mesh: Mesh): PersonMesh {

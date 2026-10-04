@@ -135,6 +135,9 @@ unchanged except where noted.
   handed out twice (it showed up as an intermittent `city::tests` failure under CPU load).
   Finished tiles are now collected first, and reporting plus leaving `busy` is atomic with respect
   to `update`.
+- **Addon phases in the profiler.** `Entropy.Profile.record(name, ms)` / `count(name, value)` /
+  `enabled()` feed the same table; Allegiance reports `al street sim`, `al nav`, `al people`,
+  `al terrain stream`, `al houses` and `al ui` (no cost when profiling is off).
 - **Profiler counters.** `frame_profile::count` adds per-frame counters to the
   `ENTROPY_FRAME_PROFILE` table and JSON lines: `#mesh draws`, `#mesh instances`,
   `#mesh triangles (k)` and `#mesh transform uploads`.
@@ -152,6 +155,10 @@ unchanged except where noted.
   write per person, and a new native mesh on every LOD change.
 - **Conservative view culling for people**: people certainly behind the camera or outside a 66
   degree cone are not packed. LOD selection and the simulation still run for them.
+- **People triangle budget.** Drawn people are sorted nearest first and `budgetLods` demotes them
+  once 6 are in full detail or 3 million person triangles are spent (you count first).
+  `allegiance_config { peopleMaxFull, peopleTriangles }` changes the limits. Without it a rally of
+  80 listeners within 25 m wanted ~20 million triangles; a quiet street fits unchanged (below).
 - **People LOD distance scale.** `allegiance_config { peopleDetail }` scales the LOD ranges (1 is
   the previous behavior). A full-detail Mesha human is ~410k triangles, LOD 1 ~65-85k, LOD 2
   ~5-7k (from `allegiance_people.test.ts`), so the 8/16/11 split observed earlier was roughly
@@ -181,6 +188,34 @@ unchanged except where noted.
   culling, shader contract) and two `quadplanet_city.test.ts` cases (still camera, build spacing).
 - The live people feature (`tests/allegiance_live.rs`, `allegiance_people_live_feature`) still
   reports per-LOD counts; they now count everyone within range (including you), drawn or culled.
+
+### Verification in this container
+
+The container has no GPU (Mesa's software Vulkan): frames take ~1 s, nearly all of it rasterizing
+on the CPU, so live frame times cannot show these changes and were not used as evidence. One
+release replay of `allegiance_profile_live.feature` per build (pre-change `625b753` vs this work,
+same warm fixture, both stopped by the 900 s budget after 600 frames) gave equal `addon update`
+averages (~95 ms) and equal frame intervals within noise. The new counters from that replay:
+~737 mesh draws a frame (~700 of them terrain chunks), 0 transform uploads in steady state
+(previously one per mesh per frame), and 5.3-6.3 million triangles, mostly people. That is
+what motivated the triangle budget.
+
+Deterministic checks instead:
+
+- Live people feature with the final code: 35 people in range drew 18-26 visible instances in
+  7-10 instanced draws (one per body variant), the rest culled; it was one mesh and draw per
+  person, visible or not. Full-detail people stayed within the cap.
+- Crowd model (50 seeded crowds, measured per-LOD human triangle counts, the game's LOD, culling
+  and budget code; triangles of drawn people only):
+
+  | Scene | Draws before -> after | Person triangles before -> after (detail 1 / 0.6 / 0.4) |
+  | --- | ---: | ---: |
+  | Street, 34 civilians over 160 m | 34 -> at most 12 | 2.87M -> 1.44M / 0.98M / 0.60M |
+  | Rally, 80 listeners within 25 m | 80 -> at most 12 | 20.5M -> 2.93M / 2.93M / 2.86M |
+  | Battle, 34 civilians + 8 soldiers | 42 -> at most 18 | 3.68M -> 1.76M / 1.23M / 0.81M |
+
+- Unit tests: 581 Rust library tests (including the new streaming tests, and the city tests run
+  repeatedly under load), 104 Allegiance/QuadPlanet TypeScript tests, both typechecks.
 
 ### How this sets up the AAA roadmap
 

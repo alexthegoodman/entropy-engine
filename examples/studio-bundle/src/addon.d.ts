@@ -501,6 +501,10 @@ export interface ScopedAPI {
   };
   QuadPlanet: QuadPlanetAPI;
   MeshCache: MeshCacheAPI;
+  /** Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE=1): `record`
+   * adds milliseconds to a named phase of this frame, `count` adds to a per-frame counter. Both
+   * do nothing while profiling is off; `enabled` says whether it is on. */
+  Profile: { enabled: () => boolean; record: (name: string, ms: number) => void; count: (name: string, value: number) => void };
   Landscape3D: {
     create: (config: {
       id?: string | null;
@@ -4126,6 +4130,8 @@ export interface EntropyAPI {
   };
   QuadPlanet: QuadPlanetAPI;
   MeshCache: MeshCacheAPI;
+  /** Addon phases and counters in the native frame profiler (see the other declaration). */
+  Profile: { enabled: () => boolean; record: (name: string, ms: number) => void; count: (name: string, value: number) => void };
   Noise: {
     create: (config: NoiseConfig) => string;
   };

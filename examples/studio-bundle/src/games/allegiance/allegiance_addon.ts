@@ -22,7 +22,7 @@ import {
 import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding } from "../../apps/quadplanet/qp_city";
 import { ALLEGIANCE_SHADER, PEOPLE_SHADER } from "./al_shader";
-import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, type PersonLod } from "./al_people";
+import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
 import { CrowdBatches, maybeVisible } from "./al_crowd";
 import { buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
 import {
@@ -886,6 +886,8 @@ const personLods = new Map<number, PersonLod>();
 let crowd: CrowdBatches | null = null;
 /** Scales people's LOD distances (allegiance_config peopleDetail): lower is faster. */
 let peopleDetail = 1;
+/** Caps drawn people's cost (allegiance_config peopleMaxFull / peopleTriangles). */
+let peopleBudget: PeopleBudget = { ...DEFAULT_PEOPLE_BUDGET };
 /** People per level of detail last frame (including you), for the state report. */
 let lodCounts: [number, number, number] = [0, 0, 0];
 
@@ -944,18 +946,29 @@ function drawPeople(): void {
     const counts: [number, number, number] = [0, 0, 0];
     const cam = lastCamera;
     const forward = cam ? normalize(sub(cam.target, cam.position)) : null;
+    // Who is drawn this frame, nearest first, with the LOD their distance asks for.
+    const shown: { a: Actor; distance: number; lod: PersonLod }[] = [];
     for (const a of street.actors) {
         if (Math.hypot(a.x - body.x, a.z - body.z) > 160) { personLods.delete(a.id); continue; }
         const center = toWorld(frame, a.x, a.y + 0.9, a.z);
         const actorDistance = cam ? distance(cam.position, center) : Math.hypot(a.x - body.x, a.z - body.z);
         const lod = personLod(actorDistance, personLods.get(a.id), peopleDetail);
+        // Off screen: no draw, but the simulation (and the LOD hysteresis) carries on.
+        if (cam && forward && !maybeVisible(cam.position, forward, center)) { personLods.set(a.id, lod); counts[lod]++; continue; }
+        shown.push({ a, distance: actorDistance, lod });
+    }
+    // You are drawn in full and count against the budget first.
+    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
+    shown.sort((x, y) => x.distance - y.distance);
+    const budget = { maxFull: Math.max(0, peopleBudget.maxFull - (playerVisible ? 1 : 0)), triangleBudget: Math.max(0, peopleBudget.triangleBudget - (playerVisible ? PERSON_TRIANGLES[0] : 0)) };
+    const lods = budgetLods(shown.map(s => s.lod), budget);
+    shown.forEach((s, i) => {
+        const a = s.a, lod = lods[i];
         personLods.set(a.id, lod);
         counts[lod]++;
-        // Off screen: no draw, but the simulation (and the LOD hysteresis) carries on.
-        if (cam && forward && !maybeVisible(cam.position, forward, center)) continue;
         const look = lookOf(a);
         const key = people.ensure(look, lod);
-        if (!key) continue;
+        if (!key) return;
         const dead = a.state === "dead";
         const shirt = a.kind === "soldier" ? a.look.shirt : (a.member || a.kind === "follower") ? [party[0], party[1], party[2]] : a.look.shirt;
         const amp = dead ? 0 : Math.min(0.75, a.speed * 0.22);
@@ -966,14 +979,13 @@ function drawPeople(): void {
         const cheer = listening && speech && speech.phase === "react" && (a.id % 3 === 0);
         addPerson(key, personMatrix(a.x, a.y, a.z, a.heading, dead), [shirt[0], shirt[1], shirt[2], cheer ? 0.9 : amp],
             [a.look.pants[0], a.look.pants[1], a.look.pants[2], aiming || cheer ? -phase - (cheer ? time * 6 : 0) : phase], look.skin, look.hair);
-    }
+    });
     if (personLods.size > street.actors.length * 2) {
         const ids = new Set(street.actors.map(a => a.id));
         for (const id of [...personLods.keys()]) if (!ids.has(id)) personLods.delete(id);
     }
     // You.
     counts[0]++;
-    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
     const look: PersonLook = { ...PLAYER_LOOK_BASE, weapon: weaponClass(c?.player.weapon ?? "fists") };
     const key = people.ensure(look, 0);
     if (key && playerVisible) {
@@ -1179,7 +1191,7 @@ function snapshot() {
         terrain: stats ? { live: stats.live, pending: stats.pending, waitingForData: stats.waitingForData, triangles: stats.triangles, city: stats.city ?? null } : null,
         houses: houses?.lastStats ?? null,
         people: { generated: people?.generated ?? 0, cache: Entropy.MeshCache.stats(PEOPLE_NAMESPACE),
-            lod0: lodCounts[0], lod1: lodCounts[1], lod2: lodCounts[2], detail: peopleDetail,
+            lod0: lodCounts[0], lod1: lodCounts[1], lod2: lodCounts[2], detail: peopleDetail, budget: peopleBudget,
             batches: crowd?.lastStats ?? null },
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
@@ -1253,11 +1265,13 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_config",
-        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines).",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" } } },
+        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000).",
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" } } },
         run: a => {
             if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null;
             if (typeof a.peopleDetail === "number" && a.peopleDetail > 0) peopleDetail = Math.min(4, a.peopleDetail);
+            if (typeof a.peopleMaxFull === "number" && a.peopleMaxFull >= 0) peopleBudget = { ...peopleBudget, maxFull: Math.floor(a.peopleMaxFull) };
+            if (typeof a.peopleTriangles === "number" && a.peopleTriangles >= 0) peopleBudget = { ...peopleBudget, triangleBudget: a.peopleTriangles };
             return snapshot();
         },
     },
@@ -1483,8 +1497,20 @@ addon.onInit(() => {
     ui = new UiFrame(enginePainter(addon.UI as unknown as DrawApi), 1600, 900);
     setupInput();
     registerTools();
+    try { profiling = Entropy.Profile.enabled(); } catch { profiling = false; }
     Entropy.println("[allegiance] initialized");
 });
+
+// Per-phase timing into the native frame profiler (ENTROPY_FRAME_PROFILE=1); free when it is off.
+let profiling = false;
+const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+function timed<T>(phase: string, f: () => T): T {
+    if (!profiling) return f();
+    const t0 = clock();
+    const r = f();
+    Entropy.Profile.record(phase, clock() - t0);
+    return r;
+}
 
 addon.onUpdatePlus("Global", () => {
     if (!terrainId) return;
@@ -1507,14 +1533,14 @@ addon.onUpdatePlus("Global", () => {
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
         }
-        stepStreet(street, nav, streetContext(), dt, rng, heightAt);
+        timed("    al street sim", () => stepStreet(street, nav, streetContext(), dt, rng, heightAt));
         handleStreetEvents();
         if (speech) { stepSpeech(speech, dt); setCrowdTarget(street, speech.crowd); }
         if (dialogue) {
             const a = actorById(street, dialogue.actorId);
             if (!a || !alive(a) || Math.hypot(a.x - body.x, a.z - body.z) > 6) closeDialogue();
         }
-        maintainNav(dt);
+        timed("    al nav", () => maintainNav(dt));
         if (campaign) {
             campaign.dayClock += dt;
             if (campaign.dayClock >= DAY_SECONDS) { campaign.dayClock -= DAY_SECONDS; newDay(); }
@@ -1539,17 +1565,19 @@ addon.onUpdatePlus("Global", () => {
     lastCamera = { ...pose, up };
     focus = mode === "title" || mode === "setup" ? pose.position : (frame ? toWorld(frame, body.x, body.y + 1.6, body.z) : pose.position);
 
-    if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") drawPeople();
+    if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") timed("    al people", drawPeople);
     else hideWorld();
     drawProps();
     const loadingNow = mode === "loading";
     const orbit = mode === "title" || mode === "setup";
     // A fixed-step run streams everything it wants every frame, so it looks the same on any machine.
-    if (fixedStep) stream(Infinity, Infinity);
-    else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
-    updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10);
+    timed("    al terrain stream", () => {
+        if (fixedStep) stream(Infinity, Infinity);
+        else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
+    });
+    timed("    al houses", () => updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10));
     writeWorld();
     if (loadingNow) loadingStep();
-    drawUi(dt);
+    timed("    al ui", () => drawUi(dt));
     void length;
 });
