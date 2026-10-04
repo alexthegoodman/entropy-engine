@@ -5,9 +5,9 @@
 //! Two kinds of terrain:
 //! - Procedural (Verdant, Ember, Glacia): seeded noise layers, from continents tens of kilometers
 //!   across down to scree and meter-scale bumps.
-//! - Earth: real elevation (elevation.rs: SRTM-derived tiles with ocean bathymetry) for everything
-//!   the data resolves, with the procedural rock, boulder and bump layers on top for what it
-//!   doesn't (the data stops at ~20 m; the ground you walk on needs detail down to ~0.3 m).
+//! - Earth: real elevation (elevation.rs: SRTM-derived tiles with ocean bathymetry) and nothing
+//!   else, so buildings and roads placed from OpenStreetMap (city.rs) sit exactly on the ground.
+//!   Rocky ground is only textured (from the data's own slope), not raised.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -133,6 +133,15 @@ pub struct SurfaceSample {
     pub patch: f64,
 }
 
+/// Earth's ground from an elevation (meters above sea level): what [`Planet::sample`] draws and
+/// what the city layer (city.rs) stands buildings and roads on, so both agree exactly.
+pub fn earth_surface(height: f64, has_sea: bool) -> SurfaceSample {
+    if has_sea && height <= 0.0 {
+        return SurfaceSample { terrain: height.min(-0.01), surface: 0.0, sea: true, rock: 0.0, patch: 0.0 };
+    }
+    SurfaceSample { terrain: height, surface: height, sea: false, rock: 0.0, patch: 0.0 }
+}
+
 /// Highest mountain on Earth (Everest, 8,849 m) with a little headroom.
 const EARTH_RELIEF: f64 = 8_900.0;
 
@@ -192,6 +201,11 @@ impl Planet {
 
     pub fn is_earth(&self) -> bool { self.elevation.is_some() }
 
+    /// An Earth planet told to use only its built-in elevation (no network).
+    pub fn is_offline(&self) -> bool {
+        matches!(&self.def.terrain, Some(TerrainSource::Earth { offline: true, .. }))
+    }
+
     /// Edge length of a quadtree node of this level on the planet's surface (world units).
     pub fn level_world_size(&self, level: u32) -> f64 {
         (2.0 / (1u64 << level) as f64) * self.def.radius * (std::f64::consts::PI / 4.0)
@@ -232,10 +246,9 @@ impl Planet {
     /// Largest height above sea level the terrain can reach (for horizon culling).
     pub fn max_relief(&self) -> f64 {
         let p = &self.def;
+        if self.is_earth() { return EARTH_RELIEF; }
         let detail = p.rock_height + p.detail_height * 6.0;
-        if self.is_earth() { EARTH_RELIEF + detail } else {
-            p.continent_height + p.mountain_height + p.hill_height + detail + p.terrace_step
-        }
+        p.continent_height + p.mountain_height + p.hill_height + detail + p.terrace_step
     }
 
     /// The lowest ground that can block a view (a sea is flat at the mean radius).
@@ -327,26 +340,21 @@ impl Planet {
         (rocks, boulders, stones, bumps)
     }
 
-    /// Real elevation, plus the procedural small-scale layers (only rock and ground texture the
-    /// data is too coarse to hold; they never move a coastline or a summit by more than meters).
+    /// Real elevation as it is. Steep ground (from the data's own gradient) and rough patches are
+    /// colored and textured as rock, but nothing is added to the height: city.rs places buildings
+    /// and roads on this same surface ([`earth_surface`]).
     fn sample_earth(&self, src: &ElevationSource, d: V3, sp: f64, lk: &mut Lookup) -> SurfaceSample {
-        let p = &self.def;
         let (lat, lon) = dir_to_lat_lon(d);
         let e = src.sample(lat, lon, sp, lk);
         let m = self.layer(d, 900.0, 57.1);
         let patch = self.noise.fbm(m[0], m[1], m[2], 3, 2.0, 0.5, octaves_for(900.0, 2.0, sp));
-        if p.has_sea && e.height <= 0.0 {
-            return SurfaceSample { terrain: e.height.min(-0.01), surface: 0.0, sea: true, rock: 0.0, patch };
+        let mut s = earth_surface(e.height, self.def.has_sea);
+        s.patch = patch;
+        if !s.sea {
+            let steep = smoothstep(0.35, 0.9, e.slope());
+            s.rock = clamp(steep.max(smoothstep(0.1, 0.45, patch) * 0.35) * 0.8, 0.0, 1.0);
         }
-        // Steep ground (from the data's own gradient) is rocky; so are rough patches.
-        let steep = smoothstep(0.35, 0.9, e.slope());
-        let rocky = steep.max(smoothstep(0.1, 0.45, patch) * 0.35);
-        let (rocks, boulders, stones, bumps) = self.fine_layers(d, sp, rocky, 1.0);
-        let terrain = e.height + rocks * p.rock_height + boulders * p.detail_height * 2.4 + stones * p.detail_height * 0.5
-            + bumps * p.detail_height * (0.8 + 0.4 * rocky);
-        let rock = clamp(rocks * 1.8 + steep * 0.6 + boulders * 0.6 + stones * 0.6, 0.0, 1.0);
-        if p.has_sea && terrain < 0.0 { return SurfaceSample { terrain, surface: 0.0, sea: true, rock: 0.0, patch }; }
-        SurfaceSample { terrain, surface: terrain, sea: false, rock, patch }
+        s
     }
 
     /// Distance from the planet's center to the drawn surface along the unit direction `d`.

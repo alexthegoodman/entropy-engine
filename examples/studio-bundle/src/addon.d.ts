@@ -28,6 +28,34 @@ declare global {
     /** The split factor the triangle budget left. */
     splitFactor: number;
     buildMs: number;
+    /** Earth's OpenStreetMap city tiles (null without one). */
+    city?: QuadPlanetCityStats | null;
+  }
+
+  interface QuadPlanetCityStats {
+    enabled: boolean; live: number; wanted: number; pending: number; failed: number;
+    buildings: number; houses: number; roads: number; triangles: number;
+  }
+
+  /** The size range of the addon's house model: footprints in it come back as `house` buildings. */
+  interface QuadPlanetHouseRule {
+    minWidth: number; maxWidth: number; minDepth: number; maxDepth: number; maxHeight: number; minArea: number; tolerance: number;
+  }
+
+  /** One OpenStreetMap building placed on Earth's ground (city.rs Placement). */
+  interface QuadPlanetBuilding {
+    key: string; seed: number; kind: "house" | "box";
+    /** World position of the footprint's center at the lowest ground under it. */
+    anchor: [number, number, number];
+    /** World axes: across the front, up, out of the front (toward the street for a house). */
+    right: [number, number, number]; up: [number, number, number]; forward: [number, number, number];
+    width: number; depth: number; height: number; minHeight: number;
+    /** Lowest and highest ground under the footprint, meters above sea level. */
+    groundMin: number; groundMax: number;
+    area: number; fill: number; colour: [number, number, number] | null;
+    lat: number; lon: number;
+    /** From the query position to the anchor. */
+    distance: number;
   }
 
   interface QuadPlanetInfo {
@@ -37,6 +65,7 @@ declare global {
       elevation: { resident: number; pending: number; loaded: number; failed: number; maxZoom: number } | null;
     }>;
     splitFactor: number; minLevel: number; triangleBudget: number; stats: QuadPlanetStreamStats;
+    city: { planet: string; radius: number; maxAltitude: number; stats: QuadPlanetCityStats; houseRule: QuadPlanetHouseRule; errors: string[] } | null;
   }
 
   interface QuadPlanetSample {
@@ -58,6 +87,8 @@ declare global {
       id?: string; planets: QuadPlanetDef[]; defaultChunkDetail?: QuadPlanetChunkDetail;
       pipelineId: string; worldBufferId: string;
       splitFactor?: number; minLevel?: number; triangleBudget?: number; cacheDir?: string; geocoderUrl?: string;
+      /** OpenStreetMap buildings and roads on Earth (on by default; tiles from OpenFreeMap unless `tileUrl`). */
+      city?: { enabled?: boolean; tileUrl?: string; radius?: number; maxAltitude?: number; house?: QuadPlanetHouseRule };
     }) => string;
     /** Streams around `viewer`; chunks are placed relative to `renderOrigin`. */
     update: (id: string, viewer: [number, number, number], options?: { renderOrigin?: [number, number, number]; maxBuilds?: number; maxMs?: number }) => QuadPlanetStreamStats;
@@ -72,8 +103,60 @@ declare global {
     geocode: (id: string, query: string) => Array<{ name: string; lat: number; lon: number; kind: string }>;
     /** The OSM name of the place at a coordinate once looked up (in the background), else null. */
     placeName: (id: string, lat: number, lon: number) => string | null;
+    /** Earth's buildings within `radius` of `position` (world), nearest first. */
+    buildings: (id: string, position: [number, number, number], radius: number, options?: { kind?: "house" | "box"; limit?: number }) => QuadPlanetBuilding[];
   }
 
+
+  /** Packed engine `mesh` layout: 12 floats a vertex (position 3, normal 3, uv 2, color 4). */
+  interface CachedMeshData {
+    vertexData: Float32Array | number[];
+    indexData: Uint32Array | number[];
+    /** Anything JSON you want back without the geometry (bounds, triangle counts...). */
+    meta?: unknown;
+  }
+
+  interface MeshCacheStats {
+    files: number; bytes: number; memoryMeshes: number; memoryBytes: number; pending: number;
+    hits: number; misses: number; writes: number;
+  }
+
+  /**
+   * Generated meshes kept on disk (`<data dir>/mesh-cache/<namespace>/`), like a shader cache:
+   * build a mesh the first time it is wanted and `put` it; from then on (this session or the
+   * next) `createMesh` spawns it from the cache on the Rust side, without the geometry crossing
+   * into JavaScript. Put everything that identifies the geometry in the key (generator and
+   * version, parameters, level of detail). Namespaces are folder names ([A-Za-z0-9_.-]).
+   */
+  interface MeshCacheAPI {
+    /** "pending" while a background `put` (simplify, or `background: true`) is still working. */
+    status: (namespace: string, key: string) => "ready" | "pending" | "missing";
+    /**
+     * Stores a mesh. `simplify` makes a level of detail on a background thread first: surfaces
+     * (vertex color + material id in uv.x) are welded and simplified to `maxError` meters,
+     * connected parts under `minFeature` meters across are dropped, and the result is flat shaded.
+     */
+    put: (namespace: string, key: string, mesh: CachedMeshData, options?: {
+      simplify?: { maxError: number; minFeature?: number; targetRatio?: number };
+      background?: boolean;
+    }) => void;
+    get: (namespace: string, key: string) => { vertexData: Float32Array; indexData: Uint32Array; meta?: unknown } | null;
+    meta: (namespace: string, key: string) => unknown | null;
+    /** A cached mesh's size (after any simplification) and metadata, without its geometry; null if it isn't cached. */
+    info: (namespace: string, key: string) => { vertexCount: number; triangleCount: number; meta?: unknown } | null;
+    /** Spawns the cached mesh like `Entropy.Model.createMesh`; false (nothing spawned) if it isn't cached. */
+    createMesh: (namespace: string, key: string, config: {
+      id?: string; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number];
+      pipelineId: string; renderRole?: string; bindings?: BindingConfig[];
+    }) => boolean;
+    remove: (namespace: string, key: string) => boolean;
+    clear: (namespace: string) => number;
+    /** Deletes least recently used meshes until the namespace fits in `maxBytes`; returns how many went. */
+    prune: (namespace: string, maxBytes: number) => number;
+    stats: (namespace: string) => MeshCacheStats;
+    /** Why the last background `put` of this key failed, or null. */
+    failure: (namespace: string, key: string) => string | null;
+  }
 
   var lastPBRDesignerTextures: {
     [key: string]: {
@@ -412,6 +495,7 @@ export interface ScopedAPI {
     create: (config: LandscapeConfig) => void;
   };
   QuadPlanet: QuadPlanetAPI;
+  MeshCache: MeshCacheAPI;
   Landscape3D: {
     create: (config: {
       id?: string | null;
@@ -4034,6 +4118,7 @@ export interface EntropyAPI {
     }) => void;
   };
   QuadPlanet: QuadPlanetAPI;
+  MeshCache: MeshCacheAPI;
   Noise: {
     create: (config: NoiseConfig) => string;
   };

@@ -4,7 +4,9 @@
 //
 // Three procedural planets (Verdant, Ember, Glacia) and Earth are streamed around the camera on
 // the Rust side (`Entropy.QuadPlanet`, src/heightfield_landscapes/QuadPlanet/): six cube-face
-// quadtrees per planet, Earth's heights from SRTM-derived elevation tiles. A single WGSL shader
+// quadtrees per planet, Earth's heights from SRTM-derived elevation tiles, and on Earth the
+// OpenStreetMap buildings and roads around you, with Mesha houses where houses fit (qp_city.ts).
+// A single WGSL shader
 // lights terrain, water, sky and atmosphere (qp_shader.ts), and qp_sim.ts holds the walker, the
 // ship and the autopilot as plain state.
 //
@@ -20,6 +22,7 @@ import {
 } from "./qp_planet";
 import { QUADPLANET_SHADER, ITEM_FLOATS, WORLD_FLOATS, packWorld } from "./qp_shader";
 import { buildShip, buildSky, buildWalkerBody, buildWalkerLeg, HIP_HEIGHT, type ModelMesh } from "./qp_models";
+import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding, type CityOptions } from "./qp_city";
 import {
     type GameState, type Input, type CameraPose, NO_INPUT, arriveAt, cameraPose, initialState, interact, nearestPlanet, orbitPose,
     overheadPose, readout, startAutopilot, step, upAt,
@@ -77,6 +80,13 @@ let placeQuery = "";
 let renderOrigin: Vec3 = [0, 0, 0];
 const REBASE_DISTANCE = 2048;
 let frameCount = 0;
+/** Mesha houses on Earth's OpenStreetMap buildings (qp_city.ts); null until the terrain exists. */
+let houses: CityHouses | null = null;
+let hideRadius = 0;
+/** Roads are drawn out to this far (the city tiles reach ~3 km). */
+const ROAD_DISTANCE = 2500;
+/** House meshes kept on disk at most (least recently used go first). */
+const HOUSE_CACHE_BYTES = 4e9;
 
 // --- Terrain -------------------------------------------------------------------------------------
 
@@ -166,6 +176,7 @@ function writeWorld(): void {
         debugLod,
         debugOutlines,
         planets: PLANETS.map(p => ({ center: toRender(p.center), radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
+        city: { hideRadius, roadDistance: ROAD_DISTANCE },
     }));
 }
 
@@ -327,6 +338,11 @@ function renderHud(): void {
         W.checkbox(id, { id: "qp-lod-debug", label: "Color by level (L)", value: debugLod, onChange: v => { debugLod = !!v; } });
         W.checkbox(id, { id: "qp-outlines", label: "Outline chunks (O)", value: debugOutlines, onChange: v => { debugOutlines = !!v; } });
     });
+    if (stats?.city && geo()) {
+        const c = stats.city, h = houses?.lastStats;
+        const making = h && h.queued ? `, ${h.queued} to build` : "";
+        W.label(id, { text: `${Icons.get("buildings")} ${fmt(c.buildings)} buildings, ${fmt(c.houses)} houses (${h ? `${h.lod0} full, ${h.lod1} far` : "0"}${making})${c.pending ? `, ${c.pending} tiles loading` : ""}`, monospace: true, color: DIM, wrap: true });
+    }
     if (stats) {
         const deep = PLANETS.map((p, i) => `${p.name} ${stats!.perPlanet[i]} @L${stats!.deepest[i]}/${planetInfo(i).maxLevel}`).join("  ");
         const streaming = stats.pending ? `, ${stats.pending} streaming${stats.waitingForData ? ` (${stats.waitingForData} awaiting elevation)` : ""}` : "";
@@ -334,7 +350,7 @@ function renderHud(): void {
         W.label(id, { text: deep, monospace: true, color: DIM, wrap: true });
     }
     W.label(id, { text: state.mode === "walk" ? "W/S walk  A/D turn  Shift run  Space jump  E board" : "W thrust  Shift boost  A/D yaw  arrows pitch  Space/C climb/sink  E exit  T autopilot", color: DIM, wrap: true });
-    if (g) W.label(id, { text: "Elevation: Terrain Tiles (SRTM, GMTED, ETOPO1). Places © OpenStreetMap contributors.", color: DIM, wrap: true, fontSize: 11 });
+    if (g) W.label(id, { text: "Elevation: Terrain Tiles (SRTM, GMTED, ETOPO1). Map data © OpenStreetMap contributors (OpenFreeMap).", color: DIM, wrap: true, fontSize: 11 });
 }
 
 function setupUI(): void {
@@ -388,6 +404,7 @@ function snapshot() {
                 verticesPerLevel: planetInfo(i).verticesPerLevel, ...(planetInfo(i).elevation ? { elevation: planetInfo(i).elevation } : {}),
             })),
         } : null,
+        city: stats?.city ? { ...stats.city, houses: houses?.lastStats ?? null, options: houses?.options ?? null } : null,
         debugLod,
         debugOutlines,
         fixedStep,
@@ -412,16 +429,26 @@ function reground(): void {
     }
 }
 
-/** Streams around the current focus until nothing is pending (elevation tiles included). */
+/** True while the city around you (tiles, then house meshes) is still being made. */
+function cityBusy(s: QuadPlanetStreamStats): boolean {
+    const c = s.city;
+    if (!c || !geo()) return false;
+    return c.pending > 0 || c.live + c.failed < c.wanted || (houses?.busy() ?? false);
+}
+
+/** Streams around the current focus until nothing is pending (elevation tiles, the city and its houses included). */
 function settle(timeoutMs: number) {
     const started = Date.now();
     let s = streamOnce(Infinity, Infinity);
-    while ((s.pending > 0 || s.waitingForData > 0) && Date.now() - started < timeoutMs) {
+    updateHouses(Infinity);
+    while ((s.pending > 0 || s.waitingForData > 0 || cityBusy(s)) && Date.now() - started < timeoutMs) {
         const wait = Date.now() + 20;
-        while (Date.now() < wait) { /* tiles download on Rust threads meanwhile */ }
+        while (Date.now() < wait) { /* tiles download, and house LODs simplify, on Rust threads meanwhile */ }
         s = streamOnce(Infinity, Infinity);
+        updateHouses(Infinity);
     }
-    return { settled: s.pending === 0, ms: Date.now() - started };
+    writeWorld();
+    return { settled: s.pending === 0 && !cityBusy(s), ms: Date.now() - started };
 }
 
 const TOOLS: { name: string; description: string; parameters: object; run: (a: Args) => object }[] = [
@@ -515,6 +542,25 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
         run: a => ({ ...settle(typeof a.timeoutMs === "number" ? a.timeoutMs : 60000), ...snapshot() }),
     },
     {
+        name: "quadplanet_city",
+        description: "Earth's OpenStreetMap city around you: tiles, buildings, houses drawn as Mesha models (full with interiors near you, simplified farther out), the house mesh cache. Optionally set lod0Radius / maxLod0 (full houses), lod1Radius (simplified houses), triangleBudget, or clearHouseCache to rebuild every house mesh. nearest lists the closest buildings.",
+        parameters: { type: "object", properties: {
+            lod0Radius: { type: "number" }, maxLod0: { type: "integer" }, lod1Radius: { type: "number" }, triangleBudget: { type: "number" },
+            clearHouseCache: { type: "boolean" }, nearest: { type: "integer", description: "How many of the nearest buildings to list (default 5)" },
+        } },
+        run: a => {
+            if (!houses) throw new Error("The terrain isn't ready.");
+            const opts: Partial<CityOptions> = {};
+            for (const k of ["lod0Radius", "maxLod0", "lod1Radius", "triangleBudget"] as const) if (typeof a[k] === "number") opts[k] = Math.max(0, a[k] as number);
+            Object.assign(houses.options, opts);
+            if (a.clearHouseCache === true) { houses.clear(); Entropy.MeshCache.clear(HOUSE_NAMESPACE); houses = makeHouses(houses.options); }
+            const pos = lastCamera?.position ?? state.walker.pos;
+            const nearest = Entropy.QuadPlanet.buildings(terrainId, pos, 2000, { limit: typeof a.nearest === "number" ? a.nearest : 5 })
+                .map(b => ({ key: b.key, kind: b.kind, distance: Math.round(b.distance * 10) / 10, width: Math.round(b.width * 10) / 10, depth: Math.round(b.depth * 10) / 10, height: b.height, lat: Math.round(b.lat * 1e6) / 1e6, lon: Math.round(b.lon * 1e6) / 1e6 }));
+            return { info: refreshInfo().city, houses: houses.lastStats, options: houses.options, meshCache: Entropy.MeshCache.stats(HOUSE_NAMESPACE), nearest, ...snapshot() };
+        },
+    },
+    {
         name: "quadplanet_view",
         description: "mode 'orbit' holds the camera out in space looking at a planet (whole-planet LOD shots); 'overhead' looks straight down on you from `height` (the rings of detail around you); 'follow' returns to the chase camera.",
         parameters: { type: "object", properties: { mode: { type: "string", enum: ["orbit", "overhead", "follow"] }, planet: { type: "string" }, distance: { type: "number", description: "In planet radii (default 3.2)" }, height: { type: "number", description: "Overhead height (default 120)" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" } } },
@@ -552,6 +598,35 @@ function streamOnce(maxBuilds: number, maxMs: number): QuadPlanetStreamStats {
     return stats;
 }
 
+/** The houses, drawn through Entropy: meshes from the mesh cache, each with its own uniform. */
+function makeHouses(options?: Partial<CityOptions>): CityHouses {
+    return new CityHouses({
+        buildings: (position, radius, limit) => Entropy.QuadPlanet.buildings(terrainId, position, radius, { kind: "house", limit }) as CityBuilding[],
+        status: (ns, key) => Entropy.MeshCache.status(ns, key),
+        put: (ns, key, mesh, options) => Entropy.MeshCache.put(ns, key, mesh, options),
+        info: (ns, key) => Entropy.MeshCache.info(ns, key),
+        createMesh: (ns, key, meshId, item) => Entropy.MeshCache.createMesh(ns, key, { id: meshId, pipelineId, bindings: bindings(item) }),
+        clearMesh: meshId => Entropy.Model.clearMesh(meshId),
+        createItem: () => uniformBuffer(ITEM_FLOATS),
+        writeItem: (item, data) => Entropy.Buffer.write(item, data),
+        destroyItem: item => Entropy.Buffer.destroy(item),
+        now: () => Date.now(),
+    }, options);
+}
+
+/** Houses around the camera on Earth, building at most `buildMs` of new house meshes. */
+function updateHouses(buildMs: number): void {
+    if (!houses) return;
+    const c = stats?.city;
+    if (!c || !geo()) {
+        if (hideRadius > 0 || houses.lastStats.lod0 + houses.lastStats.lod1 > 0) houses.clear();
+        hideRadius = 0;
+        return;
+    }
+    const camera = lastCamera?.position ?? focus;
+    hideRadius = houses.update(camera, renderOrigin, c.live * 1_000_003 + c.buildings, buildMs);
+}
+
 addon.onInit(() => {
     pipelineId = Entropy.Pipeline.create({
         name: "QuadPlanet",
@@ -573,8 +648,14 @@ addon.onInit(() => {
 
     // The terrain: every planet's quadtrees, streamed and meshed on the Rust side into our
     // pipeline, each chunk bound to the world uniform and a uniform of its own.
-    terrainId = Entropy.QuadPlanet.create({ id: "quadplanet", planets: PLANETS, defaultChunkDetail: DEFAULT_CHUNK_DETAIL, pipelineId, worldBufferId: worldBuffer });
+    terrainId = Entropy.QuadPlanet.create({
+        id: "quadplanet", planets: PLANETS, defaultChunkDetail: DEFAULT_CHUNK_DETAIL, pipelineId, worldBufferId: worldBuffer,
+        // Earth's OpenStreetMap buildings: those our house model fits come back as houses.
+        city: { house: houseRule() },
+    });
     useEngineTerrain();
+    try { Entropy.MeshCache.prune(HOUSE_NAMESPACE, HOUSE_CACHE_BYTES); } catch (e) { Entropy.println(`[quadplanet] house cache: ${(e as Error).message}`); }
+    houses = makeHouses();
     refreshInfo();
     state = initialState();
     writeWorld();
@@ -618,7 +699,6 @@ addon.onUpdatePlus("Global", () => {
     lastCamera = { ...pose, up };
 
     updateModels();
-    writeWorld();
     // Stream around the camera (what is being looked at), a bounded amount per frame - except in
     // the overhead view, which is there to show the detail centered on you. A fixed-step run
     // wants the same frames on any machine, so it streams everything it wants every frame
@@ -626,6 +706,10 @@ addon.onUpdatePlus("Global", () => {
     focus = viewOverride && viewOverride.planet < 0 ? (state.mode === "walk" ? state.walker.pos : state.ship.pos) : pose.position;
     if (fixedStep) streamOnce(Infinity, Infinity);
     else streamOnce(10, 12);
+    // Houses (after the city has streamed, so they see its newest tiles; before the World
+    // uniform, which carries the radius their boxes hide within).
+    updateHouses(fixedStep ? Infinity : 12);
+    writeWorld();
 
     // On Earth, name the place you're at (OpenStreetMap, looked up in the background).
     if (frameCount % 30 === 0) {
