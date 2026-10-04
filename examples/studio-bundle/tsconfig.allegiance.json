@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/games/allegiance/**/*.ts", "src/apps/quadplanet/**/*.ts"]
+}

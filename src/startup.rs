@@ -189,6 +189,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_MEDIA_BDD_RESULT",
     "ENTROPY_MESHA_BDD_RESULT",
     "ENTROPY_QUADPLANET_BDD_RESULT",
+    "ENTROPY_ALLEGIANCE_BDD_RESULT",
     "ENTROPY_TABS_BDD_RESULT",
 ];
 
@@ -210,6 +211,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real video export demo is running in test mode"
         || text == "the real Mesha app is running in test mode"
         || text == "the real QuadPlanet app is running in test mode"
+        || text == "the real Allegiance game is running in test mode"
         || text == "the real Guitar Tabs app is running in test mode"
     {
         return None;
@@ -332,7 +334,9 @@ impl BrowserBddDriver {
         let ml = !daw && !canvas && !launcher && !sheet && std::env::var_os("ENTROPY_ML_BDD_RESULT").is_some();
         let media = !daw && !canvas && !launcher && !sheet && !ml && std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some();
         let mesha = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some();
-        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some();
+        // Allegiance (a game on QuadPlanet's Earth) rides QuadPlanet's run: keys, MCP tools, captures.
+        let allegiance = std::env::var_os("ENTROPY_ALLEGIANCE_BDD_RESULT").is_some();
+        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
         let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
         let forum = std::env::var_os("ENTROPY_P2P_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if forum {
@@ -351,6 +355,8 @@ impl BrowserBddDriver {
             "ENTROPY_MEDIA_BDD_RESULT"
         } else if mesha {
             "ENTROPY_MESHA_BDD_RESULT"
+        } else if quadplanet && allegiance {
+            "ENTROPY_ALLEGIANCE_BDD_RESULT"
         } else if quadplanet {
             "ENTROPY_QUADPLANET_BDD_RESULT"
         } else if tabs {
@@ -363,6 +369,12 @@ impl BrowserBddDriver {
             include_str!("../tests/features/p2p_forum_live.feature")
         } else if mesha {
             include_str!("../tests/features/mesha_live.feature")
+        } else if quadplanet && allegiance {
+            // ENTROPY_ALLEGIANCE_BDD_FEATURE plays another feature file without rebuilding.
+            match std::env::var("ENTROPY_ALLEGIANCE_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/allegiance_live.feature"),
+            }
         } else if quadplanet {
             // ENTROPY_QUADPLANET_BDD_FEATURE plays another feature file (ad-hoc captures, e.g. of
             // a place on Earth) without rebuilding.
@@ -487,7 +499,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { 900 } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher || self.tabs { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { std::env::var("ENTROPY_BDD_BUDGET_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900) } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher || self.tabs { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

@@ -557,6 +557,10 @@ cargo run --bin example --release -- mesha
 // quadtree planets you walk on, a ship to fly between them, and the real Earth (QuadPlanet)
 npm run build-quadplanet
 cargo run --bin example --release -- quadplanet
+
+// speak, organize and conquer the full-scale Earth of 2100 (Allegiance)
+npm run build-allegiance
+cargo run --bin example --release -- allegiance
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,
@@ -591,6 +595,21 @@ The terrain streaming is Rust-side and exposed to TypeScript as `Entropy.QuadPla
 terrain tier, and `cargo test --release --test quadplanet_live -- --nocapture` walks, boards,
 flies to Ember and on to Glacia, then goes to Earth and the Matterhorn in the real window and
 checks the captures (under `xvfb-run -a` on a headless box).
+
+<a id="allegiance"></a>
+**Allegiance** ([how to play and how it works](docs/ALLEGIANCE.md)) is a political conquest game on
+QuadPlanet's full-scale Earth in the year 2100. Found a party (name, ideology, color), pick any of
+113 cities to start in, and wait on a propaganda-poster loading screen while the real terrain,
+OpenStreetMap streets and Mesha houses stream in and cache. On the street, pedestrians walk between
+real building doors on A* paths. Give speeches as a five-beat mini-game (pick a line for the crowd,
+hit the timing, rebut hecklers, out-argue rival orators), hand out pamphlets, and recruit passers-by.
+Then build a chain of command (inner circle, bloc commissioners, region chiefs, cell leaders),
+manage dues and taxes, scheme, arm your members and take regions by election, coup or war. Wars are
+fought in alternating offensives and counterattacks, and you can join them in person. Liberator or
+tyrant, govern three quarters of humanity to win. Every screen is drawn with `drawRect`/`drawText`
+only. `npm run test:allegiance` runs the TypeScript tier, and
+`cargo test --release --test allegiance_live -- --nocapture --test-threads=1` plays it in the real
+window and checks the captures (under `xvfb-run -a` on a headless box).
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
 library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted
@@ -703,6 +722,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Entropy Multi-Page Documents](public/entropy-doc-editor-pagination.png "Entropy Multi-Page Documents") | ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") |
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
+| ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |
 
 ## P2P development
 
