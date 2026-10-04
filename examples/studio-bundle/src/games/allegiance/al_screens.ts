@@ -690,6 +690,7 @@ function drawOrganization(g: GameView, ui: UiFrame, c: Campaign, top: number): v
     const bloc = BLOCS.find(b => b.id === blocOf(m.region));
     btn("appoint-commissioner", `COMMISSIONER OF ${bloc?.short ?? ""}`, "appoint", { id: m.id, role: "commissioner", post: bloc?.id }, m.role === "commissioner");
     btn("appoint-follower", m.follower ? "STOP FOLLOWING ME" : `FOLLOW ME (${followers(c).length}/${followerLimit(c)})`, "follower", m.id, m.follower);
+    btn("appoint-armed", m.armed ? "ARMED FORCES: SERVING" : `JOIN THE ARMED FORCES (${money(ARM_COST)})`, "armed", m.id, m.armed);
     btn("appoint-none", "RELIEVE OF DUTY", "appoint", { id: m.id, role: "none", post: null });
 }
 

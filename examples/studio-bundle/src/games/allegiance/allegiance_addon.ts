@@ -33,7 +33,7 @@ import {
 } from "./al_world";
 import {
     appoint, autoOrganize, armMembers, disarm, moveArmy, buyWeapon, buyAmmo, buyArmor, buyPamphlets, buyFacility, raiseSkill,
-    startScheme, recruitInPerson, setFollower, followers, skill, maxHealth, hasFacility, orgReport, gainXp,
+    startScheme, recruitInPerson, setFollower, followers, skill, maxHealth, hasFacility, orgReport, gainXp, setArmed, regionFighters,
 } from "./al_party";
 import { startSpeech, stepSpeech, chooseCard, deliver, rebutHeckler, autoplay, bestCard, type SpeechState, type Grade } from "./al_speech";
 import {
@@ -345,6 +345,8 @@ function streetContext(): StreetContext {
     const rivals: Record<string, number> = {};
     for (const id of RIVALS) rivals[id] = rs?.support[id] ?? 0.1;
     const fl = campaign ? followers(campaign).map(m => ({ id: m.id, name: m.name, armed: m.armed, combat: m.combat })) : [];
+    // In a war, the region's named soldiers fight beside you too.
+    if (campaign && region && rs?.war) for (const m of regionFighters(campaign, region)) fl.push({ id: m.id, name: m.name, armed: true, combat: m.combat });
     return {
         partyShare: rs ? partyShare(rs) : 0,
         rivalShares: rivals,
@@ -799,6 +801,7 @@ function act(name: string, arg?: unknown): void {
         case "member-page": memberPage = Math.max(0, memberPage + Number(arg)); break;
         case "appoint": if (c) { const a = arg as { id: number; role: Parameters<typeof appoint>[2]; post: string | null }; err(appoint(c, a.id, a.role, a.post), "Appointed."); } break;
         case "follower": if (c) { const m = c.members.find(x => x.id === Number(arg)); if (m) err(setFollower(c, m.id, !m.follower)); } break;
+        case "armed": if (c) { const m = c.members.find(x => x.id === Number(arg)); if (m) err(setArmed(c, m.id, !m.armed), m.armed ? undefined : `${m.name} joins the armed forces.`); } break;
         case "select-region": selectedRegion = String(arg); break;
         case "travel": if (c) { const id = String(arg); const e = travel(c, id); if (e) toast(e, "bad"); else { const d = regionDefById(id)!; startLoading(d.lat, d.lon); } } break;
         case "move-hq": if (c) err(moveHq(c, String(arg)), "Headquarters moved."); break;

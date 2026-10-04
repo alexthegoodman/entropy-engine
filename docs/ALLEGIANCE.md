@@ -115,6 +115,9 @@ organizes pay little and drift away. In the console's **Organization** tab:
 - At headquarters you organize a few dozen members yourself. In a region you govern, the state
   organizes thousands.
 
+A named member can also **join the armed forces** (CR 120 to arm). When their home region is at
+war, they fight beside you in its streets by name, along with its unnamed militia.
+
 Named members come from your recruits and from talent the growing party turns up. Each has
 charisma, admin, combat and loyalty. Disloyal members defect and talk to the authorities.
 **Auto-Organize** fills empty posts the way a good chief of staff would. The warnings list says

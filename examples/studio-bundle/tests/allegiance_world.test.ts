@@ -14,7 +14,7 @@ import {
 } from "../src/games/allegiance/al_world";
 import {
     appoint, autoOrganize, armMembers, orgReport, buyWeapon, buyPamphlets, buyFacility, raiseSkill, gainXp, dailyLedger,
-    startScheme, recruitInPerson, setFollower, followerLimit, leaderSpan, hqCapacity, maxHealth,
+    startScheme, recruitInPerson, setFollower, followerLimit, leaderSpan, hqCapacity, maxHealth, setArmed, regionFighters,
 } from "../src/games/allegiance/al_party";
 import { makeRng, weighted, hashString } from "../src/games/allegiance/al_rng";
 
@@ -192,6 +192,17 @@ describe("hierarchy", () => {
         appoint(c, b.id, "treasurer");
         expect(c.members.filter(m => m.role === "treasurer")).toHaveLength(1);
         expect(c.members.find(m => m.id === b.id)!.role).toBe("treasurer");
+    });
+
+    it("assigns named members to the armed forces, who fight in their region's wars", () => {
+        const c = newCampaign({ seed: 23, spawn: "rome" });
+        const [a, b] = c.members;
+        expect(setArmed(c, a.id, true)).toBeNull();
+        expect(regionFighters(c, "rome").map(m => m.id)).toEqual([a.id]);
+        c.party.funds = 0;
+        expect(setArmed(c, b.id, true)).toContain("costs");
+        setFollower(c, a.id, true);
+        expect(regionFighters(c, "rome")).toHaveLength(0);
     });
 
     it("caps followers by Leadership", () => {

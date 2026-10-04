@@ -494,6 +494,23 @@ export function setFollower(c: Campaign, memberId: number, on: boolean): string 
     return null;
 }
 
+/** Puts a named member in (or out of) the armed forces: armed, and fighting beside you in their region's wars. */
+export function setArmed(c: Campaign, memberId: number, on: boolean): string | null {
+    const m = c.members.find(x => x.id === memberId);
+    if (!m) return "No such member.";
+    if (on && !m.armed) {
+        if (c.party.funds < ARM_COST) return `Arming costs CR ${ARM_COST}.`;
+        c.party.funds -= ARM_COST;
+    }
+    m.armed = on;
+    return null;
+}
+
+/** Named armed members who join your street battles in `region` (when it is at war), best fighters first. */
+export function regionFighters(c: Campaign, region: string, max = 4): Member[] {
+    return c.members.filter(m => m.armed && !m.follower && m.region === region).sort((a, b) => b.combat - a.combat).slice(0, max);
+}
+
 /** Karma for actions taken on the street (the addon calls this). */
 export function streetKarma(c: Campaign, amount: number): void {
     addKarma(c, amount);
