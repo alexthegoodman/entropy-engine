@@ -4380,6 +4380,11 @@ export interface EntropyAPI {
   Mesh: {
     getData: (meshId: string) => MeshData | null;
     updateVertices: (meshId: string, vertexIndices: number[], newPositions: number[]) => void;
+    /**
+     * Overwrites whole vertices (the 12-float `mesh` layout: position, normal, uv, color) from
+     * `firstVertex` on in one GPU write: per-frame animated geometry such as cloth and hair.
+     */
+    writeVertices: (meshId: string, firstVertex: number, vertices: Float32Array) => void;
     appendGeometry: (meshId: string, vertices: number[], indices: number[]) => void;
     removeGeometry: (meshId: string, faceIndices: number[]) => void;
     getVertexWorldPosition: (meshId: string, vertexIndex: number) => [number, number, number];

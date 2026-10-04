@@ -3242,6 +3242,11 @@ globalThis.Entropy = {
         getData: (meshId) => {
             return ops.op_mesh_get_data(meshId);
         },
+        writeVertices: (meshId, firstVertex, vertices) => {
+            // Whole vertices (12 floats each) from `firstVertex` on, in one GPU write.
+            const bytes = vertices instanceof Uint8Array ? vertices : new Uint8Array(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+            ops.op_mesh_write_vertices(meshId, firstVertex, bytes);
+        },
         updateVertices: (meshId, vertexIndices, newPositions) => {
             // Check if it's a full update or partial
             // For now we'll pass it to native, which might just log or do partial buffer write
