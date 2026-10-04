@@ -31,6 +31,7 @@ floor. The scene and your presets persist in the app's data folder (`../mesha-da
 Every action is also an MCP tool (`mesha_library`, `mesha_describe`, `mesha_add`, `mesha_select`,
 `mesha_set`, `mesha_lock`, `mesha_vary`, `mesha_place`, `mesha_remove`, `mesha_undo`,
 `mesha_view`, `mesha_state`, `mesha_verify`, `mesha_export`), so an agent can drive the real app.
+`mesha_view` takes an optional `zoom` (2 frames twice as close) for details of long objects.
 
 ## The library today
 
@@ -52,6 +53,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Architecture | Hab Lodge | `architecture.hab_lodge` | 41 | 8 | 10 | 18 | 337 | Ready | 32 ms |
 | Architecture | Wasteland Depot | `architecture.wasteland_depot` | 41 | 8 | 11 | 22 | 208 | Ready | 29 ms |
 | Architecture | Arcane Emporium | `architecture.arcane_emporium` | 39 | 7 | 7 | 18 | 222 | Ready | 43 ms |
+| Transport | Street Car | `transport.street_car` | 56 | 9 | 8 | 32 | 362 | Ready | 15 ms |
 | Architecture | Door | `architecture.door` | 23 | 5 | 4 | 6 | 139 | Ready | 3 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
@@ -205,6 +207,51 @@ sunburst bars. **Exterior** adds a threshold and kick plate and puts the leaf in
 region instead of `leaf`, so a building can paint its front door apart from its interior doors.
 **Open** swings the leaf into -Z about its hinge. Five presets: Six-panel, Georgian fanlight,
 Half-glazed kitchen, Cottage plank and Modern flush.
+
+## Transport
+
+**Street Car** (`transport.street_car`): a tram, from a heritage trolley to articulated light rail,
+with a full interior. One to three body **sections** of four to nine **bays** each, joined by
+bellows; a bay holds a window and two rows of seats, or a doorway, and a bogie sits under one.
+Doors are spread between the bogies (one to three per side per section) or at the ends with the
+bogies inboard, on both sides or one, and come as plug doors that pop out and slide apart, sliding
+doors running inside the wall, or folding leaves swinging in about the jambs, all with **Doors
+open** from shut to fully open. Each end is a driver's cab built once and mirrored: straight cab
+sides into a superellipse nose (**Bluntness** goes from a bullet to a bluff, square-cornered end),
+stacked as a dash, a windscreen band that leans back by **Windscreen rake**, a letterboard with a
+curved destination sign and a roof that follows the plan, so every livery line runs unbroken
+round the nose. Panoramic, split or three-pane windscreens, wipers, headlamps and tail lamps,
+mirrors on arms, a bumper strip and a heritage lifeguard tray. Inside the cab: a partition with
+a doorway and lights, a console with screens or a controller and brake wheel, and the driver's
+seat. The saloon has facing bays, all-forward rows or benches along the sides (cushions, backs,
+frames, aisle legs and grab handles), stanchions at every bay boundary and in wide doorways,
+ceiling rails with hand straps, linings, sills, coves with advertising cards, ceiling lights and
+a ribbed floor. A low floor lifts the seats over the wheels onto podiums (the wheel size is capped
+by the floor height so they stay low); a high floor hangs boarding steps under each doorway. Bogies
+have flanged wheels, side frames, axle boxes and coil springs (axles, transoms and motors only
+where the floor clears them). A single-arm pantograph on insulators or a pair of trolley poles
+(one raised, one hooked down), both raised by **Collector raised**, roof equipment pods, gutters,
+and an optional stretch of paved street track with grooved rails or ballasted track on sleepers.
+Window shapes are rounded, arched or square, with optional transom lights. Five presets: City tram,
+Heritage streamliner, Vintage trolley, Articulated light rail and Metro shuttle. **Show roof** lifts
+the roof, ceilings and roof gear off. Geometry tests ride it: every doorway on every side, in all
+three door styles, opens from the street onto the floor and its shut doors seal it; every window
+bay is a real opening glazed with see-through glass; no wheel pokes above the floor or its podium;
+the noses are glazed with a desk inside, and the length is the sections plus both cabs; the roof
+lifts off and the sections join under bellows. Live BDD captures the city tram, a close-up through
+its windows with see-through and with ordinary glass (the seats show through only the first), the
+interior from above, the heritage and vintage cars, the light rail at night, a locked Variation and
+a GLB export.
+
+It brings its own materials: **see-through window glass** (`glass.window`, `glass.windowTinted`,
+`glass.windowBronze`, `glass.windowGreen`), liveries (`paint.cream`, `paint.crimson`,
+`paint.brunswick`, `paint.signal`, `paint.silver`), `wood.teak`, transit moquette
+(`fabric.moquette`, `fabric.moquetteRed`), `leather.green`, `rubber.floor` (ribbed), granite setts,
+track ballast, creosoted sleepers and `glow.warmWhite` cabin lights. Window glass has a `clear`
+share: the viewport leaves that share of each pane's pixels unpainted in a fine ordered dither
+(fewer at grazing angles, where glass mirrors more), so the interior shows through an opaque
+pipeline with no sorting, and contact sheets average the same dither away. Other glass stays
+glossy and tinted but opaque.
 
 ## Foliage
 
@@ -379,7 +426,9 @@ lavender) and petals (white, cream, yellow, orange, red, pink, purple, blue) wit
 pollen; and themed architecture: composite hull panels, titanium, gold foil, corrugated sheet (bare,
 rusted, red, green), rusted plate, concrete, weathered and charred timber, canvas, sandbags, solar
 cells, regolith, mossy and twilight stone, lime plaster, tinted, violet and fibreglass glazing, and
-self-lit `glow.*` colors. Each has a color, roughness, metalness and a surface pattern (wood grain,
+self-lit `glow.*` colors; and transit: see-through window glass (clear, tinted, bronze, sea-green),
+cream, crimson, Brunswick green, signal yellow and silver liveries, teak, moquettes, green
+leatherette, ribbed rubber flooring, granite setts, ballast and sleepers. Each has a color, roughness, metalness and a surface pattern (wood grain,
 fabric sheen, brushed, speckle, bark furrows, birch, foliage, glow, corrugated ribs, rust, hull panel
 seams) the viewport draws; foliage also has a second
 `tint` color each leaf varies toward.

@@ -341,3 +341,39 @@ Feature: Mesha in the real window
     And I advance 8 frames
     Then I capture "68-arcane-variation"
     And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-themed-export.glb"}
+
+  Scenario: A street car with a fitted interior behind see-through glazing
+    When I call the tool "mesha_add" with {"objectId": "transport.street_car", "preset": "City tram", "position": [860, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 32, "pitch": 9, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "69-tram-city"
+    When I call the tool "mesha_set" with {"values": {"doorOpen": 0}}
+    And I call the tool "mesha_view" with {"yaw": 14, "pitch": 6, "zoom": 2.2, "lighting": "studio"}
+    And I advance 8 frames
+    Then I capture "70-tram-doors-shut"
+    When I call the tool "mesha_set" with {"values": {"glassFinish": "glass.clear"}}
+    And I call the tool "mesha_view" with {"yaw": 14, "pitch": 6, "zoom": 2.2}
+    And I advance 8 frames
+    Then I capture "71-tram-opaque-glass"
+    When I call the tool "mesha_set" with {"values": {"doorOpen": 1, "glassFinish": "glass.window", "roofVisible": false}}
+    And I call the tool "mesha_view" with {"yaw": 25, "pitch": 58, "zoom": 1.5}
+    And I advance 8 frames
+    Then I capture "72-tram-interior"
+    When I call the tool "mesha_add" with {"objectId": "transport.street_car", "preset": "Heritage streamliner", "position": [900, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 40, "pitch": 8, "zoom": 1.5, "lighting": "warm"}
+    And I advance 8 frames
+    Then I capture "73-tram-heritage"
+    When I call the tool "mesha_add" with {"objectId": "transport.street_car", "preset": "Vintage trolley", "position": [940, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 50, "pitch": 7, "zoom": 1.5, "lighting": "daylight"}
+    And I advance 8 frames
+    Then I capture "74-tram-vintage"
+    When I call the tool "mesha_add" with {"objectId": "transport.street_car", "preset": "Articulated light rail", "position": [1000, 0, 0]}
+    And I call the tool "mesha_view" with {"yaw": 28, "pitch": 8, "zoom": 1.3, "lighting": "night"}
+    And I advance 8 frames
+    Then I capture "75-tram-light-rail-night"
+    When I call the tool "mesha_lock" with {"keys": ["group:body", "group:ends", "group:materials"], "locked": true}
+    And I call the tool "mesha_vary" with {"amount": 0.7, "seed": 4}
+    And I call the tool "mesha_view" with {"yaw": 28, "pitch": 8, "zoom": 1.3}
+    And I advance 8 frames
+    Then I capture "76-tram-variation"
+    And I call the tool "mesha_export" with {"path": "test-artifacts/mesha-transit-export.glb"}

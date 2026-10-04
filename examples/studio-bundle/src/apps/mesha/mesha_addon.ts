@@ -32,7 +32,7 @@ const Icons = Entropy.Icons;
 const ACCENT: [number, number, number, number] = [0.96, 0.66, 0.38, 1];
 const DIM: [number, number, number, number] = [0.66, 0.68, 0.72, 1];
 const WARN: [number, number, number, number] = [0.98, 0.72, 0.42, 1];
-const CATEGORY_ICONS: Record<string, IconName> = { Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Electronics: "lightning" };
+const CATEGORY_ICONS: Record<string, IconName> = { Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning" };
 const OBJECT_ICONS: Record<string, IconName> = { "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house" };
 
 // --- Scene state ---------------------------------------------------------------------------------
@@ -324,7 +324,8 @@ function sceneBounds(onlySelected: boolean): Bounds | null {
 }
 
 /** Frames the selection (or everything) from a flattering three-quarter view. */
-function frame(onlySelected = true): void {
+/** `zoom` above 1 moves in closer than the whole object: details of something long (a tram). */
+function frame(onlySelected = true, zoom = 1): void {
     const b = sceneBounds(onlySelected) ?? sceneBounds(false);
     if (!b) return;
     const c: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
@@ -336,7 +337,7 @@ function frame(onlySelected = true): void {
     if (dir[1] < 0.15) dir = [dir[0], 0.35, dir[2]];
     // Wide things (a facade) need more room: the side panels cover part of the view.
     const wide = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]) > 2 * (b.max[1] - b.min[1]) ? 1.25 : 1;
-    const d = r * (onlySelected ? 2.9 : 2.3) * wide + 0.2;
+    const d = (r * (onlySelected ? 2.9 : 2.3) * wide) / Math.max(1, zoom) + 0.2;
     orbitTarget = c;
     Entropy.Camera.setTransform([c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d], c);
     baseZoomSpeed = Math.max(0.2, r);
@@ -906,8 +907,8 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
         run: a => { if (a.redo) redo(); else undo(); return { instances: scene.instances.map(instanceSummary), message: statusMessage }; },
     },
     {
-        name: "mesha_view", description: "Frame the selection (or everything with all: true) from yaw/pitch degrees, and/or pick the studio lighting: studio, daylight, warm, night (lighting alone keeps the camera).",
-        parameters: { type: "object", properties: { all: { type: "boolean" }, lighting: { type: "string" }, yaw: { type: "number" }, pitch: { type: "number" } } },
+        name: "mesha_view", description: "Frame the selection (or everything with all: true) from yaw/pitch degrees, optionally zoomed in (zoom 2 is twice as close), and/or pick the studio lighting: studio, daylight, warm, night (lighting alone keeps the camera).",
+        parameters: { type: "object", properties: { all: { type: "boolean" }, lighting: { type: "string" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" } } },
         run: a => {
             if (a.lighting) { const i = STUDIO_PRESETS.findIndex(p => p.id === a.lighting); if (i < 0) throw new Error(`Lighting: ${STUDIO_PRESETS.map(p => p.id).join(", ")}`); studioIndex = i; applyStudio(); }
             if (typeof a.yaw === "number" || typeof a.pitch === "number") {
@@ -916,7 +917,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 Entropy.Camera.setTransform([t[0] + Math.sin(yaw) * Math.cos(pitch), t[1] + Math.sin(pitch), t[2] + Math.cos(yaw) * Math.cos(pitch)], t);
             }
             // Lighting alone leaves the camera where it is; anything else frames.
-            if (!a.lighting || a.all !== undefined || typeof a.yaw === "number" || typeof a.pitch === "number") { pendingFrame = 2; pendingFrameAll = !!a.all; }
+            if (!a.lighting || a.all !== undefined || typeof a.yaw === "number" || typeof a.pitch === "number") { pendingFrame = 2; pendingFrameAll = !!a.all; pendingZoom = typeof a.zoom === "number" ? a.zoom : 1; }
             return { lighting: STUDIO_PRESETS[studioIndex].id };
         },
     },
@@ -959,6 +960,7 @@ function registerTools(): void {
 /** Frames to wait before framing (a new mesh needs a frame to exist). */
 let pendingFrame = 0;
 let pendingFrameAll = false;
+let pendingZoom = 1;
 
 addon.onInit(() => {
     pipelineId = Entropy.Pipeline.create({
@@ -1009,7 +1011,7 @@ addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
         transformed.clear();
     }
     if (groundDirty && !(pointerHeld && (gizmoWasActive || transformed.size))) { rebuildGround(); groundDirty = false; }
-    if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll); pendingFrameAll = false; }
+    if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll, pendingZoom); pendingFrameAll = false; pendingZoom = 1; }
     if (!pointerHeld) commitEdit();
     // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).
     const [camPos, camTarget] = Entropy.Camera.getTransform();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluate, referencedNames } from "../src/apps/mesha/mesha_expr";
 import { CATALOG } from "../src/apps/mesha/mesha_catalog";
-import { type Mesh, type Vec2, type Vec3, bounds, triangleCount, sub3, cross3, dot3 } from "../src/apps/mesha/mesha_mesh";
+import { type Mesh, type Vec2, type Vec3, bounds, triangleCount, sub3, cross3, dot3, transformMesh, compose4 } from "../src/apps/mesha/mesha_mesh";
 import { roundedBox, lathe, capsuleProfile, extrude, sweep, cylinder, triangulate, loft } from "../src/apps/mesha/mesha_primitives";
 import { circle2, roundedRect2 } from "../src/apps/mesha/mesha_curves";
 import { type ObjectDef, evaluateObject, evaluateExpression, resolveParams, isParamVisible, validateDefinition, defaultValues } from "../src/apps/mesha/mesha_object";
@@ -12,6 +12,8 @@ import { render, contactShadowMap } from "../src/apps/mesha/mesha_raster";
 import { buildScene, searchLibrary, packVertices } from "../src/apps/mesha/mesha_scene";
 import { leaf, tree, foliageV, splitFoliageV, LEAF_SHAPES } from "../src/apps/mesha/mesha_plants";
 import { material } from "../src/apps/mesha/mesha_materials";
+
+const transformMeshTo = (m: Mesh, at: Vec3) => transformMesh(m, compose4(at));
 
 // Signed volume by the divergence theorem: positive only if every face winds outward.
 function volume(mesh: Mesh): number {
@@ -637,6 +639,83 @@ describe("Mesha arcane emporium", () => {
     });
 });
 
+describe("Mesha street car", () => {
+    const def = lookupObject("transport.street_car")!;
+    const plan = planOf(def.id);
+    const layouts: Record<string, unknown>[] = [
+        {}, ...(def.presets ?? []).map(p => p.values), { sections: 3, bays: 9, bayWidth: 2.6, doors: 3, width: 2.65 }, { bays: 4, bayWidth: 1.75, width: 2.2, doors: 1, doorWidth: 100 },
+        { floorHeight: 1, wheelSize: 0.42, track: "none", doorPlacement: "ends", doorStyle: "folding" }, { floorHeight: 0, wheelSize: 100, interiorHeight: 0, sill: 100, windowHeight: 100, seating: "longitudinal" },
+    ];
+    /** Where a doorway is: x of the first door bay of the first section, and its side (1 front, -1 back). */
+    const doorBays = (n: (name: string) => number, p: Record<string, unknown>) => {
+        const bays = n("bays"), ends = p.doorPlacement === "ends";
+        return Array.from({ length: bays }, (_, j) => j).filter(j => (ends ? j === 0 || j === bays - 1 : [n("dA"), n("dB"), n("dC")].includes(j)));
+    };
+    const cellX = (n: (name: string) => number, k: number, j: number) => -n("xE") + k * (n("secLen") + n("gapJ")) + (j + 0.5) * n("cw");
+    it("open doorways lead from the street onto the floor on both sides, and closed doors seal them", () => {
+        for (const values of layouts) for (const doorStyle of ["plug", "sliding", "folding"]) {
+            const { n, tris, p } = plan({ ...values, doorStyle, doorOpen: 1 });
+            const where = `${JSON.stringify(values)} ${doorStyle}`;
+            for (let k = 0; k < n("sections"); k++) for (const j of doorBays(n, p)) for (const side of p.doorSides === "both" ? [1, -1] : [1]) {
+                const x = cellX(n, k, j) + 0.2, y = n("yF") + 1.0;
+                expect(castRay(tris, [x, y, side * (n("hw") + 3)], [0, 0, -side]), `${where} bay ${k}:${j} side ${side}`).toBeGreaterThan(3 + n("th") + 0.3);
+                expect(castRay(tris, [x, y, side * (n("hw") - 0.3)], [0, -1, 0]), `${where} bay ${k}:${j}`).toBeCloseTo(1.0, 3);
+            }
+            const closed = plan({ ...values, doorStyle, doorOpen: 0 });
+            const j = doorBays(closed.n, closed.p)[0];
+            expect(castRay(closed.tris, [cellX(closed.n, 0, j) + 0.2, closed.n("yF") + 1.0, closed.n("hw") + 3], [0, 0, -1]), where).toBeLessThan(3 + closed.n("th") + 0.05);
+        }
+    });
+    it("every window bay is a real opening glazed with see-through glass", () => {
+        for (const values of layouts) {
+            const { e, n, p } = plan(values);
+            const open = without(e.mesh, ["glass", "seat", "seatFrame"]), glazed = flatten(e.mesh), doors = doorBays(n, p);
+            for (let k = 0; k < n("sections"); k++) for (let j = 0; j < n("bays"); j++) {
+                if (doors.includes(j)) continue;
+                const o: Vec3 = [cellX(n, k, j), n("yW0") + n("wh") / 2, n("hw") + 3], where = `${JSON.stringify(values)} bay ${k}:${j}`;
+                expect(castRay(open, o, [0, 0, -1]), where).toBeGreaterThan(3 + n("th") + 0.02);
+                expect(castRay(glazed, o, [0, 0, -1]), where).toBeCloseTo(3 + n("th") / 2 - 0.01, 3);
+            }
+            expect(e.materials.glass.clear ?? 0.5, JSON.stringify(values)).toBeGreaterThan(0.3);
+        }
+    });
+    it("wheels stay under the floor, or under podiums that lift the seats over them", () => {
+        for (const values of layouts) {
+            const { n, tris, p } = plan(values);
+            const bj0 = p.doorPlacement === "ends" ? 1 : 0, top = n("yF") + n("podH");
+            expect(top, JSON.stringify(values)).toBeGreaterThan(n("yR") + 2 * n("r"));
+            for (let k = 0; k < n("sections"); k++) for (const j of [bj0, n("bays") - 1 - bj0]) for (const dx of [-0.5, 0.5]) for (const side of [1, -1]) {
+                const o: Vec3 = [cellX(n, k, j) + dx * n("wb"), top + 0.2, side * n("g2")];
+                expect(castRay(tris, o, [0, -1, 0]), `${JSON.stringify(values)} bogie ${k}:${j}`).toBeCloseTo(0.2, 3);
+            }
+        }
+    });
+    it("the cabs end in a glazed nose with a driver's desk inside, and the length adds up", () => {
+        for (const values of layouts) {
+            const { e, n } = plan({ ...values, track: "none", lifeguard: false });
+            const b = e.stats.bounds!, where = JSON.stringify(values);
+            expect(b.max[0] - b.min[0], where).toBeGreaterThan(2 * (n("xE") + n("cabL")) - 1e-6);
+            expect(b.max[0] - b.min[0], where).toBeLessThan(2 * (n("xE") + n("cabL")) + 0.2);
+            const desk = e.mesh.parts.filter(q => q.region === "desk" && q.positions.some((v, i) => i % 3 === 1 && v > n("yF") + 0.6));
+            expect(desk.length, where).toBeGreaterThan(0);
+            // Through the windscreen at belt height + 0.3, the first thing past the glass is the cab.
+            const tris = without(e.mesh, ["glass", "desk"]), y = n("yBelt") + 0.3;
+            expect(castRay(tris, [n("xE") + n("cabL") + 3, y, 0.6], [-1, 0, 0]), where).toBeGreaterThan(3 + 0.3);
+        }
+    });
+    it("lifting the roof opens the cabin to the sky, and sections join under bellows", () => {
+        const full = plan({}), open = plan({ roofVisible: false });
+        const n = full.n, o: Vec3 = [cellX(n, 0, 0), n("yF") + 1.5, 0];
+        expect(castRay(full.tris, o, [0, 1, 0])).toBeCloseTo(n("yE") - 0.03 - (n("yF") + 1.5), 3);
+        expect(castRay(open.tris, o, [0, 1, 0])).toBe(Infinity);
+        const lrv = plan({ sections: 3 });
+        const joint = -lrv.n("xE") + lrv.n("secLen") + lrv.n("gapJ") / 2;
+        expect(castRay(lrv.tris, [joint, lrv.n("yW0") + 0.3, lrv.n("hw") + 3], [0, 0, -1])).toBeLessThan(3.1);
+        expect(lrv.e.mesh.parts.some(q => q.region === "bellows")).toBe(true);
+        expect(full.e.mesh.parts.some(q => q.region === "bellows")).toBe(false);
+    });
+});
+
 describe("Mesha variation", () => {
     const chair = lookupObject("furniture.office_chair")!;
     it("is deterministic per seed and respects rules", () => {
@@ -674,6 +753,22 @@ describe("Mesha scene and rendering", () => {
         expect(bottle.meshes.map(m => m.region).sort()).toEqual(["cork", "glass", "label"]);
         const minY = Math.min(...bottle.meshes.flatMap(m => m.positions.filter((_, i) => i % 3 === 1)));
         expect(minY).toBeGreaterThan(0.74);
+    });
+    it("window glass is see-through: packed with its clear share for the viewport's dither, and drawn through in contact sheets", () => {
+        const pane = material("glass.window");
+        const packed = packVertices({ region: "glass", material: pane, positions: [0, 0, 0], normals: [0, 0, 1], uvs: [0, 0], indices: [] });
+        expect(Math.hypot(...packed.vertexData.slice(3, 6))).toBeCloseTo(17, 6);
+        expect(packed.vertexData[11]).toBeCloseTo(pane.clear!, 6);
+        expect(Math.hypot(...packVertices({ region: "glass", material: material("glass.clear"), positions: [0, 0, 0], normals: [0, 0, 1], uvs: [0, 0], indices: [] }).vertexData.slice(3, 6))).toBeCloseTo(6, 6);
+        // A red box behind a pane: see-through glass lets the red show, ordinary glass hides it.
+        const box = roundedBox([0.6, 0.6, 0.2], 0, 1, "box");
+        const sheet = transformMeshTo(roundedBox([1, 1, 0.01], 0, 1, "pane"), [0, 0, 0.4]);
+        const red = (glass: string) => {
+            const img = render({ parts: [...box.parts, ...sheet.parts] }, { box: material("plastic.red"), pane: material(glass) }, { width: 48, height: 48, yaw: 0, pitch: 0 });
+            const c = (24 * 48 + 24) * 4;
+            return img.data[c] - img.data[c + 2];
+        };
+        expect(red("glass.window")).toBeGreaterThan(red("glass.clear") + 30);
     });
     it("renders a contact-sheet tile with the object in frame", () => {
         const e = evaluateObject(lookupObject("household.bottle")!, {}, lookupObject);

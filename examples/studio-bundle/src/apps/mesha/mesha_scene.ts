@@ -81,7 +81,7 @@ export function buildScene(instances: Instance[], lookup: ObjectLookup, cache = 
 // --- Library search ------------------------------------------------------------------------------
 
 /** How Add Object orders categories; any other category follows, alphabetically. */
-export const CATEGORY_ORDER = ["Furniture", "Household", "Architecture", "Mechanical", "Nature"];
+export const CATEGORY_ORDER = ["Furniture", "Household", "Architecture", "Transport", "Mechanical", "Nature"];
 
 /** Browsable objects ranked for `query` (all of them, by category, for an empty query). */
 export function searchLibrary(query: string, category?: string): ObjectDef[] {
@@ -109,18 +109,19 @@ export function searchLibrary(query: string, category?: string): ObjectDef[] {
 // --- Engine vertex packing -----------------------------------------------------------------------
 
 /** Pattern ids the viewport shader understands, carried in the normal's length (1 + id). */
-export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9, birch: 10, glow: 11, corrugated: 12, rust: 13, rustyCorrugated: 14, panels: 15 } as const;
+export const PATTERN_IDS = { none: 0, wood: 1, fabric: 2, brushed: 3, speckle: 4, glass: 5, foliage: 8, bark: 9, birch: 10, glow: 11, corrugated: 12, rust: 13, rustyCorrugated: 14, panels: 15, clearGlass: 16 } as const;
 
 /**
  * The engine's `mesh` layout: position(3) normal(3) uv(2) color(4). Color is the material's sRGB
  * base color; alpha packs roughness and a metal flag (metal: 0.5 + 0.49 r, else 0.49 r); the
  * normal's length is 1 + the surface pattern id. The shader unpacks all three. Foliage bakes each
- * vertex's lean toward the material's tint (the fraction of uv.y) into its color.
+ * vertex's lean toward the material's tint (the fraction of uv.y) into its color. See-through window
+ * glass is always smooth, so its alpha carries the clear share instead.
  */
 export function packVertices(mesh: RegionMesh): { vertexData: number[]; indexData: number[] } {
     const m = mesh.material;
-    const pattern = m.transmission ? PATTERN_IDS.glass : PATTERN_IDS[m.pattern] ?? 0;
-    const alpha = m.metallic > 0.5 ? 0.5 + 0.49 * m.roughness : 0.49 * m.roughness;
+    const pattern = m.clear ? PATTERN_IDS.clearGlass : m.transmission ? PATTERN_IDS.glass : PATTERN_IDS[m.pattern] ?? 0;
+    const alpha = m.clear ? m.clear : m.metallic > 0.5 ? 0.5 + 0.49 * m.roughness : 0.49 * m.roughness;
     const scale = 1 + pattern;
     const n = mesh.positions.length / 3;
     const tint = m.pattern === "foliage" ? m.tint : undefined;
