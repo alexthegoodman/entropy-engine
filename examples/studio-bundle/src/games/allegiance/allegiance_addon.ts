@@ -1,5 +1,5 @@
 import { Controller } from "./al_controller";
-import { parkBeside, type ParkedCar } from "./al_vehicle";
+import { parkBeside, newCar, stepCar, landingClear, carGround, type FlyingCar } from "./al_vehicle";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
 //
@@ -210,6 +210,7 @@ const SAVE_PATH = "campaign.json";
 
 function save(): boolean {
     if (!campaign) return false;
+    saveCar();
     try {
         addon.IO.store.write(SAVE_PATH, JSON.stringify(campaign));
         hasSave = true;
@@ -301,10 +302,13 @@ function finishLoading(): void {
     body.z = spot[1];
     body.y = heightAt(body.x, body.z);
     const savedCar = campaign?.player.flyingCar;
+    let restoredCar = false;
     if (savedCar && frame) {
         const p = toLocal(frame, surfaceAt(savedCar.lat, savedCar.lon));
-        if (Math.hypot(p[0] - body.x, p[2] - body.z) < 1000)
-            playerCar = { x: p[0], y: heightAt(p[0], p[2]) + 0.22, z: p[2], yaw: savedCar.yaw };
+        if (Math.hypot(p[0] - body.x, p[2] - body.z) < 1000) {
+            playerCar = newCar({ x: p[0], y: carGround(p[0], p[2], heightAt) + Math.max(0, savedCar.altitude ?? 0), z: p[2], yaw: savedCar.yaw });
+            restoredCar = true;
+        }
     }
     if (!playerCar) {
         const parked = parkBeside(body.x, body.z, (x, z) => nav?.walkable(x, z) ?? !isSea(x, z), heightAt);
@@ -312,10 +316,15 @@ function finishLoading(): void {
             [body.x, body.z] = parked.player;
             body.y = heightAt(body.x, body.z);
             body.yaw = parked.car.yaw;
-            playerCar = parked.car;
+            playerCar = newCar(parked.car);
             const ll = dirToLatLon(toWorld(frame!, playerCar.x, playerCar.y, playerCar.z));
             if (campaign) campaign.player.flyingCar = { lat: ll.lat, lon: ll.lon, yaw: playerCar.yaw };
         }
+    }
+    if (playerCar && restoredCar && savedCar?.piloting) {
+        playerCar.piloting = true;
+        playerCar.state = (savedCar.altitude ?? 0) > 0.1 ? "hovering" : "parked";
+        body.x = playerCar.x; body.z = playerCar.z; body.y = playerCar.y; body.yaw = playerCar.yaw;
     }
     if (playerCar) addCarObstacle();
     street.player.x = body.x;
@@ -476,6 +485,7 @@ function newDay(): void {
 function beginSpeech(rival: Actor | null = null): string | null {
     const c = campaign;
     if (!c || !region) return "No campaign.";
+    if (playerCar?.piloting) return "Leave your car before giving a speech.";
     if (soldiers(street).some(s => Math.hypot(s.x - body.x, s.z - body.z) < 70)) return "Not with soldiers this close!";
     const nearby = street.actors.filter(a => a.kind === "civilian" && alive(a) && Math.hypot(a.x - body.x, a.z - body.z) < 40).length;
     const r = rng;
@@ -630,6 +640,7 @@ function dialogueAction(id: string): void {
 }
 
 function interact(): void {
+    if (playerCar?.piloting || (playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6)) { useCar(); return; }
     const a = nearestActor(street, 3.4, x => x.kind !== "soldier");
     if (!a) { toast("No one close enough to talk to.", "info"); return; }
     openDialogue(a);
@@ -739,6 +750,13 @@ function controllerButton(button: string, pressed: boolean): void {
     const fresh = controller.button(button, pressed);
     if (!fresh) return;
     if (mode === "play") {
+        if (playerCar?.piloting) {
+            if (button === "West") onKey("e");
+            else if (button === "DPadDown") onKey("l");
+            else if (button === "RightThumb") onKey("v");
+            else if (button === "Start") onKey("Tab");
+            return;
+        }
         const actions: Record<string, string> = { West: "e", East: "r", North: "b", Start: "Tab", DPadUp: "f", DPadDown: "q", RightThumb: "v" };
         if (actions[button]) onKey(actions[button]);
         if ((button === "RightTrigger" || button === "LeftTrigger") && campaign) {
@@ -818,6 +836,12 @@ function onKey(k: string): void {
     if (mode === "outcome" || mode === "title" || mode === "setup" || mode === "loading") return;
     // Play.
     if (k === "Tab" || lower === "m" || k === "Escape") { mode = "console"; selectedRegion = region; return; }
+    if (playerCar?.piloting) {
+        if (lower === "e") useCar();
+        else if (lower === "l") landCar();
+        else if (lower === "v") body.firstPerson = !body.firstPerson;
+        return;
+    }
     if (lower === "e") interact();
     else if (lower === "f") quickPamphlet();
     else if (lower === "b") { const err = beginSpeech(); if (err) toast(err, "bad"); }
@@ -840,7 +864,7 @@ function setupInput(): void {
         if (button === 1) { lookButtonDown = true; lookDrag = [x, y]; return; }
         const id = ui ? ui.click(x, y) : null;
         if (id) return;
-        if (mode === "play") { triggerHeld = true; triggerFresh = true; }
+        if (mode === "play" && !playerCar?.piloting) { triggerHeld = true; triggerFresh = true; }
         else if (mode === "setup") setup.focus = null;
     });
     Entropy.Input.onMouseMove((x: number, y: number) => {
@@ -953,6 +977,8 @@ function view(): GameView {
             ? `[E] CONFRONT ${nearestTalk.name.toUpperCase()}`
             : `[E] TALK TO ${nearestTalk.name.toUpperCase()} - ${nearestTalk.member ? "COMRADE" : opinionLabel(nearestTalk.opinion)}${nearestTalk.kind === "civilian" ? "   [F] PAMPHLET" : ""}`;
     }
+    if (playerCar?.piloting) prompt = `${playerCar.state.toUpperCase()}  ${Math.round(playerCar.y - carGround(playerCar.x, playerCar.z, heightAt))}m ALTITUDE  ${Math.round(Math.hypot(playerCar.vx, playerCar.vz) * 3.6)} km/h   [E / X / SQUARE] EXIT AFTER LANDING`;
+    else if (playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6) prompt = "[E / X / SQUARE] ENTER YOUR FLYING CAR";
     const rallyActor = street.rally ? actorById(street, street.rally.orator) : undefined;
     return {
         mode, tab, c, setup, loading, speech, dialogue, toasts, region, selectedRegion, selectedMember, memberPage, settlementPage, prompt,
@@ -967,7 +993,7 @@ function view(): GameView {
         pamphlet: pamphletType,
         stamina: Math.round(body.stamina * 50) / 50,
         armor: c ? Math.round(c.player.armor / Math.max(1, armorById(c.player.armorId).armor || 1) * 50) / 50 : 0,
-        land, hasSave, time, firstPerson: body.firstPerson,
+        land, hasSave, time, firstPerson: body.firstPerson, piloting: playerCar?.piloting ?? false,
         debug: null,
         act,
     };
@@ -1052,7 +1078,7 @@ function drawPeople(): void {
         shown.push({ a, distance: actorDistance, lod });
     }
     // You are drawn in full and count against the budget first.
-    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
+    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson && !playerCar?.piloting;
     shown.sort((x, y) => x.distance - y.distance);
     const budget = { maxFull: Math.max(0, peopleBudget.maxFull - (playerVisible ? 1 : 0)), triangleBudget: Math.max(0, peopleBudget.triangleBudget - (playerVisible ? PERSON_TRIANGLES[0] : 0)) };
     const lods = budgetLods(shown.map(s => s.lod), budget);
@@ -1129,9 +1155,45 @@ function setupProps(): void {
 
 const trafficItems: string[] = [];
 let playerCarItem = "";
-let playerCar: ParkedCar | null = null;
+let playerCar: FlyingCar | null = null;
+const flightEnvironment = () => ({ height: heightAt, sea: isSea, buildings: nav?.rects ?? [] });
+function saveCar(): void {
+    if (!campaign || !playerCar || !frame) return;
+    const ll = dirToLatLon(toWorld(frame, playerCar.x, playerCar.y, playerCar.z));
+    campaign.player.flyingCar = { lat: ll.lat, lon: ll.lon, yaw: playerCar.yaw,
+        altitude: Math.max(0, playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), piloting: playerCar.piloting };
+}
+function useCar(): void {
+    if (!playerCar || mode !== "play") return;
+    const c = playerCar;
+    if (c.piloting) {
+        if (c.state !== "parked" || !landingClear(c, flightEnvironment())) { toast("Land on clear, level ground before exiting. Press L / D-pad down."); return; }
+        let exit: [number, number] | null = null;
+        for (let i = 0; i < 16; i++) {
+            const a = c.yaw + i * Math.PI / 8;
+            const x = c.x + Math.sin(a) * 4.8, z = c.z + Math.cos(a) * 4.8;
+            if (nav?.walkable(x, z) && !isSea(x, z) && Math.abs(heightAt(x, z) - (c.y - 0.22)) < 1) { exit = [x, z]; break; }
+        }
+        if (!exit) { toast("No safe space to exit here.", "bad"); return; }
+        c.piloting = false; c.vx = c.vy = c.vz = 0;
+        [body.x, body.z] = exit; body.y = heightAt(body.x, body.z); body.vy = 0; body.grounded = true;
+        buildNav(body.x, body.z); toast("You leave your car.");
+    } else {
+        if (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3) { toast("Get closer to your car."); return; }
+        c.piloting = true; body.x = c.x; body.y = c.y; body.z = c.z; body.yaw = c.yaw;
+        triggerHeld = triggerFresh = false; lookDrag = null;
+        buildNav(c.x, c.z); toast("Space / A / Cross to rise. L / D-pad down to land.");
+    }
+    saveCar();
+}
+function landCar(): void {
+    if (!playerCar?.piloting) return;
+    if (!landingClear(playerCar, flightEnvironment())) { toast("Find clear, level ground away from buildings and water.", "bad"); return; }
+    playerCar.state = "landing";
+}
+
 function addCarObstacle(): void {
-    if (!nav || !playerCar) return;
+    if (!nav || !playerCar || playerCar.piloting) return;
     const p = playerCar;
     nav.addRect({ cx: p.x, cz: p.z, ux: Math.cos(p.yaw), uz: -Math.sin(p.yaw), hw: 2.8, hd: 2.5,
         height: 1.6, base: p.y - 0.22, key: "al-player-car", door: [p.x, p.z] });
@@ -1142,10 +1204,10 @@ let trafficSampleTime = -Infinity;
 function drawTraffic(): void {
     const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue");
     if (visible && playerCar) {
-        playerCar.y = heightAt(playerCar.x, playerCar.z) + 0.22;
+        if (playerCar.state === "parked") playerCar.y = carGround(playerCar.x, playerCar.z, heightAt);
         writeItem(playerCarItem, personMatrix(playerCar.x, playerCar.y, playerCar.z, playerCar.yaw, false), [1, 1, 1, 0]);
     }
-    showProp("al-player-car", visible && !!playerCar);
+    showProp("al-player-car", visible && !!playerCar && !(playerCar.piloting && body.firstPerson));
     if (visible && time - trafficSampleTime > 2) {
         trafficSampleTime = time;
         trafficHouses = Entropy.QuadPlanet.buildings(terrainId, toWorld(frame!, body.x, body.y, body.z), 400, { limit: 1500 });
@@ -1226,7 +1288,7 @@ function cameraForMode(dt: number): { position: Vec3; target: Vec3; up: Vec3 } {
         return { position: eye, target: toWorld(frame, 0, heightAt(0, 0) + 2, 0), up: frame.up };
     }
     // A speech is filmed from the crowd's side, looking back at the speaker and the podium.
-    const cam = bodyCamera(body, heightAt, mode === "speech" ? 2.7 : 0);
+    const cam = bodyCamera(playerCar?.piloting ? { ...body, camDistance: 12 } : body, heightAt, mode === "speech" ? 2.7 : 0);
     if (mode === "speech") return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, body.x, body.y + 1.5, body.z), up: frame.up };
     return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, ...cam.target), up: frame.up };
 }
@@ -1326,7 +1388,7 @@ function snapshot() {
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
         traffic: { count: trafficVisible, limit: TRAFFIC_LIMIT },
-        flyingCar: playerCar ? { ...playerCar, state: "parked", distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null,
+        flyingCar: playerCar ? { ...playerCar, altitude: r2(playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null,
         settlements: c?.settlements?.map(d => ({ id: d.id, name: d.name, country: d.country, parent: d.parent, governor: c.regions[d.id].governor })) ?? [],
         fixedStep,
     };
@@ -1478,7 +1540,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_act",
-        description: "Street and campaign actions: talk (nearest), pamphlet, persuade, recruit, follow, leave; walk {dx,dz}; face {yaw,pitch}; shoot; squad (spawn soldiers); rest; days {days}; funds {amount}; organize; arm {count}; war; coup; election; travel {region}; equip {weapon}; buy {weapon}; save; load; view {distance, firstPerson}.",
+        description: "Street and campaign actions: car (enter/exit nearby car); land (autoland); talk (nearest), pamphlet, persuade, recruit, follow, leave; walk {dx,dz}; face {yaw,pitch}; shoot; squad (spawn soldiers); rest; days {days}; funds {amount}; organize; arm {count}; war; coup; election; travel {region}; equip {weapon}; buy {weapon}; save; load; view {distance, firstPerson}.",
         parameters: { type: "object", properties: {
             action: { type: "string" }, dx: { type: "number" }, dz: { type: "number" }, yaw: { type: "number" }, pitch: { type: "number" }, days: { type: "integer" },
             amount: { type: "number" }, count: { type: "integer" }, region: { type: "string" }, weapon: { type: "string" }, distance: { type: "number" }, firstPerson: { type: "boolean" },
@@ -1560,6 +1622,8 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 case "buy": act("buy-weapon", a.weapon); break;
                 case "save": out.saved = save(); break;
                 case "load": act("continue"); break;
+                case "car": useCar(); break;
+                case "land": landCar(); break;
                 case "view": if (typeof a.distance === "number") body.camDistance = a.distance; if (typeof a.firstPerson === "boolean") body.firstPerson = a.firstPerson; if (typeof a.pitch === "number") body.pitch = a.pitch; if (typeof a.yaw === "number") body.yaw = a.yaw; break;
                 default: throw new Error(`Unknown action ${action}`);
             }
@@ -1688,10 +1752,18 @@ addon.onUpdatePlus("Global", () => {
 
     const live = mode === "play" || mode === "speech" || mode === "dialogue";
     if (live && frame) {
-        stepBody(body, readInput(), dt, nav, heightAt, mode === "speech" ? 0 : 1);
+        if (playerCar?.piloting) {
+            const input = readInput();
+            playerCar.yaw = body.yaw;
+            stepCar(playerCar, input, key("Control") || key("c") || controller.held.has("East"), dt, flightEnvironment());
+            body.x = playerCar.x; body.y = playerCar.y; body.z = playerCar.z; body.yaw = playerCar.yaw;
+            body.pitch = Math.max(-1.25, Math.min(1.05, body.pitch + ((input.lookY ?? 0) + Number(input.lookUp) - Number(input.lookDown)) * dt * 1.4));
+            body.speed = Math.hypot(playerCar.vx, playerCar.vz);
+            saveCar();
+        } else stepBody(body, readInput(), dt, nav, heightAt, mode === "speech" ? 0 : 1);
         street.player.x = body.x; street.player.z = body.z; street.player.y = body.y; street.player.heading = body.yaw;
         street.player.moving = body.speed > 0.5;
-        stepWeapon(dt);
+        if (!playerCar?.piloting) stepWeapon(dt);
         // Out of a fight, wounds slowly heal (faster with Toughness).
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);

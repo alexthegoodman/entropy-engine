@@ -82,6 +82,7 @@ export interface GameView {
     hasSave: boolean;
     time: number;
     firstPerson: boolean;
+    piloting?: boolean;
     debug: string | null;
     act(name: string, arg?: unknown): void;
 }
@@ -417,7 +418,7 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     }
     // Controls hint and org warnings.
     const report = orgReport(c);
-    const hint = `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK  F PAMPHLET  B SPEECH  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
+    const hint = g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  SHIFT BOOST  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK  F PAMPHLET  B SPEECH  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
     p.rect(436, 4, W - 436 - 370, 26, [0.04, 0.035, 0.035, 0.7]);
     p.text(hint, 444, 9, 12, report.warnings.length ? THEME.gold : THEME.cream, FONT.head, W - 440 - 380);
     if (g.debug) p.text(g.debug, 440, 30, 12, THEME.dim, FONT.mono, W - 840);

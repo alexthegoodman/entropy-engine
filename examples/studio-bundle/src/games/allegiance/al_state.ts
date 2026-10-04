@@ -123,7 +123,7 @@ export interface Campaign {
         pamphlets: Record<string, number>;
         lat: number;
         lon: number;
-        flyingCar?: { lat: number; lon: number; yaw: number };
+        flyingCar?: { lat: number; lon: number; yaw: number; altitude?: number; piloting?: boolean };
     };
     members: Member[];
     nextMemberId: number;

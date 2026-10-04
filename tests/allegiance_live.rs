@@ -233,3 +233,27 @@ fn allegiance_iteration1_live_feature() {
     if s[1]["terrain"]["city"]["houses"].as_u64().unwrap_or(0) > 50 { assert!(traffic > 0); }
     assert_eq!(artifacts.len(), 4);
 }
+
+#[test]
+fn allegiance_car_live_feature() {
+    let (result, artifacts, _) = run("car", Some("tests/features/allegiance_car_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 9);
+    assert_eq!(s[0]["flyingCar"]["state"], "parked");
+    assert_eq!(s[0]["flyingCar"]["piloting"], false);
+    assert_eq!(s[1]["flyingCar"]["piloting"], true, "E boards the nearby car");
+    assert_eq!(s[2]["flyingCar"]["state"], "hovering");
+    assert!(f(&s[2]["flyingCar"]["altitude"]) > 8.0, "controller takes off");
+    assert_eq!(s[3]["flyingCar"]["piloting"], true, "cannot exit airborne");
+    assert_eq!(s[4]["flyingCar"]["piloting"], true, "resume aboard");
+    assert!((f(&s[4]["flyingCar"]["altitude"]) - f(&s[2]["flyingCar"]["altitude"])).abs() < 1.0, "resume at saved altitude");
+    let moved = (f(&s[5]["flyingCar"]["x"]) - f(&s[4]["flyingCar"]["x"])).hypot(f(&s[5]["flyingCar"]["z"]) - f(&s[4]["flyingCar"]["z"]));
+    assert!(moved > 1.0, "keyboard flies the car horizontally");
+    assert!(f(&s[6]["flyingCar"]["z"]) > f(&s[5]["flyingCar"]["z"]) + 1.0, "positive left-stick Y flies forward");
+    assert!(f(&s[6]["player"]["yaw"]) > f(&s[5]["player"]["yaw"]), "right stick steers the car");
+    assert_eq!(s[7]["flyingCar"]["state"], "parked", "controller autolands");
+    assert!(f(&s[7]["flyingCar"]["altitude"]).abs() < 0.1);
+    assert_eq!(s[8]["flyingCar"]["piloting"], false, "controller exits");
+    assert!((3.5..6.0).contains(&f(&s[8]["flyingCar"]["distance"])), "exit beside the rotors");
+    assert_eq!(artifacts.len(), 3);
+}

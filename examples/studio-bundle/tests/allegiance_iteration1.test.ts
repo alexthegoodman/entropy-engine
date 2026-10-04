@@ -9,7 +9,68 @@ import { Controller, stick } from "../src/games/allegiance/al_controller";
 import { newBody, stepBody, NO_PLAYER_INPUT } from "../src/games/allegiance/al_player";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "../src/games/allegiance/al_traffic";
 import { buildFlyingCar } from "../src/games/allegiance/al_models";
-import { parkBeside } from "../src/games/allegiance/al_vehicle";
+import { parkBeside, newCar, stepCar, landingClear, flightClear, carGround, type FlightEnvironment } from "../src/games/allegiance/al_vehicle";
+
+describe("Personal multicopter flight", () => {
+    const flat: FlightEnvironment = { height: () => 0, sea: () => false, buildings: [] };
+    const advance = (c: ReturnType<typeof newCar>, input = NO_PLAYER_INPUT, seconds = 1, env = flat, descend = false) => {
+        for (let i = 0; i < seconds * 60; i++) stepCar(c, input, descend, 1 / 60, env);
+    };
+    it("requires a pilot, takes off, brakes to a hover and lands", () => {
+        const c = newCar({ x: 0, z: 0, y: 0.22, yaw: 0 });
+        advance(c, { ...NO_PLAYER_INPUT, jump: true }); expect(c.y).toBe(0.22);
+        c.piloting = true;
+        advance(c, { ...NO_PLAYER_INPUT, forward: true }); expect(c.z).toBe(0);
+        advance(c, { ...NO_PLAYER_INPUT, jump: true }, 2); expect(c.y).toBeGreaterThan(12);
+        advance(c, { ...NO_PLAYER_INPUT, forward: true }, 1); expect(c.z).toBeGreaterThan(10);
+        advance(c, NO_PLAYER_INPUT, 3);
+        const p = [c.x, c.y, c.z]; advance(c);
+        expect(Math.hypot(c.x - p[0], c.y - p[1], c.z - p[2])).toBeLessThan(0.01);
+        expect(c.state).toBe("hovering");
+        c.state = "landing"; advance(c, NO_PLAYER_INPUT, 10);
+        expect(c.state).toBe("parked"); expect(c.y).toBeCloseTo(0.22);
+    });
+    it("flies forward on positive controller Y and steers on right-stick X", () => {
+        const c = newCar({ x: 0, z: 0, y: 20, yaw: 0 }); c.piloting = true;
+        advance(c, { ...NO_PLAYER_INPUT, moveY: 0.5 }, 1);
+        expect(c.z).toBeGreaterThan(5); expect(c.x).toBe(0);
+        advance(c, { ...NO_PLAYER_INPUT, lookX: 0.5 }, 1);
+        expect(c.yaw).toBeGreaterThan(0.7);
+    });
+    it("blocks the entire rotor footprint at walls and roofs but flies above them", () => {
+        const env = { ...flat, buildings: [{ cx: 0, cz: 10, ux: 1, uz: 0, hw: 3, hd: 0.1, height: 12, base: 0, key: "wall", door: [0, 0] as [number, number] }] };
+        const c = newCar({ x: 0, z: 0, y: 5, yaw: 0 }); c.piloting = true;
+        advance(c, { ...NO_PLAYER_INPUT, forward: true, sprint: true }, 2, env);
+        expect(c.z).toBeLessThan(6.9);
+        expect(flightClear({ ...c, z: 10, y: 12 }, env)).toBe(false);
+        advance(c, { ...NO_PLAYER_INPUT, jump: true }, 2, env);
+        advance(c, { ...NO_PLAYER_INPUT, forward: true }, 2, env); expect(c.z).toBeGreaterThan(20);
+    });
+    it("flies over water but refuses water, steep slopes and buildings for landing", () => {
+        const c = newCar({ x: 0, z: 0, y: 20, yaw: 0 }); c.piloting = true;
+        const water = { ...flat, sea: () => true };
+        advance(c, { ...NO_PLAYER_INPUT, forward: true }, 1, water); expect(c.z).toBeGreaterThan(10);
+        expect(landingClear(c, water)).toBe(false);
+        expect(landingClear(c, { ...flat, height: x => x })).toBe(false);
+        expect(landingClear(c, { ...flat, buildings: [{ cx: c.x, cz: c.z, ux: 1, uz: 0, hw: 1, hd: 1, height: 5, base: 0, key: "house", door: [0, 0] }] })).toBe(false);
+        expect(landingClear(c, flat)).toBe(true);
+    });
+    it("uses terrain under all rotors and stays above sloping ground", () => {
+        const env = { ...flat, height: (x: number) => x * 0.1 };
+        expect(carGround(0, 0, env.height)).toBeCloseTo(0.52);
+        const c = newCar({ x: 0, z: 0, y: 0.52, yaw: 0 }); c.piloting = true;
+        advance(c, { ...NO_PLAYER_INPUT, jump: true }, 1, env);
+        expect(c.y).toBeGreaterThan(6); expect(landingClear(c, env)).toBe(true);
+    });
+    it("descends on controller input, respects the ceiling, and preserves saved flight", () => {
+        const c = newCar({ x: 0, z: 0, y: 498, yaw: 0 }); c.piloting = true;
+        advance(c, { ...NO_PLAYER_INPUT, jump: true }, 2); expect(c.y).toBeLessThanOrEqual(500.22);
+        advance(c, NO_PLAYER_INPUT, 2, flat, true); expect(c.y).toBeLessThan(490);
+        const restored = JSON.parse(JSON.stringify(c));
+        advance(restored, NO_PLAYER_INPUT, 3); expect(restored.state).toBe("hovering");
+        expect(restored.piloting).toBe(true);
+    });
+});
 
 const hometown = { name: "Levittown", kind: "town", lat: 40.7259, lon: -73.5143 };
 describe("Iteration 1 settlement campaigns", () => {

@@ -80,7 +80,7 @@ Generator/version/parameters/LOD identify disk entries. Returning or restarting 
 | W A S D | walk (relative to where you look); Shift runs (stamina); Space jumps |
 | Right mouse drag, arrow keys | look around |
 | Left mouse | fire at the crosshair (hold for automatic weapons); R reloads; 1-9 switch weapons |
-| E | talk to the person in front of you, or confront a rival orator |
+| E | enter/exit your nearby car; otherwise talk or confront a rival orator |
 | F | hand the nearest person a pamphlet; Q cycles the pamphlet you carry |
 | B | take the stage: start a speech |
 | V | first / third person; mouse wheel zooms the camera |
@@ -93,7 +93,7 @@ Xbox and DualShock use the same semantic mappings:
 | Left stick / click left stick | Analog walk / sprint |
 | Right stick / click right stick | Look / first-person toggle |
 | A / Cross | Jump; confirm a menu item; deliver or close a speech |
-| X / Square | Talk; first speech card; rebut a heckler |
+| X / Square | Enter/exit your car or talk; first speech card; rebut a heckler |
 | Y / Triangle | Start speech; second speech card |
 | B / Circle | Reload; third speech card; close dialogue/console |
 | RT / R2 | Fire (hold for automatic weapons) |
@@ -111,8 +111,26 @@ rooftops, with some hovering. Housing within 400 m sets traffic density, capped 
 cars. Sparse areas have little or no traffic; separated altitude lanes keep dense areas readable.
 Tall blocks contribute a provisional apartment estimate from their floor area, since the current
 map bridge does not expose residential use. These are ambient vehicles in this iteration.
-Your personal flying car is parked beside you on clear ground when you arrive. It stays where
-you leave it and its location is saved with the campaign.
+Your personal flying car is parked beside you on clear ground when you arrive. Press **E**
+or **X / Square** within six metres to board. The HUD changes to flight controls and altitude.
+
+| Flying car | Keyboard | Xbox / DualShock |
+|---|---|---|
+| Move horizontally | W A S D | Left stick |
+| Steer / look | Right mouse drag or arrows | Right stick |
+| Take off / rise | Space | A / Cross |
+| Descend | C or Control | B / Circle |
+| Boost (35 m/s instead of 20 m/s) | Shift | Click left stick |
+| Automatic landing | L | D-pad down |
+| Exit after landing | E | X / Square |
+| First / third person | V | Click right stick |
+
+Releasing the controls brakes to a stationary hover. The car stays above terrain and collides
+with building walls and roofs across its rotor footprint; it can fly over water but lands only
+on clear, dry, level ground. Flight is capped at 500 metres above local terrain. Land before
+exiting; you step onto clear ground beside the car. Its location, altitude and whether you are
+aboard persist with the campaign; airborne saves resume in a stationary hover. The console
+pauses flight. Ambient traffic remains decorative.
 
 The HUD shows your party, the date and the time of day, your funds, members, world support and
 reputation. It also shows the region you are in (who rules it, your share against the strongest
@@ -282,6 +300,7 @@ where you left off.
 | `al_nav.ts` | The street layer's local tangent frame on Earth, OSM buildings as oriented rectangles with doors, the nav grid, A* with string pulling, wall collision, line of sight |
 | `al_street.ts` | Everyone around you: civilians, followers, militia, soldiers, rival orators; crowds, pamphlets, recruiting, hitscan combat |
 | `al_player.ts` | You on foot, and the camera |
+| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, rotor clearance and landing checks |
 | `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers; three materials injected into QuadPlanet's shader |
 | `al_ui.ts`, `al_screens.ts` | The propaganda UI kit and every screen |
 | `allegiance_addon.ts` | The engine wiring: terrain, the loading screen, rendering, input, the day clock, saving, MCP tools |
@@ -342,7 +361,9 @@ These tools also drive the live test:
   a street battle and victory. It also plays `allegiance_travel_live.feature`: a rival rally and a
   debate, travel to Paris, save and continue. It checks the tools' replies and the captured
   frames. `allegiance_iteration1_live.feature` covers hometown start, controller movement and menus,
-  density-limited traffic, and save/resume. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  density-limited traffic, and save/resume. `allegiance_car_live.feature` covers keyboard boarding,
+  controller takeoff, hover, rejected airborne exit, airborne save/resume, keyboard flight,
+  controller landing and exit, with three captured frames. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.
@@ -352,7 +373,8 @@ These tools also drive the live test:
 - Buildings are their fitted rectangles to the nav grid and to bullets; you can't go inside. The
   houses' interiors are there to see, not to walk.
 - Your personal hover car parks beside you on arrival, with clearance for its rotors; its parking
-  location persists through save/resume. Cars cannot be driven yet. Long-distance travel is instant
+  location and airborne occupancy persist through save/resume. The personal car is pilotable;
+  ambient traffic has no vehicle collisions. Long-distance command-console travel is instant
   (it costs days and credits).
 - Settlements become individual targets as their map tiles load or a hometown is selected.
   Coverage depends on mapped place labels. Political hinterlands use nearest regional centers;
