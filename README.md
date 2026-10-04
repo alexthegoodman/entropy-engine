@@ -601,7 +601,8 @@ checks the captures (under `xvfb-run -a` on a headless box).
 **Allegiance** ([how to play and how it works](docs/ALLEGIANCE.md)) is a political conquest game on
 QuadPlanet's full-scale Earth in the year 2100. Found a party (name, ideology, color), pick any of
 113 cities to start in, and wait on a propaganda-poster loading screen while the real terrain,
-OpenStreetMap streets and Mesha houses stream in and cache. On the street, pedestrians walk between
+OpenStreetMap streets and Mesha houses stream in and cache. People use Mesha's full human model
+nearby, with distance LODs prepared on the loading screen and cached to disk. On the street, pedestrians walk between
 real building doors on A* paths. Give speeches as a five-beat mini-game (pick a line for the crowd,
 hit the timing, rebut hecklers, out-argue rival orators), hand out pamphlets, and recruit passers-by.
 Then build a chain of command (inner circle, bloc commissioners, region chiefs, cell leaders),

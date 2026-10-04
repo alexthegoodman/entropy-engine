@@ -21,8 +21,9 @@ import {
 } from "../../apps/quadplanet/qp_planet";
 import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, type CityBuilding } from "../../apps/quadplanet/qp_city";
-import { ALLEGIANCE_SHADER } from "./al_shader";
-import { buildPerson, buildPodium, buildFlag, buildTracer, buildSky, personKey, type ModelMesh, type PersonLook } from "./al_models";
+import { ALLEGIANCE_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, type PersonLod } from "./al_people";
+import { buildPodium, buildFlag, buildTracer, buildSky, type ModelMesh, type PersonLook } from "./al_models";
 import {
     PARTY, PARTY_COLORS, REGIONS, RIVALS, IDEOLOGIES, blocById, regionDefById, weaponById, armorById, pamphletById, factionById,
 } from "./al_data";
@@ -65,6 +66,7 @@ const EARTH: PlanetDef = { ...PLANETS.find(isEarth)!, center: [0, 0, 0] };
 const WORLD_PLANETS = [EARTH];
 
 let pipelineId = "";
+let peoplePipelineId = "";
 let worldBuffer = "";
 let skyItem = "";
 let terrainId = "";
@@ -77,6 +79,7 @@ const ROAD_DISTANCE = 2500;
 
 const toRender = (p: Vec3): Vec3 => sub(p, renderOrigin);
 const uniform = (floats: number) => Entropy.Buffer.create({ size: floats * 4, usage: "Uniform" });
+let people: PeopleMeshes;
 const bindings = (item: string) => [
     { group: 2, binding: 0, resource: { type: "Buffer" as const, value: { id: worldBuffer } } },
     { group: 2, binding: 1, resource: { type: "Buffer" as const, value: { id: item } } },
@@ -263,18 +266,20 @@ function loadingStep(): void {
     const queued = houses?.lastStats.queued ?? 0;
     loadState.peakQueued = Math.max(loadState.peakQueued, queued);
     const house = houses?.busy() ? Math.max(0, 1 - queued / loadState.peakQueued) : 1;
-    const p = 0.45 * terrain + 0.3 * city + 0.2 * house + (loadState.navBuilt ? 0.05 : 0);
+    const peopleReady = people.prepare();
+    const p = 0.4 * terrain + 0.25 * city + 0.2 * house + (peopleReady ? 0.1 : 0) + (loadState.navBuilt ? 0.05 : 0);
     loading.progress = Math.max(loading.progress, Math.min(0.99, p));
-    loading.stage = terrain < 1 ? "Surveying the terrain" : city < 1 ? "Mapping the streets" : house < 1 ? "Raising the houses" : "Plotting the routes";
+    loading.stage = terrain < 1 ? "Surveying the terrain" : city < 1 ? "Mapping the streets" : house < 1 ? "Raising the houses" : !peopleReady ? "Preparing the people" : "Plotting the routes";
     loading.lines = [
         `Terrain: ${stats.live} chunks${pending ? `, ${pending} streaming${stats.waitingForData ? ` (${stats.waitingForData} awaiting elevation)` : ""}` : ", settled"}`,
         c ? `Streets: ${c.live}/${c.wanted} OpenStreetMap tiles, ${c.buildings.toLocaleString("en-US")} buildings${c.failed ? ` (${c.failed} unavailable)` : ""}` : "Streets: waiting for the map",
         `Houses: ${houses?.lastStats.lod0 ?? 0} full, ${houses?.lastStats.lod1 ?? 0} simplified${queued ? `, ${queued} to build (cached after the first time)` : ""}`,
+        peopleReady ? "People: Mesha humans and distance LODs cached" : "People: preparing Mesha humans and distance LODs (cached after the first time)",
         loadState.navBuilt ? `Routes: ${nav?.rects.length ?? 0} buildings on the street map` : "Routes: pending",
     ];
     const settled = terrain >= 1 && (city >= 1 || loading.elapsed > 60) && (house >= 1 || loading.elapsed > 80);
     loadState.settledFrames = settled ? loadState.settledFrames + 1 : 0;
-    if ((loadState.settledFrames > 3 && loading.elapsed > 1.2) || loading.elapsed > 150) finishLoading();
+    if (peopleReady && ((loadState.settledFrames > 3 && loading.elapsed > 1.2) || loading.elapsed > 150)) finishLoading();
 }
 
 function finishLoading(): void {
@@ -875,9 +880,8 @@ function view(): GameView {
 
 // --- Rendering people ----------------------------------------------------------------------------
 
-interface Drawn { mesh: string; item: string; key: string }
+interface Drawn { mesh: string; item: string; colors: string; palette: string; key: string; lod: PersonLod }
 const drawn = new Map<number, Drawn>();
-const meshCache = new Map<string, ModelMesh>();
 const freeItems: string[] = [];
 let meshSerial = 0;
 
@@ -894,24 +898,28 @@ function lookOf(a: Actor): PersonLook {
 
 const PLAYER_LOOK_BASE = { skin: [0.85, 0.66, 0.5] as [number, number, number], hair: [0.12, 0.09, 0.07] as [number, number, number], hat: false, female: false, soldier: false, sash: true };
 
-function meshFor(look: PersonLook): { key: string; mesh: ModelMesh } {
-    const k = personKey(look);
-    let m = meshCache.get(k);
-    if (!m) { m = buildPerson(look); meshCache.set(k, m); }
-    return { key: k, mesh: m };
-}
-
-function ensureDrawn(id: number, look: PersonLook): Drawn {
-    const { key: k, mesh } = meshFor(look);
+function ensureDrawn(id: number, look: PersonLook, lod: PersonLod): Drawn | null {
+    const key = people.ensure(look, lod);
+    if (!key) return null;
     let d = drawn.get(id);
-    if (d && d.key !== k) { Entropy.Model.clearMesh(d.mesh); freeItems.push(d.item); drawn.delete(id); d = undefined; }
-    if (!d) {
-        const item = freeItems.pop() ?? uniform(ITEM_FLOATS);
-        const meshId = `al-person-${meshSerial++}`;
-        spawnMesh(meshId, mesh, item);
-        d = { mesh: meshId, item, key: k };
-        drawn.set(id, d);
+    const palette = [...look.skin, ...look.hair].join(",");
+    if (d && d.palette !== palette) {
+        Entropy.Buffer.write(d.colors, new Float32Array([...look.skin, 1, ...look.hair, 1]));
+        d.palette = palette;
     }
+    if (d?.key === key) return d;
+    const item = d?.item ?? freeItems.pop() ?? uniform(ITEM_FLOATS);
+    const colors = d?.colors ?? uniform(8);
+    Entropy.Buffer.write(colors, new Float32Array([...look.skin, 1, ...look.hair, 1]));
+    const meshId = `al-person-${meshSerial++}`;
+    if (!Entropy.MeshCache.createMesh(PEOPLE_NAMESPACE, key, { id: meshId, pipelineId: peoplePipelineId, bindings: [...bindings(item),
+        { group: 2, binding: 2, resource: { type: "Buffer", value: { id: colors } } }] })) {
+        if (!d) { freeItems.push(item); Entropy.Buffer.destroy(colors); }
+        return d ?? null;
+    }
+    if (d) Entropy.Model.clearMesh(d.mesh);
+    d = { mesh: meshId, item, colors, palette, key, lod };
+    drawn.set(id, d);
     return d;
 }
 
@@ -920,6 +928,7 @@ function releaseDrawn(id: number): void {
     if (!d) return;
     Entropy.Model.clearMesh(d.mesh);
     freeItems.push(d.item);
+    Entropy.Buffer.destroy(d.colors);
     drawn.delete(id);
 }
 
@@ -940,7 +949,9 @@ function drawPeople(): void {
     for (const a of street.actors) {
         if (Math.hypot(a.x - body.x, a.z - body.z) > 160) continue;
         seen.add(a.id);
-        const d = ensureDrawn(a.id, lookOf(a));
+        const actorDistance = lastCamera ? distance(lastCamera.position, toWorld(frame, a.x, a.y + 0.9, a.z)) : Math.hypot(a.x - body.x, a.z - body.z);
+        const d = ensureDrawn(a.id, lookOf(a), personLod(actorDistance, drawn.get(a.id)?.lod));
+        if (!d) continue;
         const dead = a.state === "dead";
         const shirt = a.kind === "soldier" ? a.look.shirt : (a.member || a.kind === "follower") ? [party[0], party[1], party[2]] : a.look.shirt;
         const amp = dead ? 0 : Math.min(0.75, a.speed * 0.22);
@@ -955,7 +966,8 @@ function drawPeople(): void {
     // You.
     const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson;
     const look: PersonLook = { ...PLAYER_LOOK_BASE, weapon: weaponClass(c?.player.weapon ?? "fists") };
-    const d = ensureDrawn(-1, look);
+    const d = ensureDrawn(-1, look, 0);
+    if (!d) return;
     if (!playerVisible) writeItem(d.item, HIDDEN, [1, 1, 1, 0]);
     else {
         const amp = Math.min(0.8, body.speed * 0.2);
@@ -1138,6 +1150,10 @@ function snapshot() {
         dialogue: dialogue ? { name: dialogue.name, opinion: r2(dialogue.opinion), reply: dialogue.reply, member: dialogue.member } : null,
         terrain: stats ? { live: stats.live, pending: stats.pending, waitingForData: stats.waitingForData, triangles: stats.triangles, city: stats.city ?? null } : null,
         houses: houses?.lastStats ?? null,
+        people: { generated: people?.generated ?? 0, cache: Entropy.MeshCache.stats(PEOPLE_NAMESPACE),
+            lod0: [...drawn.values()].filter(d => d.lod === 0).length,
+            lod1: [...drawn.values()].filter(d => d.lod === 1).length,
+            lod2: [...drawn.values()].filter(d => d.lod === 2).length },
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
         fixedStep,
@@ -1166,7 +1182,7 @@ function settle(timeoutMs: number) {
         time += 0.05;
         loadingStep();
     }
-    if (mode === "loading") finishLoading();
+    if (mode === "loading") return { settled: false, ms: Date.now() - start };
     // Let the street come alive for a moment.
     for (let i = 0; i < 40; i++) stepStreet(street, nav, streetContext(), 0.1, rng, heightAt);
     return { settled: mode !== "loading", ms: Date.now() - start };
@@ -1391,6 +1407,16 @@ addon.onInit(() => {
         ] }],
     });
     worldBuffer = uniform(WORLD_FLOATS);
+    peoplePipelineId = Entropy.Pipeline.create({
+        name: "Allegiance People", layout: "mesh", pbr: false,
+        vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
+        extraBindGroups: [{ entries: [
+            { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+            { binding: 2, visibility: ["Fragment"], resourceType: "Uniform" },
+        ] }],
+    });
+    people = new PeopleMeshes(Entropy.MeshCache);
     skyItem = uniform(ITEM_FLOATS);
     writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     terrainId = Entropy.QuadPlanet.create({
@@ -1482,7 +1508,7 @@ addon.onUpdatePlus("Global", () => {
     lastCamera = { ...pose, up };
     focus = mode === "title" || mode === "setup" ? pose.position : (frame ? toWorld(frame, body.x, body.y + 1.6, body.z) : pose.position);
 
-    if (frame && mode !== "title" && mode !== "setup") drawPeople();
+    if (frame && mode !== "title" && mode !== "setup" && mode !== "loading") drawPeople();
     else hideWorld();
     drawProps();
     const loadingNow = mode === "loading";

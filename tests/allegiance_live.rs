@@ -31,26 +31,42 @@ fn dark(p: Rgb) -> bool { p.iter().all(|&c| c < 50) }
 
 /// Runs the game on a feature file and returns (result JSON, artifacts).
 fn run(name: &str, feature: Option<&str>) -> (serde_json::Value, Vec<String>, std::path::PathBuf) {
+    run_with_data(name, feature, None)
+}
+
+fn run_with_data(name: &str, feature: Option<&str>, data: Option<&std::path::Path>) -> (serde_json::Value, Vec<String>, std::path::PathBuf) {
     let root = std::env::current_dir().unwrap().join("test-artifacts").join(format!("allegiance-{name}-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let result_path = root.join("result.json");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_example"));
     cmd.arg("allegiance")
         .env("ENTROPY_ALLEGIANCE_BDD_RESULT", &result_path)
-        .env("ENTROPY_ALLEGIANCE_BDD_DATA", root.join("data"))
+        .env("ENTROPY_ALLEGIANCE_BDD_DATA", data.map(std::path::Path::to_path_buf).unwrap_or_else(|| root.join("data")))
         .env("ENTROPY_BDD_BUDGET_SECS", "1500");
     if let Some(f) = feature { cmd.env("ENTROPY_ALLEGIANCE_BDD_FEATURE", f); }
     let mut child = cmd.spawn().expect("launch Allegiance");
     let started = std::time::Instant::now();
+    let mut completed = None;
+    let mut fixture_cleanup = false;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() { break status; }
+        // The focused people fixture tests rendering and cache persistence, not shutdown.
+        // Once the driver has written its complete result, bound cleanup of background world jobs.
+        if name.starts_with("people") && result_path.exists() {
+            let finished = completed.get_or_insert_with(std::time::Instant::now);
+            if finished.elapsed() > std::time::Duration::from_secs(10) {
+                fixture_cleanup = true;
+                child.kill().expect("stop completed people fixture");
+                break child.wait().expect("reap people fixture");
+            }
+        }
         if started.elapsed() > std::time::Duration::from_secs(1600) {
             let _ = child.kill(); let _ = child.wait();
             panic!("Allegiance live BDD timed out");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     };
-    assert!(status.success(), "Allegiance failed: {status}");
+    assert!(fixture_cleanup || status.success(), "Allegiance failed: {status}");
     let result: serde_json::Value = serde_json::from_slice(&fs::read(&result_path).unwrap()).unwrap();
     assert_eq!(result["status"], "passed", "{result:#}");
     let artifacts: Vec<String> = result["artifacts"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
@@ -70,6 +86,26 @@ fn find(artifacts: &[String], name: &str) -> String {
 }
 
 fn f(v: &serde_json::Value) -> f64 { v.as_f64().unwrap_or_else(|| panic!("not a number: {v}")) }
+
+#[test]
+fn allegiance_people_live_feature() {
+    let (result, artifacts, root) = run("people", Some("tests/features/allegiance_people_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 4);
+    assert_eq!(s[0]["mode"], "play");
+    assert_eq!(s[0]["people"]["generated"], 2);
+    assert!(s[1]["people"]["lod0"].as_u64().unwrap() >= 2, "player and nearby Mesha human: {}", s[1]["people"]);
+    assert!(s[0]["people"]["lod1"].as_u64().unwrap() + s[0]["people"]["lod2"].as_u64().unwrap() > 0,
+        "distant people use simpler meshes: {}", s[0]["people"]);
+    assert_eq!(s[3]["people"]["generated"], s[0]["people"]["generated"], "returning does not regenerate bodies");
+    assert!(s[3]["people"]["cache"]["hits"].as_u64().unwrap() > s[0]["people"]["cache"]["hits"].as_u64().unwrap());
+    assert_eq!(artifacts.len(), 3);
+    let (warm, _, _) = run_with_data("people-warm", Some("tests/features/allegiance_people_live.feature"), Some(&root.join("data")));
+    for state in states(&warm) {
+        assert_eq!(state["people"]["generated"], 0, "a new process reads the people from disk");
+        assert!(state["people"]["cache"]["hits"].as_u64().unwrap() > 0);
+    }
+}
 
 #[test]
 fn allegiance_live_feature() {

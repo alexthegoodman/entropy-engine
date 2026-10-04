@@ -34,9 +34,19 @@ Then pick a party color and a starting city on the world map (or **Random City**
 on Earth belongs to its nearest city, so the 113 regions cover the whole planet.
 
 **The loading screen.** Your city streams in while a propaganda poster tracks the progress:
-terrain chunks and elevation tiles, OpenStreetMap tiles and buildings, Mesha houses (built once,
-then read from the mesh cache), and finally the street map. Everything is cached under the data
+terrain chunks and elevation tiles, OpenStreetMap tiles and buildings, Mesha houses and people
+(built once, then read from the mesh cache), and finally the street map. Everything is cached under the data
 folder (`../allegiance-data`), so a second visit loads from disk.
+
+People use Mesha's existing `people.human` generator at final quality. The loading screen prepares
+two body/hair profiles and two reductions of each full mesh in `mesh-cache/allegiance-people`.
+Within 18 m of the camera the complete geometry and smooth normals are retained; beyond that,
+medium and distant meshes reduce geometry (the distant tier starts beyond 55 m). Hysteresis
+extends these ranges to 22/65 m when moving away to prevent repeated switching. The third-person
+player always uses full detail. Skin, hair and party clothing colors vary through uniforms;
+weapons, hats, helmets and sashes remain game equipment. Walking and aiming use the game's shader,
+with blended shoulder and hip motion; hair and clothes use their settled Mesha geometry.
+Generator/version/parameters/LOD identify disk entries. Returning or restarting reuses them.
 
 ## On the street
 
