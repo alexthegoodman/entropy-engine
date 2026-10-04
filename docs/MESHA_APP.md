@@ -14,6 +14,7 @@ I press **Add Object**.
 
 Instead of primarily seeing Cube, Sphere, Cylinder, etc., I see Mesha's procedural library:
 
+> People → Human (posable, with draped clothes and hair that moves)  
 > Furniture → Chair  
 > Furniture → Table  
 > Architecture → Window  

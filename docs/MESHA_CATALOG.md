@@ -31,7 +31,8 @@ floor. The scene and your presets persist in the app's data folder (`../mesha-da
 Every action is also an MCP tool (`mesha_library`, `mesha_describe`, `mesha_add`, `mesha_select`,
 `mesha_set`, `mesha_lock`, `mesha_vary`, `mesha_place`, `mesha_remove`, `mesha_undo`,
 `mesha_view`, `mesha_state`, `mesha_verify`, `mesha_export`), so an agent can drive the real app.
-`mesha_view` takes an optional `zoom` (2 frames twice as close) for details of long objects.
+`mesha_view` takes an optional `zoom` (2 frames twice as close) for details of long objects, and
+`focus` (0 the bottom of the selection, 1 its top) to aim at a height: 0.93 frames a person's face.
 
 ## The library today
 
@@ -39,6 +40,7 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 
 | Category | Object | Id | Parameters | Groups | Constraints | Materials | Configurations tested | Status | Avg eval |
 |---|---|---|---|---|---|---|---|---|---|
+| People | Human | `people.human` | 64 | 8 | 2 | 16 | 72 (draft) | Ready | ~1.5 s draft, ~8 s final |
 | Furniture | Office Chair | `furniture.office_chair` | 26 | 8 | 6 | 7 | 138 | Ready | 11 ms |
 | Furniture | Table | `furniture.table` | 18 | 5 | 6 | 2 | 128 | Ready | 3 ms |
 | Household | Bottle | `household.bottle` | 17 | 5 | 4 | 4 | 115 | Ready | 2 ms |
@@ -333,6 +335,115 @@ from soil inside its pot. Live BDD captures an oak, a willow, a back-lit autumn 
 bare and then varied with its size and finishes locked, a spruce and its stylized tiers, a pine, a
 coconut palm, tree and Boston ferns, a hedge, a hydrangea recoloured pink, pampas, lavender, tulips,
 a sunflower, potted fern and succulent, and a composed garden.
+
+## People
+
+`people.human` is a whole person: an anatomical body you can pose, a sculpted face, clothes cut to
+fit and draped by cloth physics, shoes, and styled hair settled by strand physics. Hair and clothes
+keep simulating in the viewport. It has 64 controls in eight groups (body, proportions, face, pose,
+hair, clothing, materials, quality), 16 material regions, and presets from "Weekend" to a T-pose
+base mesh.
+
+![A gallery of people](../public/mesha-people-gallery.png)
+
+How it's built (all in `examples/studio-bundle/src/apps/mesha/`):
+
+- **Forms over a skeleton** (`mesha_figure.ts`). Each form a figure artist would block in is a
+  signed-distance primitive (ellipsoids, round cones, a rounded box) attached to a bone: the
+  cranium, jaw, brows, lids, nose, lips, ears, the neck's cords, rib cage, pectorals or breasts,
+  shoulder blades, glutes, deltoids, biceps, palms and three-jointed fingers, thighs, knees, calves
+  and feet. Primitives are smooth-unioned into one surface; fingers and toes blend only into their
+  palm or foot, so they never fuse. Posing moves the primitives with their bones before meshing, so
+  an elbow bends as a real joint rather than a skinned mesh's kink. Proportions come from
+  anthropometric ratios (about 7.6 heads at 1.75 m), blended between typical female and male
+  figures by `masculinity`, then shaped by fat, muscle and a dozen face controls. The head is a blank
+  lofted from measured profiles (a superellipse cross-section at every height), with features
+  added on top. Eyes are real geometry: a sclera, a recessed iris (polar uv), a pupil, and a clear
+  cornea bulging over them.
+- **An SDF mesher** (`mesha_sdf.ts`). An adaptive octree dual-contouring mesher with finer detail
+  regions (face, ears, hands). Every node can bound its own value over a cube and return the tree
+  pruned to what matters there, so a query by the wrist never evaluates the head. Lips and nails are
+  regions of the same closed skin; a per-vertex flush (uv.y) reddens lips, cheeks, knuckles and ears.
+- **Clothes** (`mesha_cloth.ts`). A garment starts as the body's own pieces (torso, arms, legs)
+  eased outward, plus panels where cloth leaves the body (a skirt's fitted hip and flared cone, a
+  tunic's tube; hanging hands are carved out so they stay outside the skirt). The smooth union is
+  meshed, then clipped exactly where each piece ends (sleeve, hem, neckline, waistband) for clean
+  hems. A small-step XPBD solver drapes it with:
+  - stiff stretch on every edge (`fit` for ease) and soft bending across every edge;
+  - gravity, air drag and wind;
+  - friction against the body's distance field (and the floor);
+  - long-range tethers to what holds the garment up (the waistband, cloth on top of the shoulders).
+
+  Flared skirts buckle into flutes, loose tops fold at the waist, a dress hangs from its shoulders.
+  Bottoms drape first, and tops rest on them. The settled shell is given a thickness with hem strips.
+  Shoes are rigid: an upper shaped on a smooth last and open at the collar, a sole slab to the floor,
+  and a heel post for heels and boots. They lift the figure, and heels point the foot.
+- **Hair** (`mesha_hair.ts`). About 300 guide strands root inside the hairline (a curve that sits
+  high on the forehead and lowest at the nape) and are groomed by the style:
+  - each strand flows away from the part on top of the head;
+  - front hair is combed back from the face; a fringe falls forward;
+  - above the skull's widest point hair lies on the head; below it, it falls free;
+  - ponytails and buns gather to a tie;
+  - curls wind round the path, scaled to the strand's length.
+
+  A position-based solver settles the guides under gravity against the body and clothes, each style
+  springing back toward its groomed shape by its own amount. Then the cut is made on the hanging
+  hair, as a stylist would (a bob at the jaw, a fringe above the brows). About 4,200 render strands
+  are interpolated from their three nearest guides on the same side of the part, gathering into
+  clumps at the tips. They're drawn as ribbons along the hair's surface, with uv carrying a
+  per-strand random and root-to-tip position. Brows, lashes (upper and lower, on the lid edges) and
+  beards are short static strands, and a thin cap darkens the scalp under the hair.
+- **Shading** (`mesha_shader.ts`). New surface patterns:
+  - `skin`: light scattered under the surface (red reaches farthest round the terminator), pores,
+    and light bleeding through thin edges;
+  - `hair`: Kajiya-Kay fibre lighting with two shifted highlights, dark roots and dithered,
+    thinning tips;
+  - `iris`: radial fibres, collarette, crypts and a limbal ring;
+  - `denim` and `knit` for fabrics.
+
+  The cornea uses see-through glass. New presets: nine skin tones, lips, nail polish, fourteen hair
+  colors, iris colors, cottons, denims, knits, leathers and rubber soles.
+
+**Live physics in the viewport** (`mesha_dynamics.ts`, `mesha_addon.ts`). A generator registers a
+simulator source against the part it produced. The viewport spawns one per placed person and steps
+it every frame:
+
+- Free particles keep their world position as the figure moves, so dragging or turning a person
+  swings the hair and clothes. The lag is capped per frame, so a sudden jump (a typed rotation, an
+  undo) carries them along instead of sweeping the body through them.
+- The `wind` control is a gusting breeze from the figure's front left.
+- Settled parts sleep, and a simulator over its share of the frame steps every other frame or less.
+- New vertices go to the GPU through `Entropy.Mesh.writeVertices`, which overwrites whole vertices
+  (positions and normals) in one buffer write.
+
+**Speed.** A final-quality person takes about 6 to 10 s and 400k triangles (body ~2.5 s, clothes
+~3 s, hair ~3 s). Each stage is cached on the inputs that shape it: changing a color re-evaluates
+nothing, a hairstyle regrows only the hair, a sleeve re-drapes only the clothes. `quality: "draft"`
+builds a coarser person in about 1 to 2 s. The viewport switches to it while a slider is dragged and
+builds the final one on release.
+
+**Tests.** `tests/mesha_human.test.ts` covers:
+
+- poses keep every bone's length, and the figure stands on the floor at its height;
+- the skin is closed, with the eyes in their sockets;
+- builds change with their controls;
+- garments don't pass through the body, sleeves end where they should, and a flared skirt hangs to
+  its length in folds;
+- shoes stand on the floor;
+- hair roots inside the hairline and never through the head; a bob ends at the jaw, long hair past
+  the shoulders, and a fringe above the eyes;
+- live simulators swing when the figure turns, then settle back and sleep;
+- skin and hair pack their tints;
+- a draft-quality fuzz over every style, garment, pose and extreme is ready.
+
+A person builds in seconds, so the library-wide fuzz in `mesha.test.ts` leaves the person to this
+file. `tests/features/mesha_human_live.feature` (run with `ENTROPY_MESHA_BDD_FEATURE=human`; see
+`tests/mesha_human_live.rs`) drives the real window. It adds a person, frames the face from the
+front and three-quarter and the hair from behind, turns the figure to swing hair and clothes, then
+captures them settled. It also restyles and redresses the person, adds a ponytail in the wind, and
+builds a gallery of presets.
+
+![Face close-up in the viewport](../public/mesha-people-face.png)
 
 ## Writing a procedural object
 
@@ -959,6 +1070,68 @@ Regenerate with `deno run -A --unstable-sloppy-imports tools/mesha_catalog_doc.t
 | `gradient` | number | 0.4 (0..1) | Extra depth toward the bottom. |
 | `tintVariation` | number | 0 (0..1) | Random lean toward the tint per part. |
 | `seed` | int | 0 (-1000000000..1000000000) | Seed. |
+
+### Figures
+
+**`figure.human`** (Human, outputs mesh): A person standing on the origin facing +Z: an anatomical body (blended forms over a posable skeleton, a sculpted face, eyes with iris and cornea), clothes cut to fit and draped by cloth physics, shoes, and styled hair settled by strand physics, with brows, lashes and an optional beard. Regions: skin, lips, nails, eyes, iris, pupil, cornea, top, bottom, shoes, soles, hair, hairCap, brows, lashes, beard. Hair and clothes keep simulating in the viewport.
+
+| Input | Kind | Default | |
+|---|---|---|---|
+| `height` | number | 1.7 (1.2..2.2) | Standing height without shoes. |
+| `masculinity` | number | 0.1 (0..1) | 0 typical female build and face, 1 typical male. |
+| `weight` | number | 0.35 (0..1) | Body fat. |
+| `muscle` | number | 0.35 (0..1) | Muscle definition. |
+| `shoulders` | number | 1 (0.8..1.2) | Shoulder width. |
+| `hips` | number | 1 (0.8..1.2) | Hip width. |
+| `waist` | number | 1 (0.8..1.25) | Waist width. |
+| `bust` | number | 0.5 (0..1) | Bust (female builds). |
+| `legLength` | number | 1 (0.88..1.12) | Leg length. |
+| `armLength` | number | 1 (0.9..1.1) | Arm length. |
+| `headSize` | number | 1 (0.9..1.1) | Head size. |
+| `neckLength` | number | 1 (0.6..1.5) | Neck length. |
+| `jawWidth` | number | 0.5 (0..1) | Face: jawWidth (0.5 average). |
+| `chin` | number | 0.5 (0..1) | Face: chin (0.5 average). |
+| `cheekbones` | number | 0.5 (0..1) | Face: cheekbones (0.5 average). |
+| `noseLength` | number | 0.5 (0..1) | Face: noseLength (0.5 average). |
+| `noseWidth` | number | 0.5 (0..1) | Face: noseWidth (0.5 average). |
+| `noseBridge` | number | 0.5 (0..1) | Face: noseBridge (0.5 average). |
+| `lips` | number | 0.5 (0..1) | Face: lips (0.5 average). |
+| `mouthWidth` | number | 0.5 (0..1) | Face: mouthWidth (0.5 average). |
+| `eyeSize` | number | 0.5 (0..1) | Face: eyeSize (0.5 average). |
+| `eyeSpacing` | number | 0.5 (0..1) | Face: eyeSpacing (0.5 average). |
+| `browRidge` | number | 0.5 (0..1) | Face: browRidge (0.5 average). |
+| `earSize` | number | 0.5 (0..1) | Face: earSize (0.5 average). |
+| `smile` | number | 0.15 (0..1) | Lifts the mouth's corners. |
+| `pose` | enum: relaxed, apose, tpose, contrapposto, walking, hipsHands, wave | "relaxed" | Body pose. |
+| `armRaise` | number | 0 (-20..60) | Degrees added to both arms' abduction. |
+| `elbowBend` | number | 0 (-10..60) | Degrees added to both elbows. |
+| `headTurn` | number | 0 (-50..50) | Degrees the head turns (to its left). |
+| `headTilt` | number | 0 (-25..25) | Degrees the head nods (down). |
+| `fingerCurl` | number | 0.35 (0..1) | How curled the fingers are. |
+| `stance` | number | 0.5 (0..1) | Feet apart. |
+| `top` | enum: none, tank, tee, longsleeve, sweater, dress | "tee" | Top garment (a dress replaces the bottom). |
+| `sleeve` | number | 0.28 (0..1) | Sleeve length as a share of the arm. |
+| `topLength` | number | 1 (0..2) | Top hem: 0 waist, 1 hip, 2 mid-thigh. |
+| `neckline` | enum: crew, vneck, scoop | "crew" | Neckline. |
+| `topFit` | number | 0.4 (0..1) | 0 fitted, 1 loose. |
+| `bottom` | enum: none, trousers, jeans, shorts, skirt | "jeans" | Bottom garment. |
+| `bottomLength` | number | 1 (0..1) | Trousers: share of the leg; skirt or dress: hem from the waist toward the floor. |
+| `bottomFit` | number | 0.3 (0..1) | 0 fitted, 1 loose. |
+| `flare` | number | 0.4 (0..1) | Skirt flare, 0 straight to 1 full circle. |
+| `shoes` | enum: none, sneakers, boots, flats, heels | "sneakers" | Footwear. |
+| `hairStyle` | enum: none, buzz, short, pixie, bob, shoulder, long, ponytail, bun, curly, afro | "long" | Hairstyle. |
+| `hairLength` | number | 1 (0.4..1.8) | Length relative to the style. |
+| `curl` | number | 0.1 (0..1) | 0 straight to 1 tight curls. |
+| `volume` | number | 0.35 (0..1) | 0 sleek to 1 full. |
+| `part` | enum: side, center, back | "side" | Parting. |
+| `bangs` | number | 0 (0..1) | Fringe: 0 swept back, 1 to the brows. |
+| `density` | number | 1 (0.3..2) | Strands relative to normal. |
+| `beard` | enum: none, stubble, mustache, short, full | "none" | Facial hair. |
+| `browFullness` | number | 0.5 (0..1) | Brows, fine to bushy. |
+| `lashes` | bool | true | Eyelashes. |
+| `wind` | number | 0 (0..12) | Wind (m/s) the clothes and hair settle in. |
+| `quality` | enum: draft, final | "final" | Draft builds a coarser person quickly. |
+| `seed` | int | 1 (-1000000000..1000000000) | Seed (individual asymmetry, strand placement). |
 
 ### Geometry
 

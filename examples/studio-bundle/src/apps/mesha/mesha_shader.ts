@@ -140,6 +140,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let raw = in.normal;
     let nlen = length(raw);
     let pattern = i32(round(nlen - 1.0));
+    // Which way uv.y runs across the screen-space surface: along a hair strand (taken here, in
+    // uniform control flow, where derivatives are defined).
+    let t_raw = dpdx(in.world_pos) * dpdy(in.uv.y) - dpdy(in.world_pos) * dpdx(in.uv.y);
     var n = raw / max(nlen, 0.0001);
     let v = normalize(camera.view_pos.xyz - in.world_pos);
     let p = in.world_pos;
@@ -193,6 +196,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var sheen = 0.0;
     var spec_scale = 1.0;
     var foliage = 0.0;       // leaves: soft wrap lighting and light through them from behind
+    var skin = 0.0;          // light scattering under the skin
+    var hair = 0.0;          // strands: highlights run across them
     var crown_occ = 0.0;     // how deep in its crown a leaf sits (uv.y's whole part / 15)
 
     if (pattern == 1) {
@@ -258,6 +263,55 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let fw = max(fwidth(g) * vec2<f32>(1.2, 0.8), vec2<f32>(0.0001));
         let seam = 1.0 - clamp(min(e.x / (fw.x + 0.006), e.y / (fw.y + 0.006)), 0.0, 1.0);
         base = base * (0.96 + 0.08 * hash3(vec3<f32>(floor(g), 0.5))) * (1.0 - 0.5 * seam);
+    } else if (pattern == 17) {
+        // Skin: fine pores and a faint mottle; its light scatters under the surface (below).
+        let pores = vnoise(p * 900.0);
+        base = base * (0.95 + 0.08 * fbm(p * 55.0)) * (1.0 - 0.06 * smoothstep(0.62, 0.85, pores));
+        rough = clamp(rough + 0.14 * (pores - 0.5), 0.2, 1.0);
+        skin = 1.0;
+        spec_scale = 0.45;
+    } else if (pattern == 18) {
+        // Hair: uv.y runs root to tip, uv.x is the strand's random. Tips thin out (an ordered
+        // dither of pixels left out), roots sit in shadow, strands differ a little.
+        let along = clamp(in.uv.y, 0.0, 1.0);
+        let c = vec2<u32>(in.clip_position.xy);
+        let b2 = ((c.x ^ c.y) & 1u) * 2u + (c.y & 1u);
+        let b4 = b2 * 4u + (((c.x >> 1u) ^ (c.y >> 1u)) & 1u) * 2u + ((c.y >> 1u) & 1u);
+        let keep = 1.0 - smoothstep(0.8, 1.0, along) * 0.55;
+        if ((f32(b4) + 0.5) / 16.0 > keep) { discard; }
+        base = base * (0.55 + 0.45 * smoothstep(0.0, 0.3, along)) * (0.88 + 0.24 * fract(in.uv.x * 7.31));
+        hair = 1.0;
+        spec_scale = 0.0;
+    } else if (pattern == 19) {
+        // Iris: fibres radiating from the pupil (uv.x round it, uv.y out to the rim), a lighter
+        // collarette near the pupil, crypts, and a dark limbal ring.
+        let r = clamp(in.uv.y, 0.0, 1.0);
+        let fib = vnoise(vec3<f32>(in.uv.x * 160.0, r * 5.0, 1.3)) * 0.6 + vnoise(vec3<f32>(in.uv.x * 420.0, r * 11.0, 4.1)) * 0.4;
+        let crypt = smoothstep(0.62, 0.8, vnoise(vec3<f32>(in.uv.x * 38.0, r * 7.0, 9.0)));
+        base = base * (0.62 + 0.75 * fib) * (1.0 - 0.35 * crypt);
+        base = mix(base, base * 1.7 + vec3<f32>(0.04, 0.03, 0.0), (1.0 - smoothstep(0.18, 0.4, r)) * 0.55);
+        base = base * (1.0 - 0.8 * smoothstep(0.78, 1.0, r));
+        rough = 0.2;
+        spec_scale = 0.2;
+    } else if (pattern == 20) {
+        // Denim: a diagonal twill and pale weft flecks.
+        let s2 = dot(p, normalize(vec3<f32>(1.0, 1.0, 0.55))) * 1300.0;
+        let fade = clamp(1.4 - fwidth(s2) * 0.45, 0.0, 1.0);
+        base = base * (0.9 + 0.1 * sin(s2) * fade) * (0.88 + 0.22 * fbm(p * 18.0));
+        base = mix(base, vec3<f32>(0.55, 0.6, 0.68) * base * 2.2, smoothstep(0.7, 0.9, vnoise(p * 420.0)) * 0.25);
+        sheen = 0.2;
+        spec_scale = 0.25;
+    } else if (pattern == 21) {
+        // Knit: rows of V-shaped stitches round the garment.
+        var u = p.x;
+        if (abs(n.y) < 0.85) { u = dot(p, normalize(cross(n, vec3<f32>(0.0, 1.0, 0.0)))); }
+        let su = u * 260.0;
+        let sv = p.y * 200.0 + abs(fract(su) - 0.5) * 1.6;
+        let fade = clamp(1.4 - max(fwidth(su), fwidth(sv)) * 0.5, 0.0, 1.0);
+        let stitch = abs(fract(sv) - 0.5) * 2.0;
+        base = base * (1.0 - 0.22 * smoothstep(0.55, 1.0, stitch) * fade) * (0.92 + 0.12 * fbm(p * 24.0));
+        sheen = 0.45;
+        spec_scale = 0.15;
     }
     if (pattern == 13 || pattern == 14) {
         // Rust: fine blotches, streaks running down from edges, heavier near the ground.
@@ -283,7 +337,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Leaves wrap light around a little (they are thin and scatter it).
     let wrap = mix(ndl, max((dot(n, key) + 0.35) / 1.35, 0.0), foliage);
     let crown = 1.0 - 0.62 * crown_occ;
-    let key_light = studio.key_color.rgb * studio.key_color.w * wrap * mix(1.0, crown * crown, foliage);
+    // Skin scatters light under its surface: red light reaches farthest round the terminator.
+    var key_wrap = vec3<f32>(wrap);
+    if (skin > 0.5) {
+        let kd = dot(n, key);
+        let reach = vec3<f32>(0.45, 0.24, 0.18);
+        key_wrap = max((vec3<f32>(kd) + reach) / (vec3<f32>(1.0) + reach), vec3<f32>(0.0));
+    }
+    // Hair lights like a bundle of fibres (Kajiya-Kay): by the sine of the angle to the strand.
+    var strand = vec3<f32>(0.0, 1.0, 0.0);
+    if (hair > 0.5) {
+        strand = select(normalize(cross(n, vec3<f32>(1.0, 0.0, 0.0))), normalize(t_raw), length(t_raw) > 1e-12);
+        let tl = dot(strand, key);
+        key_wrap = vec3<f32>(mix(sqrt(max(1.0 - tl * tl, 0.0)) * 0.75, ndl, 0.4) * (0.6 + 0.4 * ndl));
+    }
+    let key_light = studio.key_color.rgb * studio.key_color.w * key_wrap * mix(1.0, crown * crown, foliage);
     let diffuse_light = key_light * 0.5 + studio.key_color.rgb * studio.fill_dir.w * ndf * 0.5 + hemi * 0.55 * occ * mix(1.0, crown, foliage);
 
     let h = normalize(key + v);
@@ -298,6 +366,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         + env * reflectance * occ * mix(1.0, crown * 0.3, foliage) * (0.35 + 0.65 * (1.0 - rough))
         + studio.key_color.rgb * spec * mix(vec3<f32>(0.05 + 0.3 * fresnel), f0, metal) * spec_scale;
     col = col + base * sheen * pow(1.0 - nv, 3.0) * (hemi + key_light * 0.3);
+    if (skin > 0.5) {
+        // Light bleeding through thin skin at the silhouette (ears, nose, fingers): warm and soft.
+        col = col + base * vec3<f32>(1.0, 0.38, 0.26) * pow(1.0 - nv, 2.5) * 0.18 * (hemi + studio.key_color.rgb * 0.4);
+    }
+    if (hair > 0.5) {
+        // Two highlights along the strand: a white one shifted toward the root, a colored one
+        // toward the tip (light that went through the fibre).
+        let ht = dot(strand, h);
+        let t1 = normalize(strand + n * 0.08);
+        let t2 = normalize(strand - n * 0.12);
+        let s1 = pow(sqrt(max(1.0 - dot(t1, h) * dot(t1, h), 0.0)), 320.0);
+        let s2 = pow(sqrt(max(1.0 - dot(t2, h) * dot(t2, h), 0.0)), 60.0);
+        let lit = smoothstep(-0.1, 0.4, dot(n, key));
+        let sheen_col = mix(vec3<f32>(1.0), base / max(max(base.r, base.g), max(base.b, 0.02)), 0.45);
+        col = col + studio.key_color.rgb * studio.key_color.w * lit * (sheen_col * s1 * 0.09 + base * s2 * 0.45) + env * 0.015 * (1.0 - abs(ht));
+    }
     // Light through a leaf lit from behind: a warm, saturated glow.
     let through = pow(max(dot(-n, key), 0.0), 1.5) * (0.35 + 0.65 * pow(max(dot(-v, key), 0.0), 2.0));
     col = col + foliage * base * vec3<f32>(1.0, 1.12, 0.62) * studio.key_color.rgb * studio.key_color.w * through * 0.5 * crown;

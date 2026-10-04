@@ -28,8 +28,9 @@ import shrubDef from "./shrub";
 import grassDef from "./grass";
 import flowersDef from "./flowers";
 import pottedPlantDef from "./potted_plant";
+import humanDef from "./human";
 
-export const LIBRARY: ObjectDef[] = [officeChair, table, bottle, mug, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, houseDef, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, streetCarDef, windowDef, doorDef, facadeDef, gear, bolt, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, leg, rockPiece, caster];
+export const LIBRARY: ObjectDef[] = [humanDef, officeChair, table, bottle, mug, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, houseDef, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, streetCarDef, windowDef, doorDef, facadeDef, gear, bolt, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, leg, rockPiece, caster];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

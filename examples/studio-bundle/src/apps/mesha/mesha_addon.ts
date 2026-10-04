@@ -17,6 +17,7 @@ import { vary, isLocked } from "./mesha_variation";
 import { fuzz, acceptanceText } from "./mesha_verify";
 import { contactShadowMap } from "./mesha_raster";
 import { MESHA_SHADER, STUDIO_PRESETS, STUDIO_FLOATS, ITEM_FLOATS, packStudio } from "./mesha_shader";
+import { dynamicOf, type Simulator } from "./mesha_dynamics";
 import type { IconName } from "../../icon_names";
 
 const addon = Entropy.Addon.register({
@@ -32,8 +33,8 @@ const Icons = Entropy.Icons;
 const ACCENT: [number, number, number, number] = [0.96, 0.66, 0.38, 1];
 const DIM: [number, number, number, number] = [0.66, 0.68, 0.72, 1];
 const WARN: [number, number, number, number] = [0.98, 0.72, 0.42, 1];
-const CATEGORY_ICONS: Record<string, IconName> = { Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning" };
-const OBJECT_ICONS: Record<string, IconName> = { "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house" };
+const CATEGORY_ICONS: Record<string, IconName> = { People: "person", Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning" };
+const OBJECT_ICONS: Record<string, IconName> = { "people.human": "person", "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house" };
 
 // --- Scene state ---------------------------------------------------------------------------------
 
@@ -47,7 +48,13 @@ interface SceneState {
 let scene: SceneState = { instances: [], selectedId: null, locks: {} };
 const cache = new EvaluationCache(lookupObject);
 
-interface Live { baked: BakedInstance; meshIds: string[]; itemBuffer: string; bounds: Bounds | null; geometryKey: string }
+/** A simulated part (hair, cloth) of a placed object, writing its vertices into one GPU mesh. */
+interface LiveSim {
+    meshId: string; first: number; sim: Simulator; data: Float32Array; scale: number;
+    /** A costly simulator steps every `every` frames with their time together; `owed` is that time. */
+    every: number; owed: number; frame: number;
+}
+interface Live { baked: BakedInstance; meshIds: string[]; itemBuffer: string; bounds: Bounds | null; geometryKey: string; sims: LiveSim[] }
 const live = new Map<string, Live>();
 const dirty = new Set<string>();
 const transformed = new Set<string>();
@@ -179,23 +186,45 @@ function itemHighlight(id: string): number[] {
     return scene.selectedId === id ? [ACCENT[0], ACCENT[1], ACCENT[2], 0.7] : [0, 0, 0, 0];
 }
 
+/** Objects built at draft quality during a drag, rebuilt at their own quality once it ends. */
+const draftBuilt = new Set<string>();
+
 function rebuildInstance(inst: Instance): void {
     let evaluation: Evaluation;
-    try { evaluation = cache.get(inst.objectId, inst.values); } catch (e) {
+    // While a slider is dragged, an object with a quality setting builds its quick draft.
+    const draft = pointerHeld && inst.values.quality === "final" && defOf(inst).params.some(p => p.id === "quality");
+    const values = draft ? { ...inst.values, quality: "draft" } : inst.values;
+    if (draft) draftBuilt.add(inst.id); else draftBuilt.delete(inst.id);
+    try { evaluation = cache.get(inst.objectId, values); } catch (e) {
         statusMessage = `${defOf(inst).name}: ${(e as Error).message}`;
         return;
     }
     const previous = live.get(inst.id);
-    const geometryKey = JSON.stringify([inst.objectId, inst.values]);
+    const geometryKey = JSON.stringify([inst.objectId, values]);
     if (previous?.geometryKey === geometryKey) { updateTransform(inst); return; }
     const local = bakeInstance({ ...inst, position: [0, 0, 0], rotationY: 0, rotation: undefined, scale: 1 }, evaluation);
     if (previous) for (const m of previous.meshIds) addon.Model.clearMesh(m);
     const itemBuffer = previous?.itemBuffer ?? Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
     Entropy.Buffer.write(itemBuffer, new Float32Array([...itemHighlight(inst.id), ...instanceMatrix(inst)]));
     const meshIds: string[] = [];
+    const sims: LiveSim[] = [];
     for (const rm of local.meshes) {
         const { vertexData, indexData } = packVertices(rm);
         const id = Entropy.generateUUID();
+        // Parts that keep moving (hair, cloth): each simulates on its own and rewrites its run of
+        // this mesh's vertices. A region's parts were merged in order, so its run starts after theirs.
+        let first = 0;
+        for (const part of evaluation.mesh.parts) {
+            if (part.region !== rm.region) continue;
+            const source = dynamicOf(part);
+            const count = part.positions.length / 3;
+            if (source && typeof Entropy.Mesh?.writeVertices === "function") {
+                const sim = source.spawn();
+                const data = Float32Array.from(vertexData.slice(first * 12, (first + sim.vertexCount) * 12));
+                sims.push({ meshId: id, first, sim, data, scale: Math.hypot(data[3], data[4], data[5]) || 1, every: 1, owed: 0, frame: 0 });
+            }
+            first += count;
+        }
         addon.Model.createMesh({
             id, position: [0, 0, 0], vertexData, indexData, pipelineId,
             bindings: [
@@ -205,8 +234,52 @@ function rebuildInstance(inst: Instance): void {
         });
         meshIds.push(id);
     }
-    live.set(inst.id, { baked: local, meshIds, itemBuffer, bounds: null, geometryKey });
+    live.set(inst.id, { baked: local, meshIds, itemBuffer, bounds: null, geometryKey, sims });
     refreshWorld(inst);
+}
+
+let lastStep = 0;
+let simClock = 0;
+/** Milliseconds; the engine's runtime may have no `performance`. */
+const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/**
+ * Advances every placed object's hair and cloth one frame. Each follows its object's transform (so
+ * dragging a person swings their hair) and its own breeze, gusting; settled ones sleep.
+ */
+function stepDynamics(): void {
+    const now = nowMs();
+    const dt = lastStep ? Math.min(0.05, (now - lastStep) / 1000) : 1 / 60;
+    lastStep = now;
+    simClock += dt;
+    for (const inst of scene.instances) {
+        const l = live.get(inst.id);
+        if (!l?.sims.length) continue;
+        const frame = instanceMatrix(inst);
+        const base = Number(inst.values.wind ?? 0);
+        const gust = base > 0 ? base * (0.72 + 0.2 * Math.sin(simClock * 1.3) + 0.12 * Math.sin(simClock * 3.7 + 1)) : 0;
+        // The breeze comes from the object's own front left, turning with it.
+        const lx = 0.514 * gust, lz = 0.857 * gust;
+        const s = Math.hypot(frame[0], frame[1], frame[2]) || 1;
+        const wind: [number, number, number] = [(frame[0] * lx + frame[8] * lz) / s, (frame[1] * lx + frame[9] * lz) / s, (frame[2] * lx + frame[10] * lz) / s];
+        for (const sim of l.sims) {
+            // Keep the viewport responsive: a simulator over its share of the frame steps less often.
+            sim.owed += dt;
+            if (++sim.frame % sim.every) continue;
+            const started = nowMs();
+            const moved = sim.sim.step(sim.owed, frame, wind);
+            sim.owed = 0;
+            if (!moved) continue;
+            const P = sim.sim.positions, N = sim.sim.normals, D = sim.data, k = sim.scale;
+            for (let v = 0, o = 0, j = 0; v < sim.sim.vertexCount; v++, o += 12, j += 3) {
+                D[o] = P[j]; D[o + 1] = P[j + 1]; D[o + 2] = P[j + 2];
+                D[o + 3] = N[j] * k; D[o + 4] = N[j + 1] * k; D[o + 5] = N[j + 2] * k;
+            }
+            Entropy.Mesh.writeVertices(sim.meshId, sim.first, D);
+            const cost = nowMs() - started;
+            sim.every = Math.min(4, Math.max(1, Math.round(cost / 9)));
+        }
+    }
 }
 
 /** Upload only 80 bytes during a transform; defer CPU triangles and shadows until release. */
@@ -325,10 +398,12 @@ function sceneBounds(onlySelected: boolean): Bounds | null {
 
 /** Frames the selection (or everything) from a flattering three-quarter view. */
 /** `zoom` above 1 moves in closer than the whole object: details of something long (a tram). */
-function frame(onlySelected = true, zoom = 1): void {
+function frame(onlySelected = true, zoom = 1, focus?: number): void {
     const b = sceneBounds(onlySelected) ?? sceneBounds(false);
     if (!b) return;
-    const c: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
+    // `focus` aims at a height on the framed bounds (0 its bottom, 1 its top): a face, a hand.
+    const cy = focus === undefined ? (b.min[1] + b.max[1]) / 2 : b.min[1] + (b.max[1] - b.min[1]) * focus;
+    const c: Vec3 = [(b.min[0] + b.max[0]) / 2, cy, (b.min[2] + b.max[2]) / 2];
     const r = Math.max(0.05, Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2);
     const [pos, target] = Entropy.Camera.getTransform();
     let dir: Vec3 = [pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]];
@@ -907,8 +982,8 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
         run: a => { if (a.redo) redo(); else undo(); return { instances: scene.instances.map(instanceSummary), message: statusMessage }; },
     },
     {
-        name: "mesha_view", description: "Frame the selection (or everything with all: true) from yaw/pitch degrees, optionally zoomed in (zoom 2 is twice as close), and/or pick the studio lighting: studio, daylight, warm, night (lighting alone keeps the camera).",
-        parameters: { type: "object", properties: { all: { type: "boolean" }, lighting: { type: "string" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" } } },
+        name: "mesha_view", description: "Frame the selection (or everything with all: true) from yaw/pitch degrees, optionally zoomed in (zoom 2 is twice as close) on a height (focus 0 bottom .. 1 top, e.g. 0.93 for a person's face), and/or pick the studio lighting: studio, daylight, warm, night (lighting alone keeps the camera).",
+        parameters: { type: "object", properties: { all: { type: "boolean" }, lighting: { type: "string" }, yaw: { type: "number" }, pitch: { type: "number" }, zoom: { type: "number" }, focus: { type: "number" } } },
         run: a => {
             if (a.lighting) { const i = STUDIO_PRESETS.findIndex(p => p.id === a.lighting); if (i < 0) throw new Error(`Lighting: ${STUDIO_PRESETS.map(p => p.id).join(", ")}`); studioIndex = i; applyStudio(); }
             if (typeof a.yaw === "number" || typeof a.pitch === "number") {
@@ -917,7 +992,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 Entropy.Camera.setTransform([t[0] + Math.sin(yaw) * Math.cos(pitch), t[1] + Math.sin(pitch), t[2] + Math.cos(yaw) * Math.cos(pitch)], t);
             }
             // Lighting alone leaves the camera where it is; anything else frames.
-            if (!a.lighting || a.all !== undefined || typeof a.yaw === "number" || typeof a.pitch === "number") { pendingFrame = 2; pendingFrameAll = !!a.all; pendingZoom = typeof a.zoom === "number" ? a.zoom : 1; }
+            if (!a.lighting || a.all !== undefined || typeof a.yaw === "number" || typeof a.pitch === "number") { pendingFrame = 2; pendingFrameAll = !!a.all; pendingZoom = typeof a.zoom === "number" ? a.zoom : 1; pendingFocus = typeof a.focus === "number" ? a.focus : undefined; }
             return { lighting: STUDIO_PRESETS[studioIndex].id };
         },
     },
@@ -961,6 +1036,7 @@ function registerTools(): void {
 let pendingFrame = 0;
 let pendingFrameAll = false;
 let pendingZoom = 1;
+let pendingFocus: number | undefined;
 
 addon.onInit(() => {
     pipelineId = Entropy.Pipeline.create({
@@ -1003,6 +1079,9 @@ addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
         if (inst) rebuildInstance(inst);
     }
     if (dirty.size) { dirty.clear(); syncGizmo(); }
+    // A drag that built drafts has ended: build them at their own quality.
+    if (!pointerHeld && draftBuilt.size) { for (const id of draftBuilt) dirty.add(id); draftBuilt.clear(); }
+    stepDynamics();
     if (!pointerHeld && transformed.size) {
         for (const id of transformed) {
             const inst = scene.instances.find(i => i.id === id);
@@ -1011,7 +1090,7 @@ addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
         transformed.clear();
     }
     if (groundDirty && !(pointerHeld && (gizmoWasActive || transformed.size))) { rebuildGround(); groundDirty = false; }
-    if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll, pendingZoom); pendingFrameAll = false; pendingZoom = 1; }
+    if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll, pendingZoom, pendingFocus); pendingFrameAll = false; pendingZoom = 1; pendingFocus = undefined; }
     if (!pointerHeld) commitEdit();
     // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).
     const [camPos, camTarget] = Entropy.Camera.getTransform();
