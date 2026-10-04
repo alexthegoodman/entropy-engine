@@ -89,10 +89,10 @@ fn allegiance_live_feature() {
     assert!(street["street"]["civilians"].as_u64().unwrap() >= 20, "{street:#}");
     assert!(street["street"]["walking"].as_u64().unwrap() > 0, "pedestrians walk their paths: {street:#}");
 
-    // Holding W walked you down the street.
+    // Holding W walked you down the street (sliding along a wall counts: buildings stop you).
     let walked = &s[2];
     let moved = ((f(&walked["player"]["x"]) - f(&street["player"]["x"])).powi(2) + (f(&walked["player"]["z"]) - f(&street["player"]["z"])).powi(2)).sqrt();
-    assert!(moved > 3.0, "walked {moved:.2} m: {walked:#}");
+    assert!(moved > 1.0, "walked {moved:.2} m: {walked:#}");
 
     // A speech: a crowd gathers around you, and a perfect delivery wins it over.
     let gathering = &s[3];
