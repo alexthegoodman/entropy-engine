@@ -3,7 +3,7 @@
 // is tests/features/allegiance_visuals_live.feature.
 import { describe, expect, it } from "vitest";
 import { shadowCascades, weatherAt, cloudOffset, windVector, SHADOW_RADII, SHADOW_MAP_SIZE } from "../src/games/allegiance/al_sky";
-import { packFoliage, bendAt, sways, FOLIAGE, lawnAround, RoadMask, LAWN_RADIUS } from "../src/games/allegiance/al_scatter";
+import { packFoliage, bendAt, sways, FOLIAGE, lawnAround, RoadMask, LAWN_RADIUS, shadowClass, familyOfMesh, foliageKey, foliageSpec, propKey, tileOf, batchKey, scatterMesh, GROUND_TILE, TILE } from "../src/games/allegiance/al_scatter";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER, MAT_FOLIAGE } from "../src/games/allegiance/al_shader";
 import { QUADPLANET_SHADER, surfaceKind, SURFACE, CLOUD_PERIOD, packWorld, WORLD_FLOATS, MAX_PLANETS } from "../src/apps/quadplanet/qp_shader";
 import { packHouse } from "../src/apps/quadplanet/qp_city";
@@ -202,5 +202,29 @@ describe("shaders", () => {
         expect(QUADPLANET_SHADER).not.toContain("vs_shadow");
         expect(QUADPLANET_SHADER).toContain("fn sky_clouds(");
         expect(QUADPLANET_SHADER).toContain("fn city_surface(");
+    });
+});
+
+describe("set dressing costs", () => {
+    it("casts ground cover into the nearest cascade, small things into two, trees into all", () => {
+        for (const f of ["lawn", "meadow", "poppies", "daisies", "grass", "flowers"]) expect(shadowClass(f)).toBe("ground");
+        for (const f of ["shrub", "fern", "rock", "bench", "lamp", "bin", "cafe-chair", "kiosk"]) expect(shadowClass(f)).toBe("small");
+        for (const f of ["tree-oak", "conifer", "palm", "mil-hq", "beacon", "flag"]) expect(shadowClass(f)).toBe("tall");
+        // Every scatter mesh key leads back to its family (the pipeline is chosen by it).
+        for (const spec of FOLIAGE) for (const l of [0, 1, 2] as const) expect(familyOfMesh(foliageKey(spec, l))).toBe(spec.family);
+        expect(familyOfMesh(propKey("bench"))).toBe("bench");
+        expect(familyOfMesh("something else")).toBeNull();
+    });
+
+    it("tiles ground cover finer for culling, and keys meshes without rebuilding strings", () => {
+        expect(tileOf("lawn")).toBe(GROUND_TILE);
+        expect(tileOf("tree-oak")).toBe(TILE);
+        expect(batchKey("m", 40, 10, GROUND_TILE)).not.toBe(batchKey("m", 70, 10, GROUND_TILE));
+        expect(batchKey("m", 40, 10)).toBe(batchKey("m", 70, 10));
+        // The same string object every time (memoized), equal to the one built from the values.
+        const oak = foliageSpec("tree-oak")!;
+        expect(scatterMesh("tree-oak", 5)).toBe(foliageKey(oak, 0));
+        const values = Object.keys(oak.values).sort().map(k => `${k}=${oak.values[k]}`).join(",");
+        expect(foliageKey(oak, 2)).toBe(`allegiance-foliage:3|nature.tree|${values}|lod2`);
     });
 });

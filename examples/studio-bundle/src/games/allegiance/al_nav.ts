@@ -172,8 +172,10 @@ export class NavGrid {
     isBlocked(i: number, j: number): boolean { return !this.inBounds(i, j) || this.blocked[j * this.size + i] !== 0; }
 
     walkable(x: number, z: number): boolean {
-        const [i, j] = this.cellOf(x, z);
-        return !this.isBlocked(i, j);
+        // cellOf without its tuple: this is called tens of thousands of times a scatter pass.
+        const h = this.half;
+        const i = Math.floor((x - this.cx + h) / this.cell), j = Math.floor((z - this.cz + h) / this.cell);
+        return i >= 0 && j >= 0 && i < this.size && j < this.size && this.blocked[j * this.size + i] === 0;
     }
 
     /** Marks the cells covered by a building (grown by `pad` meters). */

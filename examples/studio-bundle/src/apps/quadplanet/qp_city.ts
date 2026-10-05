@@ -222,9 +222,18 @@ export interface CityOptions {
      * mesh: fewer evaluations, fewer cached meshes, bigger instanced batches.
      */
     sizeStep: number;
+    /**
+     * A finished street is chosen again only once the camera has moved this far (meters) since
+     * the last choice: re-sorting thousands of candidates for every centimeter of a walk changes
+     * nothing a player could see. Meanwhile the hide radius shrinks by the distance moved.
+     */
+    reselectDistance: number;
+    /** ...and, when the camera keeps moving (a car), not more often than this (ms) unless it has
+     * gone ten times `reselectDistance`. 0: no time limit. */
+    reselectMs: number;
 }
 
-export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000, minBuildIntervalMs: 0, sizeStep: 0.5 };
+export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, lod1Radius: 350, triangleBudget: 3_000_000, minBuildIntervalMs: 0, sizeStep: 0.5, reselectDistance: 1, reselectMs: 0 };
 
 /** Background house evaluations queued at once (the worker runs them one by one). */
 const MAX_IN_FLIGHT = 4;
@@ -277,6 +286,7 @@ export class CityHouses {
     /** Where the last full update ran, and whether it left every wanted house drawn at its
      * wanted level of detail with nothing to make: then a still camera needs no work at all. */
     private lastCamera: Vec3 | null = null;
+    private lastSelectAt = -Infinity;
     private settled = false;
     hideRadius = 0;
     lastStats: CityHouseStats = { candidates: 0, lod0: 0, lod1: 0, variants: 0, generated: 0, queued: 0, triangles: 0, hideRadius: 0, lastBuildMs: 0, batches: 0, instances: 0, background: 0 };
@@ -437,15 +447,22 @@ export class CityHouses {
     update(camera: Vec3, renderOrigin: Vec3, cityVersion: number, buildMs: number): number {
         const o = this.options;
         const originMoved = renderOrigin.some((x, i) => x !== this.renderOrigin[i]);
-        // Standing still in a finished street: the selection, and so everything below, would come
-        // out the same (it sorted thousands of candidates and checked caches every frame).
-        if (this.settled && !originMoved && cityVersion === this.queryVersion && this.lastCamera && distance(camera, this.lastCamera) < 0.05) {
-            return this.hideRadius;
+        // Standing still (or nearly) in a finished street: the selection, and so everything below,
+        // would come out the same (it sorted thousands of candidates and checked caches every frame).
+        // Unlimited budgets (settling, fixed-step runs) keep exact selections.
+        if (this.settled && !originMoved && cityVersion === this.queryVersion && this.lastCamera) {
+            const moved = distance(camera, this.lastCamera);
+            const exact = buildMs === Infinity;
+            const soon = !exact && o.reselectMs > 0 && this.engine.now() - this.lastSelectAt < o.reselectMs && moved < o.reselectDistance * 10;
+            if (moved < (exact ? 0.05 : o.reselectDistance) || soon) return Math.max(0, this.hideRadius - moved);
         }
         this.lastCamera = camera;
+        this.lastSelectAt = this.engine.now();
         this.renderOrigin = renderOrigin;
         const queryRadius = o.lod1Radius + 80;
+        let requeried = false;
         if (!this.queryCenter || cityVersion !== this.queryVersion || distance(camera, this.queryCenter) > 30) {
+            requeried = true;
             const limit = 4000;
             this.candidates = this.engine.buildings(camera, queryRadius, limit).filter(b => b.kind === this.model.kind && this.model.values(b, this.options.sizeStep) !== null);
             this.queryCenter = camera;
@@ -518,8 +535,11 @@ export class CityHouses {
             this.dirty = true;
         }
         this.settled = complete;
-        const inList = new Set(this.candidates.map(b => b.key));
-        for (const key of [...this.shown.keys()]) if (!inList.has(key)) this.remove(key);
+        // Only a new placement query can leave drawn houses out of the candidates.
+        if (requeried) {
+            const inList = new Set(this.candidates.map(b => b.key));
+            for (const key of [...this.shown.keys()]) if (!inList.has(key)) this.remove(key);
+        }
         if (this.dirty || originMoved) this.writeBatches();
 
         // Boxes hide inside the nearest house we aren't drawing (and inside what the last

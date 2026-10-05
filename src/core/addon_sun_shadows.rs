@@ -40,6 +40,13 @@ struct SunShadowUniform {
     params: [f32; 4],
 }
 
+/// Whether cascade `index` must be rendered on `frame`: always when its matrix changed (or it was
+/// never rendered), else on every `every`-th frame, offset by the index so throttled cascades take
+/// turns.
+pub fn cascade_due(rendered: Option<&[f32; 16]>, matrix: &[f32; 16], frame: u64, index: usize, every: u32) -> bool {
+    rendered != Some(matrix) || (frame + index as u64) % every.max(1) as u64 == 0
+}
+
 pub struct AddonSunShadows {
     pub map_size: u32,
     texture: wgpu::Texture,
@@ -62,6 +69,15 @@ pub struct AddonSunShadows {
     pub receivers: HashSet<String>,
     /// Draws issued into the cascades last frame (all cascades).
     pub last_draws: u32,
+    /// Per cascade: while its matrix holds still, it is re-rendered only every n-th frame (far
+    /// cascades hold big, slow-changing scenery; 1 is every frame). Cascades are staggered so two
+    /// throttled ones never refresh on the same frame.
+    pub refresh: [u32; MAX_CASCADES],
+    /// The matrix each cascade's map was last rendered with (None: never, or the map was remade).
+    rendered: [Option<[f32; 16]>; MAX_CASCADES],
+    frame: u64,
+    /// Cascades actually rendered by the last `render`.
+    pub last_rendered: u32,
 }
 
 impl AddonSunShadows {
@@ -140,6 +156,10 @@ impl AddonSunShadows {
             casters: HashMap::new(),
             receivers: HashSet::new(),
             last_draws: 0,
+            refresh: [1; MAX_CASCADES],
+            rendered: [None; MAX_CASCADES],
+            frame: 0,
+            last_rendered: 0,
         }
     }
 
@@ -195,6 +215,7 @@ impl AddonSunShadows {
         self.layer_views = views;
         self.receiver_bind_group = bind_group;
         self.map_size = map_size;
+        self.rendered = [None; MAX_CASCADES];
     }
 
     /// The depth-only variant of an addon pipeline: `vs_shadow`, no fragment stage, both faces
@@ -263,7 +284,9 @@ impl AddonSunShadows {
         for (i, c) in self.cascades.iter().take(count).enumerate() { uniform.cascades[i] = *c; }
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
         self.last_draws = 0;
-        if count == 0 { return; }
+        self.last_rendered = 0;
+        self.frame = self.frame.wrapping_add(1);
+        if count == 0 { self.rendered = [None; MAX_CASCADES]; return; }
         if self.camera_bind_groups.is_empty() {
             self.camera_bind_groups = self.camera_buffers.iter().map(|buffer| device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Addon Sun Shadow Camera"),
@@ -272,6 +295,9 @@ impl AddonSunShadows {
             })).collect();
         }
         for (i, m) in self.cascades.iter().take(count).enumerate() {
+            if !cascade_due(self.rendered[i].as_ref(), m, self.frame, i, self.refresh[i]) { continue; }
+            self.rendered[i] = Some(*m);
+            self.last_rendered += 1;
             let cols = [[m[0], m[1], m[2], m[3]], [m[4], m[5], m[6], m[7]], [m[8], m[9], m[10], m[11]], [m[12], m[13], m[14], m[15]]];
             queue.write_buffer(&self.camera_buffers[i], 0, bytemuck::cast_slice(&[camera.with_view_proj(cols)]));
             let frustum = Frustum::from_view_proj(&nalgebra::Matrix4::from_column_slice(m));
@@ -309,5 +335,27 @@ impl AddonSunShadows {
                 self.last_draws += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cascade_due;
+
+    #[test]
+    fn still_cascades_refresh_on_their_turn_and_moved_ones_at_once() {
+        let a = [1.0f32; 16];
+        let mut b = a;
+        b[12] = 2.0;
+        // Every frame by default, never-rendered or moved: always.
+        assert!((0..8).all(|f| cascade_due(Some(&a), &a, f, 0, 1)));
+        assert!(cascade_due(None, &a, 1, 3, 4));
+        assert!(cascade_due(Some(&a), &b, 1, 3, 4));
+        // Held still: cascade 2 every 2nd frame, cascade 3 every 4th, never on the same frame.
+        let two: Vec<u64> = (0..8).filter(|&f| cascade_due(Some(&a), &a, f, 2, 2)).collect();
+        let four: Vec<u64> = (0..8).filter(|&f| cascade_due(Some(&a), &a, f, 3, 4)).collect();
+        assert_eq!(two, vec![0, 2, 4, 6]);
+        assert_eq!(four, vec![1, 5]);
+        assert!(two.iter().all(|f| !four.contains(f)));
     }
 }

@@ -4257,9 +4257,11 @@ export interface EntropyAPI {
      * floats, column-major, render space -> clip with z in 0..1), up to four, nearest first; an
      * empty list turns them off. `texel` is each cascade's texel size in meters, `depthRange` the
      * light's near-to-far distance in meters, `strength` 0..1 how much of the sun a shadow
-     * removes, `mapSize` the resolution of every cascade (default 2048).
+     * removes, `mapSize` the resolution of every cascade (default 2048). `refresh[i]`: while
+     * cascade i's matrix holds still, re-render it only every n-th frame (default 1, every frame;
+     * staggered across cascades) - far cascades of slow scenery rarely need every frame.
      */
-    setSunShadows: (config: { cascades: number[][]; texel?: number[]; depthRange?: number; strength?: number; mapSize?: number }) => void;
+    setSunShadows: (config: { cascades: number[][]; texel?: number[]; depthRange?: number; strength?: number; mapSize?: number; refresh?: number[] }) => void;
     configureShadows: (config: {
       mapSize?: number; // shadow map resolution (square), e.g. 256/512/1024/2048
       bias?: number; // depth bias constant

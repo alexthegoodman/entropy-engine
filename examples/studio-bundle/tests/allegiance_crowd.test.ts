@@ -75,6 +75,27 @@ describe("instanced crowds", () => {
         expect(f.buffers.size).toBe(0);
     });
 
+    it("does not write a batch again when its records come out unchanged", () => {
+        const f = fakeEngine(new Set(["a", "b"]));
+        const crowd = new CrowdBatches(f.engine, { initialCapacity: 2 });
+        const still: [string, number][] = [["a", 1], ["a", 2], ["b", 3]];
+        frame(crowd, still);
+        f.log.writes = 0;
+        const s = frame(crowd, still);
+        expect(f.log.writes).toBe(0);
+        expect(s).toMatchObject({ uploads: 0, unchanged: 2, instances: 3, drawnBatches: 2 });
+        // One record changing rewrites that batch only; a shorter batch is written too.
+        frame(crowd, [["a", 1], ["a", 9], ["b", 3]]);
+        expect(f.log.writes).toBe(1);
+        f.log.writes = 0;
+        frame(crowd, [["a", 1], ["b", 3]]);
+        expect(f.log.writes).toBe(1);
+        const a = [...f.meshes.values()].find(m => m.key === "a")!;
+        expect(a.instances).toBe(1);
+        // Only the records in use are sent, not the array's spare capacity.
+        expect(f.buffers.get(a.buffer)!.data!.length).toBe(PERSON_FLOATS);
+    });
+
     it("reports a variant missing from the cache instead of drawing it", () => {
         const f = fakeEngine(new Set());
         const missing: string[] = [];

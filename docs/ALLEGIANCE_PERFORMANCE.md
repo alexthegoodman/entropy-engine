@@ -307,3 +307,83 @@ of the London scene (people feature and a custom check) with captures reviewed.
 Exterior-only house meshes when the player is outside; bounds on city-tile uploads per frame;
 GPU-driven culling/indirect draws (not needed at the current draw counts); hot reload of worker
 scripts (a rebuilt worker bundle is picked up on the next launch).
+
+## Third pass (2026-10-05): per-frame CPU
+
+The first two passes fixed draws and UI. This one goes after work the frame repeats for nothing:
+set dressing rebuilt while nobody moved, city selections re-sorted for every centimeter walked,
+shadow maps redrawn that could not have changed, and allocations in hot loops. No visual feature
+was removed; what changed visibly is listed under shadows.
+
+### Engine
+
+- **`Buffer.write` sends only a view's bytes.** A typed-array view (`data.subarray(0, n)`) used to
+  upload its whole backing buffer, so every instanced batch (people, houses, set dressing) wrote
+  its full capacity each time, up to twice what it draws. (`addon_setup.js`)
+- **Far shadow cascades refresh on a schedule.** `Lighting.setSunShadows({ refresh })` lets a
+  cascade whose matrix holds still be redrawn only every n-th frame, staggered so two throttled
+  cascades never redraw together (`addon_sun_shadows.rs cascade_due`). A moved cascade always
+  redraws. The default stays every frame; Allegiance uses `[1, 1, 2, 4]`, so the 140 m and 520 m
+  cascades, which hold the most casters (every building and tree in range), cost half and a
+  quarter of what they did. New counter: `#sun shadow cascades`.
+- **Redundant `set_pipeline` skipped** between consecutive meshes of one pipeline in the non-PBR
+  pass (terrain chunks, batches).
+
+### Allegiance and QuadPlanet
+
+- **Set dressing (`drawScatter`).** Each item's record (rotation, scale, tint, sway phase, world
+  position, bounding sphere) is computed once per item, frame and ground-height generation and
+  kept in a `WeakMap`; a repack copies it and subtracts the render origin. Before, every repack
+  (each second, and every 4 m walked) built a dozen small arrays per item and called
+  `scatterMesh`, which sorted and joined the foliage spec's values into its key every time
+  (about 1.5 us an item; now about 0.1 us, keys memoized). Repacks also happen on a rebase or when
+  ground heights change, which they did not before.
+- **Unchanged batches are not uploaded.** `InstanceBatches.flush` compares a batch's records with
+  what it last wrote and skips the write when they match (stats: `unchanged`). Static scatter and
+  houses repacked on a timer now cost a compare.
+- **Ground cover and small props cast into fewer cascades.** Scatter is drawn by three pipelines
+  with the same shader (`al_scatter.ts shadowClass`). Lawn, meadow and flowers cast into the
+  nearest cascade only (12 m); shrubs, ferns, rocks, benches, lamps, bins, cafe furniture and the
+  like into the two nearest (52 m, like people); trees, compound buildings, flags and the beacon
+  into all four. Hundreds of grass patches used to be drawn into every cascade. Ground cover is
+  also tiled at 32 m instead of 96 m, so patches behind you and outside the near cascade are
+  culled.
+- **Houses and city blocks are chosen again every 1.5 m / 2 m walked**, not every frame the camera
+  moves (`CityOptions.reselectDistance`), and in a fast car at most every 100 ms unless it has
+  gone ten times that (`reselectMs`). Each selection re-sorted up to 4,000 candidates, twice (houses
+  and blocks). While a selection is held, the hide radius shrinks by the distance moved so no box
+  is folded away early. Unlimited budgets (settling, `fixedStep`) stay exact. The membership
+  check that dropped houses no longer in the candidate list runs only after a new placement
+  query.
+- **Ground heights are refreshed when elevation data arrives**, and once when the last of it
+  lands, instead of every 15 s. Each refresh re-sampled every planted item natively; a one-minute
+  backstop remains. A height generation counter tells set dressing to re-place.
+- **Sea samples are cached** on a 4 m grid with the heights. A nav-grid build asked ~4,900
+  uncached native samples.
+- **`NavGrid.walkable` allocates nothing.** It is called tens of thousands of times per scatter or
+  ground cover pass and on every line-of-walk check.
+- **Traffic** reduces its 2-second buildings query (up to 1,500) to a density and a roof height
+  once, instead of mapping every building to local coordinates every frame.
+- **Shadow cascades are sent only when they change** (they are texel-snapped, so they hold still
+  while you stand or walk slowly), and single-item writes (`writeItem`: tracers, cars, props,
+  view model) reuse one scratch array.
+
+### Tests
+
+- TypeScript: unchanged batches are not rewritten and only used records are sent
+  (`allegiance_crowd.test.ts`); reselect distance and time limits (`quadplanet_city.test.ts`);
+  shadow classes, mesh-key families, ground tiles and memoized keys
+  (`allegiance_visuals.test.ts`); `walkable` parity with the grid (`allegiance_street.test.ts`).
+- Rust: `cascade_due` (still cascades take turns, moved ones redraw at once).
+
+Pre-existing failures, unrelated to this pass: `allegiance_iteration2` "lines it with street trees"
+(street tree spacing 13 -> 80 m in 327379c) and the Rust
+`city::tests::houses_face_the_street_and_sit_on_the_ground` (vertex flags now include 0).
+
+### Not measured here
+
+Measured in isolation: `scatterMesh` (above) and a ground cover replant (1-4 ms, every 10 m
+walked, left as is). Live frame timings were not taken. This container rasterizes on the CPU
+(several seconds a frame with shadows), so whole-frame numbers there say little. Compare
+`al scatter`, `al houses`, `#sun shadow draws` / `#sun shadow cascades` and `#mesh triangles`
+on real hardware with the replay above.

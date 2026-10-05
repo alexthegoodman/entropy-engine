@@ -1175,6 +1175,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 if let Some(shadows) = ctx.sun_shadows.as_mut() {
                     shadows.render(device, queue, &mut encoder, &camera_binding.uniform, &camera_binding.bind_group_layout, &shadow_meshes);
                     if shadows.last_draws > 0 { crate::core::frame_profile::count("sun shadow draws", shadows.last_draws as f64); }
+                    if shadows.last_rendered > 0 { crate::core::frame_profile::count("sun shadow cascades", shadows.last_rendered as f64); }
                 }
             }
         }
@@ -1336,29 +1337,25 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
                     }
 
+                    // Consecutive meshes of one pipeline (terrain chunks, batches) bind it once.
+                    let mut bound_pipeline: Option<*const wgpu::RenderPipeline> = None;
                     for mesh in &non_pbr_meshes {
-                        let mut pipeline_set = false;
-
                         // 1. Check Role Override
-                        if let Some(role) = &mesh.render_role {
-                            if let Some(pid) = ctx.render_roles.get(role) {
-                                if let Some(p) = ctx.pipelines.get(pid) {
-                                    render_pass.set_pipeline(p);
-                                    pipeline_set = true;
-                                }
-                            }
-                        }
-
-                        if !pipeline_set {
-                            // `mesh.pipeline` is the real custom pipeline for any non-"default"
-                            // pipelineId; for "default" it is the placeholder from
-                            // create_placeholder_render_pipeline, which is never bound (see its
-                            // own doc comment) - swap in the real single-target fallback instead.
-                            if mesh.pipeline_id == "default" {
-                                render_pass.set_pipeline(&simple_mesh_pipeline);
-                            } else {
-                                render_pass.set_pipeline(&mesh.pipeline);
-                            }
+                        let role_pipeline = mesh.render_role.as_ref()
+                            .and_then(|role| ctx.render_roles.get(role))
+                            .and_then(|pid| ctx.pipelines.get(pid));
+                        // `mesh.pipeline` is the real custom pipeline for any non-"default"
+                        // pipelineId; for "default" it is the placeholder from
+                        // create_placeholder_render_pipeline, which is never bound (see its
+                        // own doc comment) - swap in the real single-target fallback instead.
+                        let chosen: &wgpu::RenderPipeline = match role_pipeline {
+                            Some(p) => p.as_ref(),
+                            None if mesh.pipeline_id == "default" => simple_mesh_pipeline,
+                            None => mesh.pipeline.as_ref(),
+                        };
+                        if bound_pipeline != Some(chosen as *const _) {
+                            render_pass.set_pipeline(chosen);
+                            bound_pipeline = Some(chosen as *const _);
                         }
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
