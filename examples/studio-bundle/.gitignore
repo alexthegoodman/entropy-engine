@@ -2,3 +2,6 @@ node_modules
 dist
 *.log
 .DS_Store
+
+# assets besides fieldstone for repo management
+assets/*

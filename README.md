@@ -619,6 +619,7 @@ window and checks the captures (under `xvfb-run -a` on a headless box).
 
 See the [performance investigation and proposed instancing API](docs/ALLEGIANCE_PERFORMANCE.md)
 for live profiling observations and optimization priorities.
+The [material acquisition checklist](docs/ALLEGIANCE_MATERIALS.md) lists surface sets to obtain and the integration needed beyond the existing fieldstone material.
 Clouds use a shared GPU noise cache; see [cloud rendering and its measured budget](docs/ALLEGIANCE_CLOUDS.md)
 for the procedural/cached comparison and the live 5% budget check.
 
