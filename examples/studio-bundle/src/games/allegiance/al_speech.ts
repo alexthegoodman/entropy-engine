@@ -25,7 +25,10 @@ import { type Rng, makeRng, pick, clamp } from "./al_rng";
 
 export const BEATS = 5;
 export const CHOOSE_SECONDS = 9;
-export const DELIVER_SECONDS = 4.5;
+export const DELIVER_SECONDS = 6.5;
+/** The delivery marker's sweep (bar widths per second): slow enough to aim, a little faster each beat. */
+export const MARKER_SPEED = 0.42;
+export const MARKER_SPEED_PER_BEAT = 0.05;
 export const HECKLE_KEYS = ["q", "e", "r", "f"];
 
 export type Grade = "perfect" | "good" | "weak" | "miss";
@@ -134,11 +137,11 @@ function drawHand(s: SpeechState, r: Rng): void {
 }
 
 function newSweet(s: SpeechState, r: Rng): void {
-    s.sweetHalf = 0.07 + 0.015 * s.oratory;
+    s.sweetHalf = 0.09 + 0.015 * s.oratory;
     s.sweet = 0.25 + r.next() * 0.5;
     s.marker = 0;
     s.markerDir = 1;
-    s.markerSpeed = 0.75 + s.beat * 0.12;
+    s.markerSpeed = MARKER_SPEED + s.beat * MARKER_SPEED_PER_BEAT;
 }
 
 export function startSpeech(o: SpeechOptions): SpeechState {
@@ -244,7 +247,7 @@ function resolveBeat(s: SpeechState, g: Grade): void {
     const p = 0.25 + s.heat * 0.25 + (s.rival ? 0.15 : 0);
     if (s.beat < BEATS - 1 && r.next() < p) {
         const lines = ["LIAR!", "Who pays you?", "Go home, agitator!", "Where were you in the floods?", "The Concordat keeps us safe!", "Empty promises!"];
-        s.heckler = { key: pick(r, HECKLE_KEYS), line: s.rival ? factionById(s.rival.faction).motto : pick(r, lines), window: 1.6 + 0.2 * s.oratory };
+        s.heckler = { key: pick(r, HECKLE_KEYS), line: s.rival ? factionById(s.rival.faction).motto : pick(r, lines), window: 2.2 + 0.2 * s.oratory };
         s.phase = "heckle";
     } else {
         s.phase = "react";

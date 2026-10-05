@@ -1,7 +1,7 @@
 # Allegiance
 
-**Allegiance** is a political conquest game on the full-scale Earth of 2100. You start with a
-dozen believers in a real hometown of your choice. Make speeches, hand out pamphlets and recruit party
+**Allegiance** is a political conquest game on the full-scale Earth of 2100. You start with five
+armed comrades in a real hometown of your choice, and a regime outpost to take for your headquarters. Make speeches, hand out pamphlets and recruit party
 members. Build a chain of command, scheme against your rivals, and arm your followers. Then take
 the planet one region at a time, by election, by coup or by war. You can do it as a liberator
 or as a tyrant.
@@ -73,17 +73,29 @@ weapons, hats, helmets and sashes remain game equipment. Walking and aiming use 
 with blended shoulder and hip motion; hair and clothes use their settled Mesha geometry.
 Generator/version/parameters/LOD identify disk entries. Returning or restarting reuses them.
 
+## The founding mission
+
+Every campaign opens with a guided mission. Comrades have found a lightly held regime outpost a
+few hundred metres from your hometown (the gold **OBJECTIVE** marker in the sky and on the mini
+map). Lead your five comrades there on foot or by flying car, clear its defenders, and stand at
+the flagpole in its courtyard for six seconds to raise your colors. The outpost becomes the party
+**headquarters**: a party-colored light beam marks it from the sky, and it shows on the mini map
+and the world map. Its **quartermaster** (E at the flag) sells everything every shop sells. The
+objective strip tracks each step, and the normal objectives take over once it is done.
+
 ## On the street
 
 | Key | Does |
 |---|---|
-| W A S D | walk (relative to where you look); Shift runs (stamina); Space jumps |
+| W A S D | walk (relative to where you look, in first person); Shift runs (stamina); Space jumps |
 | Right mouse drag, arrow keys | look around |
 | Left mouse | fire at the crosshair (hold for automatic weapons); R reloads; 1-9 switch weapons |
-| E | enter/exit your nearby car; otherwise talk or confront a rival orator |
+| E | the nearest thing: your car, a house's front door, a shop, the HQ quartermaster, supplies in a house; otherwise talk or confront a rival orator |
+| H | use the best healing item you carry |
+| I | the inventory (command console) |
 | F | hand the nearest person a pamphlet; Q cycles the pamphlet you carry |
 | B | take the stage: start a speech |
-| V | first / third person; mouse wheel zooms the camera |
+| V | first person (the default on foot) / over the shoulder; mouse wheel zooms that camera |
 | Tab, M or Esc | the command console (time stops while it is open) |
 
 Xbox and DualShock use the same semantic mappings:
@@ -100,6 +112,7 @@ Xbox and DualShock use the same semantic mappings:
 | LT / L2 | Raise the weapon to aim |
 | LB/RB / L1/R1 | Cycle weapons; switch console tabs |
 | D-pad up/down in play | Hand out / cycle pamphlet |
+| D-pad left/right in play | Use the best healing item / open the inventory |
 | D-pad or left stick in menus | Move focus; A/Cross activates it |
 | Menu / Options | Open/close the command console |
 
@@ -120,14 +133,21 @@ or **X / Square** within six metres to board. The HUD changes to flight controls
 | Steer / look | Right mouse drag or arrows | Right stick |
 | Take off / rise | Space | A / Cross |
 | Descend | C or Control | B / Circle |
-| Boost (35 m/s instead of 20 m/s) | Shift | Click left stick |
+| Boost (builds from 35 to 120 m/s while held) | Shift | Click left stick |
 | Automatic landing | L | D-pad down |
 | Exit after landing | E | X / Square |
-| First / third person | V | Click right stick |
+
+The flying car is always filmed from behind; on foot you see through your own eyes, weapon in hand.
+Holding boost while moving charges it over eight seconds, from 35 m/s up to 120 m/s (430 km/h)
+for long-distance travel; letting go bleeds it off and the car settles back to its 20 m/s cruise.
+The HUD shows the charge, speed and altitude. **Garage upgrades** (Hover Garages and the HQ) come
+in three tiers each: Turbines (top boost 160 / 200 / 250 m/s), Boost Capacitors (full charge in
+6 / 4.5 / 3 s), Gyro Rotors (cruise 26 / 32 / 40 m/s), Lift Fans (climb 12 / 16 / 22 m/s) and an
+Altitude Permit (ceiling 1,000 / 1,500 / 2,500 m).
 
 Releasing the controls brakes to a stationary hover. The car stays above terrain and collides
 with building walls and roofs across its rotor footprint; it can fly over water but lands only
-on clear, dry, level ground. Flight is capped at 500 metres above local terrain. Land before
+on clear, dry, level ground. Flight is capped at 500 metres above local terrain (the Altitude Permit raises it). Land before
 exiting; you step onto clear ground beside the car. Its location, altitude and whether you are
 aboard persist with the campaign; airborne saves resume in a stationary hover. The console
 pauses flight. Ambient traffic remains decorative.
@@ -137,6 +157,46 @@ reputation. It also shows the region you are in (who rules it, your share agains
 rival, the regime's heat, any war or rival rally), your health, armor, stamina and gear, and a
 news ticker. An **objective** strip tells you what to do next: give a speech, recruit, appoint
 officers, raise support, call an election, stage a coup, then take the next region.
+
+**Sky markers and the mini map.** Towns and cities within 45 km (90 km while flying) carry a
+marker high in the sky over them, with their name and distance, colored by who governs them, so
+you can see where to fly. Markers behind you or off to the side are pinned to the screen's edge in
+their direction. Military compounds within 5 km, the mission objective and your headquarters are
+marked too. The mini map (bottom right, north up) is the street map around you: buildings, water,
+compounds, shops, your car, your comrades and alerted soldiers. It zooms out while you fly.
+
+**Houses.** Walk to a house's front door and press **E** to go in (office blocks and other
+buildings stay closed). You walk its floor inside the outer walls. Many houses hide a footlocker
+of supplies (credits, medkits, rations, ammunition boxes, pamphlets, stims, armor patches or
+salvage); E beside it takes them, once per house. E at the front door takes you back outside.
+
+**Shops and inventory.** Roughly one non-residential building in seven has a shop, marked by a
+street kiosk with a colored awning: green **General Stores** (medkits, stims, rations, armor
+patches, ammunition boxes, pamphlets), red **Gunsmiths** (weapons, ammunition, armor and repairs)
+and blue **Hover Garages** (car upgrades). E at the kiosk walks in; any shop buys salvage. The
+**Inventory** console tab lists what you carry with USE buttons, the car's current performance and
+its upgrade tiers. You start with two medkits and three rations.
+
+**Military compounds.** Every town and city keeps a walled military compound on its outskirts:
+a headquarters, barracks, depots and hangars ringing a courtyard, four watchtowers, a gate, and
+the regime's flag. The number of buildings follows the population it holds (one for a lone
+dwelling, about four for a village, seven for a city, ten for a capital territory), with two
+defenders per building. Compounds are the target for taking a place by force: defenders hold
+their posts until you come within 45 m, shoot near them or hit one of them, then the whole
+garrison fights. Up to eight are out at once; more come out as they fall. Clear them, stand at the
+flag for six seconds, and the settlement is yours (as a conquest). A compound you leave half
+cleared refills a quarter of its garrison each day you are more than 2 km away. Compounds
+change hands with their settlement however it is won or lost.
+
+**Civilians are never harmed.** Bullets pass through civilians, rival orators and your own
+comrades; gunfire only sends civilians running. Soldiers are the only targets.
+
+**Autosave and respawn.** While you are on your feet, out of the fight and in decent health, the
+game records a checkpoint every few seconds and saves every 45 seconds (as well as every dawn and
+whenever you take a compound). If you fall, your comrades pay a bribe (10% of party funds) and you
+come back at full health at the last checkpoint: roaming squads lose you, compound guards return to
+their posts, you are protected for four seconds, no new squad comes for 25 seconds, and the game
+saves at once.
 
 **People.** The pedestrians are individuals with a name, an audience segment (worker, student,
 professional, elder, faithful, veteran) and an opinion of your party. Each one also leans toward
@@ -162,7 +222,8 @@ around you, walking there on A* paths. A speech is **five beats**:
    professionals. Your ideology makes some topics stronger. Repeating a topic bores the crowd.
 2. **Deliver** it: a marker sweeps a bar, and you press **Space** in the gold. Perfect, good,
    weak or miss multiplies the line. Perfect lines build a combo and **fervor**, which amplify
-   everything after.
+   everything after. The marker crosses the bar in about 2.4 seconds on the first beat (a little
+   faster each beat), and you have 6.5 seconds to deliver.
 3. Sometimes a **heckler** interrupts. Press the key they flash before the timer runs out to
    rebut them and the crowd cheers. Miss it and they laugh.
 
@@ -173,7 +234,7 @@ and speech after speech on the same day returns less. Hope earns karma; fear cos
 
 **Rivals.** The Concordat (the incumbent world order), the Iron Vanguard, the Verdant Accord and
 the Free Current campaign across the planet every day, hardest where you are strong. They also
-send orators: one sets up across the square, a banner on the HUD counts down, and listeners drift
+send orators: one sets up across the square where the crowd is, a banner on the HUD counts down, and listeners drift
 to them. Walk up and press **E** to challenge them to a **debate**. That is a speech with the
 rival speaking too, and their next topic is announced. Answer it with the same topic to tear the
 argument apart: your line lands harder and theirs softer. Win, and you take support from them.
@@ -182,6 +243,14 @@ Leave them unanswered and their speech lands.
 ![A debate against a Verdant Accord orator](../public/allegiance-debate.png)
 
 ## The party
+
+**Membership.** You start with five named comrades who walk and fight beside you. Members attract
+members: each brings in friends at a rate that grows with the party's local support, the momentum
+of your recent speeches and your reputation, until membership nears what local support can carry.
+Competing parties poach members: harder where the strongest rival out-polls you, where the regime
+is hot and where your members are unorganized (governing a place halves the losses). A small,
+active party grows; a neglected one bleeds to the competition. Poaching at headquarters makes the
+news.
 
 **The chain of command.** Members join faster than one person can lead them, and members nobody
 organizes pay little and drift away. In the console's **Organization** tab:
@@ -256,7 +325,7 @@ anywhere. From then on, heat rises everywhere.
 ## Reputation and the ending
 
 Karma runs from -100 to +100. Hopeful speeches, charity, honest pamphlets and elections raise it.
-Fear, smears, extortion, coups, wars, assassinations, suspended elections and killing civilians
+Fear, smears, extortion, coups, wars, assassinations and suspended elections
 lower it. Both roads win. A good reputation brings donations, loyalty and willing recruits; a
 brutal one brings fear, obedience in the hard-bitten and revulsion everywhere else.
 
@@ -285,7 +354,7 @@ A campaign day is two real minutes on the street. The sun crosses the sky with t
 each dawn the world turns: income and upkeep, rival campaigns, elections, war rounds, schemes,
 crackdowns and talent. The console stops time. **Rest until tomorrow** skips ahead. **Travel**
 (Territory tab) takes you to any region's city for a fare and the days on the road, and loads
-the new city. The campaign autosaves every day. **Continue** on the title screen picks it up
+the new city. The campaign autosaves every day and every 45 seconds of safe play. **Continue** on the title screen picks it up
 where you left off.
 
 ## How it is built
@@ -300,8 +369,14 @@ where you left off.
 | `al_nav.ts` | The street layer's local tangent frame on Earth, OSM buildings as oriented rectangles with doors, the nav grid, A* with string pulling, wall collision, line of sight |
 | `al_street.ts` | Everyone around you: civilians, followers, militia, soldiers, rival orators; crowds, pamphlets, recruiting, hitscan combat |
 | `al_player.ts` | You on foot, and the camera |
-| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, rotor clearance and landing checks |
-| `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers; three materials injected into QuadPlanet's shader |
+| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks |
+| `al_military.ts` | Military compounds: size by population, layouts, siting on clear ground, garrisons and capture |
+| `al_mission.ts` | The founding mission |
+| `al_items.ts` | Inventory items, shops and their stock, house supplies |
+| `al_interior.ts` | Going inside houses: doors, entry and exit, staying within the walls |
+| `al_markers.ts` | Sky markers (projection, pinned to the screen's edge) and the mini map |
+| `al_scatter.ts` | Mesha foliage and low-poly props: placement, levels of detail and instanced, culled drawing |
+| `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers, low-poly props and military buildings, the first-person weapon; three materials injected into QuadPlanet's shader |
 | `al_ui.ts`, `al_screens.ts` | The propaganda UI kit and every screen |
 | `allegiance_addon.ts` | The engine wiring: terrain, the loading screen, rendering, input, the day clock, saving, MCP tools |
 
@@ -318,6 +393,18 @@ vertex's limb, and the injected vertex shader swings legs and arms about the hip
 the phase and amplitude in the uniform, or raises the arms to aim. Shirt and trousers take their
 colors from the uniform, so an armband needs no new mesh. Meshes are shared per look (skin, hair,
 hat, weapon).
+
+**Set dressing.** Trees, conifers (palms in the tropics), shrubs, grass and flowers are Mesha's
+nature objects, evaluated once on the loading screen and kept in the mesh cache
+(`mesh-cache/allegiance-scatter`) with a simplified level of detail made on a Rust thread.
+Houses get trees in their back yards and shrubs at their sides; other buildings get benches,
+lamps, bins and crates; shops get kiosks; open ground gets sparse stands of trees on a grid
+anchored to latitude and longitude. Placement is deterministic in each building's key. Benches,
+lamps, bins, barriers, crates, sandbags, kiosks, footlockers and the military buildings are
+simple low-poly stand-ins (al_models.ts) to replace with detailed meshes later. Everything is
+drawn instanced: each mesh in each 96 m tile is one draw with a bounding sphere, so the engine
+culls tiles out of view; foliage beyond its range is skipped and near foliage uses full detail.
+Records are rewritten only when you move.
 
 **The UI.** Rects and texts are retained by the engine until `UI.clear()`, and every text is
 rasterized when it is created. So each screen describes its whole frame into a `Painter`, which
@@ -342,7 +429,12 @@ These tools also drive the live test:
 - `allegiance_act`: street and campaign actions such as `talk`, `pamphlet`, `persuade`,
   `recruit`, `follow`, `approach`, `walk`, `face`, `shoot`, `squad`, `rally`, `followers`,
   `rest`, `days`, `funds`, `organize`, `arm`, `war`, `coup`, `election`, `travel`, `buy`,
-  `equip`, `save`, `load`, `view` and `govern`.
+  `equip`, `save`, `load`, `view` and `govern`; and for the upgrades `use`, `heal`, `house`,
+  `enter`, `loot`, `leave-house`, `shop`, `shop-buy`, `shop-sell`, `shop-close`, `compound`,
+  `storm`, `flag`, `die`, `checkpoint` and `to-car`. `allegiance_new` takes `mission: false` to
+  skip the founding mission. `allegiance_state` also reports the mission, nearby compounds and
+  their guards, the capture, inventory, car upgrades, checkpoint, the house you are in, the open
+  shop, sky markers, the mini map and set dressing counts.
 
 ## Tests
 
@@ -353,7 +445,11 @@ These tools also drive the live test:
   debates, crowd mixes), the local frame and building rectangles, nav-grid A* through gaps, water
   and walls, pedestrians walking between doors and gathering for speeches, pamphlets and
   recruiting, fleeing gunfire, hitscan through walls, squads against followers, militia and loot,
-  and every screen through a stand-in for `Entropy.UI`. `npm run typecheck:allegiance` checks
+  and every screen through a stand-in for `Entropy.UI`. `allegiance_upgrades.test.ts` covers the
+  boost build-up and car upgrades, items, shops and house supplies, compound sizes, layouts,
+  siting and capture, the founding mission, membership dynamics, entering houses, marker
+  projection and the mini map, set dressing and Mesha foliage caching, compound guards, the
+  respawn shield, civilians' immunity and the slower speech marker. `npm run typecheck:allegiance` checks
   the types.
 - `cargo test --release --test allegiance_live -- --nocapture --test-threads=1` runs under
   `xvfb-run -a` on a headless box. It plays `tests/features/allegiance_live.feature` in the real
@@ -363,15 +459,24 @@ These tools also drive the live test:
   frames. `allegiance_iteration1_live.feature` covers hometown start, controller movement and menus,
   density-limited traffic, and save/resume. `allegiance_car_live.feature` covers keyboard boarding,
   controller takeoff, hover, rejected airborne exit, airborne save/resume, keyboard flight,
-  controller landing and exit, with three captured frames. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  controller landing and exit, with three captured frames. `allegiance_upgrades_live.feature`
+  covers the first-person start with five comrades and the mission marker, storming the outpost
+  and founding the HQ, the quartermaster and a garage upgrade, the inventory tab, entering and
+  searching a house, falling and respawning, and boosted flight under the sky markers, with six
+  captured frames. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.
 
 ## Limits
 
-- Buildings are their fitted rectangles to the nav grid and to bullets; you can't go inside. The
-  houses' interiors are there to see, not to walk.
+- Buildings are their fitted rectangles to the nav grid and to bullets. Houses can be entered,
+  but inside you are kept within the outer walls only: interior walls, stairs and upper floors
+  are not walkable yet. Office blocks and other buildings stay closed.
+- Shops are walk-up counters (a menu at the kiosk), not interiors.
+- Compounds are placed on the clear ground nearest their planned spot once the street map
+  covers them; with no clear ground there, map buildings inside their walls give way. The
+  military buildings are low-poly stand-ins with no interiors.
 - Your personal hover car parks beside you on arrival, with clearance for its rotors; its parking
   location and airborne occupancy persist through save/resume. The personal car is pilotable;
   ambient traffic has no vehicle collisions. Long-distance command-console travel is instant

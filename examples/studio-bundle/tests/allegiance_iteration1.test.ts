@@ -81,7 +81,7 @@ describe("Iteration 1 settlement campaigns", () => {
         expect(d.pop).toBe(0.015);
         expect(c.player.lat).toBe(hometown.lat);
         expect(c.player.lon).toBe(hometown.lon);
-        expect(c.regions[d.id].members).toBe(12);
+        expect(c.regions[d.id].members).toBe(5);
         expect(c.members.every(m => m.region === d.id)).toBe(true);
         expect(regionAt(hometown.lat, hometown.lon, c).id).toBe(d.id);
         expect(campaignRegions(c).reduce((n, d) => n + d.pop, 0)).toBeCloseTo(WORLD_POPULATION, 8);

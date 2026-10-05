@@ -67,12 +67,16 @@ export interface Actor {
     militia: boolean;
     /** A weapon a fallen soldier dropped, waiting to be picked up. */
     loot: string | null;
+    /** Compound defenders: the compound they hold, and the spot they guard until alerted. */
+    compound?: string | null;
+    post?: [number, number] | null;
+    alerted?: boolean;
 }
 
 export interface Shot { ax: number; ay: number; az: number; bx: number; by: number; bz: number; side: Side; hit: boolean; age: number }
 
 export type StreetEvent =
-    | { kind: "kill"; victim: number; by: Side; soldier: boolean }
+    | { kind: "kill"; victim: number; by: Side; soldier: boolean; compound?: string | null }
     | { kind: "follower-died"; memberId: number | null; name: string }
     | { kind: "civilian-killed"; name: string; byPlayer: boolean }
     | { kind: "player-hit"; damage: number }
@@ -97,6 +101,8 @@ export interface StreetContext {
     forceSquad?: boolean;
     /** No new rivals or raids (loading, menus). */
     calm?: boolean;
+    /** No roaming squads (respawn grace, or a compound assault already underway). */
+    noSquads?: boolean;
 }
 
 export interface StreetState {
@@ -104,7 +110,9 @@ export interface StreetState {
     nextId: number;
     shots: Shot[];
     events: StreetEvent[];
-    player: { x: number; z: number; y: number; heading: number; health: number; armor: number; absorb: number; dead: boolean; moving: boolean };
+    player: { x: number; z: number; y: number; heading: number; health: number; armor: number; absorb: number; dead: boolean; moving: boolean;
+        /** Seconds of protection left after respawning (nothing hurts you). */
+        shield?: number };
     alarm: { x: number; z: number; time: number } | null;
     speech: { x: number; z: number; target: number } | null;
     rally: { orator: number; time: number; faction: string } | null;
@@ -292,6 +300,9 @@ export function rayHitsActor(o: Vec3, d: Vec3, a: Actor, maxDist: number): numbe
     return t * hl;
 }
 
+/** Only combatants can be shot: civilians, rival orators and your own comrades are never harmed. */
+export const targetable = (a: Actor): boolean => a.kind === "soldier";
+
 export interface ShotResult { hit: Actor | null; distance: number; blocked: boolean; end: Vec3 }
 
 /**
@@ -301,7 +312,7 @@ export interface ShotResult { hit: Actor | null; distance: number; blocked: bool
 export function castShot(st: StreetState, nav: NavGrid | null, o: Vec3, d: Vec3, range: number, exclude: number | null, includePlayer: boolean): ShotResult & { player: boolean } {
     let best: Actor | null = null, bestT = range;
     for (const a of st.actors) {
-        if (a.id === exclude || !alive(a)) continue;
+        if (a.id === exclude || !alive(a) || !targetable(a)) continue;
         const t = rayHitsActor(o, d, a, bestT);
         if (t !== null && t < bestT) { bestT = t; best = a; }
     }
@@ -332,29 +343,30 @@ export function castShot(st: StreetState, nav: NavGrid | null, o: Vec3, d: Vec3,
 
 function damageActor(st: StreetState, a: Actor, dmg: number, by: Side, byPlayer: boolean): void {
     if (!alive(a)) return;
+    // Civilians are never harmed in this game: gunfire scares them, it never hurts them.
+    if (a.kind === "civilian" || a.kind === "orator") { alarm(st, a.x, a.z); return; }
+    if (a.post) a.alerted = true;
     a.health -= dmg;
-    if (a.kind === "civilian" || a.kind === "orator") alarm(st, a.x, a.z);
-    if (a.health > 0) {
-        if (a.kind === "civilian") { a.state = "flee"; a.stateTime = 0; a.opinion = clamp(a.opinion - (byPlayer ? 0.6 : 0), -1, 1); }
-        return;
-    }
+    if (a.health > 0) return;
     a.health = 0;
     a.state = "dead";
     a.stateTime = 0;
     a.path = [];
     if (a.kind === "soldier") {
         if (a.weapon !== "fists" && (a.id * 7919) % 10 < 7) a.loot = a.weapon;
-        st.events.push({ kind: "kill", victim: a.id, by, soldier: true });
-        st.squadAlive = Math.max(0, st.squadAlive - 1);
-        if (st.squadAlive === 0) st.events.push({ kind: "squad-defeated" });
-    } else if (a.kind === "follower") st.events.push({ kind: "follower-died", memberId: a.memberId, name: a.name });
-    else st.events.push({ kind: "civilian-killed", name: a.name, byPlayer });
+        st.events.push({ kind: "kill", victim: a.id, by, soldier: true, compound: a.compound ?? null });
+        if (!a.compound) {
+            st.squadAlive = Math.max(0, st.squadAlive - 1);
+            if (st.squadAlive === 0) st.events.push({ kind: "squad-defeated" });
+        }
+    } else st.events.push({ kind: "follower-died", memberId: a.memberId, name: a.name });
+    void byPlayer;
     if (st.rally && st.rally.orator === a.id) st.rally = null;
 }
 
 function damagePlayer(st: StreetState, dmg: number): void {
     const p = st.player;
-    if (p.dead) return;
+    if (p.dead || (p.shield ?? 0) > 0) return;
     let rest = dmg;
     if (p.armor > 0) {
         const soak = Math.min(p.armor, dmg * p.absorb);
@@ -487,10 +499,43 @@ export function spawnSquad(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     return n;
 }
 
+/** Compound defenders at their posts (local x, z). They hold position until you come close or shoot. */
+export function spawnGuards(st: StreetState, ctx: StreetContext, r: Rng, compound: string, posts: [number, number][]): number {
+    let n = 0;
+    for (const [x, z] of posts) {
+        const a = newActor(st, "soldier", x, z, r);
+        a.name = `Guard ${pick(r, LAST)}`;
+        a.faction = "concordat";
+        a.weapon = r.next() < 0.7 ? "rifle" : "smg";
+        a.mag = weaponById(a.weapon).magazine;
+        a.accuracy = 0.22 + ctx.enemyQuality * 0.3;
+        a.maxHealth = a.health = 80 + ctx.enemyQuality * 40;
+        a.state = "fight";
+        a.compound = compound;
+        a.post = [x, z];
+        a.alerted = false;
+        a.heading = r.next() * Math.PI * 2;
+        a.look = { shirt: [0.24, 0.26, 0.2], pants: [0.2, 0.21, 0.18], skin: a.look.skin, hair: a.look.hair, hat: true, female: a.look.female };
+        st.actors.push(a);
+        n++;
+    }
+    return n;
+}
+
+/** Guards of `compound` still standing. */
+export const guardsOf = (st: StreetState, compound: string): Actor[] => st.actors.filter(a => a.compound === compound && alive(a));
+
 export function spawnOrator(st: StreetState, nav: NavGrid | null, ctx: StreetContext, r: Rng): void {
     const rivals = RIVALS.map(id => ctx.rivalShares[id] ?? 0);
     const faction = RIVALS[weighted(r, rivals)];
-    const at = spawnPoint(st, nav, r, 30, 55);
+    // Orators set up where people are: the candidate spot with the most passers-by within earshot.
+    let at: [number, number] | null = null, best = -1;
+    for (let k = 0; k < 8; k++) {
+        const p = spawnPoint(st, nav, r, 30, 55);
+        if (!p) continue;
+        const near = st.actors.filter(a => a.kind === "civilian" && alive(a) && dist2(a.x, a.z, p[0], p[1]) < 28 * 28).length;
+        if (near > best) { best = near; at = p; }
+    }
     if (!at) return;
     const a = newActor(st, "orator", at[0], at[1], r);
     a.faction = faction;
@@ -638,7 +683,15 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
     if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) a.mag = w.magazine; }
     a.retarget -= dt;
     let target: { x: number; z: number; y: number; id: number | null } | null = null;
-    const foes = hostiles(st, a);
+    // Guards stay at their posts until someone comes close, shoots near them or hits one of them.
+    if (a.post && !a.alerted) {
+        const near = (x: number, z: number) => dist2(x, z, a.post![0], a.post![1]) < 45 * 45;
+        if ((!st.player.dead && near(st.player.x, st.player.z)) || (st.alarm && near(st.alarm.x, st.alarm.z))
+            || st.actors.some(b => b.side === "party" && alive(b) && near(b.x, b.z))) {
+            for (const g of st.actors) if (g.compound === a.compound) g.alerted = true;
+        }
+    }
+    const foes = a.post && !a.alerted ? [] : hostiles(st, a);
     if (foes.length) {
         // Nearest visible foe within reach.
         let bestD = (w.range * 1.4) ** 2;
@@ -690,6 +743,11 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
         if (a.path.length && d > 8) followPath(st, a, RUN, dt, nav);
         else if (d > 1.2) moveToward(a, tx, tz, d > 6 ? RUN : WALK * 1.2, dt, nav);
         else { a.speed = 0; a.heading = turn(a.heading, p.heading, dt * 3); }
+    } else if (a.post && !a.alerted) {
+        // On guard: back to the post, then a slow look around.
+        if (!moveToward(a, a.post[0], a.post[1], WALK, dt, nav)) return;
+        a.speed = 0;
+        a.heading += dt * 0.25 * (a.id % 2 ? 1 : -1);
     } else {
         const p = st.player;
         if ((a.repath -= dt) <= 0 && requestPath(st, a, nav, p.x, p.z)) a.repath = 4;
@@ -739,6 +797,7 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     st.pathBudget = 4;
     st.fighterBudget = 2;
     if (st.alarm) { st.alarm.time -= dt; if (st.alarm.time <= 0) st.alarm = null; }
+    if (st.player.shield) st.player.shield = Math.max(0, st.player.shield - dt);
     for (const s of st.shots) s.age += dt;
     st.shots = st.shots.filter(s => s.age < 0.12);
     const p = st.player;
@@ -753,7 +812,7 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     if (!ctx.calm) {
         st.squadTimer -= dt;
         const raid = !ctx.atWar && ctx.heat > 0.7;
-        if (ctx.forceSquad || ((ctx.atWar || raid) && st.squadTimer <= 0 && st.squadAlive === 0)) {
+        if (ctx.forceSquad || ((ctx.atWar || raid) && !ctx.noSquads && st.squadTimer <= 0 && st.squadAlive === 0)) {
             spawnSquad(st, nav, ctx, r, ctx.atWar ? 3 + Math.floor(r.next() * 4) : 3, raid && !ctx.atWar);
             st.squadTimer = ctx.atWar ? 35 + r.next() * 40 : 120 + r.next() * 120;
         }
@@ -813,6 +872,7 @@ function separate(st: StreetState): void {
 export function shiftStreet(st: StreetState, dx: number, dz: number): void {
     for (const a of st.actors) {
         a.x -= dx; a.z -= dz;
+        if (a.post) a.post = [a.post[0] - dx, a.post[1] - dz];
         a.path = a.path.map(([x, z]) => [x - dx, z - dz] as [number, number]);
         if (a.slot) a.slot = [a.slot[0] - dx, a.slot[1] - dz];
     }

@@ -21,12 +21,13 @@ import {
 } from "./al_data";
 import {
     campaignRegions, type Campaign, type RegionState, type War, addKarma, baseGarrison, neighbors, partyShare, pushNews, shiftSupport,
-    strongestRival, topicFit, totalMembers, withRng, karmaTitle, angularDistance, EARTH_RADIUS_KM, normalizeSupport,
+    strongestRival, topicFit, totalMembers, withRng, karmaTitle, angularDistance, EARTH_RADIUS_KM, normalizeSupport, clamp01,
 } from "./al_state";
 import {
-    applyLedger, dailyLedger, dailyMembers, gainXp, hasFacility, holder, orgReport, partyQuality, skill,
+    applyLedger, dailyLedger, dailyMembers, gainXp, hasFacility, holder, orgReport, partyQuality, skill, maxHealth,
 } from "./al_party";
 import type { Rng } from "./al_rng";
+import { reinforceCompounds } from "./al_military";
 
 /** Real seconds per campaign day while you play (the day also advances when you rest or travel). */
 export const DAY_SECONDS = 120;
@@ -97,6 +98,9 @@ export function takeRegion(c: Campaign, rs: RegionState, how: "election" | "coup
     if (how === "election") c.stats.elections++;
     if (how === "coup") c.stats.coups++;
     gainXp(c, 150);
+    // The settlement's compound changes hands with it.
+    const cs = c.compounds?.[`mil-${rs.id}`];
+    if (cs) { cs.captured = true; cs.garrison = 0; }
     const verb = how === "election" ? "wins the election in" : how === "coup" ? "seizes power in" : "conquers";
     pushNews(c, `${c.party.name} ${verb} ${def.name}! ${factionById(previous).name} is ousted.`, "good");
 }
@@ -111,6 +115,8 @@ export function loseRegion(c: Campaign, rs: RegionState, to: string, why: string
     rs.army = 0;
     rs.garrison = baseGarrison(def, rs.gov);
     rs.heat = 0.6;
+    const cs = c.compounds?.[`mil-${rs.id}`];
+    if (cs) { cs.captured = false; cs.garrison = cs.maxGarrison; }
     shiftSupport(rs, to, 0.08);
     pushNews(c, `${def.name} falls to ${factionById(to).name}: ${why}.`, "bad");
 }
@@ -340,9 +346,10 @@ export function moveHq(c: Campaign, regionId: string): string | null {
 /** You fell in the street: your comrades carry you to headquarters at a price. */
 export function playerDied(c: Campaign, regionId: string): string {
     c.stats.deaths++;
-    const lost = Math.max(0, Math.round(c.party.funds * 0.15));
+    const lost = Math.max(0, Math.round(c.party.funds * 0.1));
     c.party.funds -= lost;
-    c.player.health = 50;
+    // Back on your feet at full strength: the last checkpoint (the addon) is where you wake up.
+    c.player.health = maxHealth(c);
     c.player.armor = 0;
     const rs = c.regions[regionId];
     if (rs) rs.momentum = 0;
@@ -353,7 +360,31 @@ export function playerDied(c: Campaign, regionId: string): string {
 
 // --- The daily tick ------------------------------------------------------------------------------
 
-function grassroots(c: Campaign, rs: RegionState, popMillions: number, propagandaBoost: number, radio: boolean, r: Rng): void {
+/**
+ * One day of membership in a region. Members attract members: each brings in friends at a rate that
+ * grows with the party's local support, momentum (speeches) and reputation, until membership nears
+ * what local support can sustain. Rivals poach members: harder the more the strongest rival
+ * out-polls you, the hotter the regime and the less organized your members are. Small, active
+ * parties grow; neglected ones bleed to the competition.
+ */
+export function memberFlow(rs: RegionState, popMillions: number, karma: number, organizedShare = 1): { joined: number; lost: number; poacher: string | null } {
+    const share = partyShare(rs);
+    const people = popMillions * 1e6;
+    const cap = Math.max(40, share * people * 0.03);
+    const appeal = clamp01((0.5 + share * 10 + rs.momentum * 1.5 + karma / 200) / 2.5) * 2.5;
+    const room = Math.max(0, 1 - rs.members / cap);
+    let joined = rs.members * 0.03 * appeal * room;
+    // Supporters walk in on their own once the party is visible.
+    if (share > 0.02 && rs.members < cap) joined += share * people * 0.000004;
+    const rival = strongestRival(rs);
+    const gap = Math.max(0, (rs.support[rival] ?? 0) - share);
+    const governing = rs.governor === PARTY ? 0.5 : 1;
+    const rate = (0.004 + 0.03 * gap * (1 - 0.5 * organizedShare) + 0.01 * rs.heat) * governing;
+    const lost = rs.members * rate + (rs.members > cap ? (rs.members - cap) * 0.05 : 0);
+    return { joined, lost, poacher: lost > 0 ? rival : null };
+}
+
+function grassroots(c: Campaign, rs: RegionState, popMillions: number, propagandaBoost: number, radio: boolean, r: Rng, organizedShare = 1): void {
     if (rs.members <= 0 && partyShare(rs) <= 0) return;
     const density = rs.members / (popMillions * 1e6);
     let gain = Math.min(0.01, 0.0022 * Math.sqrt(density / 1e-5)) * propagandaBoost;
@@ -363,12 +394,16 @@ function grassroots(c: Campaign, rs: RegionState, popMillions: number, propagand
     // Brutal parties grow through fear in some places and revulsion in others.
     gain *= 1 + c.party.karma / 400;
     if (gain > 0) shiftSupport(rs, PARTY, gain * (0.7 + 0.6 * r.next()));
-    // Supporters join; members recruit their friends.
-    const share = partyShare(rs);
-    const cap = share * popMillions * 1e6 * 0.03;
-    const growth = rs.members * 0.012 * Math.min(1, share * 6) + (share > 0.02 ? share * popMillions * 1e6 * 0.000004 : 0);
-    if (rs.members < cap) rs.members = Math.min(cap, rs.members + growth);
-    rs.members = Math.round(rs.members);
+    // Members recruit their friends; rival parties poach members (al_world.memberFlow).
+    const flow = memberFlow(rs, popMillions, c.party.karma, organizedShare);
+    const roundish = (v: number) => Math.floor(v) + (r.next() < v - Math.floor(v) ? 1 : 0);
+    const joined = roundish(flow.joined), lost = Math.min(rs.members, roundish(flow.lost));
+    rs.members = Math.max(0, rs.members + joined - lost);
+    if (lost > 0 && flow.poacher) {
+        // Poached members carry their friends' sympathy with them.
+        shiftSupport(rs, flow.poacher, lost / Math.max(1, popMillions * 1e6) * 4, PARTY);
+        if (rs.id === c.party.hq && lost >= Math.max(3, rs.members * 0.03)) pushNews(c, `${factionById(flow.poacher).name} poached ${lost} members in ${regionDefById(rs.id)?.name ?? rs.id}.`, "bad");
+    }
     // Support with no one to keep it up fades.
     if (rs.members < 5 && rs.governor !== PARTY) rs.support[PARTY] *= 0.985;
     rs.momentum *= 0.8;
@@ -628,7 +663,7 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
             const ro = report.regions[def.id];
             const organized = ro && ro.members > 0 ? ro.organized / ro.members : 1;
             const boost = (0.5 + 0.5 * organized) * (1 + (prop ? prop.charisma / 20 : 0));
-            grassroots(c, rs, def.pop, boost, radio, r);
+            grassroots(c, rs, def.pop, boost, radio, r, organized);
             rivalsCampaign(c, rs, r);
             unrest(c, rs);
             heatAndCrackdowns(c, rs, r);
@@ -665,6 +700,7 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
         resolveSchemes(c, r);
     });
     dailyMembers(c);
+    reinforceCompounds(c);
     if (!c.outlawedDay && (worldSupport(c) > 0.04 || partyRegions(c).length > 0)) outlaw(c);
     c.party.peakMembers = Math.max(c.party.peakMembers, totalMembers(c));
     checkOutcome(c);

@@ -1,4 +1,4 @@
-import { campaignRegions } from "./al_state";
+import { campaignRegions, FOUNDING_COMRADES } from "./al_state";
 // The party: its hierarchy, its money and what it can buy.
 //
 // Hierarchy. Members join faster than one leader can organize them, so the party needs a chain of
@@ -19,12 +19,12 @@ import { campaignRegions } from "./al_state";
 // forces, facilities and governing cost money every day.
 
 import {
-    ARMORS, BLOCS, FACILITIES, PAMPHLETS, SCHEMES, SKILL_MAX, WEAPONS, PARTY,
+    ARMORS, BLOCS, FACILITIES, FACTIONS, PAMPHLETS, SCHEMES, SKILL_MAX, WEAPONS, PARTY,
     armorById, regionDefById, skillCost, weaponById, type SkillId,
 } from "./al_data";
 import {
     type Campaign, type Ledger, type Member, type Role, INNER_CIRCLE, ZERO_LEDGER, addKarma, addTalent, pushNews,
-    withRng, totalMembers,
+    withRng, totalMembers, strongestRival,
 } from "./al_state";
 
 // --- Derived player stats ------------------------------------------------------------------------
@@ -410,6 +410,18 @@ export function dailyMembers(c: Campaign): void {
                 const rs = c.regions[m.region];
                 if (rs) { rs.heat = Math.min(1, rs.heat + 0.12); rs.members = Math.max(0, rs.members - 1); }
                 pushNews(c, `${m.name} defects and talks to the authorities.`, "bad");
+                continue;
+            }
+            // Wavering members are courted by the party that out-polls you where they live.
+            const home = c.regions[m.region];
+            if (home && !officer && !m.follower && m.loyalty < 35) {
+                const rival = strongestRival(home);
+                const gap = (home.support[rival] ?? 0) - (home.support[PARTY] ?? 0);
+                if (gap > 0.1 && r.next() < 0.05 + gap * 0.1) {
+                    c.members.splice(c.members.indexOf(m), 1);
+                    home.members = Math.max(0, home.members - 1);
+                    pushNews(c, `${m.name} leaves the party for ${FACTIONS.find(f => f.id === rival)?.name ?? rival}.`, "bad");
+                }
             }
         }
         // Unorganized rank-and-file leave.
@@ -483,7 +495,7 @@ export function recruitInPerson(c: Campaign, region: string, who: { name: string
 }
 
 export const followers = (c: Campaign): Member[] => c.members.filter(m => m.follower);
-export const followerLimit = (c: Campaign): number => 2 + skill(c, "leadership");
+export const followerLimit = (c: Campaign): number => FOUNDING_COMRADES + skill(c, "leadership");
 
 export function setFollower(c: Campaign, memberId: number, on: boolean): string | null {
     const m = c.members.find(x => x.id === memberId);

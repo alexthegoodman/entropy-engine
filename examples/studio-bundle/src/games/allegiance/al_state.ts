@@ -77,6 +77,29 @@ export interface RegionState {
     momentum: number;
 }
 
+/** A military compound: the target for taking a settlement (or, for the founding outpost, your
+ * headquarters). Civilians are never the target; the garrison is. */
+export interface CompoundState {
+    id: string;
+    /** The settlement or territory it holds. */
+    settlement: string;
+    kind: "outpost" | "garrison";
+    lat: number;
+    lon: number;
+    yaw: number;
+    /** Buildings in the compound (proportional to the settlement's population). */
+    buildings: number;
+    /** Defenders left, and the full complement. */
+    garrison: number;
+    maxGarrison: number;
+    captured: boolean;
+    /** Moved onto clear ground the first time the street map covered it. */
+    sited: boolean;
+}
+
+export type MissionStep = "assemble" | "approach" | "assault" | "raise" | "done";
+export interface MissionState { id: "founding"; step: MissionStep; compound: string; startedDay: number; raise: number }
+
 export interface ActiveScheme { id: number; scheme: string; region: string; daysLeft: number; chance: number }
 
 export interface NewsItem { day: number; text: string; kind: "good" | "bad" | "info" | "war" }
@@ -112,6 +135,8 @@ export interface Campaign {
         brokeDays: number;
         /** The largest membership the party has ever had (for the defeat check). */
         peakMembers: number;
+        /** The captured compound that serves as party headquarters (on the sky markers and maps). */
+        hqSite?: { lat: number; lon: number; name: string } | null;
     };
     player: {
         health: number;
@@ -124,6 +149,10 @@ export interface Campaign {
         lat: number;
         lon: number;
         flyingCar?: { lat: number; lon: number; yaw: number; altitude?: number; piloting?: boolean };
+        /** Consumables and salvage (al_items.ts). */
+        inventory?: Record<string, number>;
+        /** Garage upgrade tiers bought for the flying car (al_vehicle.ts CAR_UPGRADES). */
+        carUpgrades?: Partial<Record<"turbine" | "capacitor" | "lift" | "gyro" | "ceiling", number>>;
     };
     members: Member[];
     nextMemberId: number;
@@ -138,7 +167,30 @@ export interface Campaign {
     /** Days the Concordat has branded the party enemies of the state (0 = not yet). */
     outlawedDay: number;
     outcome: null | { kind: "victory" | "defeat"; title: string; text: string; day: number };
+    /** Houses already searched for supplies. */
+    looted?: string[];
+    /** Military compounds by id (created as settlements come near). */
+    compounds?: Record<string, CompoundState>;
+    /** The guided opening (al_mission.ts); null once done or for old saves. */
+    mission?: MissionState | null;
+    /** The last safe place you stood (autosaved): where you come back after falling in battle. */
+    checkpoint?: { lat: number; lon: number; day: number } | null;
 }
+
+/** Fills fields newer than a save (older campaigns load with empty inventories, no mission). */
+export function migrateCampaign(c: Campaign): Campaign {
+    c.player.inventory ??= {};
+    c.player.carUpgrades ??= {};
+    c.looted ??= [];
+    c.compounds ??= {};
+    c.mission ??= null;
+    c.checkpoint ??= null;
+    c.party.hqSite ??= null;
+    return c;
+}
+
+/** Founding comrades who walk with you from the first minute. */
+export const FOUNDING_COMRADES = 5;
 
 export interface NewCampaignOptions {
     seed?: number;
@@ -242,7 +294,7 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
     const spawn = opts.hometown ? regionAt(opts.hometown.lat, opts.hometown.lon) : (requested?.parent ? regionDefById(requested.parent)! : requested ?? REGIONS[0]);
     const home = regions[spawn.id];
     // You arrive with a handful of believers and a little awareness at home.
-    home.members = 12;
+    home.members = FOUNDING_COMRADES;
     home.support[PARTY] = 0.01;
     normalizeSupport(home.support);
     const c: Campaign = {
@@ -267,7 +319,8 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
             posture: "mixed",
             hq: spawn.id,
             brokeDays: 0,
-            peakMembers: 12,
+            peakMembers: FOUNDING_COMRADES,
+            hqSite: null,
         },
         player: {
             health: 100,
@@ -279,6 +332,8 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
             pamphlets: { truth: 20, propaganda: 20, smear: 0 },
             lat: opts.lat ?? spawn.lat,
             lon: opts.lon ?? spawn.lon,
+            inventory: { medkit: 2, ration: 3 },
+            carUpgrades: {},
         },
         members: [],
         nextMemberId: 1,
@@ -290,17 +345,25 @@ export function newCampaign(opts: NewCampaignOptions = {}): Campaign {
         stats: { speeches: 0, bestSpeech: 0, pamphlets: 0, recruits: 0, kills: 0, deaths: 0, elections: 0, coups: 0, wars: 0, regionsTaken: 0 },
         outlawedDay: 0,
         outcome: null,
+        looted: [],
+        compounds: {},
+        mission: null,
+        checkpoint: null,
     };
     const homePlace = opts.hometown ?? (requested?.parent ? requested : undefined) ?? (!opts.spawn && opts.lat !== undefined && opts.lon !== undefined
         ? { name: `${opts.lat.toFixed(4)}, ${opts.lon.toFixed(4)}`, lat: opts.lat, lon: opts.lon, kind: "village" } : null);
     if (homePlace) {
         const d = discoverSettlement(c, homePlace);
         home.members = 0; home.support[PARTY] = 0; normalizeSupport(home.support);
-        c.regions[d.id].members = 12; shiftSupport(c.regions[d.id], PARTY, 0.01);
+        c.regions[d.id].members = FOUNDING_COMRADES; shiftSupport(c.regions[d.id], PARTY, 0.01);
         c.party.hq = d.id; c.player.lat = d.lat; c.player.lon = d.lon;
     }
-    // Three founding comrades to fill your first posts.
-    for (let k = 0; k < 3; k++) addTalent(c, c.party.hq, rng, false);
+    // Five founding comrades: they walk (and fight) beside you from the start, and fill your first posts later.
+    for (let k = 0; k < FOUNDING_COMRADES; k++) {
+        const m = addTalent(c, c.party.hq, rng, false);
+        m.follower = true; m.armed = true; m.inPerson = true; m.loyalty = Math.max(m.loyalty, 75);
+    }
+    c.checkpoint = { lat: c.player.lat, lon: c.player.lon, day: 0 };
     c.rngState = rng.state();
     pushNews(c, `${c.party.name} is founded in ${regionDefById(c.party.hq)!.name}. ${ideology.slogan}`, "good");
     return c;

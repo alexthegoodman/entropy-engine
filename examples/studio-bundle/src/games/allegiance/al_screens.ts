@@ -13,10 +13,14 @@ import {
 import { controlLevel, coupChance, electionCost, governedShare, travelCost, worldSupport, DAY_SECONDS, VICTORY_SHARE } from "./al_world";
 import { BEATS, HECKLE_KEYS, type SpeechState } from "./al_speech";
 import { opinionLabel } from "./al_street";
+import { missionObjective } from "./al_mission";
+import { type MiniMap, type ScreenMarker } from "./al_markers";
+import { ITEMS, itemById, inventory, shopStock, carTier, type ShopKind } from "./al_items";
+import { CAR_UPGRADES, carSpec } from "./al_vehicle";
 import { type ButtonOpts, type ButtonStyle, type Color, type Painter, FONT, THEME, big, fmt, money, pct, textWidth, withAlpha } from "./al_ui";
 
-export type Mode = "title" | "setup" | "loading" | "play" | "console" | "speech" | "dialogue" | "outcome";
-export type ConsoleTab = "overview" | "organization" | "territory" | "armory" | "skills";
+export type Mode = "title" | "setup" | "loading" | "play" | "console" | "speech" | "dialogue" | "outcome" | "shop";
+export type ConsoleTab = "overview" | "organization" | "territory" | "armory" | "skills" | "inventory";
 
 export interface SetupState {
     party: string;
@@ -84,6 +88,18 @@ export interface GameView {
     firstPerson: boolean;
     piloting?: boolean;
     debug: string | null;
+    /** Towns, cities, compounds and HQ placed on the screen (al_markers.ts). */
+    markers?: ScreenMarker[];
+    /** The mini map around you (al_markers.ts). */
+    minimap?: MiniMap | null;
+    /** A compound assault underway: what is left, and the flag being raised (0..1). */
+    capture?: { name: string; defenders: number; raise: number; state: string } | null;
+    /** Flying: boost built up (0..1), speed (m/s), altitude and ceiling (m). */
+    car?: { boost: number; speed: number; altitude: number; ceiling: number } | null;
+    /** Inside a house (its name for the HUD). */
+    indoors?: string | null;
+    /** The shop you walked into. */
+    shop?: { kind: ShopKind | "hq"; name: string } | null;
     act(name: string, arg?: unknown): void;
 }
 
@@ -160,6 +176,14 @@ function worldMap(ui: UiFrame, g: GameView, x: number, y: number, w: number, h: 
         if (r.id === selected) p.rect(px - s / 2 - 5, py - s / 2 - 5, s + 10, s + 10, THEME.clear, 2, THEME.gold);
         if (r.id === g.region) p.rect(px - 2, py - 2, 4, 4, THEME.cream);
         if (pick) ui.hotspot(`map-${r.id}`, px - Math.max(7, s), py - Math.max(7, s), Math.max(14, s * 2), Math.max(14, s * 2), () => pick(r.id));
+    }
+    // Party headquarters: a flag on the map.
+    const hq = c?.party.hqSite;
+    if (hq) {
+        const [px, py] = toXY(hq.lat, hq.lon);
+        p.rect(px - 1, py - 16, 2, 16, THEME.cream);
+        p.rect(px + 1, py - 16, 10, 7, partyColor(c), 1, THEME.black);
+        p.text("HQ", px + 13, py - 20, 11, THEME.cream, FONT.head);
     }
 }
 
@@ -300,6 +324,8 @@ export const LOADING_TIPS = [
 export function objective(c: Campaign, region: string | null): string {
     const def = region ? regionDefById(region) : null;
     const rs = region ? c.regions[region] : null;
+    const mission = missionObjective(c);
+    if (mission) return mission;
     const report = orgReport(c);
     if (c.stats.speeches === 0) return "Give your first speech: find people and press B.";
     if (c.stats.recruits < 3) return `Talk to sympathetic people (E) and invite them to join (${c.stats.recruits}/3).`;
@@ -322,6 +348,7 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     const { p, W, H } = ui;
     const c = g.c;
     if (!c) return;
+    drawMarkers(g, ui);
     // Top-left: the party.
     const tw = 430;
     p.rect(0, 0, tw, 92, [0.04, 0.035, 0.035, 0.86]);
@@ -418,10 +445,12 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     }
     // Controls hint and org warnings.
     const report = orgReport(c);
-    const hint = g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  SHIFT BOOST  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK  F PAMPHLET  B SPEECH  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
+    const hint = g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  HOLD SHIFT BOOST (BUILDS UP)  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK/ENTER  F PAMPHLET  B SPEECH  H HEAL  I INVENTORY  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
     p.rect(436, 4, W - 436 - 370, 26, [0.04, 0.035, 0.035, 0.7]);
     p.text(hint, 444, 9, 12, report.warnings.length ? THEME.gold : THEME.cream, FONT.head, W - 440 - 380);
     if (g.debug) p.text(g.debug, 440, 30, 12, THEME.dim, FONT.mono, W - 840);
+    drawMiniMap(g, ui);
+    drawCaptureAndFlight(g, ui);
 }
 
 export function clockLabel(dayClock: number): string {
@@ -554,7 +583,7 @@ export function drawDialogue(g: GameView, ui: UiFrame): void {
 
 // --- Command console -----------------------------------------------------------------------------
 
-const TABS: [ConsoleTab, string][] = [["overview", "OVERVIEW"], ["organization", "ORGANIZATION"], ["territory", "TERRITORY"], ["armory", "ARMORY"], ["skills", "SKILLS"]];
+const TABS: [ConsoleTab, string][] = [["overview", "OVERVIEW"], ["organization", "ORGANIZATION"], ["territory", "TERRITORY"], ["armory", "ARMORY"], ["inventory", "INVENTORY"], ["skills", "SKILLS"]];
 
 export function drawConsole(g: GameView, ui: UiFrame): void {
     const { p, W, H } = ui;
@@ -564,7 +593,7 @@ export function drawConsole(g: GameView, ui: UiFrame): void {
     p.rect(0, 0, W, 64, THEME.black);
     p.rect(0, 64, W, 5, partyColor(c));
     p.text(`${c.party.name.toUpperCase()}  -  COMMAND`, 20, 16, 24, THEME.cream, FONT.head);
-    const tw = 170;
+    const tw = 150;
     TABS.forEach(([id, label], i) => ui.button(`tab-${id}`, W - (TABS.length - i) * (tw + 6) - 10, 12, tw, 42, label, "dark", () => g.act("tab", id), { active: g.tab === id, size: 13 }));
     ui.button("console-close", W - 60, H - 60, 44, 44, "X", "red", () => g.act("close-console"));
     const top = 90;
@@ -574,6 +603,7 @@ export function drawConsole(g: GameView, ui: UiFrame): void {
         case "territory": drawTerritory(g, ui, c, top); break;
         case "armory": drawArmory(g, ui, c, top); break;
         case "skills": drawSkills(g, ui, c, top); break;
+        case "inventory": drawInventory(g, ui, c, top); break;
     }
 }
 
@@ -935,7 +965,167 @@ export function drawScreen(g: GameView, ui: UiFrame): void {
         case "dialogue": drawHud(g, ui); drawDialogue(g, ui); break;
         case "console": drawConsole(g, ui); break;
         case "outcome": drawOutcome(g, ui); break;
+        case "shop": backdrop(ui, 0.55); drawShop(g, ui); break;
     }
+}
+
+// --- Inventory, shops ----------------------------------------------------------------------------
+
+function drawInventory(g: GameView, ui: UiFrame, c: Campaign, top: number): void {
+    const { p, W } = ui;
+    const col = (W - 80) / 3;
+    let x = 20, y = top;
+    p.text(`SUPPLIES  -  ${money(c.party.funds)}`, x, y, 16, THEME.gold, FONT.head);
+    y += 30;
+    const inv = inventory(c);
+    const held = ITEMS.filter(it => (inv[it.id] ?? 0) > 0);
+    if (!held.length) { p.text("Nothing but pamphlets. Search houses (E at a front door) or visit a shop.", x, y, 14, THEME.dim, FONT.body, col); y += 30; }
+    for (const it of held) {
+        p.rect(x, y, col, 54, [0.12, 0.1, 0.1, 0.95], 1, [1, 1, 1, 0.15]);
+        p.text(`${it.name.toUpperCase()} x${inv[it.id]}`, x + 10, y + 6, 15, THEME.cream, FONT.head, col - 150);
+        p.text(it.blurb, x + 10, y + 28, 12, THEME.dim, FONT.body, col - 150);
+        if (it.usable) ui.button(`use-${it.id}`, x + col - 130, y + 13, 120, 28, "USE", "red", () => g.act("use-item", it.id), { size: 12 });
+        y += 60;
+    }
+    y += 10;
+    p.text("H uses the best healing item. Shops buy salvage.", x, y, 12, THEME.dim, FONT.body, col);
+    x = 40 + col; y = top;
+    p.text("FLYING CAR", x, y, 16, THEME.gold, FONT.head);
+    y += 30;
+    const spec = carSpec(c.player.carUpgrades);
+    const rows: [string, string][] = [["Cruise", `${spec.cruise} m/s`], ["Boost", `${spec.boostStart} -> ${spec.boostMax} m/s over ${spec.boostRamp} s`],
+        ["Climb", `${spec.climb} m/s`], ["Ceiling", `${fmt(spec.ceiling)} m`]];
+    for (const [k, v] of rows) { p.text(k.toUpperCase(), x, y, 12, THEME.dim, FONT.head); p.text(v, x + 110, y - 2, 15, THEME.cream, FONT.body, col - 120); y += 26; }
+    y += 8;
+    for (const u of CAR_UPGRADES) {
+        const t = carTier(c, u.id);
+        p.text(`${u.name.toUpperCase()}`, x, y, 13, THEME.cream, FONT.head);
+        for (let k = 0; k < 3; k++) p.rect(x + 200 + k * 26, y + 2, 20, 12, k < t ? partyColor(c) : [0.25, 0.22, 0.2, 1], 1, THEME.black);
+        y += 24;
+    }
+    p.text("Upgrades are fitted at Hover Garages (blue awnings) and the party HQ.", x, y + 6, 12, THEME.dim, FONT.body, col);
+    x = 60 + col * 2; y = top;
+    p.text("HEADQUARTERS", x, y, 16, THEME.gold, FONT.head);
+    y += 30;
+    const hq = c.party.hqSite;
+    p.text(hq ? `${hq.name}: quartermaster (every shop), safehouse and respawn point. Marked in the sky and on the maps.` : "None yet. Take the regime outpost near your hometown (the gold marker).", x, y, 14, THEME.cream, FONT.body, col, 80);
+}
+
+function drawShop(g: GameView, ui: UiFrame): void {
+    const { p, W, H } = ui;
+    const c = g.c, shop = g.shop;
+    if (!c || !shop) return;
+    const pw = Math.min(1180, W - 60), ph = Math.min(720, H - 120), px = (W - pw) / 2, py = (H - ph) / 2;
+    p.rect(px, py, pw, ph, [0.07, 0.05, 0.05, 0.97], 3, THEME.gold);
+    p.rect(px, py, pw, 56, THEME.black);
+    p.text(shop.name.toUpperCase(), px + 18, py + 12, 24, THEME.cream, FONT.head);
+    p.textR(money(c.party.funds), px + pw - 80, py + 16, 22, THEME.gold, FONT.num);
+    ui.button("shop-close", px + pw - 60, py + 8, 44, 40, "X", "red", () => g.act("shop-close"));
+    const stock = shopStock(c, shop.kind);
+    const cols = 2, cw = (pw - 60) / 3, rowH = 46;
+    const perCol = Math.max(1, Math.floor((ph - 110) / rowH));
+    stock.slice(0, perCol * cols).forEach((line, i) => {
+        const x = px + 20 + Math.floor(i / perCol) * (cw + 10), y = py + 70 + (i % perCol) * rowH;
+        p.rect(x, y, cw, rowH - 6, [0.12, 0.1, 0.1, 0.95], 1, [1, 1, 1, 0.15]);
+        p.text(line.name.toUpperCase(), x + 8, y + 3, 13, THEME.cream, FONT.head, cw - 130);
+        p.text(line.blurb, x + 8, y + 21, 11, THEME.dim, FONT.body, cw - 130, 18);
+        ui.button(`shop-buy-${line.kind}-${line.id}`, x + cw - 116, y + 6, 108, 28, line.blocked ?? money(line.price), "red", () => g.act("shop-buy", { kind: line.kind, id: line.id }),
+            { size: 11, disabled: !!line.blocked || c.party.funds < line.price });
+    });
+    // What you carry, and what this shop will buy.
+    const sx = px + 40 + cw * 2, sw = pw - (sx - px) - 20;
+    let y = py + 70;
+    p.text("YOUR SUPPLIES", sx, y, 15, THEME.gold, FONT.head);
+    y += 26;
+    const inv = inventory(c);
+    for (const [id, n] of Object.entries(inv)) {
+        const it = itemById(id);
+        if (!it || n <= 0) continue;
+        p.text(`${it.name} x${n}`, sx, y + 4, 14, THEME.cream, FONT.body, sw - 120);
+        if (it.sell > 0) ui.button(`shop-sell-${id}`, sx + sw - 110, y, 104, 26, `SELL ${money(it.sell)}`, "dark", () => g.act("shop-sell", id), { size: 10 });
+        y += 32;
+    }
+    p.text("ESC / B / CIRCLE TO LEAVE", px + 20, py + ph - 30, 12, THEME.dim, FONT.head);
+}
+
+// --- HUD overlays: sky markers, the mini map, capture and flight ---------------------------------
+
+const MARKER_PRIORITY: Record<string, number> = { mission: 0, hq: 1, compound: 2, city: 3, town: 4 };
+
+/**
+ * Sky markers, most important first. Markers pinned to the screen's edge stay clear of the HUD's
+ * corner panels, and a label that would overlap one already placed slides down (or is left off,
+ * keeping its square).
+ */
+export function layoutMarkers(markers: readonly ScreenMarker[], W: number, H: number): { m: ScreenMarker; x: number; y: number; label: { x: number; y: number; w: number; text: string } | null }[] {
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
+    const out: ReturnType<typeof layoutMarkers> = [];
+    const top = 160, bottom = H - 190;
+    const order = [...markers].sort((a, b) => (MARKER_PRIORITY[a.kind] ?? 5) - (MARKER_PRIORITY[b.kind] ?? 5));
+    for (const m of order) {
+        let { x, y } = m;
+        if (!m.onScreen) { y = Math.max(top, Math.min(bottom, y)); x = Math.max(12, Math.min(W - 12, x)); }
+        const text = `${m.label}  ${m.distance}`;
+        const w = textWidth(text, 12, FONT.head) + 12, h = 18;
+        let lx = Math.max(4, Math.min(W - w - 4, x - w / 2)), ly = y + 10;
+        let ok = false;
+        for (let t = 0; t < 6 && !ok; t++) {
+            ok = !placed.some(r => lx < r.x + r.w && lx + w > r.x && ly < r.y + r.h && ly + h > r.y);
+            if (!ok) ly += h + 2;
+        }
+        if (ok) placed.push({ x: lx, y: ly, w, h });
+        out.push({ m, x, y, label: ok ? { x: lx, y: ly, w, text } : null });
+    }
+    return out;
+}
+
+function drawMarkers(g: GameView, ui: UiFrame): void {
+    const p = ui.p;
+    for (const { m, x, y, label } of layoutMarkers(g.markers ?? [], ui.W, ui.H)) {
+        const s = m.kind === "hq" || m.kind === "mission" ? 14 : m.kind === "city" ? 12 : 9;
+        const edge = m.onScreen ? 1 : 0.8;
+        p.rect(x - s / 2, y - s / 2, s, s, withAlpha(m.color, 0.95 * edge), 2, THEME.black);
+        if (m.kind === "hq") p.rect(x - 2, y - s / 2 - 10, 4, 10, m.color);
+        if (label) p.text(label.text, label.x, label.y, 12, m.kind === "compound" ? [1, 0.75, 0.7, 1] : THEME.cream, FONT.head, label.w, 18, [0.04, 0.035, 0.035, 0.6]);
+    }
+}
+
+export const MINIMAP_SIZE = 220;
+
+function drawMiniMap(g: GameView, ui: UiFrame): void {
+    const m = g.minimap;
+    if (!m) return;
+    const { p, W, H } = ui;
+    const size = MINIMAP_SIZE, x0 = W - size - 16, y0 = H - size - 56, k = size / m.cells;
+    p.rect(x0 - 3, y0 - 3, size + 6, size + 6, [0.04, 0.035, 0.035, 0.9], 2, THEME.gold);
+    p.rect(x0, y0, size, size, [0.2, 0.24, 0.18, 0.85]);
+    for (const [row, a, b, what] of m.runs)
+        p.rect(x0 + a * k, y0 + row * k, (b - a + 1) * k, k, what === 2 ? [0.15, 0.3, 0.5, 0.95] : [0.55, 0.52, 0.46, 0.95]);
+    for (const d of m.dots) p.rect(x0 + d.x * k - d.size / 2, y0 + d.y * k - d.size / 2, d.size, d.size, d.color, 1, THEME.black);
+    // You: a dot and three ticks toward where you face.
+    const cx = x0 + size / 2, cy = y0 + size / 2;
+    for (let i = 1; i <= 3; i++) p.rect(cx + Math.sin(m.heading) * i * 5 - 1.5, cy - Math.cos(m.heading) * i * 5 - 1.5, 3, 3, THEME.cream);
+    p.rect(cx - 4, cy - 4, 8, 8, THEME.gold, 2, THEME.black);
+    p.text("N", x0 + size / 2 - 5, y0 - 2, 12, THEME.gold, FONT.head);
+    p.text(`${Math.round(m.cells * m.cellMeters)} m`, x0 + 4, y0 + size - 18, 11, THEME.cream, FONT.head);
+}
+
+function drawCaptureAndFlight(g: GameView, ui: UiFrame): void {
+    const { p, W } = ui;
+    const cap = g.capture;
+    if (cap) {
+        const w = 420, x = (W - w) / 2, y = 64;
+        p.rect(x, y, w, 52, [0.3, 0.05, 0.05, 0.88], 2, THEME.gold);
+        p.textC(cap.state === "raising" ? `RAISING THE FLAG OVER ${cap.name.toUpperCase()}` : cap.defenders > 0 ? `${cap.name.toUpperCase()}: ${cap.defenders} DEFENDER${cap.defenders === 1 ? "" : "S"} LEFT` : `${cap.name.toUpperCase()} IS CLEAR - GO TO THE FLAG`, W / 2, y + 6, 14, THEME.cream, FONT.head);
+        p.bar(x + 14, y + 30, w - 28, 12, cap.raise, THEME.gold);
+    }
+    const car = g.car;
+    if (car) {
+        const x = 14, y = ui.H - 160;
+        p.text(`BOOST ${Math.round(car.boost * 100)}%   ${Math.round(car.speed * 3.6)} KM/H   ALT ${Math.round(car.altitude)} / ${fmt(car.ceiling)} M`, x, y - 22, 13, THEME.gold, FONT.head);
+        p.bar(x, y, 352, 12, car.boost, [0.2, 0.7, 1, 1]);
+    }
+    if (g.indoors) p.text(`INSIDE ${g.indoors.toUpperCase()}  -  E AT THE DOOR TO LEAVE`, 444, 34, 12, THEME.gold, FONT.head);
 }
 
 export { holder, weaponById, type RegionDef };

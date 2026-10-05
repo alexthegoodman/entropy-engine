@@ -257,3 +257,47 @@ fn allegiance_car_live_feature() {
     assert!((3.5..6.0).contains(&f(&s[8]["flyingCar"]["distance"])), "exit beside the rotors");
     assert_eq!(artifacts.len(), 3);
 }
+
+#[test]
+fn allegiance_upgrades_live_feature() {
+    let (result, artifacts, root) = run("upgrades", Some("tests/features/allegiance_upgrades_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 11, "{result:#}");
+    // First person, five comrades on the street, the mission and its marker, the mini map, set dressing.
+    assert_eq!(s[0]["mode"], "play");
+    assert_eq!(s[0]["player"]["firstPerson"], true);
+    assert_eq!(s[0]["campaign"]["followers"], 5);
+    assert!(s[0]["street"]["followers"].as_u64().unwrap() >= 1);
+    assert_eq!(s[0]["mission"]["step"], "approach");
+    assert!(s[0]["markers"].as_array().unwrap().iter().any(|m| m["kind"] == "mission"), "{:#}", s[0]["markers"]);
+    assert!(!s[0]["miniMap"].is_null());
+    assert!(s[0]["scatter"]["items"].as_u64().unwrap() > 0, "{:#}", s[0]["scatter"]);
+    // The outpost: defenders at their posts, the assault underway, then the flag and the HQ.
+    let outpost = s[1]["compounds"].as_array().unwrap().iter().find(|c| c["kind"] == "outpost").cloned().expect("outpost laid out");
+    assert!(outpost["guards"].as_u64().unwrap() > 0, "{outpost:#}");
+    assert_eq!(s[1]["mission"]["step"], "assault");
+    assert_eq!(s[2]["mission"]["step"], "done", "{:#}", s[2]["mission"]);
+    assert!(!s[2]["hqSite"].is_null());
+    // The quartermaster sells everything; the garage upgrade is fitted; the inventory tab opens.
+    assert_eq!(s[3]["mode"], "shop");
+    assert!(s[3]["shop"]["stock"].as_u64().unwrap() > 10);
+    assert_eq!(s[4]["carUpgrades"]["turbine"], 1);
+    assert_eq!(s[4]["mode"], "play");
+    assert_eq!(s[5]["mode"], "console");
+    assert_eq!(s[5]["tab"], "inventory");
+    // Inside a house, its supplies taken, and out again.
+    assert!(!s[6]["indoors"].is_null(), "{:#}", s[6]["toasts"]);
+    assert_eq!(s[7]["indoors"]["loot"], false);
+    assert!(s[8]["indoors"].is_null());
+    // Fallen and back: alive, playing, at the checkpoint, the fight broken off.
+    assert_eq!(s[9]["mode"], "play");
+    assert!(f(&s[9]["campaign"]["health"]) > 0.0);
+    assert_eq!(s[9]["campaign"]["stats"]["deaths"], 1);
+    assert_eq!(s[9]["street"]["soldiers"].as_u64().unwrap() as i64 - s[9]["compounds"].as_array().unwrap().iter().map(|c| c["guards"].as_i64().unwrap()).sum::<i64>(), 0, "roaming squads lose you");
+    // Airborne with boost building up, markers in the sky.
+    assert_eq!(s[10]["flyingCar"]["piloting"], true, "{:#}", s[10]["toasts"]);
+    assert!(f(&s[10]["flyingCar"]["altitude"]) > 8.0);
+    assert!(f(&s[10]["flyingCar"]["boost"]) > 0.2, "{:#}", s[10]["flyingCar"]);
+    assert_eq!(artifacts.len(), 6);
+    println!("Allegiance upgrades live BDD: {}", root.display());
+}

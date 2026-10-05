@@ -1,6 +1,6 @@
 // You, on foot: movement in the street layer's local frame (x east, z north, y up), relative to
 // where the camera looks; sprinting on stamina, jumping, walls and water that stop you, and the
-// over-the-shoulder (or first-person) camera.
+// first-person camera (over-the-shoulder with V; the flying car is always filmed from behind).
 
 import { type NavGrid } from "./al_nav";
 
@@ -35,7 +35,7 @@ export const EYE = 1.62;
 export const RADIUS = 0.38;
 
 export function newBody(x = 0, z = 0, y = 0): PlayerBody {
-    return { x, z, y, vy: 0, grounded: true, yaw: 0, pitch: -0.12, stamina: 1, speed: 0, stride: 0, firstPerson: false, camDistance: 4.2 };
+    return { x, z, y, vy: 0, grounded: true, yaw: 0, pitch: -0.12, stamina: 1, speed: 0, stride: 0, firstPerson: true, camDistance: 4.2 };
 }
 
 export function stepBody(b: PlayerBody, input: PlayerInput, dt: number, nav: NavGrid | null, heightAt: (x: number, z: number) => number, slow = 1): void {

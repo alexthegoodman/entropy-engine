@@ -70,8 +70,10 @@ describe("a new campaign", () => {
     it("starts you at home with a few comrades and normalized support everywhere", () => {
         expect(c.party.name).toBe("Dawn Front");
         expect(c.party.hq).toBe("lagos");
-        expect(c.regions.lagos.members).toBe(12);
-        expect(c.members).toHaveLength(3);
+        expect(c.regions.lagos.members).toBe(5);
+        // Five founding comrades walk (armed) with you from the start.
+        expect(c.members).toHaveLength(5);
+        expect(c.members.every(m => m.follower && m.armed)).toBe(true);
         expect(c.player.lat).toBeCloseTo(regionDefById("lagos")!.lat);
         for (const rs of Object.values(c.regions)) expect(sum(rs.support)).toBeCloseTo(1, 6);
         expect(partyShare(c.regions.lagos)).toBeGreaterThan(0);
@@ -196,6 +198,7 @@ describe("hierarchy", () => {
 
     it("assigns named members to the armed forces, who fight in their region's wars", () => {
         const c = newCampaign({ seed: 23, spawn: "rome" });
+        for (const m of c.members) { m.follower = false; m.armed = false; }
         const [a, b] = c.members;
         expect(setArmed(c, a.id, true)).toBeNull();
         expect(regionFighters(c, "rome").map(m => m.id)).toEqual([a.id]);

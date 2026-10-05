@@ -64,6 +64,8 @@ export interface Rect {
     key: string;
     /** The door: in front of the building's street side (local x, z). */
     door: [number, number];
+    /** "house" for homes you can enter; anything else stays closed. */
+    kind?: string;
 }
 
 export interface BuildingLike {
@@ -74,6 +76,7 @@ export interface BuildingLike {
     width: number;
     depth: number;
     height: number;
+    kind?: string;
 }
 
 export function buildingToRect(f: LocalFrame, b: BuildingLike): Rect {
@@ -87,7 +90,7 @@ export function buildingToRect(f: LocalFrame, b: BuildingLike): Rect {
     const hd = b.depth / 2;
     return {
         cx: a[0], cz: a[2], ux, uz, hw: b.width / 2, hd, height: b.height, base: a[1], key: b.key,
-        door: [a[0] + fx * (hd + 1.6), a[2] + fz * (hd + 1.6)],
+        door: [a[0] + fx * (hd + 1.6), a[2] + fz * (hd + 1.6)], kind: b.kind,
     };
 }
 
