@@ -333,7 +333,8 @@ function rand(seed: number): () => number {
 }
 
 /** Street trees stand this far apart along a road (meters), this far out from its edge. */
-export const STREET_TREE_SPACING = 13;
+// export const STREET_TREE_SPACING = 13;
+export const STREET_TREE_SPACING = 80;
 export const STREET_TREE_SETBACK = 2.6;
 
 /** Everything placed around `rects` (deterministic in each building's key). */
@@ -433,7 +434,9 @@ export function scatterAround(rects: readonly Rect[], o: ScatterOptions): Scatte
     // Open ground: stands of trees with an understory on a lat/lon-anchored grid, only well away
     // from buildings.
     if (o.origin && o.area) {
-        const cell = 22, mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
+        // const cell = 22;
+        const cell = 88;
+        const mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
         const toLocalXZ = (lat: number, lon: number): [number, number] => [(lon - o.origin!.lon) * mLon, (lat - o.origin!.lat) * mLat];
         const latOf = (z: number) => o.origin!.lat + z / mLat, lonOf = (x: number) => o.origin!.lon + x / mLon;
         const gLat = cell / mLat, gLon = cell / mLon;
