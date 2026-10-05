@@ -100,9 +100,9 @@ export function houseValues(b: Pick<CityBuilding, "seed" | "width" | "depth" | "
 }
 
 /** Cache key for a house's mesh at a level of detail. */
-export function variantKey(values: ParamValues): string {
+export function variantKey(values: ParamValues, generator = HOUSE_GENERATOR): string {
     const sorted = Object.keys(values).sort().map(k => `${k}=${values[k]}`).join(",");
-    return `${HOUSE_GENERATOR}|${sorted}`;
+    return `${generator}|${sorted}`;
 }
 
 /**
@@ -145,6 +145,38 @@ export function packHouse(e: Evaluation, lod: 0 | 1): { vertexData: Float32Array
     }
     return { vertexData: v, indexData: idx, triangles: ni / 3 };
 }
+
+/**
+ * What CityHouses draws on the map's placements: Mesha houses (HOUSE_MODEL, the default) or any
+ * other model that fits a footprint (qp_buildings.ts: city buildings on the remaining boxes).
+ */
+export interface CityModel {
+    /** Which placements it takes ("house" or "box"). */
+    kind: "house" | "box";
+    namespace: string;
+    generator: string;
+    /** Instance batch prefix. */
+    prefix: string;
+    /** Parameter values for a placement, or null to leave it as a box. Deterministic. */
+    values: (b: CityBuilding, sizeStep: number) => ParamValues | null;
+    evaluate: (values: ParamValues) => Evaluation;
+    pack: (e: Evaluation, lod: 0 | 1) => { vertexData: Float32Array; indexData: Uint32Array; triangles: number };
+    lod1Simplify: { maxError: number; minFeature?: number };
+    /** Typical triangle counts per LOD until the real ones are known. */
+    estimate: [number, number];
+    /** How far a model may be stretched to its real footprint (and height: [min, max] or null for none). */
+    maxFit: number;
+    fitHeight: ((b: CityBuilding, values: ParamValues) => number) | null;
+    /** Evaluations may go to the house worker (qp_house_worker.ts evaluates houses only). */
+    background: boolean;
+}
+
+export const HOUSE_MODEL: CityModel = {
+    kind: "house", namespace: HOUSE_NAMESPACE, generator: HOUSE_GENERATOR, prefix: "qp-houses",
+    values: (b, step) => houseValues(b, step),
+    evaluate: values => evaluateObject(houseDef, values, lookupObject),
+    pack: packHouse, lod1Simplify: LOD1_SIMPLIFY, estimate: [150_000, 10_000], maxFit: 0.12, fitHeight: null, background: true,
+};
 
 /** The engine calls the city needs (the addon passes Entropy's; tests pass fakes). */
 export interface CityEngine {
@@ -195,11 +227,7 @@ export const DEFAULT_CITY_OPTIONS: CityOptions = { lod0Radius: 45, maxLod0: 8, l
 /** Background house evaluations queued at once (the worker runs them one by one). */
 const MAX_IN_FLIGHT = 4;
 
-/** The most a house is stretched to fit its footprint, either way. */
-const MAX_FIT = 0.12;
 
-/** Until a mesh's real size is known: typical house triangle counts. */
-const ESTIMATE = [150_000, 10_000];
 
 interface Variant {
     values: ParamValues;
@@ -212,7 +240,7 @@ interface Variant {
     wants: [boolean, boolean];
 }
 
-interface Shown { lod: 0 | 1; variant: string; origin: Vec3; skirt: number; fit: [number, number]; building: CityBuilding }
+interface Shown { lod: 0 | 1; variant: string; origin: Vec3; skirt: number; fit: [number, number, number]; building: CityBuilding }
 
 export interface CityHouseStats {
     candidates: number;
@@ -261,10 +289,10 @@ export class CityHouses {
     /** The last background failure, for the stats. */
     lastBackgroundError: string | null = null;
 
-    constructor(private engine: CityEngine, options: Partial<CityOptions> = {}) {
+    constructor(private engine: CityEngine, options: Partial<CityOptions> = {}, readonly model: CityModel = HOUSE_MODEL) {
         this.options = { ...DEFAULT_CITY_OPTIONS, ...options };
         this.batches = new InstanceBatches(engine.instances, ITEM_FLOATS, {
-            prefix: "qp-houses", idleFrames: 1,
+            prefix: model.prefix, idleFrames: 1,
             // Evicted from the cache meanwhile: make it again.
             onMissing: key => {
                 const i = key.lastIndexOf("|lod");
@@ -279,10 +307,10 @@ export class CityHouses {
     private variantFor(b: CityBuilding): Variant {
         let vk = this.variantOf.get(b.key);
         if (!vk) {
-            const values = houseValues(b, this.options.sizeStep);
-            vk = variantKey(values);
+            const values = this.model.values(b, this.options.sizeStep)!;
+            vk = variantKey(values, this.model.generator);
             this.variantOf.set(b.key, vk);
-            if (!this.variants.has(vk)) this.variants.set(vk, { values, key: vk, status: [null, null], triangles: [ESTIMATE[0], ESTIMATE[1]], want: Infinity, wants: [false, false] });
+            if (!this.variants.has(vk)) this.variants.set(vk, { values, key: vk, status: [null, null], triangles: [this.model.estimate[0], this.model.estimate[1]], want: Infinity, wants: [false, false] });
         }
         return this.variants.get(vk)!;
     }
@@ -292,10 +320,10 @@ export class CityHouses {
     /** Refreshes what the cache says about a variant's LOD (cheap once it is ready). */
     private ready(v: Variant, lod: 0 | 1): boolean {
         if (v.status[lod] === "ready") return true;
-        const s = this.engine.status(HOUSE_NAMESPACE, this.meshKey(v, lod));
+        const s = this.engine.status(this.model.namespace, this.meshKey(v, lod));
         v.status[lod] = s;
         if (s === "ready") {
-            const info = this.engine.info(HOUSE_NAMESPACE, this.meshKey(v, lod));
+            const info = this.engine.info(this.model.namespace, this.meshKey(v, lod));
             if (info) v.triangles[lod] = info.triangleCount;
             return true;
         }
@@ -330,7 +358,7 @@ export class CityHouses {
         const t0 = this.engine.now();
         const lod0Key = this.needs(v, 0) ? this.meshKey(v, 0) : null;
         const lod1Key = !this.ready(v, 1) && v.status[1] !== "pending" ? this.meshKey(v, 1) : null;
-        const job = this.foreground.has(v.key) ? null : this.engine.generateInBackground?.({ values: v.values, lod0Key, lod1Key }) ?? null;
+        const job = this.foreground.has(v.key) || !this.model.background ? null : this.engine.generateInBackground?.({ values: v.values, lod0Key, lod1Key }) ?? null;
         if (job !== null) {
             // The worker puts the meshes into the cache; until the job is over this variant is
             // neither re-made nor counted missing (needs() checks inFlight).
@@ -339,16 +367,17 @@ export class CityHouses {
             this.lastBuildMs = this.engine.now() - t0;
             return;
         }
-        const e = evaluateObject(houseDef, v.values, lookupObject);
+        const m = this.model;
+        const e = m.evaluate(v.values);
         if (this.needs(v, 0)) {
-            const lod0 = packHouse(e, 0);
-            this.engine.put(HOUSE_NAMESPACE, this.meshKey(v, 0), { ...lod0, meta: { generator: HOUSE_GENERATOR } }, { background: true });
+            const lod0 = m.pack(e, 0);
+            this.engine.put(m.namespace, this.meshKey(v, 0), { ...lod0, meta: { generator: m.generator } }, { background: true });
             v.status[0] = "pending";
             v.triangles[0] = lod0.triangles;
         }
         if (!this.ready(v, 1) && v.status[1] !== "pending") {
-            const lod1 = packHouse(e, 1);
-            this.engine.put(HOUSE_NAMESPACE, this.meshKey(v, 1), { ...lod1, meta: { generator: HOUSE_GENERATOR, simplifiedFrom: lod1.triangles } }, { simplify: LOD1_SIMPLIFY });
+            const lod1 = m.pack(e, 1);
+            this.engine.put(m.namespace, this.meshKey(v, 1), { ...lod1, meta: { generator: m.generator, simplifiedFrom: lod1.triangles } }, { simplify: m.lod1Simplify });
             v.status[1] = "pending";
         }
         this.generated++;
@@ -361,14 +390,14 @@ export class CityHouses {
         for (const s of this.shown.values()) {
             const b = s.building;
             const t = sub(s.origin, this.renderOrigin);
-            const [fx, fz] = s.fit;
+            const [fx, fz, fy] = s.fit;
             // Center and radius of the house, generously (roof, porch, foundation skirt).
-            const h = b.height + 6;
+            const h = b.height * fy + 6;
             const c = add(t, scale(b.up, h / 2 - s.skirt / 2));
             const r = 0.5 * Math.hypot(b.width * 1.2, b.depth * 1.3, h + s.skirt) + 2;
             const { data, offset: o } = this.batches.add(this.meshKey(this.variants.get(s.variant)!, s.lod), [c[0], c[1], c[2], r]);
             data[o] = b.right[0] * fx; data[o + 1] = b.right[1] * fx; data[o + 2] = b.right[2] * fx; data[o + 3] = 0;
-            data[o + 4] = b.up[0]; data[o + 5] = b.up[1]; data[o + 6] = b.up[2]; data[o + 7] = 0;
+            data[o + 4] = b.up[0] * fy; data[o + 5] = b.up[1] * fy; data[o + 6] = b.up[2] * fy; data[o + 7] = 0;
             data[o + 8] = b.forward[0] * fz; data[o + 9] = b.forward[1] * fz; data[o + 10] = b.forward[2] * fz; data[o + 11] = 0;
             data[o + 12] = t[0]; data[o + 13] = t[1]; data[o + 14] = t[2]; data[o + 15] = 1;
             data[o + 16] = 1; data[o + 17] = 1; data[o + 18] = 1; data[o + 19] = 0;
@@ -411,7 +440,7 @@ export class CityHouses {
         const queryRadius = o.lod1Radius + 80;
         if (!this.queryCenter || cityVersion !== this.queryVersion || distance(camera, this.queryCenter) > 30) {
             const limit = 4000;
-            this.candidates = this.engine.buildings(camera, queryRadius, limit).filter(b => b.kind === "house");
+            this.candidates = this.engine.buildings(camera, queryRadius, limit).filter(b => b.kind === this.model.kind && this.model.values(b, this.options.sizeStep) !== null);
             this.queryCenter = camera;
             this.queryVersion = cityVersion;
             // A truncated list only covers out to its farthest building.
@@ -473,11 +502,12 @@ export class CityHouses {
             const plinth = Number(v.values.plinth ?? 0.5);
             const { origin, skirt } = houseOrigin(b, plinth);
             // Stretch the (snapped) house over the building's real footprint.
+            const maxFit = this.model.maxFit;
             const fit = (real: number, model: unknown) => {
                 const m = Number(model);
-                return m > 0 ? Math.min(1 + MAX_FIT, Math.max(1 - MAX_FIT, real / m)) : 1;
+                return m > 0 ? Math.min(1 + maxFit, Math.max(1 - maxFit, real / m)) : 1;
             };
-            this.shown.set(b.key, { lod, variant: v.key, origin, skirt, fit: [fit(b.width, v.values.width), fit(b.depth, v.values.depth)], building: b });
+            this.shown.set(b.key, { lod, variant: v.key, origin, skirt, fit: [fit(b.width, v.values.width), fit(b.depth, v.values.depth), this.model.fitHeight?.(b, v.values) ?? 1], building: b });
             this.dirty = true;
         }
         this.settled = complete;

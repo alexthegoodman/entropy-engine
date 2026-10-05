@@ -1,11 +1,12 @@
 import { Controller } from "./al_controller";
-import { parkBeside, newCar, stepCar, landingClear, carGround, carSpec, type FlyingCar } from "./al_vehicle";
+import { newLook, addMouse, stepLook, stepAds, adsFov, pickAssistTarget, assistFriction, assistPull, bendAngle, adsSpread, adsMove, type AssistPick } from "./al_aim";
+import { parkBeside, newCar, stepCar, landingClear, carGround, carSpec, callCar, stepCall, callEta, openSky, type FlyingCar } from "./al_vehicle";
 import { useItem, quickHealItem, shopForBuilding, shopStock, buyStock, sellItem, houseLoot, isLooted, takeHouseLoot, SHOP_NAMES, type ShopKind, type LootCache } from "./al_items";
 import { compoundsNear, compoundLayout, compoundToLocal, findClearSite, stepCapture, defenderDown, FLAG_REACH, GUARDS_AT_ONCE, type CompoundLayout } from "./al_military";
 import { startFoundingMission, updateMission, missionCompound, completeMission } from "./al_mission";
-import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside } from "./al_interior";
+import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside, doorSide } from "./al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, distanceLabel, miniMapRuns, toMapCell, type CameraBasis, type ScreenMarker, type SkyMarker, type MiniMap } from "./al_markers";
-import { FoliageMeshes, cacheProps, scatterAround, scatterMesh, batchKey, meshOfBatch, SCATTER_NAMESPACE, type ScatterItem } from "./al_scatter";
+import { FoliageMeshes, cacheProps, scatterAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, SCATTER_NAMESPACE, type ScatterItem } from "./al_scatter";
 import { InstanceBatches } from "../../apps/quadplanet/qp_instances";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
@@ -31,6 +32,7 @@ import {
 } from "../../apps/quadplanet/qp_planet";
 import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, houseValues, type CityBuilding } from "../../apps/quadplanet/qp_city";
+import { BUILDING_MODEL, BUILDING_NAMESPACE, buildingValues } from "../../apps/quadplanet/qp_buildings";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
@@ -61,7 +63,7 @@ import {
     type GameView, type Mode, type ConsoleTab, type SetupState, type LoadingInfo, type DialogueState, type LandRuns, UiFrame, drawScreen,
     LOADING_TIPS, MAP_LAT_TOP, MAP_LAT_BOTTOM,
 } from "./al_screens";
-import { makeRng, type Rng } from "./al_rng";
+import { makeRng, hashString, type Rng } from "./al_rng";
 
 const addon = Entropy.AddonAtom.register({
     name: "Allegiance",
@@ -86,6 +88,9 @@ let terrainId = "";
 let stats: QuadPlanetStreamStats | null = null;
 let houses: CityHouses | null = null;
 let hideRadius = 0;
+/** Mesha city buildings on the map's other (non-house) footprints (qp_buildings.ts). */
+let buildings: CityHouses | null = null;
+let buildingHideRadius = 0;
 let renderOrigin: Vec3 = [0, 0, 0];
 const REBASE = 2048;
 const ROAD_DISTANCE = 2500;
@@ -153,6 +158,16 @@ let triggerFresh = false;
 let aimHold = 0;
 let lookDrag: [number, number] | null = null;
 let lookButtonDown = false;
+/** Turning (smoothed), aiming down sights, and the soldier aim assist is on (al_aim.ts). */
+const aim = newLook();
+let adsButton = false;
+let assistPick: AssistPick | null = null;
+let fovSet = 0;
+/** Aim assist strength and look sensitivity (settings, kept with the campaign). */
+function controls(): { aimAssist: number; lookSensitivity: number } {
+    const k = campaign?.player.controls;
+    return { aimAssist: k?.aimAssist ?? 0.5, lookSensitivity: k?.lookSensitivity ?? 1 };
+}
 
 // --- Terrain queries in the local frame ----------------------------------------------------------
 
@@ -274,6 +289,7 @@ function startLoading(lat: number, lon: number): void {
     loadState = { started: time, peakPending: 1, peakQueued: 1, navBuilt: false, settledFrames: 0 };
     rng = makeRng((campaign?.seed ?? 1) ^ (campaign?.day ?? 0) ^ Math.round(lat * 1000));
     if (houses) houses.clear();
+    if (buildings) buildings.clear();
 }
 
 function loadingStep(): void {
@@ -284,17 +300,17 @@ function loadingStep(): void {
     const terrain = pending === 0 ? 1 : Math.max(0, 1 - pending / loadState.peakPending);
     const c = stats.city;
     const city = c && c.wanted > 0 ? Math.min(1, (c.live + c.failed) / c.wanted) : (loading.elapsed > 6 ? 1 : 0);
-    const queued = houses?.lastStats.queued ?? 0;
+    const queued = (houses?.lastStats.queued ?? 0) + (buildings?.lastStats.queued ?? 0);
     loadState.peakQueued = Math.max(loadState.peakQueued, queued);
-    const house = houses?.busy() ? Math.max(0, 1 - queued / loadState.peakQueued) : 1;
+    const house = houses?.busy() || buildings?.busy() ? Math.max(0, 1 - queued / loadState.peakQueued) : 1;
     const peopleReady = people.prepare() && (foliage?.prepare() ?? true);
     const p = 0.4 * terrain + 0.25 * city + 0.2 * house + (peopleReady ? 0.1 : 0) + (loadState.navBuilt ? 0.05 : 0);
     loading.progress = Math.max(loading.progress, Math.min(0.99, p));
-    loading.stage = terrain < 1 ? "Surveying the terrain" : city < 1 ? "Mapping the streets" : house < 1 ? "Raising the houses" : !peopleReady ? "Preparing the people" : "Plotting the routes";
+    loading.stage = terrain < 1 ? "Surveying the terrain" : city < 1 ? "Mapping the streets" : house < 1 ? "Raising the houses and blocks" : !peopleReady ? "Preparing the people" : "Plotting the routes";
     loading.lines = [
         `Terrain: ${stats.live} chunks${pending ? `, ${pending} streaming${stats.waitingForData ? ` (${stats.waitingForData} awaiting elevation)` : ""}` : ", settled"}`,
         c ? `Streets: ${c.live}/${c.wanted} OpenStreetMap tiles, ${c.buildings.toLocaleString("en-US")} buildings${c.failed ? ` (${c.failed} unavailable)` : ""}` : "Streets: waiting for the map",
-        `Houses: ${houses?.lastStats.lod0 ?? 0} full, ${houses?.lastStats.lod1 ?? 0} simplified${queued ? `, ${queued} to build (cached after the first time)` : ""}`,
+        `Houses: ${houses?.lastStats.lod0 ?? 0} full, ${houses?.lastStats.lod1 ?? 0} simplified; city blocks: ${buildings?.lastStats.lod0 ?? 0} full, ${buildings?.lastStats.lod1 ?? 0} simplified${queued ? `, ${queued} to build (cached after the first time)` : ""}`,
         peopleReady ? "People and plants: Mesha humans, trees and their distance LODs cached" : "People and plants: preparing Mesha humans, trees and distance LODs (cached after the first time)",
         loadState.navBuilt ? `Routes: ${nav?.rects.length ?? 0} buildings on the street map` : "Routes: pending",
     ];
@@ -394,6 +410,7 @@ function maintainNav(dt: number): void {
         const dx = body.x, dz = body.z;
         frame = makeLocalFrame(newOrigin);
         if (playerCar && carWorld) [playerCar.x, playerCar.y, playerCar.z] = toLocal(frame, carWorld);
+        if (playerCar?.call) { playerCar.call.x -= dx; playerCar.call.z -= dz; }
         shiftStreet(street, dx, dz);
         if (indoors) {
             const r = indoors.rect;
@@ -742,12 +759,20 @@ function fire(weaponId: string, aimDir?: Vec3): void {
     // Aim where the crosshair (the camera's forward) meets something, then shoot there from your eyes.
     const eye: Vec3 = [body.x + Math.sin(body.yaw) * 0.3, body.y + EYE - 0.1, body.z + Math.cos(body.yaw) * 0.3];
     let dir: Vec3;
+    const pick = assistPick;
     if (aimDir) dir = aimDir;
-    else {
+    else if (pick && pick.angle <= bendAngle(controls().aimAssist)) {
+        // Aim assist: a shot a hair off a soldier goes onto them.
+        dir = normalize(sub([pick.target.x, pick.target.y + 1.25, pick.target.z], eye));
+    } else {
         const probe = castShot(street, nav, cam.eye, cam.forward, Math.max(60, w.range), null, false);
         dir = normalize(sub(probe.end, eye));
     }
-    playerShoot(street, nav, eye, dir, w, skill(c, "marksmanship"), rng);
+    playerShoot(street, nav, eye, dir, w, skill(c, "marksmanship"), rng, adsSpread(aim.ads));
+    // Your shots land between street steps, and the next step starts a fresh event list: handle
+    // what they did now, or a fallen defender would never leave its compound's garrison.
+    handleStreetEvents();
+    street.events.length = 0;
     if (w.id !== "fists" && region) {
         const rs = c.regions[region];
         if (!rs.war && rs.governor !== PARTY) rs.heat = Math.min(1, rs.heat + 0.003);
@@ -789,7 +814,7 @@ function controllerButton(button: string, pressed: boolean): void {
             else if (button === "Start") onKey("Tab");
             return;
         }
-        const actions: Record<string, string> = { West: "e", East: "r", North: "b", Start: "Tab", DPadUp: "f", DPadDown: "q", RightThumb: "v", DPadLeft: "h", DPadRight: "i" };
+        const actions: Record<string, string> = { West: "e", East: "r", North: "b", Start: "Tab", Select: "g", DPadUp: "f", DPadDown: "q", RightThumb: "v", DPadLeft: "h", DPadRight: "i" };
         if (actions[button]) onKey(actions[button]);
         if ((button === "RightTrigger" || button === "LeftTrigger") && campaign) {
             const weapons = campaign.player.weapons;
@@ -829,6 +854,46 @@ function readInput(): PlayerInput {
         jump: key(" ") || controller.held.has("South"), sprint: Entropy.Input.isShiftPressed() || controller.held.has("LeftThumb"),
         turnLeft: key("ArrowLeft"), turnRight: key("ArrowRight"), lookUp: key("ArrowUp"), lookDown: key("ArrowDown"),
     };
+}
+
+/** Walking input: turning is done by stepAim (smoothed, assisted), not by stepBody. */
+function footInput(): PlayerInput {
+    return { ...readInput(), lookX: 0, lookY: 0, turnLeft: false, turnRight: false, lookUp: false, lookDown: false };
+}
+
+/** Wants to aim down sights: middle mouse or Z held, or LT / L2, on foot with a gun drawn. */
+function wantsAds(): boolean {
+    return mode === "play" && !playerCar?.piloting && !street.player.dead && weaponNow().id !== "fists"
+        && (adsButton || key("z") || controller.held.has("LeftTrigger2"));
+}
+
+/**
+ * Every live frame: raise or lower the sights (narrowing the view), then turn: mouse motion played
+ * out, stick and arrow keys eased, slowed over a soldier and drawn onto them (aim assist).
+ */
+function stepAim(dt: number): void {
+    stepAds(aim, wantsAds(), dt);
+    const fov = aim.ads > 0.001 ? adsFov(aim) : 0;
+    if (Math.abs(fov - fovSet) > 0.05) { Entropy.Camera.setFov(fov); fovSet = fov; }
+    const { aimAssist, lookSensitivity } = controls();
+    const piloting = !!playerCar?.piloting;
+    const turning = mode === "play" || mode === "speech";
+    // The car turns with the stick itself (stepCar); the mouse still glides.
+    const stickX = turning && !piloting ? controller.right[0] + Number(key("ArrowRight")) - Number(key("ArrowLeft")) : 0;
+    const stickY = turning && !piloting && mode === "play" ? controller.right[1] + Number(key("ArrowUp")) - Number(key("ArrowDown")) : 0;
+    assistPick = null;
+    if (mode === "play" && !piloting && frame && aimAssist > 0 && weaponNow().id !== "fists") {
+        const cam = bodyCamera(body, heightAt);
+        const foes = street.actors.filter(a => a.kind === "soldier" && alive(a)).map(a => ({ id: a.id, x: a.x, y: a.y, z: a.z }));
+        assistPick = pickAssistTarget(cam.eye, body.yaw, body.pitch, foes, aimAssist, aim.ads, Math.max(40, weaponNow().range),
+            t => !nav || nav.sightClear(body.x, body.z, t.x, t.z));
+    }
+    const d = stepLook(aim, stickX, stickY, dt, assistFriction(assistPick, aimAssist), lookSensitivity);
+    const firing = (triggerHeld || controller.held.has("RightTrigger2")) && fireCooldown > 0;
+    const pull = assistPull(assistPick, aimAssist, aim.ads, firing, dt);
+    if (!turning) return;
+    body.yaw += d.yaw + pull.yaw;
+    body.pitch = Math.max(-1.2, Math.min(1.0, body.pitch + d.pitch + pull.pitch));
 }
 
 function typeInto(k: string): void {
@@ -884,6 +949,7 @@ function onKey(k: string): void {
         return;
     }
     if (lower === "e") interact();
+    else if (lower === "g") summonCar();
     else if (lower === "f") quickPamphlet();
     else if (lower === "b") { const err = beginSpeech(); if (err) toast(err, "bad"); }
     else if (lower === "r") startReload();
@@ -903,9 +969,10 @@ function setupInput(): void {
     Entropy.Input.onKeyDown((k: string) => onKey(k));
     Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
         if (button === 1) { lookButtonDown = true; lookDrag = [x, y]; return; }
+        if (button === 2) { adsButton = true; return; }
         const id = ui ? ui.click(x, y) : null;
         if (id) return;
-        if (mode === "play" && !playerCar?.piloting) { triggerHeld = true; triggerFresh = true; }
+        if (button === 0 && mode === "play" && !playerCar?.piloting) { triggerHeld = true; triggerFresh = true; }
         else if (mode === "setup") setup.focus = null;
     });
     Entropy.Input.onMouseMove((x: number, y: number) => {
@@ -913,12 +980,13 @@ function setupInput(): void {
         if (lookButtonDown && lookDrag && (mode === "play" || mode === "speech")) {
             const dx = x - lookDrag[0], dy = y - lookDrag[1];
             lookDrag = [x, y];
-            body.yaw += dx * 0.005;
-            body.pitch = Math.max(-1.2, Math.min(1.0, body.pitch - dy * 0.004));
+            // Played out over the next frames (al_aim.ts), so the view glides.
+            addMouse(aim, dx, dy, controls().lookSensitivity);
         }
     });
     Entropy.Input.onMouseUp((button: number) => {
         if (button === 1) { lookButtonDown = false; lookDrag = null; }
+        else if (button === 2) adsButton = false;
         else triggerHeld = false;
     });
     Entropy.Input.onMouseWheel((_dx: number, dy: number) => {
@@ -991,6 +1059,11 @@ function act(name: string, arg?: unknown): void {
         case "raise-skill": if (c) { err(raiseSkill(c, arg as Parameters<typeof raiseSkill>[1]), "Skill raised."); syncStreetPlayerFromCampaign(); } break;
         case "speech-card": if (speech) chooseCard(speech, Number(arg)); break;
         case "use-item": useItemNow(String(arg)); break;
+        case "aim-assist": case "look-sensitivity": if (c) {
+            const k = (c.player.controls ??= { aimAssist: 0.5, lookSensitivity: 1 });
+            if (name === "aim-assist") k.aimAssist = Math.round(Math.max(0, Math.min(1, k.aimAssist + Number(arg))) * 10) / 10;
+            else k.lookSensitivity = Math.round(Math.max(0.3, Math.min(2.5, k.lookSensitivity + Number(arg))) * 10) / 10;
+        } break;
         case "shop-close": closeShop(); break;
         case "shop-buy": if (c) { const a = arg as { kind: Parameters<typeof buyStock>[1]["kind"]; id: string }; err(buyStock(c, a), "Bought."); syncStreetPlayerFromCampaign(); } break;
         case "shop-sell": if (c) { const r = sellItem(c, String(arg)); if (typeof r === "string") toast(r, "bad"); else toast(`Sold for CR ${r}.`, "good"); } break;
@@ -1025,6 +1098,7 @@ function view(): GameView {
     }
     const near = nearbyAction();
     if (near) prompt = near.label;
+    if (playerCar?.call && campaign) prompt = `YOUR CAR IS ON ITS WAY: ${Math.round(Math.hypot(playerCar.x - body.x, playerCar.z - body.z))} M, ${Math.ceil(callEta(playerCar, flightEnvironment(), carSpec(campaign.player.carUpgrades)))} S`;
     if (playerCar?.piloting) prompt = `${playerCar.state.toUpperCase()}   [L] LAND   [E / X / SQUARE] EXIT AFTER LANDING`;
     const rallyActor = street.rally ? actorById(street, street.rally.orator) : undefined;
     return {
@@ -1039,6 +1113,7 @@ function view(): GameView {
         weapon: { name: w.name, mag: Number.isFinite(w.magazine) ? magOf(w.id) : 0, reserve: c?.player.ammo[w.id] ?? 0, reloading: reloadLeft > 0, magazine: w.magazine },
         pamphlet: pamphletType,
         stamina: Math.round(body.stamina * 50) / 50,
+        aim: { ads: Math.round(aim.ads * 10) / 10, locked: !!assistPick, assist: controls().aimAssist },
         armor: c ? Math.round(c.player.armor / Math.max(1, armorById(c.player.armorId).armor || 1) * 50) / 50 : 0,
         land, hasSave, time, firstPerson: body.firstPerson, piloting: playerCar?.piloting ?? false,
         debug: null,
@@ -1163,7 +1238,7 @@ function drawPeople(): void {
     const key = people.ensure(look, 0);
     if (key && playerVisible) {
         const amp = Math.min(0.8, body.speed * 0.2);
-        const aiming = aimHold > 0 || lookButtonDown;
+        const aiming = aimHold > 0 || lookButtonDown || aim.ads > 0.3;
         addPerson(key, personMatrix(body.x, body.y, body.z, body.yaw, false), [party[0], party[1], party[2], amp],
             [0.15, 0.14, 0.14, aiming ? -(body.stride % 6.28) - 0.001 : (body.stride % 6.28) + 0.001], look.skin, look.hair);
     }
@@ -1212,6 +1287,13 @@ let playerCar: FlyingCar | null = null;
 const flightEnvironment = () => ({ height: heightAt, sea: isSea, buildings: nav?.rects ?? [] });
 function saveCar(): void {
     if (!campaign || !playerCar || !frame) return;
+    // A car flying itself to you is saved where it will land.
+    const call = playerCar.call;
+    if (call) {
+        const ll = dirToLatLon(toWorld(frame, call.x, heightAt(call.x, call.z), call.z));
+        campaign.player.flyingCar = { lat: ll.lat, lon: ll.lon, yaw: call.yaw, altitude: 0, piloting: false };
+        return;
+    }
     const ll = dirToLatLon(toWorld(frame, playerCar.x, playerCar.y, playerCar.z));
     campaign.player.flyingCar = { lat: ll.lat, lon: ll.lon, yaw: playerCar.yaw,
         altitude: Math.max(0, playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), piloting: playerCar.piloting };
@@ -1232,7 +1314,8 @@ function useCar(): void {
         [body.x, body.z] = exit; body.y = heightAt(body.x, body.z); body.vy = 0; body.grounded = true;
         buildNav(body.x, body.z); toast("You leave your car.");
     } else {
-        if (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3) { toast("Get closer to your car."); return; }
+        if (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3) { toast(c.call ? "Your car is still on its way." : "Get closer to your car."); return; }
+        c.call = null;
         c.piloting = true; body.x = c.x; body.y = c.y; body.z = c.z; body.yaw = c.yaw;
         triggerHeld = triggerFresh = false; lookDrag = null;
         buildNav(c.x, c.z); toast("Space / A / Cross to rise. L / D-pad down to land.");
@@ -1245,8 +1328,46 @@ function landCar(): void {
     playerCar.state = "landing";
 }
 
+/** Calls your car (G / View-Select): it flies itself over the rooftops and lands beside you. */
+function summonCar(quiet = false): void {
+    const c = playerCar;
+    if (!c || !campaign || !frame) { toast("You have no car here.", "bad"); return; }
+    if (c.piloting) return;
+    if (indoors) { toast("Step outside to call your car.", "info"); return; }
+    const spec = carSpec(campaign.player.carUpgrades);
+    // Clear ground beside you, open to the sky (it comes down vertically).
+    const spot = parkBeside(body.x, body.z, (x, z) => (nav?.walkable(x, z) ?? !isSea(x, z)) && !isSea(x, z) && !inCompound(x, z, 2), heightAt,
+        car => openSky(car, nav?.rects ?? []));
+    if (!spot) { toast("No clear ground here for your car to land. Find an open space.", "bad"); return; }
+    if (!c.call && Math.hypot(c.x - spot.car.x, c.z - spot.car.z) < 3) { toast("Your car is right here.", "info"); return; }
+    // From far away (another part of the map), it arrives from the edge of the street map.
+    const far = Math.hypot(c.x - body.x, c.z - body.z);
+    if (far > 1200) {
+        const k = 600 / far;
+        c.x = spot.car.x + (c.x - spot.car.x) * k; c.z = spot.car.z + (c.z - spot.car.z) * k;
+        c.y = carGround(c.x, c.z, heightAt) + 60;
+    }
+    const wasParked = !c.call;
+    callCar(c, spot.car, flightEnvironment(), spec);
+    if (wasParked && nav) buildNav(nav.cx, nav.cz);
+    if (!quiet) toast(`Your car is on its way: ${Math.round(Math.hypot(c.x - body.x, c.z - body.z))} m, about ${Math.ceil(callEta(c, flightEnvironment(), spec))} s.`, "good");
+}
+
+/** A called car flies on (every live frame, whatever you are doing). */
+function stepCalledCar(dt: number): void {
+    const c = playerCar;
+    if (!c?.call || c.piloting || !campaign) return;
+    // Something overhangs its landing spot (the street map grew): find another.
+    if ((c.call.stuck ?? 0) > 1.5) { summonCar(true); if (c.call) c.call.stuck = 0; }
+    if (stepCall(c, dt, flightEnvironment(), carSpec(campaign.player.carUpgrades))) {
+        addCarObstacle();
+        saveCar();
+        toast("Your car has landed beside you. E / X / Square to board.", "good");
+    }
+}
+
 function addCarObstacle(): void {
-    if (!nav || !playerCar || playerCar.piloting) return;
+    if (!nav || !playerCar || playerCar.piloting || playerCar.call) return;
     const p = playerCar;
     nav.addRect({ cx: p.x, cz: p.z, ux: Math.cos(p.yaw), uz: -Math.sin(p.yaw), hw: 2.8, hd: 2.5,
         height: 1.6, base: p.y - 0.22, key: "al-player-car", door: [p.x, p.z] });
@@ -1359,7 +1480,7 @@ function writeWorld(): void {
     Entropy.Buffer.write(worldBuffer, packWorld({
         sunDir: SUN_DIRECTION, time, sunColor: [1.0, 0.96, 0.9], exposure: 1.05, debugLod: false, debugOutlines: false,
         planets: WORLD_PLANETS.map(p => ({ center: toRender(p.center), radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
-        city: { hideRadius, roadDistance: ROAD_DISTANCE },
+        city: { hideRadius, roadDistance: ROAD_DISTANCE, buildingHideRadius },
     }));
 }
 
@@ -1372,11 +1493,13 @@ function updateHouses(buildMs: number): void {
     const c = stats?.city;
     if (!c || !frame || mode === "title" || mode === "setup") {
         if (hideRadius > 0) houses.clear();
-        hideRadius = 0;
+        if (buildingHideRadius > 0) buildings?.clear();
+        hideRadius = buildingHideRadius = 0;
         return;
     }
     const cam = lastCamera?.position ?? focus;
     hideRadius = houses.update(cam, renderOrigin, c.live * 1_000_003 + c.buildings, buildMs);
+    if (buildings) buildingHideRadius = buildings.update(cam, renderOrigin, c.live * 1_000_003 + c.buildings, buildMs);
 }
 
 // --- UI ------------------------------------------------------------------------------------------
@@ -1493,7 +1616,7 @@ function stepCompounds(dt: number): void {
                 const free = p.posts.filter(([x, z]) => Math.hypot(x - body.x, z - body.z) > 18 && (nav?.walkable(x, z) ?? true));
                 const at: [number, number][] = [];
                 for (let k = 0; k < want - alive && free.length; k++) at.push(free[(alive + k + Math.floor(time)) % free.length]);
-                spawnGuards(street, streetContext(), rng, p.cs.id, at);
+                spawnGuards(street, streetContext(), rng, p.cs.id, at, p.cs.kind === "outpost");
             }
         }
         if (d < nearestD) { nearestD = d; nearest = p; }
@@ -1540,6 +1663,9 @@ function houseFloor(r: Rect): number {
     return toLocal(frame, add(b.anchor, scale(b.up, y0 - b.groundMin + plinth)))[1];
 }
 
+/** The house the `house` tool action last put you at the door of. */
+let toolHouse: Rect | null = null;
+
 function enterHouse(r: Rect): void {
     const at = entryPoint(r);
     const loot = houseLoot(r.key);
@@ -1553,6 +1679,29 @@ function leaveHouse(): void {
     const out = exitPoint(indoors.rect);
     indoors = null;
     body.x = out.x; body.z = out.z; body.y = heightAt(out.x, out.z); body.yaw = out.yaw; body.vy = 0;
+}
+
+/**
+ * Mesha furniture in a house you go into (deterministic in the house): a round table for two just
+ * inside the front door (the entrance is open floor whatever the rooms beyond), chairs facing
+ * across it, a lamp on it, and a potted plant by the door.
+ */
+function interiorItems(r: Rect, floor: number): ScatterItem[] {
+    const h = hashString(`interior:${r.key}`);
+    const at = entryPoint(r);
+    const fx = Math.sin(at.yaw), fz = Math.cos(at.yaw), rx = Math.cos(at.yaw), rz = -Math.sin(at.yaw);
+    const s = h % 2 ? 1 : -1;
+    // Ahead and a little to one side of where you come in.
+    const tx = at.x + fx * 1.9 + rx * s * 0.9, tz = at.z + fz * 1.9 + rz * s * 0.9;
+    const item = (family: string, x: number, z: number, yaw: number, y = floor, scale = 1): ScatterItem => ({ family, x, z, yaw, scale, tint: [1, 1, 1], y });
+    const out: ScatterItem[] = [item("dining-table", tx, tz, at.yaw)];
+    for (const k of [-1, 1]) {
+        const px = tx + rx * k * 0.75, pz = tz + rz * k * 0.75;
+        out.push(item("dining-chair", px, pz, Math.atan2(tx - px, tz - pz)));
+    }
+    out.push(item("table-lamp", tx + fx * 0.15, tz + fz * 0.15, at.yaw, floor + 0.74));
+    out.push(item("potted-plant", at.x - rx * s * 0.9 - fx * 0.3, at.z - rz * s * 0.9 - fz * 0.3, h % 6, floor, 1.3));
+    return out;
 }
 
 function lootSpot(): [number, number] | null {
@@ -1692,12 +1841,22 @@ function frameLatLon(): { lat: number; lon: number } {
     return dirToLatLon(normalize(frame!.origin));
 }
 
+let roadsInScatter = 0;
 function computeScatter(): void {
     if (!frame || !nav) { scatterItems = []; return; }
     const ll = frameLatLon();
     const half = NAV_SIZE * NAV_CELL / 2 - 12;
     const g = nav;
+    // OpenStreetMap roads around the street map: nothing is planted on them.
+    let roads: RoadMask | undefined;
+    try {
+        const lines = Entropy.QuadPlanet.roads(terrainId, ll.lat, ll.lon, half * 1.5);
+        const f = frame;
+        roads = new RoadMask(roadSegments(lines, (lat, lon) => { const p = toLocal(f, scale(latLonToDir(lat, lon), EARTH.radius)); return [p[0], p[2]]; }));
+    } catch { roads = undefined; }
+    roadsInScatter = roads?.segments ?? 0;
     scatterItems = scatterAround(g.rects, {
+        roads,
         walkable: (x, z) => g.walkable(x, z),
         reserved: (x, z) => !!inCompound(x, z, 8) || (!!playerCar && Math.hypot(x - playerCar.x, z - playerCar.z) < 5),
         tropical: Math.abs(ll.lat) < 23.5,
@@ -1736,7 +1895,8 @@ function compoundItems(): ScatterItem[] {
         if (p.cs.captured && p.cs.kind === "outpost" && c?.party.hqSite && Math.hypot(p.rects[0].cx - body.x, p.rects[0].cz - body.z) > 45)
             out.push({ family: "beacon", x: p.rects[0].cx, z: p.rects[0].cz, yaw: 0, scale: 1, tint: [party[0], party[1], party[2]], glow: 1, y: heightAt(p.rects[0].cx, p.rects[0].cz) + 5 });
     }
-    // The supplies in the house you are in.
+    // The house you are in: its furniture, and its supplies.
+    if (indoors) out.push(...interiorItems(indoors.rect, indoors.floor));
     const loot = lootSpot();
     if (loot && indoors) out.push({ family: "loot", x: loot[0], z: loot[1], yaw: body.yaw, scale: 1, tint: [1, 1, 1], y: indoors.floor });
     return out;
@@ -1767,7 +1927,7 @@ function drawScatter(dt: number): void {
         const fr = makeFrame(fwd, f.up);
         const m = frameMatrix(pos, fr);
         const sx = it.scale * (it.sx ?? 1), s = it.scale;
-        const radius = (SCATTER_RADIUS[it.family] ?? (it.family.startsWith("tree") || it.family === "conifer" || it.family === "palm" ? 9 : 3)) * Math.max(s, sx / 2);
+        const radius = (SCATTER_RADIUS[it.family] ?? (it.family.startsWith("tree") || it.family === "conifer" || it.family === "palm" ? 11 : 3)) * Math.max(s, sx / 2);
         const up = scale(f.up, radius * 0.5);
         const { data, offset: o } = scatterBatches.add(batchKey(mesh, it.x, it.z), [pos[0] + up[0], pos[1] + up[1], pos[2] + up[2], radius]);
         for (let k = 0; k < 3; k++) { data[o + k] = m[k] * sx; data[o + 4 + k] = m[4 + k] * s; data[o + 8 + k] = m[8 + k] * s; }
@@ -1893,7 +2053,9 @@ function drawViewModel(): void {
     // A little bob as you walk, and the kick of the last shot.
     const bob = Math.sin(body.stride * 1.1) * 0.012 * Math.min(1, body.speed / 4);
     const kick = fireCooldown > 0 ? 0.03 * Math.min(1, fireCooldown * 6) : 0;
-    const p = add(toRender(cam.position), add(scale(u, bob), scale(f, -kick)));
+    // Down the sights: the gun comes up to the eye, its sights on the crosshair.
+    const t = aim.ads * aim.ads * (3 - 2 * aim.ads);
+    const p = add(toRender(cam.position), add(add(scale(u, bob * (1 - t) + 0.18 * t), scale(r, -0.24 * t)), scale(f, -kick * (1 - 0.6 * t))));
     writeItem(viewItems[kind], [r[0], r[1], r[2], 0, u[0], u[1], u[2], 0, -f[0], -f[1], -f[2], 0, p[0], p[1], p[2], 1], [1, 1, 1, 0]);
 }
 
@@ -1933,12 +2095,14 @@ function snapshot() {
         dialogue: dialogue ? { name: dialogue.name, opinion: r2(dialogue.opinion), reply: dialogue.reply, member: dialogue.member } : null,
         terrain: stats ? { live: stats.live, pending: stats.pending, waitingForData: stats.waitingForData, triangles: stats.triangles, city: stats.city ?? null } : null,
         houses: houses?.lastStats ?? null,
+        buildings: buildings?.lastStats ?? null,
         people: { generated: people?.generated ?? 0, cache: Entropy.MeshCache.stats(PEOPLE_NAMESPACE),
             lod0: lodCounts[0], lod1: lodCounts[1], lod2: lodCounts[2], detail: peopleDetail, budget: peopleBudget,
             batches: crowd?.lastStats ?? null },
         ui: { ops: ui?.p.opCount() ?? 0, submits: ui?.p.submits ?? 0, buttons: ui?.p.buttons.map(b => b.id).slice(0, 80) ?? [] },
         toasts: toasts.map(t => t.text),
         traffic: { count: trafficVisible, limit: TRAFFIC_LIMIT },
+        aim: { ads: r2(aim.ads), fov: r2(fovSet), assist: controls().aimAssist, locked: assistPick ? { id: assistPick.target.id, angle: Math.round(assistPick.angle * 1e4) / 1e4 } : null, yaw: r2(body.yaw), pitch: r2(body.pitch) },
         flyingCar: playerCar ? { ...playerCar, altitude: r2(playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null,
         settlements: c?.settlements?.map(d => ({ id: d.id, name: d.name, country: d.country, parent: d.parent, governor: c.regions[d.id].governor })) ?? [],
         mission: c?.mission ? { ...c.mission, distance: Math.round(missionCompound(c) ? angularDistance(c.player.lat, c.player.lon, missionCompound(c)!.lat, missionCompound(c)!.lon) * EARTH_RADIUS_KM * 1000 : -1) } : null,
@@ -1956,7 +2120,7 @@ function snapshot() {
         prompt: nearbyAction()?.label ?? null,
         markers: skyCache.map(m => ({ id: m.id, kind: m.kind, label: m.label, km: Math.round(m.km * 100) / 100 })),
         miniMap: miniMap ? { runs: miniMap.runs.length, dots: miniMap.dots.length, cellMeters: miniMap.cellMeters } : null,
-        scatter: { items: scatterItems.length, foliageGenerated: foliage?.generated ?? 0, batches: scatterBatches?.lastStats ?? null,
+        scatter: { items: scatterItems.length, roadSegments: roadsInScatter, foliageGenerated: foliage?.generated ?? 0, batches: scatterBatches?.lastStats ?? null,
             families: Object.entries(scatterItems.reduce((acc, it) => { acc[it.family] = (acc[it.family] ?? 0) + 1; return acc; }, {} as Record<string, number>)) },
         fixedStep,
     };
@@ -2175,8 +2339,89 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     const foe = soldiers(street).sort((p, q) => Math.hypot(p.x - body.x, p.z - body.z) - Math.hypot(q.x - body.x, q.z - body.z))[0];
                     if (foe) { body.yaw = Math.atan2(foe.x - body.x, foe.z - body.z); street.player.heading = body.yaw; out.enemyDistance = r2(Math.hypot(foe.x - body.x, foe.z - body.z)); }
                 } break;
-                case "face": if (typeof a.yaw === "number") body.yaw = a.yaw; if (typeof a.pitch === "number") body.pitch = a.pitch; break;
+                case "face": if (typeof a.yaw === "number") body.yaw = a.yaw; if (typeof a.turn === "number") body.yaw += a.turn; if (typeof a.pitch === "number") body.pitch = a.pitch; break;
                 case "shoot": fire(c?.player.weapon ?? "pistol"); break;
+                case "shoot-guard": {
+                    // Real shots (the same path as the trigger) at the nearest compound defender, aimed at
+                    // their chest: checks that each fallen defender leaves its garrison for good.
+                    const guards = street.actors.filter(x => x.compound && alive(x)).sort((x, y) => Math.hypot(x.x - body.x, x.z - body.z) - Math.hypot(y.x - body.x, y.z - body.z));
+                    const g0 = guards[0];
+                    if (!g0 || !g0.compound || !c) throw new Error("No defender in sight.");
+                    const cs = c.compounds![g0.compound];
+                    // Take a firing position a dozen meters from them with a clear line (inside the walls).
+                    let spot: [number, number] | null = null;
+                    for (const rr of [12, 8, 16, 5]) {
+                        for (let k = 0; k < 24 && !spot; k++) {
+                            const ang = k / 24 * Math.PI * 2, x = g0.x + Math.sin(ang) * rr, z = g0.z + Math.cos(ang) * rr;
+                            if (nav && (!nav.walkable(x, z) || !nav.lineClear(x, z, g0.x, g0.z))) continue;
+                            spot = [x, z];
+                        }
+                        if (spot) break;
+                    }
+                    if (spot) { body.x = spot[0]; body.z = spot[1]; body.y = heightAt(spot[0], spot[1]); street.player.x = body.x; street.player.z = body.z; }
+                    out.from = spot; out.guardAt = [r2(g0.x), r2(g0.z)];
+                    const before = cs.garrison;
+                    let kills = 0;
+                    for (let k = 0; k < (typeof a.shots === "number" ? a.shots : 6); k++) {
+                        const g = street.actors.filter(x => x.compound === cs.id && alive(x)).sort((x, y) => Math.hypot(x.x - body.x, x.z - body.z) - Math.hypot(y.x - body.x, y.z - body.z))[0];
+                        if (!g) break;
+                        body.yaw = Math.atan2(g.x - body.x, g.z - body.z);
+                        const eye: Vec3 = [body.x + Math.sin(body.yaw) * 0.3, body.y + EYE - 0.1, body.z + Math.cos(body.yaw) * 0.3];
+                        const wasAlive = alive(g);
+                        const before = g.health;
+                        fire(c.player.weapon, normalize(sub([g.x, g.y + 1.2, g.z], eye)));
+                        ((out.hits ??= []) as number[]).push(r2(before - g.health));
+                        if (wasAlive && !alive(g)) kills++;
+                    }
+                    out.kills = kills; out.garrisonBefore = before; out.garrison = cs.garrison; out.guardsStanding = guardsOf(street, cs.id).length;
+                } break;
+                case "ads": adsButton = a.on !== false; break;
+                case "face-guard": {
+                    // Face the nearest soldier, `offset` radians to the side (to watch aim assist pull you on).
+                    const g = street.actors.filter(x => x.kind === "soldier" && alive(x)).sort((x, y) => Math.hypot(x.x - body.x, x.z - body.z) - Math.hypot(y.x - body.x, y.z - body.z))[0];
+                    if (!g) throw new Error("No soldier nearby.");
+                    const off = typeof a.offset === "number" ? a.offset : 0;
+                    body.yaw = Math.atan2(g.x - body.x, g.z - body.z) + off;
+                    body.pitch = Math.atan2(g.y + 1.25 - (body.y + EYE), Math.hypot(g.x - body.x, g.z - body.z));
+                    out.guard = g.id; out.distance = r2(Math.hypot(g.x - body.x, g.z - body.z)); out.yaw = body.yaw;
+                } break;
+                case "view-building": {
+                    // Stand in the street before the nearest city building (a Mesha city block), looking at its front.
+                    if (indoors) leaveHouse();
+                    const near = (nav?.rects ?? []).filter(r => r.kind !== "house" && !r.key.startsWith("al-") && r.hw > 5 && r.height > 9
+                            && !!buildingByKey.get(r.key) && buildingValues(buildingByKey.get(r.key)!, 2) !== null)
+                        .sort((p, q) => Math.hypot(p.cx - body.x, p.cz - body.z) - Math.hypot(q.cx - body.x, q.cz - body.z));
+                    let placed = false;
+                    for (const r of near.slice(0, 150)) {
+                        if (placed) break;
+                        const side = doorSide(r);
+                        const fx = -r.uz * side, fz = r.ux * side;
+                        const kerb: [number, number] = [r.cx + fx * (r.hd + 3), r.cz + fz * (r.hd + 3)];
+                        for (const dist of typeof a.distance === "number" ? [a.distance] : [24, 18, 32, 13]) {
+                            const back = dist + r.hd;
+                            const x = r.cx + fx * back, z = r.cz + fz * back;
+                            if (nav && (!nav.walkable(x, z) || !nav.sightClear(x, z, kerb[0], kerb[1]))) continue;
+                            body.x = x; body.z = z; body.y = heightAt(x, z);
+                            body.yaw = Math.atan2(r.cx - x, r.cz - z) + (typeof a.turn === "number" ? a.turn : 0.3);
+                            body.pitch = 0.2;
+                            street.player.x = body.x; street.player.z = body.z;
+                            out.building = r.key; out.height = r.height; out.distance = dist; placed = true;
+                            const b = buildingByKey.get(r.key);
+                            out.values = b ? buildingValues(b as CityBuilding, 2) : null;
+                            break;
+                        }
+                    }
+                    if (!placed) throw new Error("No city building with open ground in front of it nearby.");
+                } break;
+                case "view-furniture": {
+                    // Inside a house: stand back from its dining table, looking at it.
+                    if (!indoors) throw new Error("Not inside a house.");
+                    const t = interiorItems(indoors.rect, indoors.floor)[0];
+                    const dx = body.x - t.x, dz = body.z - t.z, d = Math.hypot(dx, dz) || 1;
+                    body.x = t.x + dx / d * 2.4; body.z = t.z + dz / d * 2.4;
+                    body.yaw = Math.atan2(t.x - body.x, t.z - body.z); body.pitch = -0.35;
+                } break;
+                case "call-car": summonCar(); out.car = playerCar ? { call: playerCar.call ?? null, distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null; break;
                 case "rally": spawnOrator(street, nav, streetContext(), rng); out.rally = street.rally; break;
                 case "squad": out.spawned = spawnSquad(street, nav, streetContext(), rng, typeof a.count === "number" ? a.count : 4, false); break;
                 case "rest": act("rest"); break;
@@ -2188,7 +2433,12 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 case "coup": act("coup", where); break;
                 case "election": act("election", where); break;
                 case "travel": act("travel", where); break;
-                case "equip": if (c && typeof a.weapon === "string") c.player.weapon = a.weapon; break;
+                case "equip": if (c && typeof a.weapon === "string") {
+                    c.player.weapon = a.weapon;
+                    if (!c.player.weapons.includes(a.weapon)) c.player.weapons.push(a.weapon);
+                    const w = weaponById(a.weapon);
+                    if (Number.isFinite(w.magazine) && (c.player.ammo[w.id] ?? 0) <= 0) c.player.ammo[w.id] = w.magazine * 3;
+                } break;
                 case "buy": act("buy-weapon", a.weapon); break;
                 case "save": out.saved = save(); break;
                 case "load": act("continue"); break;
@@ -2207,8 +2457,15 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     body.yaw = Math.atan2(r.cx - body.x, r.cz - body.z);
                     street.player.x = body.x; street.player.z = body.z;
                     out.house = r.key;
+                    toolHouse = r;
                 } break;
-                case "enter": interact(); break;
+                case "enter": {
+                    // The house at this door, even with a shop kiosk or someone to talk to closer by.
+                    const chosen = toolHouse; toolHouse = null;
+                    const house = indoors ? null : chosen ?? (nav ? houseAtDoor(nav.rects, body.x, body.z) : null);
+                    if (house) enterHouse(house); else interact();
+                    out.entered = indoors?.rect.key ?? null;
+                } break;
                 case "loot": {
                     const spot = lootSpot();
                     if (!spot) throw new Error(indoors ? "Nothing left to search here." : "Not inside a house.");
@@ -2216,9 +2473,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 } break;
                 case "leave-house": {
                     if (!indoors) throw new Error("Not inside a house.");
-                    const at = exitPoint(indoors.rect);
-                    const d = entryPoint(indoors.rect);
-                    body.x = d.x; body.z = d.z; void at; interact();
+                    leaveHouse();
                 } break;
                 case "shop": {
                     // Walk into the nearest shop (of `kind` if given).
@@ -2235,6 +2490,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                 case "shop-sell": act("shop-sell", String(a.item)); break;
                 case "shop-close": closeShop(); break;
                 case "compound": {
+                    if (indoors) leaveHouse();
                     // Stand outside the gate of the mission's (or the nearest) compound, facing it.
                     updateCompounds();
                     const want = c?.mission && c.mission.step !== "done" ? c.mission.compound : null;
@@ -2363,6 +2619,17 @@ addon.onInit(() => {
         now: () => Date.now(),
     // 1 m size steps: similar footprints share one house mesh (and one instanced draw).
     }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1 });
+    // Every other building on the map: Mesha city blocks (evaluated here, 5-80 ms each, cached).
+    try { Entropy.MeshCache.prune(BUILDING_NAMESPACE, 2e9); } catch (e) { Entropy.println(`[allegiance] building cache: ${(e as Error).message}`); }
+    buildings = new CityHouses({
+        buildings: (position, radius, limit) => Entropy.QuadPlanet.buildings(terrainId, position, radius, { kind: "box", limit }) as CityBuilding[],
+        status: (ns, k) => Entropy.MeshCache.status(ns, k),
+        put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
+        info: (ns, k) => Entropy.MeshCache.info(ns, k),
+        instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        now: () => Date.now(),
+    // 2 m size steps (the model stretches to the real footprint): streets of similar blocks share meshes.
+    }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2 }, BUILDING_MODEL);
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     setupViewModels();
@@ -2417,6 +2684,7 @@ addon.onUpdatePlus("Global", () => {
 
     const live = mode === "play" || mode === "speech" || mode === "dialogue";
     if (live && frame) {
+        stepAim(dt);
         if (playerCar?.piloting) {
             const input = readInput();
             playerCar.yaw = body.yaw;
@@ -2428,12 +2696,13 @@ addon.onUpdatePlus("Global", () => {
         } else if (indoors) {
             // Inside a house: its floor underfoot, its outer walls around you.
             const floor = indoors.floor;
-            stepBody(body, readInput(), dt, null, () => floor, 1);
+            stepBody(body, footInput(), dt, null, () => floor, adsMove(aim.ads));
             [body.x, body.z] = clampInside(indoors.rect, body.x, body.z, 0.3);
-        } else stepBody(body, readInput(), dt, nav, heightAt, mode === "speech" ? 0 : 1);
+        } else stepBody(body, footInput(), dt, nav, heightAt, mode === "speech" ? 0 : adsMove(aim.ads));
         street.player.x = body.x; street.player.z = body.z; street.player.y = body.y; street.player.heading = body.yaw;
         street.player.moving = body.speed > 0.5;
         if (!playerCar?.piloting) stepWeapon(dt);
+        stepCalledCar(dt);
         // Out of a fight, wounds slowly heal (faster with Toughness).
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);

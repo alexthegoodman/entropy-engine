@@ -61,7 +61,7 @@ use crate::deno::matter_ops::{
 use crate::deno::quadplanet_ops::{
     op_quadplanet_create, op_quadplanet_update, op_quadplanet_sample, op_quadplanet_normal, op_quadplanet_landing_site,
     op_quadplanet_info, op_quadplanet_configure, op_quadplanet_clear, op_quadplanet_destroy, op_quadplanet_geocode,
-    op_quadplanet_place_name, op_quadplanet_buildings,
+    op_quadplanet_place_name, op_quadplanet_buildings, op_quadplanet_roads,
 };
 use crate::deno::mesh_cache_ops::{
     op_mesh_cache_status, op_mesh_cache_put, op_mesh_cache_meta, op_mesh_cache_info, op_mesh_cache_vertices, op_mesh_cache_indices, op_mesh_cache_create_mesh, op_mesh_cache_remove, op_mesh_cache_clear, op_mesh_cache_prune, op_mesh_cache_stats, op_mesh_cache_failure,
@@ -120,7 +120,7 @@ use crate::deno::addon_ops::{
     op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_pick_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_ui_widget_heatmap, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
-    op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
+    op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_fov, op_camera_set_transform, op_composer_set_role_pipeline,
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
@@ -487,6 +487,7 @@ extension!(
         op_camera_get_transform,
         op_camera_set_transform,
         op_camera_set_orthographic,
+        op_camera_set_fov,
         op_generate_uuid,
         op_register_composite_texture,
         op_addon_register_tool,
@@ -541,6 +542,7 @@ extension!(
         op_quadplanet_geocode,
         op_quadplanet_place_name,
         op_quadplanet_buildings,
+        op_quadplanet_roads,
         op_mesh_cache_status,
         op_mesh_cache_put,
         op_mesh_cache_meta,
@@ -900,6 +902,7 @@ impl AddonEngine {
             pending_camera_target: None,
             pending_camera_up: None,
             pending_camera_ortho: None,
+            pending_camera_fov: None,
             pending_bone_transforms: Vec::new(),
             pending_entity_rotations: Vec::new(),
             pending_ui_rects: Vec::new(),
@@ -7718,6 +7721,9 @@ fn apply_pending_camera(context: &mut AddonContext, camera: &mut SimpleCamera, c
         if let Some(view_height) = view_height {
             camera.ortho_view_height = view_height;
         }
+    }
+    if let Some(fovy) = context.pending_camera_fov.take() {
+        camera.fovy = if fovy > 0.0 { fovy } else { camera.base_fovy };
     }
     camera.update();
     camera_binding.update_3d(&gpu_resources.queue, camera);

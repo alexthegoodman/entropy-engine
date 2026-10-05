@@ -133,6 +133,28 @@ pub struct BuiltTile {
     pub settlements: Vec<super::osm::OsmSettlement>,
     pub buildings: usize,
     pub roads: usize,
+    /// The roads' center lines (for keeping things off them: trees, props).
+    pub road_lines: Vec<RoadLine>,
+}
+
+/// A road's center line in (latitude, longitude) degrees, its paved width in meters, and the
+/// bounding box of its points (for `CityLayer::roads_near`).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RoadLine {
+    pub points: Vec<[f64; 2]>,
+    pub width: f64,
+    pub street: bool,
+    #[serde(skip)]
+    pub bounds: [f64; 4],
+}
+
+impl RoadLine {
+    fn new(points: Vec<[f64; 2]>, class: RoadClass) -> Self {
+        let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for p in &points { b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]; }
+        RoadLine { points, width: class.width(), street: class.is_street(), bounds: b }
+    }
 }
 
 /// The planet facts the workers need (they don't hold the planet itself).
@@ -376,7 +398,9 @@ pub fn build_tile(id: TileId, data: &OsmTile, env: &CityEnv, lk: &mut Lookup) ->
         let anchor_rel = scale(up_b, r + gmin);
 
         // The box: a house's own footprint (so the model replaces it in place), else the rectangle.
-        let replaceable = kind == "house";
+        // uv.y's integer part says which models may replace it: 1 a house, 2 a building standing
+        // on the ground (an addon may draw a model of its own there), 0 neither (raised parts).
+        let replaceable = if kind == "house" { 1.0 } else if b.min_height <= 0.0 { 2.0 } else { 0.0 };
         let bottom = if b.min_height > 0.0 { gmax + b.min_height } else { gmin - FOUNDATION_DEPTH };
         let top = gmax + b.height;
         let anchor_l = to_local(anchor_rel);
@@ -388,7 +412,7 @@ pub fn build_tile(id: TileId, data: &OsmTile, env: &CityEnv, lk: &mut Lookup) ->
             // The anchor is p minus (uv-encoded x/z offsets, alpha-encoded height): see the shader.
             let dx = (p[0] - anchor_l[0]).clamp(-999.0, 999.0);
             let dz = (p[2] - anchor_l[2]).clamp(-999.0, 999.0);
-            let uv = [MATERIAL_BUILDING_BOX as f64 + 0.5 + dx / 4000.0, if replaceable { 1.0 } else { 0.0 } + 0.5 + dz / 4000.0];
+            let uv = [MATERIAL_BUILDING_BOX as f64 + 0.5 + dx / 4000.0, replaceable + 0.5 + dz / 4000.0];
             m.vertex(p, n, uv, c, p[1] - anchor_l[1])
         };
         let ring = [(-1.0, 1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)];
@@ -476,6 +500,7 @@ pub fn build_tile(id: TileId, data: &OsmTile, env: &CityEnv, lk: &mut Lookup) ->
         buildings: placements.len(),
         placements,
         roads: road_count,
+        road_lines: data.roads.iter().filter(|rd| rd.points.len() >= 2 && rd.class != RoadClass::Rail).map(|rd| RoadLine::new(rd.points.clone(), rd.class)).collect(),
     })
 }
 
@@ -512,6 +537,7 @@ pub struct LiveTile {
     pub settlements: Vec<super::osm::OsmSettlement>,
     pub triangles: usize,
     pub roads: usize,
+    pub road_lines: Vec<RoadLine>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -695,6 +721,15 @@ impl CityLayer {
         out
     }
 
+    /// Roads (center lines) with a point's bounding box within `radius` meters of (lat, lon).
+    pub fn roads_near(&self, lat: f64, lon: f64, radius: f64) -> Vec<&RoadLine> {
+        let dlat = radius / 110_540.0;
+        let dlon = radius / (111_320.0 * lat.to_radians().cos().abs().max(1e-6));
+        self.live.values().flat_map(|t| t.road_lines.iter())
+            .filter(|r| lat >= r.bounds[0] - dlat && lat <= r.bounds[2] + dlat && lon >= r.bounds[1] - dlon && lon <= r.bounds[3] + dlon)
+            .collect()
+    }
+
     /// Forget tiles that failed so they are tried again.
     pub fn retry_failed(&mut self) { self.failed.clear(); }
 }
@@ -867,6 +902,13 @@ mod tests {
         assert_eq!(again.placements.iter().map(|p| &p.key).collect::<Vec<_>>(), t.placements.iter().map(|p| &p.key).collect::<Vec<_>>());
         // 3 boxes of 5 faces, and a road.
         assert_eq!(t.roads, 1);
+        // Its center line is kept, for keeping trees and props off it.
+        assert_eq!(t.road_lines.len(), 1);
+        assert_eq!(t.road_lines[0].width, RoadClass::Minor.width());
+        assert!(t.road_lines[0].street);
+        // Ground-standing boxes are flagged 2 (an addon's model may replace them), the house 1.
+        let flags: HashSet<i32> = t.vertices.chunks_exact(12).map(|v| v[7].floor() as i32).collect();
+        assert_eq!(flags, HashSet::from([1, 2]));
         assert!(t.indices.len() / 3 >= 30 + 2);
         assert_eq!(t.vertices.len() % 12, 0);
         // Every triangle faces the way its vertex normal says (the engine culls back faces):
@@ -940,7 +982,7 @@ mod tests {
             let u = city.update(viewer);
             for (tid, t) in u.created {
                 created += 1;
-                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, settlements: t.settlements, placements: t.placements });
+                city.live.insert(tid, LiveTile { mesh_id: String::new(), buffer_id: String::new(), radius: 0.0, origin: t.origin, basis: t.basis, triangles: t.indices.len() / 3, roads: t.roads, road_lines: t.road_lines, settlements: t.settlements, placements: t.placements });
             }
             if !city.busy() { break; }
             assert!(start.elapsed() < Duration::from_secs(20), "stuck: {:?}", city.stats());

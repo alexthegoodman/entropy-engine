@@ -287,6 +287,13 @@ export function buildViewWeapon(kind: string): ModelMesh {
     m.box([x, y - 0.06, -0.66], [0.018, 0.045, 0.022], [0.12, 0.12, 0.13], MATERIAL_PAINT);
     if (kind !== "pistol") m.box([x, y - 0.01, -0.5], [0.025, 0.035, 0.12], [0.12, 0.12, 0.13], MATERIAL_PAINT);
     if (kind === "rail") m.box([x, y + 0.04, -0.62 - long * 0.5], [0.01, 0.01, long * 0.4], [0.4, 0.85, 1], MATERIAL_GLOW);
+    // Iron sights, lined up on the crosshair when you aim down them: a notched rear sight and a
+    // front post with a glowing dot.
+    const rail = y + 0.038, rearZ = -0.66 - long * 0.05, frontZ = front + 0.025;
+    for (const s of [-1, 1]) m.box([x + s * 0.005, rail + 0.008, rearZ], [0.0025, 0.006, 0.004], GUN, MATERIAL_PAINT);
+    m.box([x, rail + 0.002, rearZ], [0.0075, 0.002, 0.004], GUN, MATERIAL_PAINT);
+    m.box([x, rail + 0.009, frontZ], [0.0015, 0.009, 0.0025], GUN, MATERIAL_PAINT);
+    m.box([x, rail + 0.019, frontZ], [0.0016, 0.0016, 0.0016], [1, 0.75, 0.2], MATERIAL_GLOW);
     m.ellipsoid([x, y - 0.075, -0.64], [0.035, 0.04, 0.045], skin, MATERIAL_PAINT, 8, 6);
     if (kind !== "pistol") m.ellipsoid([x - 0.02, y - 0.03, -0.62 - long * 0.6], [0.035, 0.035, 0.045], skin, MATERIAL_PAINT, 8, 6);
     return m.build();

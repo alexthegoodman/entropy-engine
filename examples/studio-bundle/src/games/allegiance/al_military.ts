@@ -185,17 +185,8 @@ export function stepCapture(cs: CompoundState, progress: { raise: number }, atFl
     return "raising";
 }
 
-/** A defender fell: one fewer left in the compound. */
+/** A defender fell: one fewer left in the compound. Fallen defenders are never replaced; only a
+ * regime that retakes the town brings a fresh garrison (al_world.ts loseRegion). */
 export function defenderDown(cs: CompoundState): void {
     cs.garrison = Math.max(0, cs.garrison - 1);
-}
-
-/** A held compound slowly reinforces (daily): the regime refills its garrison while you are away
- * (not while you are within `nearKm` of it, mid-assault). */
-export function reinforceCompounds(c: Campaign, nearKm = 2): void {
-    for (const cs of Object.values(c.compounds ?? {})) {
-        if (cs.captured) continue;
-        if (angularDistance(c.player.lat, c.player.lon, cs.lat, cs.lon) * EARTH_RADIUS_KM < nearKm) continue;
-        if (cs.garrison < cs.maxGarrison) cs.garrison = Math.min(cs.maxGarrison, cs.garrison + Math.max(1, Math.round(cs.maxGarrison * 0.25)));
-    }
 }

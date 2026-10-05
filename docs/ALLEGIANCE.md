@@ -88,8 +88,10 @@ objective strip tracks each step, and the normal objectives take over once it is
 | Key | Does |
 |---|---|
 | W A S D | walk (relative to where you look, in first person); Shift runs (stamina); Space jumps |
-| Right mouse drag, arrow keys | look around |
+| Right mouse drag, arrow keys | look around (smoothed: the view glides rather than stepping) |
 | Left mouse | fire at the crosshair (hold for automatic weapons); R reloads; 1-9 switch weapons |
+| Middle mouse or Z (hold) | aim down sights: the view narrows, the gun's iron sights come up to the crosshair, spread tightens, you turn and walk slower |
+| G | call your flying car: it flies itself over the rooftops and lands beside you |
 | E | the nearest thing: your car, a house's front door, a shop, the HQ quartermaster, supplies in a house; otherwise talk or confront a rival orator |
 | H | use the best healing item you carry |
 | I | the inventory (command console) |
@@ -109,7 +111,8 @@ Xbox and DualShock use the same semantic mappings:
 | Y / Triangle | Start speech; second speech card |
 | B / Circle | Reload; third speech card; close dialogue/console |
 | RT / R2 | Fire (hold for automatic weapons) |
-| LT / L2 | Raise the weapon to aim |
+| LT / L2 | Aim down sights |
+| View / Share | Call your flying car |
 | LB/RB / L1/R1 | Cycle weapons; switch console tabs |
 | D-pad up/down in play | Hand out / cycle pamphlet |
 | D-pad left/right in play | Use the best healing item / open the inventory |
@@ -119,13 +122,25 @@ Xbox and DualShock use the same semantic mappings:
 Typing party and hometown names uses a keyboard. Stick drift is filtered with a radial 0.18
 deadzone; movement retains analog speed. Disconnects and stale input release held actions.
 
+**Aiming.** Mouse motion plays out over a few hundredths of a second, so turning glides instead of
+jumping; the right stick (and the arrow keys) has a response curve for fine aim near the center,
+eases up to speed and back down, and turns a little faster once held at full tilt. **Aim assist**
+(a percentage in the Inventory tab's Controls, 50% by default, 0% off) slows your turning over a
+soldier near the crosshair, draws the crosshair onto them while you aim down sights or fire, and
+bends a shot that is a hair off them onto them. The crosshair turns gold while it has a soldier.
+**Look speed** sets the sensitivity. Both are kept with the campaign.
+
+![Down the sights at the outpost](../public/allegiance-ads.png)
+
 **Aerial traffic.** Cabin-sized multicopters with four horizontal rotors cruise above local
 rooftops, with some hovering. Housing within 400 m sets traffic density, capped at twelve
 cars. Sparse areas have little or no traffic; separated altitude lanes keep dense areas readable.
 Tall blocks contribute a provisional apartment estimate from their floor area, since the current
 map bridge does not expose residential use. These are ambient vehicles in this iteration.
 Your personal flying car is parked beside you on clear ground when you arrive. Press **E**
-or **X / Square** within six metres to board. The HUD changes to flight controls and altitude.
+or **X / Square** within six metres to board. Press **G** (**View / Share** on a controller)
+anywhere outdoors to **call it**: it finds clear ground beside you, climbs over the rooftops
+between you, flies there and lands; the prompt shows its distance and time to arrival. The HUD changes to flight controls and altitude.
 
 | Flying car | Keyboard | Xbox / DualShock |
 |---|---|---|
@@ -183,10 +198,17 @@ the regime's flag. The number of buildings follows the population it holds (one 
 dwelling, about four for a village, seven for a city, ten for a capital territory), with two
 defenders per building. Compounds are the target for taking a place by force: defenders hold
 their posts until you come within 45 m, shoot near them or hit one of them, then the whole
-garrison fights. Up to eight are out at once; more come out as they fall. Clear them, stand at the
-flag for six seconds, and the settlement is yours (as a conquest). A compound you leave half
-cleared refills a quarter of its garrison each day you are more than 2 km away. Compounds
-change hands with their settlement however it is won or lost.
+garrison fights. Up to eight are out at once; more come out as they fall, until the garrison is
+spent. Clear them, stand at the flag for six seconds, and the settlement is yours (as a conquest).
+**Fallen defenders stay down**: the garrison count drops with each one, whoever shot them, and a
+compound you leave half cleared is still half cleared when you come back. Only a regime that
+retakes the town brings a fresh garrison. Compounds change hands with their settlement however it
+is won or lost.
+
+**Enemy aim settles in.** A soldier who has just found a target is rattled: their first shots go
+wide (a fifth of their accuracy), and they tighten up over five seconds of tracking the same
+target; switching targets starts over. The founding outpost's guards are green conscripts with
+half the accuracy of a garrison's.
 
 **Civilians are never harmed.** Bullets pass through civilians, rival orators and your own
 comrades; gunfire only sends civilians running. Soldiers are the only targets.
@@ -369,13 +391,15 @@ where you left off.
 | `al_nav.ts` | The street layer's local tangent frame on Earth, OSM buildings as oriented rectangles with doors, the nav grid, A* with string pulling, wall collision, line of sight |
 | `al_street.ts` | Everyone around you: civilians, followers, militia, soldiers, rival orators; crowds, pamphlets, recruiting, hitscan combat |
 | `al_player.ts` | You on foot, and the camera |
-| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks |
+| `al_aim.ts` | Turning (mouse smoothing, stick curve and easing), aiming down sights, aim assist |
+| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks, and the autopilot that brings it when called |
 | `al_military.ts` | Military compounds: size by population, layouts, siting on clear ground, garrisons and capture |
 | `al_mission.ts` | The founding mission |
 | `al_items.ts` | Inventory items, shops and their stock, house supplies |
 | `al_interior.ts` | Going inside houses: doors, entry and exit, staying within the walls |
 | `al_markers.ts` | Sky markers (projection, pinned to the screen's edge) and the mini map |
-| `al_scatter.ts` | Mesha foliage and low-poly props: placement, levels of detail and instanced, culled drawing |
+| `al_scatter.ts` | Mesha foliage and furniture, low-poly props, the road mask: placement, levels of detail and instanced, culled drawing |
+| `apps/quadplanet/qp_buildings.ts`, `apps/mesha/library/city_block.ts` | Mesha city buildings on the map's non-house footprints |
 | `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers, low-poly props and military buildings, the first-person weapon; three materials injected into QuadPlanet's shader |
 | `al_ui.ts`, `al_screens.ts` | The propaganda UI kit and every screen |
 | `allegiance_addon.ts` | The engine wiring: terrain, the loading screen, rendering, input, the day clock, saving, MCP tools |
@@ -394,16 +418,40 @@ the phase and amplitude in the uniform, or raises the arms to aim. Shirt and tro
 colors from the uniform, so an armband needs no new mesh. Meshes are shared per look (skin, hair,
 hat, weapon).
 
-**Set dressing.** Trees, conifers (palms in the tropics), shrubs, grass and flowers are Mesha's
-nature objects, evaluated once on the loading screen and kept in the mesh cache
-(`mesh-cache/allegiance-scatter`) with a simplified level of detail made on a Rust thread.
-Houses get trees in their back yards and shrubs at their sides; other buildings get benches,
-lamps, bins and crates; shops get kiosks; open ground gets sparse stands of trees on a grid
-anchored to latitude and longitude. Placement is deterministic in each building's key. Benches,
-lamps, bins, barriers, crates, sandbags, kiosks, footlockers and the military buildings are
-simple low-poly stand-ins (al_models.ts) to replace with detailed meshes later. Everything is
-drawn instanced: each mesh in each 96 m tile is one draw with a bounding sphere, so the engine
-culls tiles out of view; foliage beyond its range is skipped and near foliage uses full detail.
+**City buildings.** Every building on the map that isn't a house (offices, apartment blocks,
+shops, civic halls, warehouses) is drawn as Mesha's **City Building** (`architecture.city_block`,
+a new library object): storeys of framed windows (head, sill bar, mullion, transom, a stone sill,
+hood mouldings on classical fronts) set between piers and spandrels in front of the glazing,
+shopfronts with stall risers, fascia, sign boards and awnings, or a lobby with a canopy, a string
+course, a two-step cornice, a parapet with coping, and a stair house, roof plant or water tank
+on top. Bays follow the size, so one definition fits any footprint. `qp_buildings.ts` picks a
+style from the map's height and footprint and the building's seed (towers are glass offices or
+concrete blocks, big low sheds warehouses, the rest brick tenements, stucco apartments, concrete
+blocks and the odd civic hall), snaps the footprint to 2 m so a street shares meshes, and stretches
+the model to the real footprint and height. QuadPlanet's `CityHouses` streams them exactly like
+the houses (full detail within 90 m, simplified on a Rust thread to 600 m, cached in
+`mesh-cache/quadplanet-buildings`); city.rs marks ground-standing boxes (uv.y 2) and the shader
+folds them away where a model has taken over (World `city.z`). The compounds' headquarters,
+barracks, depots and hangars are the same object (Barracks and Warehouse presets).
+
+![A Mesha city block in London, a birch on the verge](../public/allegiance-city-block.png)
+
+**Set dressing.** Trees are Mesha's full-leaf trees only (oak, maple, birch; conifers, and palms
+in the tropics): thousands of leaves near you, and two distance meshes grown from the same seed
+and branching (fewer, larger leaves, then simplified), so a tree keeps its shape as it recedes.
+Shrubs, boxwood, hydrangeas, ferns, rocks, grass and flowers make the understory. All are
+evaluated once on the loading screen and kept in the mesh cache (`mesh-cache/allegiance-scatter`).
+Houses get one to three yard trees, shrubs and hedges at their sides, a flower bed and tufts of
+grass and ferns; town streets get a row of street trees along each verge; open ground gets stands
+of trees with an understory on a 22 m grid anchored to latitude and longitude. **Nothing is planted
+on a road**: the OpenStreetMap center lines and widths come from `Entropy.QuadPlanet.roads`, and
+trunks keep 1.8 m from a road's edge. Other buildings get cafe tables with chairs round them
+(Mesha's bistro table and chairs), potted plants by their doors, benches, lamps, bins and crates;
+shops get kiosks. A house you walk into has a round table for two just inside the door, with a lamp on it, and a
+potted plant by the door (Mesha furniture). Placement is deterministic. Benches, lamps, bins, barriers,
+crates, sandbags, kiosks, footlockers, watchtowers and walls are still low-poly stand-ins
+(al_models.ts). Everything is drawn instanced: each mesh in each 96 m tile is one draw with a
+bounding sphere, so the engine culls tiles out of view; each family is skipped beyond its range.
 Records are rewritten only when you move.
 
 **The UI.** Rects and texts are retained by the engine until `UI.clear()`, and every text is
@@ -431,7 +479,10 @@ These tools also drive the live test:
   `rest`, `days`, `funds`, `organize`, `arm`, `war`, `coup`, `election`, `travel`, `buy`,
   `equip`, `save`, `load`, `view` and `govern`; and for the upgrades `use`, `heal`, `house`,
   `enter`, `loot`, `leave-house`, `shop`, `shop-buy`, `shop-sell`, `shop-close`, `compound`,
-  `storm`, `flag`, `die`, `checkpoint` and `to-car`. `allegiance_new` takes `mission: false` to
+  `storm`, `flag`, `die`, `checkpoint` and `to-car`; and for iteration 2 `call-car`, `shoot-guard`
+  (real shots, through the trigger's code path, at the nearest defender from a clear firing
+  position), `face-guard`, `ads`, `view-building` (stand before the nearest Mesha city block) and
+  `view-furniture` (inside a house, look at its table). `face` also takes a relative `turn`. `allegiance_new` takes `mission: false` to
   skip the founding mission. `allegiance_state` also reports the mission, nearby compounds and
   their guards, the capture, inventory, car upgrades, checkpoint, the house you are in, the open
   shop, sky markers, the mini map and set dressing counts.
@@ -463,7 +514,11 @@ These tools also drive the live test:
   covers the first-person start with five comrades and the mission marker, storming the outpost
   and founding the HQ, the quartermaster and a garage upgrade, the inventory tab, entering and
   searching a house, falling and respawning, and boosted flight under the sky markers, with six
-  captured frames. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  captured frames. `allegiance_iteration2_live.feature` covers London's Mesha city buildings and
+  street trees, a furnished house, calling the car, real shots at the outpost (the garrison count
+  drops with each defender and none come back), aiming down sights with aim assist, and the
+  skyline from the car, with seven captured frames; `allegiance_iteration2.test.ts` is its
+  TypeScript tier. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.
@@ -476,7 +531,10 @@ These tools also drive the live test:
 - Shops are walk-up counters (a menu at the kiosk), not interiors.
 - Compounds are placed on the clear ground nearest their planned spot once the street map
   covers them; with no clear ground there, map buildings inside their walls give way. The
-  military buildings are low-poly stand-ins with no interiors.
+  military buildings have no interiors.
+- City buildings are closed: only houses can be entered. Their glazing is opaque glass.
+- Mouse look is still right-drag (there is no pointer lock), so aiming down sights is on the
+  middle button and Z rather than the right button.
 - Your personal hover car parks beside you on arrival, with clearance for its rotors; its parking
   location and airborne occupancy persist through save/resume. The personal car is pilotable;
   ambient traffic has no vehicle collisions. Long-distance command-console travel is instant

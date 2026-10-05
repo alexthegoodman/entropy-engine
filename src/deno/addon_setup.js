@@ -765,6 +765,7 @@ function createAddonContextualAPI(resolveTarget) {
             buildings: (id, position, radius, options) => ops.op_quadplanet_buildings(id, {
                 position, radius, kind: options?.kind ?? null, limit: options?.limit ?? null,
             }),
+            roads: (id, lat, lon, radius) => ops.op_quadplanet_roads(id, Number(lat), Number(lon), Number(radius)),
         },
         // Background jobs in isolates of their own (src/deno/worker_ops.rs): `script` is a bundled
         // classic script setting globalThis.onJob; input and result cross as JSON.
@@ -2862,6 +2863,7 @@ globalThis.Entropy = {
         setOrthographic: (enabled, viewHeight) => {
             ops.op_camera_set_orthographic(enabled, viewHeight === undefined ? null : viewHeight);
         },
+        setFov: (degrees) => ops.op_camera_set_fov(Number(degrees) || 0),
         screenToWorldRay: (screenX, screenY) => {
             const [pos, dir] = ops.op_camera_get_transform(); // Default fallback
             try {

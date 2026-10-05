@@ -14,49 +14,90 @@
 
 import { evaluateObject, type Evaluation } from "../../apps/mesha/mesha_object";
 import { lookupObject } from "../../apps/mesha/library";
-import type { ParamValues } from "../../apps/mesha/mesha_object";
+import { resolveParams, defaultValues, type ParamValues } from "../../apps/mesha/mesha_object";
+import { packBuilding } from "../../apps/quadplanet/qp_buildings";
 import { type Rect } from "./al_nav";
 import { type ModelMesh, buildBench, buildStreetLamp, buildTrashBin, buildBarrier, buildCrates, buildSandbags, buildKiosk, buildLootCrate, buildMilitary, buildBeacon, buildFlag } from "./al_models";
 import { doorSide, fromUV } from "./al_interior";
 import { hashString } from "./al_rng";
 
 export const SCATTER_NAMESPACE = "allegiance-scatter";
-export const FOLIAGE_GENERATOR = "allegiance-foliage:1";
-export const PROP_GENERATOR = "allegiance-props:1";
+export const FOLIAGE_GENERATOR = "allegiance-foliage:2";
+export const PROP_GENERATOR = "allegiance-props:2";
 
 /** Paint material in the city vertex layout (tinted by the instance's tint). */
 const MAT_PAINT = 11;
 
-// --- Foliage meshes ------------------------------------------------------------------------------
+// --- Mesha meshes: plants and furniture ----------------------------------------------------------
 
 export interface FoliageSpec {
     family: string;
     object: string;
     values: ParamValues;
-    /** Full detail within this many meters; the simplified mesh beyond, out to `range`. */
+    /** Full detail within `near` meters; LOD 1 out to `mid` (default: `range`); LOD 2 out to `range`. */
     near: number;
+    mid?: number;
     range: number;
+    /**
+     * Parameter overrides for the distance meshes, evaluated from the same seed (the same trunk and
+     * limbs): fewer, larger leaves. Without one, a LOD is the full mesh simplified.
+     */
+    lod1?: ParamValues;
+    lod2?: ParamValues;
 }
 
+export type FoliageLod = 0 | 1 | 2;
+
+/** A library preset's values (empty if it is missing). */
+const preset = (object: string, name: string): ParamValues => ({ ...(lookupObject(object)?.presets?.find(p => p.name === name)?.values ?? {}) });
+
+/** Distance LODs for a broadleaf tree: the same limbs (same seed and branching), fewer and larger leaves. */
+const TREE_LOD1: ParamValues = { density: 6, leafSize: 0.5 };
+const TREE_LOD2: ParamValues = { density: 3, leafSize: 0.75 };
+
 export const FOLIAGE: FoliageSpec[] = [
-    { family: "tree-round", object: "nature.tree", values: { canopy: "clusters", height: 8, levels: 3, crownShape: "round", seed: 5 }, near: 45, range: 320 },
-    { family: "tree-oval", object: "nature.tree", values: { canopy: "clusters", height: 11, levels: 3, crownShape: "oval", seed: 11, clusterSize: 1.1 }, near: 45, range: 320 },
-    { family: "conifer", object: "nature.conifer", values: { height: 10, whorls: 22, density: 5, seed: 9 }, near: 30, range: 320 },
-    { family: "palm", object: "nature.palm", values: {}, near: 35, range: 300 },
-    { family: "shrub", object: "nature.shrub", values: { density: 0.6, stems: 5 }, near: 25, range: 140 },
-    { family: "grass", object: "nature.grass", values: {}, near: 30, range: 60 },
-    { family: "flowers", object: "nature.flowers", values: {}, near: 20, range: 50 },
+    // Broadleaf trees: Mesha's full-leaf trees (thousands of leaves near you).
+    { family: "tree-oak", object: "nature.tree", values: { ...preset("nature.tree", "English oak"), leafSize: 0.42, leafShape: "ovate", seed: 5 }, near: 32, mid: 120, range: 380, lod1: { ...TREE_LOD1, leafSize: 0.62 }, lod2: { ...TREE_LOD2, leafSize: 0.9 } },
+    { family: "tree-maple", object: "nature.tree", values: { ...preset("nature.tree", "Autumn maple"), leafFinish: "leaf.green", variety: 0.6, seed: 21 }, near: 32, mid: 120, range: 380, lod1: TREE_LOD1, lod2: TREE_LOD2 },
+    { family: "tree-birch", object: "nature.tree", values: { ...preset("nature.tree", "Silver birch"), seed: 12 }, near: 32, mid: 120, range: 380, lod1: { ...TREE_LOD1, leafSize: 0.3 }, lod2: { ...TREE_LOD2, leafSize: 0.5 } },
+    { family: "conifer", object: "nature.conifer", values: { height: 10, whorls: 22, density: 5, seed: 9 }, near: 30, mid: 120, range: 380 },
+    { family: "palm", object: "nature.palm", values: {}, near: 35, mid: 120, range: 340 },
+    // Understory.
+    { family: "shrub", object: "nature.shrub", values: { density: 0.6, stems: 5 }, near: 25, range: 150 },
+    { family: "boxwood", object: "nature.shrub", values: preset("nature.shrub", "Boxwood ball"), near: 22, range: 130 },
+    { family: "hydrangea", object: "nature.shrub", values: preset("nature.shrub", "Hydrangea"), near: 22, range: 120 },
+    { family: "fern", object: "nature.fern", values: {}, near: 18, range: 70 },
+    { family: "rock", object: "nature.rock", values: {}, near: 30, range: 160 },
+    { family: "grass", object: "nature.grass", values: {}, near: 30, range: 70 },
+    { family: "flowers", object: "nature.flowers", values: {}, near: 20, range: 55 },
+    // Furniture: cafe sets on the pavement, dining sets and plants inside houses.
+    { family: "cafe-table", object: "furniture.table", values: preset("furniture.table", "Bistro round"), near: 20, range: 90 },
+    { family: "cafe-chair", object: "furniture.office_chair", values: preset("furniture.office_chair", "Scandinavian"), near: 18, range: 80 },
+    { family: "dining-table", object: "furniture.table", values: { ...preset("furniture.table", "Bistro round"), width: 0.9, topFinish: "wood.oak", legFinish: "wood.walnut" }, near: 20, range: 60 },
+    { family: "dining-chair", object: "furniture.office_chair", values: { ...preset("furniture.office_chair", "Scandinavian"), upholstery: "fabric.olive" }, near: 18, range: 60 },
+    { family: "potted-plant", object: "household.potted_plant", values: {}, near: 18, range: 70 },
+    { family: "table-lamp", object: "household.table_lamp", values: {}, near: 15, range: 40 },
 ];
 
 export const foliageSpec = (family: string): FoliageSpec | undefined => FOLIAGE.find(f => f.family === family);
 
-export function foliageKey(spec: FoliageSpec, lod: 0 | 1): string {
+/** Every broadleaf tree family (temperate streets, yards and stands). */
+export const BROADLEAF = ["tree-oak", "tree-maple", "tree-birch"];
+
+/** The parameter values a LOD is evaluated with. */
+export function foliageValues(spec: FoliageSpec, lod: FoliageLod): ParamValues {
+    const o = lod === 1 ? spec.lod1 : lod === 2 ? spec.lod2 : undefined;
+    return o ? { ...spec.values, ...o } : spec.values;
+}
+
+export function foliageKey(spec: FoliageSpec, lod: FoliageLod): string {
     const values = Object.keys(spec.values).sort().map(k => `${k}=${spec.values[k]}`).join(",");
     return `${FOLIAGE_GENERATOR}|${spec.object}|${values}|lod${lod}`;
 }
 
 /** Simplification for distant foliage (welded and decimated on a Rust thread). */
 export const FOLIAGE_LOD1 = { maxError: 0.12, minFeature: 0.05, targetRatio: 0.12 };
+export const FOLIAGE_LOD2 = { maxError: 0.3, minFeature: 0.12, targetRatio: 0.05 };
 
 /** A Mesha evaluation in the city vertex layout (position, normal, material, color; opaque). */
 export function packFoliage(e: Evaluation): { vertexData: Float32Array; indexData: Uint32Array; triangles: number } {
@@ -84,25 +125,34 @@ export function packFoliage(e: Evaluation): { vertexData: Float32Array; indexDat
 export type ScatterCache = Pick<MeshCacheAPI, "status" | "put" | "failure">;
 
 /**
- * Makes sure every foliage mesh is cached: at most one Mesha evaluation per call (the loading
- * screen calls it every frame). True once everything is ready or waiting on a background simplify.
+ * Makes sure every Mesha mesh is cached: at most one evaluation per call (the loading screen calls
+ * it every frame). LOD 0 is the evaluation itself; a LOD with parameter overrides is evaluated
+ * again (same seed, fewer and larger leaves) and simplified; one without is the LOD 0 evaluation
+ * simplified. True once everything is ready or waiting on a background simplify.
  */
 export class FoliageMeshes {
     generated = 0;
     private done = false;
-    constructor(private cache: ScatterCache, private evaluate = (spec: FoliageSpec) => evaluateObject(lookupObject(spec.object)!, spec.values, lookupObject)) {}
+    constructor(private cache: ScatterCache, private evaluate = (spec: FoliageSpec, values: ParamValues) => evaluateObject(lookupObject(spec.object)!, values, lookupObject)) {}
     prepare(): boolean {
         if (this.done) return true;
         for (const spec of FOLIAGE) {
-            const k0 = foliageKey(spec, 0), k1 = foliageKey(spec, 1);
-            const s0 = this.cache.status(SCATTER_NAMESPACE, k0), s1 = this.cache.status(SCATTER_NAMESPACE, k1);
-            if (s0 === "ready" && s1 !== "missing") continue;
-            if (s0 === "pending") return false;
-            const mesh = packFoliage(this.evaluate(spec));
+            const lods = foliageLods(spec);
+            const status = lods.map(l => this.cache.status(SCATTER_NAMESPACE, foliageKey(spec, l)));
+            if (status[0] === "pending") return false;
+            const missing = lods.filter((_, i) => status[i] === "missing");
+            if (!missing.length) continue;
+            // The LOD whose values this evaluation uses: its own overrides, or LOD 0's.
+            const source = (l: FoliageLod): FoliageLod => (l === 0 || (l === 1 ? spec.lod1 : spec.lod2) ? l : 0);
+            const from = source(missing[0]);
+            const mesh = packFoliage(this.evaluate(spec, foliageValues(spec, from)));
             this.generated++;
             const meta = { generator: FOLIAGE_GENERATOR, family: spec.family, triangles: mesh.triangles };
-            if (s0 !== "ready") this.cache.put(SCATTER_NAMESPACE, k0, { vertexData: mesh.vertexData, indexData: mesh.indexData, meta });
-            if (s1 === "missing") this.cache.put(SCATTER_NAMESPACE, k1, { vertexData: mesh.vertexData, indexData: mesh.indexData, meta }, { simplify: FOLIAGE_LOD1 });
+            for (const l of missing) {
+                if (source(l) !== from) continue;
+                const simplify = l === 1 ? FOLIAGE_LOD1 : l === 2 ? FOLIAGE_LOD2 : null;
+                this.cache.put(SCATTER_NAMESPACE, foliageKey(spec, l), { vertexData: mesh.vertexData, indexData: mesh.indexData, meta }, simplify ? { simplify } : undefined);
+            }
             return false;
         }
         this.done = true;
@@ -110,13 +160,34 @@ export class FoliageMeshes {
     }
 }
 
+/** The LODs a family is drawn with: three when it has a middle distance, else two. */
+export const foliageLods = (spec: FoliageSpec): FoliageLod[] => (spec.mid !== undefined && spec.mid < spec.range ? [0, 1, 2] : [0, 1]);
+
 // --- Prop meshes ---------------------------------------------------------------------------------
+
+/**
+ * A compound building from Mesha's city building (architecture.city_block): a preset at the
+ * structure's size, turned so its door faces -Z like the compound layout expects.
+ */
+export function meshaBuilding(presetName: string, values: ParamValues): ModelMesh {
+    const def = lookupObject("architecture.city_block")!;
+    const e = evaluateObject(def, resolveParams(def, { ...defaultValues(def), ...preset("architecture.city_block", presetName), ...values }), lookupObject);
+    const packed = packBuilding(e, 0);
+    const v = Array.from(packed.vertexData);
+    // Half a turn about +Y: x and z (positions and normals) change sign.
+    for (let i = 0; i < v.length; i += 12) { v[i] = -v[i]; v[i + 2] = -v[i + 2]; v[i + 3] = -v[i + 3]; v[i + 5] = -v[i + 5]; }
+    return { vertexData: v, indexData: Array.from(packed.indexData) };
+}
 
 export const PROPS: Record<string, () => ModelMesh> = {
     bench: buildBench, lamp: buildStreetLamp, bin: buildTrashBin, barrier: buildBarrier, crates: buildCrates, sandbags: buildSandbags,
     kiosk: buildKiosk, loot: buildLootCrate, beacon: () => buildBeacon(300), flag: buildFlag,
-    "mil-hq": () => buildMilitary("hq"), "mil-barracks": () => buildMilitary("barracks"), "mil-depot": () => buildMilitary("depot"),
-    "mil-hangar": () => buildMilitary("hangar"), "mil-tower": () => buildMilitary("tower"), "mil-wall": () => buildMilitary("wall"),
+    // Compound buildings: Mesha city buildings at the layout's sizes (al_military.ts SIZES).
+    "mil-hq": () => meshaBuilding("Barracks", { width: 14, depth: 10, floors: 2, groundHeight: 3.8, floorHeight: 3.2, rooftop: "stair", parapet: 0.9, pilaster: 0.2, windowWidth: 0.4 }),
+    "mil-barracks": () => meshaBuilding("Barracks", { width: 18, depth: 7, floors: 1, groundHeight: 4.2, rooftop: "plant" }),
+    "mil-depot": () => meshaBuilding("Warehouse", { width: 11, depth: 11, floors: 1, groundHeight: 5.2, facadeFinish: "masonry.darkConcrete", trimFinish: "masonry.concrete" }),
+    "mil-hangar": () => meshaBuilding("Warehouse", { width: 16, depth: 14, floors: 1, groundHeight: 6.2, facadeFinish: "metal.corrugatedGreen", bayWidth: 5 }),
+    "mil-tower": () => buildMilitary("tower"), "mil-wall": () => buildMilitary("wall"),
 };
 
 export const propKey = (name: string): string => `${PROP_GENERATOR}|${name}`;
@@ -159,6 +230,67 @@ export interface ScatterOptions {
     origin?: { lat: number; lon: number };
     /** Area for open-ground stands: center and half-size (local meters). */
     area?: { x: number; z: number; half: number };
+    /** The roads (OpenStreetMap center lines and widths): nothing grows or stands on them. */
+    roads?: RoadMask;
+}
+
+/** A stretch of road in the local frame: its center line from a to b, and half its paved width. */
+export interface RoadSegment { ax: number; az: number; bx: number; bz: number; half: number; street?: boolean }
+
+/** Road surfaces for quick "is this on a road?" checks: segments hashed into 16 m cells. */
+export class RoadMask {
+    private cells = new Map<number, RoadSegment[]>();
+    static readonly CELL = 16;
+    readonly segments: number;
+    readonly list: readonly RoadSegment[];
+    constructor(segments: readonly RoadSegment[]) {
+        this.list = segments;
+        const c = RoadMask.CELL;
+        for (const sg of segments) {
+            const pad = sg.half + 3;
+            const i0 = Math.floor((Math.min(sg.ax, sg.bx) - pad) / c), i1 = Math.floor((Math.max(sg.ax, sg.bx) + pad) / c);
+            const j0 = Math.floor((Math.min(sg.az, sg.bz) - pad) / c), j1 = Math.floor((Math.max(sg.az, sg.bz) + pad) / c);
+            if ((i1 - i0 + 1) * (j1 - j0 + 1) > 4096) continue;
+            for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+                const k = RoadMask.key(i, j);
+                const list = this.cells.get(k);
+                if (list) list.push(sg); else this.cells.set(k, [sg]);
+            }
+        }
+        this.segments = segments.length;
+    }
+    private static key(i: number, j: number): number { return (i + 32768) * 65536 + (j + 32768); }
+    /** True when (x, z) is on a road's surface, or within `margin` meters of its edge (margin up to 3 m). */
+    covers(x: number, z: number, margin = 0): boolean {
+        const list = this.cells.get(RoadMask.key(Math.floor(x / RoadMask.CELL), Math.floor(z / RoadMask.CELL)));
+        if (!list) return false;
+        for (const sg of list) {
+            const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, l2 = dx * dx + dz * dz;
+            const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - sg.ax) * dx + (z - sg.az) * dz) / l2)) : 0;
+            const ex = x - (sg.ax + dx * t), ez = z - (sg.az + dz * t);
+            const r = sg.half + margin;
+            if (ex * ex + ez * ez <= r * r) return true;
+        }
+        return false;
+    }
+}
+
+/** Road segments from polylines in the local frame (`toLocal` maps a [lat, lon] point). */
+export function roadSegments(roads: readonly { points: [number, number][]; width: number; street?: boolean }[], toLocal: (lat: number, lon: number) => [number, number]): RoadSegment[] {
+    const out: RoadSegment[] = [];
+    for (const r of roads) {
+        const pts = r.points.map(([lat, lon]) => toLocal(lat, lon));
+        for (let i = 1; i < pts.length; i++) out.push({ ax: pts[i - 1][0], az: pts[i - 1][1], bx: pts[i][0], bz: pts[i][1], half: r.width / 2, street: r.street ?? true });
+    }
+    return out;
+}
+
+/** How far from a road's edge each kind of thing keeps (meters): trunks well back, small things just off it. */
+export function roadMargin(family: string): number {
+    if (family.startsWith("tree") || family === "conifer" || family === "palm") return 1.8;
+    if (family === "shrub") return 1;
+    if (foliageSpec(family)) return 0.3;
+    return 0.4;
 }
 
 const SHOP_TINT: Record<string, [number, number, number]> = { general: [0.2, 0.55, 0.35], gunsmith: [0.75, 0.15, 0.12], garage: [0.2, 0.4, 0.8] };
@@ -168,54 +300,108 @@ function rand(seed: number): () => number {
     return () => { h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0; h = (h ^ (h >>> 12)) >>> 0; h = Math.imul(h ^ (h >>> 15), 0x297a2d39) >>> 0; return ((h ^ (h >>> 15)) >>> 0) / 4294967296; };
 }
 
+/** Street trees stand this far apart along a road (meters), this far out from its edge. */
+export const STREET_TREE_SPACING = 13;
+export const STREET_TREE_SETBACK = 2.6;
+
 /** Everything placed around `rects` (deterministic in each building's key). */
 export function scatterAround(rects: readonly Rect[], o: ScatterOptions): ScatterItem[] {
     const out: ScatterItem[] = [];
     const free = (x: number, z: number) => o.walkable(x, z) && !(o.reserved?.(x, z) ?? false);
     const put = (family: string, x: number, z: number, yaw: number, scale = 1, tint: [number, number, number] = [1, 1, 1]) => {
-        if (free(x, z)) out.push({ family, x, z, yaw, scale, tint });
+        if (free(x, z) && !(o.roads?.covers(x, z, roadMargin(family)) ?? false)) out.push({ family, x, z, yaw, scale, tint });
     };
+    const leafTint = (rnd: () => number): [number, number, number] => [0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, 0.9 + rnd() * 0.15];
     const tall = o.tropical ? "palm" : "conifer";
+    /** A tree for a yard, a stand or a street: mostly broadleaf, with the climate's tall tree mixed in. */
+    const pickTree = (rnd: () => number, tallShare: number): string => {
+        const p = rnd();
+        if (p < tallShare) return tall;
+        if (o.tropical) return p < 0.75 ? "palm" : BROADLEAF[Math.floor(rnd() * BROADLEAF.length)];
+        return BROADLEAF[Math.floor(rnd() * BROADLEAF.length)];
+    };
     for (const r of rects) {
         if (r.key.startsWith("al-")) continue;
         const rnd = rand(hashString(`scatter:${r.key}`));
         const side = doorSide(r);
         const facing = Math.atan2(-r.uz * side, r.ux * side);
         if (r.kind === "house") {
-            // Back yard: a tree or two; side yards: shrubs; tufts of grass and flowers around.
-            const trees = Math.floor(rnd() * 3);
+            // Back yard: one to three trees; side yards: shrubs and hedges; front: a flower bed;
+            // grass, ferns and flowers around.
+            const trees = 1 + Math.floor(rnd() * 3);
             for (let i = 0; i < trees; i++) {
-                const [x, z] = fromUV(r, (rnd() - 0.5) * 1.8 * r.hw, -side * (r.hd + 3 + rnd() * 5));
-                const pick = rnd();
-                put(pick < 0.3 ? tall : pick < 0.65 ? "tree-round" : "tree-oval", x, z, rnd() * 6.28, 0.75 + rnd() * 0.5, [0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, 0.9 + rnd() * 0.15]);
+                const [x, z] = fromUV(r, (rnd() - 0.5) * 1.8 * r.hw, -side * (r.hd + 3 + rnd() * 6));
+                put(pickTree(rnd, 0.25), x, z, rnd() * 6.28, 0.75 + rnd() * 0.5, leafTint(rnd));
             }
-            const shrubs = Math.floor(rnd() * 3);
+            const shrubs = 1 + Math.floor(rnd() * 3);
             for (let i = 0; i < shrubs; i++) {
                 const s = rnd() < 0.5 ? -1 : 1;
                 const [x, z] = fromUV(r, s * (r.hw + 1.1 + rnd() * 0.8), (rnd() - 0.5) * 1.6 * r.hd);
-                put("shrub", x, z, rnd() * 6.28, 0.7 + rnd() * 0.6);
+                const k = rnd();
+                put(k < 0.5 ? "shrub" : k < 0.8 ? "boxwood" : "hydrangea", x, z, rnd() * 6.28, 0.7 + rnd() * 0.6);
             }
-            for (let i = 0; i < 3; i++) {
-                const [x, z] = fromUV(r, (rnd() - 0.5) * 2.4 * r.hw, -side * (r.hd + 0.8 + rnd() * 2));
-                put(rnd() < 0.7 ? "grass" : "flowers", x, z, rnd() * 6.28, 0.8 + rnd() * 0.5);
+            if (rnd() < 0.6) { const [x, z] = fromUV(r, (rnd() < 0.5 ? -1 : 1) * r.hw * 0.6, side * (r.hd + 1.2)); put(rnd() < 0.5 ? "hydrangea" : "boxwood", x, z, rnd() * 6.28, 0.8 + rnd() * 0.3); }
+            for (let i = 0; i < 6; i++) {
+                const [x, z] = fromUV(r, (rnd() - 0.5) * 2.6 * r.hw, -side * (r.hd + 0.8 + rnd() * 3));
+                const k = rnd();
+                put(k < 0.55 ? "grass" : k < 0.8 ? "flowers" : "fern", x, z, rnd() * 6.28, 0.8 + rnd() * 0.5);
             }
             continue;
         }
-        // Other buildings: shop kiosks at the door, benches, lamps and bins along the front.
+        // Other buildings: shop kiosks at the door, cafe tables, planters, benches, lamps and bins
+        // along the front.
         const shop = o.shopOf?.(r) ?? null;
         if (shop) {
             const [x, z] = fromUV(r, Math.min(r.hw - 1.4, 2.8), side * (r.hd + 1.2));
             put("kiosk", x, z, facing, 1, SHOP_TINT[shop] ?? [1, 1, 1]);
         }
+        if (r.hw > 4 && rnd() < 0.28) {
+            // A cafe: a table or two on the pavement, two or three chairs at each.
+            const tables = 1 + Math.floor(rnd() * 2);
+            for (let t = 0; t < tables; t++) {
+                const [x, z] = fromUV(r, -r.hw * 0.5 + t * 2.4, side * (r.hd + 1.9));
+                if (!free(x, z) || (o.roads?.covers(x, z, 0.8) ?? false)) continue;
+                put("cafe-table", x, z, rnd() * 6.28);
+                const seats = 2 + Math.floor(rnd() * 2);
+                for (let c = 0; c < seats; c++) {
+                    const a = facing + (c / seats) * Math.PI * 2 + rnd() * 0.3;
+                    // Chairs face the table (their front is +Z).
+                    put("cafe-chair", x + Math.sin(a) * 0.62, z + Math.cos(a) * 0.62, a + Math.PI);
+                }
+            }
+        }
+        if (rnd() < 0.4) { const [x, z] = fromUV(r, (rnd() < 0.5 ? -1 : 1) * Math.min(r.hw - 0.6, 2), side * (r.hd + 0.6)); put("potted-plant", x, z, rnd() * 6.28, 1.4 + rnd() * 0.4); }
         if (rnd() < 0.3) { const [x, z] = fromUV(r, -(r.hw * 0.55), side * (r.hd + 1.1)); put("bench", x, z, facing); }
         if (rnd() < 0.35) { const [x, z] = fromUV(r, (rnd() - 0.5) * 1.6 * r.hw, side * (r.hd + 3.6)); put("lamp", x, z, facing + Math.PI); }
         if (rnd() < 0.2) { const [x, z] = fromUV(r, r.hw * 0.8, side * (r.hd + 0.9)); put("bin", x, z, facing); }
         if (rnd() < 0.12) { const [x, z] = fromUV(r, -side * (r.hw + 1.4), (rnd() - 0.5) * r.hd); put("crates", x, z, rnd() * 6.28); }
-        if (rnd() < 0.25) { const [x, z] = fromUV(r, (rnd() < 0.5 ? -1 : 1) * (r.hw + 2.5), -side * (r.hd * 0.5)); put(rnd() < 0.5 ? "tree-round" : "shrub", x, z, rnd() * 6.28, 0.8 + rnd() * 0.3); }
+        if (rnd() < 0.45) { const [x, z] = fromUV(r, (rnd() < 0.5 ? -1 : 1) * (r.hw + 2.5), -side * (r.hd * 0.5)); put(rnd() < 0.6 ? pickTree(rnd, 0.15) : "shrub", x, z, rnd() * 6.28, 0.8 + rnd() * 0.3, leafTint(rnd)); }
     }
-    // Open ground: stands of trees on a lat/lon-anchored grid, only well away from buildings.
+    // Street trees: a row along each side of town streets, on the verge just off the road.
+    if (o.roads && o.origin) {
+        const mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
+        for (const sg of o.roads.list) {
+            if (!sg.street || sg.half * 2 > 11) continue;
+            const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, len = Math.hypot(dx, dz);
+            if (len < 4) continue;
+            const ux = dx / len, uz = dz / len;
+            for (let t = STREET_TREE_SPACING / 2; t < len; t += STREET_TREE_SPACING) {
+                for (const s of [-1, 1]) {
+                    const off = sg.half + STREET_TREE_SETBACK;
+                    const x = sg.ax + ux * t - uz * off * s, z = sg.az + uz * t + ux * off * s;
+                    if (o.area && (Math.abs(x - o.area.x) > o.area.half || Math.abs(z - o.area.z) > o.area.half)) continue;
+                    // Deterministic in where it stands on Earth, not in the order roads arrive.
+                    const rnd = rand(hashString(`street:${Math.round((o.origin.lat + z / mLat) * 1e5)}:${Math.round((o.origin.lon + x / mLon) * 1e5)}`));
+                    if (rnd() < 0.3) continue;
+                    put(pickTree(rnd, 0.08), x, z, rnd() * 6.28, 0.7 + rnd() * 0.35, leafTint(rnd));
+                }
+            }
+        }
+    }
+    // Open ground: stands of trees with an understory on a lat/lon-anchored grid, only well away
+    // from buildings.
     if (o.origin && o.area) {
-        const cell = 30, mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
+        const cell = 22, mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
         const toLocalXZ = (lat: number, lon: number): [number, number] => [(lon - o.origin!.lon) * mLon, (lat - o.origin!.lat) * mLat];
         const latOf = (z: number) => o.origin!.lat + z / mLat, lonOf = (x: number) => o.origin!.lon + x / mLon;
         const gLat = cell / mLat, gLon = cell / mLon;
@@ -223,17 +409,18 @@ export function scatterAround(rects: readonly Rect[], o: ScatterOptions): Scatte
         const i0 = Math.floor(lonOf(o.area.x - o.area.half) / gLon), i1 = Math.floor(lonOf(o.area.x + o.area.half) / gLon);
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
             const rnd = rand(hashString(`open:${i}:${j}`));
-            if (rnd() > 0.4) continue;
+            if (rnd() > 0.55) continue;
             const [x, z] = toLocalXZ((j + rnd()) * gLat, (i + rnd()) * gLon);
             let open = true;
-            for (const [dx, dz] of [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9]]) if (!free(x + dx, z + dz)) { open = false; break; }
+            for (const [dx, dz] of [[0, 0], [8, 0], [-8, 0], [0, 8], [0, -8]]) if (!free(x + dx, z + dz)) { open = false; break; }
             if (!open) continue;
-            const n = 1 + Math.floor(rnd() * 3);
-            for (let k = 0; k < n; k++) {
-                const pick = rnd();
-                put(pick < 0.35 ? tall : pick < 0.7 ? "tree-oval" : "tree-round", x + (rnd() - 0.5) * 10, z + (rnd() - 0.5) * 10, rnd() * 6.28, 0.8 + rnd() * 0.6, [0.9 + rnd() * 0.2, 0.9 + rnd() * 0.2, 0.9 + rnd() * 0.15]);
+            const n = 2 + Math.floor(rnd() * 4);
+            for (let k = 0; k < n; k++) put(pickTree(rnd, 0.3), x + (rnd() - 0.5) * 12, z + (rnd() - 0.5) * 12, rnd() * 6.28, 0.8 + rnd() * 0.6, leafTint(rnd));
+            const under = 2 + Math.floor(rnd() * 4);
+            for (let k = 0; k < under; k++) {
+                const f = rnd();
+                put(f < 0.35 ? "shrub" : f < 0.6 ? "fern" : f < 0.85 ? "grass" : "rock", x + (rnd() - 0.5) * 14, z + (rnd() - 0.5) * 14, rnd() * 6.28, 0.7 + rnd() * 0.6);
             }
-            if (rnd() < 0.5) put("shrub", x + (rnd() - 0.5) * 12, z + (rnd() - 0.5) * 12, rnd() * 6.28, 0.8 + rnd() * 0.5);
         }
     }
     return out;
@@ -251,7 +438,8 @@ export function scatterMesh(family: string, distance: number): string | null {
     const spec = foliageSpec(family);
     if (spec) {
         if (distance > spec.range) return null;
-        return foliageKey(spec, distance <= spec.near ? 0 : 1);
+        if (distance <= spec.near) return foliageKey(spec, 0);
+        return foliageKey(spec, foliageLods(spec).length === 3 && distance > spec.mid! ? 2 : 1);
     }
     if (!PROPS[family]) return null;
     return distance <= (family === "beacon" ? 6000 : PROP_RANGE) ? propKey(family) : null;
