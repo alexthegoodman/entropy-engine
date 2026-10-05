@@ -47,11 +47,16 @@
 //   the camera, and another building's box within world.city.z, is folded away: a model is there
 //   instead (qp_city.ts houses, qp_buildings.ts city buildings). Walls get rows of windows from
 //   the height above the anchor.
+// - 11's surface kind rides in uv.y's integer part (surfaceKind, from the Mesha material): 1 brick,
+//   2 render/plaster/paint, 3 concrete, 4 dressed stone, 5 roof tiles and slates, 6 metal, 7 wood,
+//   8 fieldstone (rubble walls; a texture set in Allegiance, dressed stone here). Each
+//   is drawn procedurally in the object's own space (courses, joints, tiles, planks, blotches)
+//   with weathering: grime rising from the ground and rain streaks running down the walls.
 // - 10: roads, faded out past world.city.y and nudged toward the camera in depth so they stay
 //   over the ground they are draped on, even where a coarser terrain chunk is drawn.
 
-/** Floats in the World uniform (12 vec4). */
-export const WORLD_FLOATS = 48;
+/** Floats in the World uniform (14 vec4). */
+export const WORLD_FLOATS = 56;
 /** Floats in the per-object Item uniform: model matrix, tint, texture origin. */
 export const ITEM_FLOATS = 24;
 /** The texture noise repeats every this many meters (a power of two: see the shader). */
@@ -69,7 +74,17 @@ export interface WorldUniform {
     planets: { center: [number, number, number]; radius: number; atmosphere: [number, number, number]; atmosphereHeight: number }[];
     /** Cities: house boxes within `hideRadius` of the camera (other buildings' within `buildingHideRadius`) are folded away; roads end at `roadDistance`. */
     city?: { hideRadius: number; roadDistance: number; buildingHideRadius?: number };
+    /**
+     * Clouds and wind (default: none). `cloudOffset` is where the cloud noise is sampled relative
+     * to the render origin, kept small by the caller (render origin plus drift, modulo
+     * CLOUD_PERIOD); `cloudAltitude` is the cloud layer's height above the first planet's radius;
+     * `wind` is the wind's velocity in render space (m/s).
+     */
+    weather?: { cloudCover: number; cloudOffset: [number, number, number]; cloudAltitude: number; wind: [number, number, number] };
 }
+
+/** The cloud noise repeats every this many meters. */
+export const CLOUD_PERIOD = 65536;
 
 export function packWorld(w: WorldUniform): Float32Array {
     const out = new Float32Array(WORLD_FLOATS);
@@ -83,6 +98,11 @@ export function packWorld(w: WorldUniform): Float32Array {
         out.set([...p.atmosphere, p.atmosphereHeight], 12 + MAX_PLANETS * 4 + i * 4);
     }
     out.set([w.city?.hideRadius ?? 0, w.city?.roadDistance ?? 3000, w.city?.buildingHideRadius ?? 0, 0], 12 + MAX_PLANETS * 8);
+    const wx = w.weather;
+    if (wx) {
+        out.set([...wx.cloudOffset, wx.cloudCover], 16 + MAX_PLANETS * 8);
+        out.set([...wx.wind, wx.cloudAltitude], 20 + MAX_PLANETS * 8);
+    }
     return out;
 }
 
@@ -95,6 +115,24 @@ export const MATERIAL_HOUSE = 11;
 export const MATERIAL_CLEAR_GLASS = 7;
 export const MATERIAL_BUILDING_BOX = 8;
 export const MATERIAL_ROAD = 10;
+
+/** Surface kinds for material 11 (uv.y's integer part): see the top. */
+export const SURFACE = { plain: 0, brick: 1, render: 2, concrete: 3, stone: 4, tiles: 5, metal: 6, wood: 7, fieldstone: 8 } as const;
+
+/** The surface kind a Mesha material is drawn as (by its id; plain when unknown). */
+export function surfaceKind(id: string | undefined): number {
+    if (!id) return SURFACE.plain;
+    if (id === "masonry.brick" || id === "masonry.buff" || id === "masonry.whitewash") return SURFACE.brick;
+    if (id === "masonry.stucco" || id === "masonry.plaster" || id.startsWith("paint.")) return SURFACE.render;
+    if (id.startsWith("masonry.") && id.includes("oncrete") || id.startsWith("composite.")) return SURFACE.concrete;
+    if (id === "masonry.fieldstone") return SURFACE.fieldstone;
+    if (id.startsWith("stone.")) return SURFACE.stone;
+    if (id === "roofing.seam") return SURFACE.metal;
+    if (id.startsWith("roofing.")) return SURFACE.tiles;
+    if (id.startsWith("metal.")) return SURFACE.metal;
+    if (id.startsWith("wood.")) return SURFACE.wood;
+    return SURFACE.plain;
+}
 
 export const QUADPLANET_SHADER = /* wgsl */ `
 struct Camera {
@@ -110,6 +148,8 @@ struct World {
     planet: array<vec4<f32>, ${MAX_PLANETS}>,     // center xyz (relative to the render origin), radius
     atmosphere: array<vec4<f32>, ${MAX_PLANETS}>, // color rgb, shell thickness
     city: vec4<f32>,           // x = house box hide radius, y = road distance, z = other buildings' box hide radius
+    cloud: vec4<f32>,          // xyz = cloud noise offset (see packWorld), w = cloud cover (0 = none)
+    wind: vec4<f32>,           // xyz = wind velocity (m/s), w = cloud layer altitude
 };
 @group(2) @binding(0) var<uniform> world: World;
 
@@ -152,11 +192,13 @@ fn log_depth(w: f32) -> f32 {
     return clamp(log2(max(w, 1.0e-6) + 1.0) / log2(LOG_DEPTH_FAR + 1.0), 0.0, 1.0);
 }
 
-@vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
+// The vertex stage, shared by vs_main and any other entry point a game adds (Allegiance's shadow
+// caster): world_pos is where the vertex really is; view_w < 0 marks a folded-away vertex.
+fn vertex_common(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     let material = i32(floor(in.tex_coords.x + 0.0005));
     var clip: vec4<f32>;
+    var folded = false;
     if (material == 9) {
         // The sky sphere rides with the camera and sits at the far end of the depth range.
         let w = camera.view_pos.xyz + in.position * 30000.0;
@@ -180,6 +222,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             let hide = select(world.city.z, world.city.x, in.tex_coords.y < 2.0);
             if (length(a.xyz - camera.view_pos.xyz) < hide) {
                 clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                folded = true;
             }
         }
         // Logarithmic depth (rewritten exactly per fragment); anything in front of the camera
@@ -189,12 +232,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         out.normal = (item.model * vec4<f32>(in.normal, 0.0)).xyz;
     }
     out.clip_position = clip;
-    out.view_w = clip.w;
+    out.view_w = select(clip.w, -1.0, folded);
     out.tex_pos = in.position + item.tex_origin.xyz;
     out.uv = in.tex_coords;
     out.color = in.color;
     out.local_normal = in.normal;
     return out;
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    return vertex_common(in);
 }
 
 fn hash3(p: vec3<f32>) -> f32 {
@@ -282,6 +330,117 @@ fn bump(n: vec3<f32>, grad: vec3<f32>) -> vec3<f32> {
 
 struct Surface { albedo: vec3<f32>, n: vec3<f32>, spec: f32, shin: f32, ao: f32 };
 
+// --- City surfaces (material 11) ---------------------------------------------------------------
+
+// A city surface: color, a height gradient in the object's own space (for the bump), gloss and
+// occlusion.
+struct Facade { albedo: vec3<f32>, grad: vec3<f32>, spec: f32, shin: f32, ao: f32 };
+
+// Courses of blocks (bricks, ashlar, tiles, planks): \`size\` is one block (along, up) in meters,
+// \`joint\` the joint's width, \`stagger\` the offset of every other course. x = joint amount
+// (0 block .. 1 joint), y = the block's random tone, z = how far up its course (0..1).
+fn courses(uv: vec2<f32>, size: vec2<f32>, joint: f32, stagger: f32) -> vec3<f32> {
+    let row = floor(uv.y / size.y);
+    let x = uv.x / size.x + stagger * (row - 2.0 * floor(row * 0.5));
+    let col = floor(x);
+    let fu = fract(x) * size.x;
+    let fv = fract(uv.y / size.y) * size.y;
+    let inside = smoothstep(0.0, joint, fu) * smoothstep(0.0, joint, size.x - fu) * smoothstep(0.0, joint, fv) * smoothstep(0.0, joint, size.y - fv);
+    return vec3<f32>(1.0 - inside, hash3(vec3<f32>(col, row, 3.7)), fv / size.y);
+}
+
+// (along, up) on a wall; on a roof (across the slope, up the slope); on a floor its plan.
+fn surface_uv(p: vec3<f32>, ln: vec3<f32>) -> vec2<f32> {
+    let flat = vec2<f32>(ln.x, ln.z);
+    let fl = length(flat);
+    if (abs(ln.y) < 0.5) {
+        let along = vec2<f32>(-flat.y, flat.x) / max(fl, 1.0e-4);
+        return vec2<f32>(dot(p.xz, along), p.y);
+    }
+    if (fl < 0.08) { return p.xz; }
+    let across = vec2<f32>(-flat.y, flat.x) / fl;
+    return vec2<f32>(dot(p.xz, across), p.y / fl);
+}
+
+fn city_surface(kind: i32, base: vec3<f32>, p: vec3<f32>, ln: vec3<f32>, fp: f32) -> Facade {
+    var f: Facade;
+    f.albedo = base;
+    f.grad = vec3<f32>(0.0);
+    f.spec = 0.12;
+    f.shin = 24.0;
+    f.ao = 1.0;
+    let uv = surface_uv(p, ln);
+    let wall = abs(ln.y) < 0.5;
+    // Broad blotches every surface has (repairs, sun-bleaching, damp), and a fine grain.
+    let blotch = fbm(p, 1.0 / 4.0, 3, 0.5, fp);
+    let grain = fbm(p, 4.0, 3, 0.5, fp);
+    if (kind == 1) {
+        // Brick: 215 x 65 mm with 10 mm mortar, stretcher bond.
+        let c = courses(uv, vec2<f32>(0.225, 0.075), 0.011, 0.5);
+        let vis = octave_fade(1.0 / 0.075, fp);
+        let brick = base * (0.8 + 0.4 * c.y) * mix(vec3<f32>(1.0), vec3<f32>(1.08, 0.95, 0.88), hash3(vec3<f32>(floor(uv / 0.15), 1.0)));
+        let mortar = mix(vec3<f32>(0.58, 0.56, 0.52), base, 0.2);
+        f.albedo = mix(mix(base, mortar, 0.2), mix(brick, mortar, c.x), vis);
+        f.ao = 1.0 - 0.25 * c.x * vis;
+        f.grad = grain.yzw * 0.004;
+        f.spec = 0.06; f.shin = 14.0;
+    } else if (kind == 2) {
+        // Render, plaster and paint: soft blotches and a trowelled grain.
+        f.albedo = base * (0.93 + 0.1 * blotch.x + 0.03 * grain.x);
+        f.grad = grain.yzw * 0.006 + blotch.yzw * 0.02;
+        f.spec = 0.08; f.shin = 16.0;
+    } else if (kind == 3) {
+        // Concrete: formwork panels with faint seams and tie holes, and dark weather stains.
+        let c = courses(uv, vec2<f32>(2.4, 1.2), 0.012, 0.0);
+        let vis = octave_fade(1.0 / 1.2, fp);
+        let tie = vec2<f32>(fract(uv.x / 0.6) - 0.5, fract(uv.y / 0.6) - 0.5);
+        let hole = (1.0 - smoothstep(0.008, 0.014, length(tie * 0.6))) * octave_fade(16.0, fp);
+        f.albedo = base * (0.86 + 0.16 * blotch.x + 0.06 * grain.x) * (1.0 - 0.18 * c.x * vis) * (1.0 - 0.3 * hole) * (0.97 + 0.06 * c.y * vis);
+        f.grad = grain.yzw * 0.008;
+        f.ao = 1.0 - 0.2 * c.x * vis;
+    } else if (kind == 4 || kind == 8) {
+        // Dressed stone: large blocks, each its own tone, with fine joints.
+        let c = courses(uv, vec2<f32>(0.62, 0.34), 0.012, 0.5);
+        let vis = octave_fade(1.0 / 0.34, fp);
+        f.albedo = base * mix(vec3<f32>(0.96), (0.8 + 0.35 * c.y) * vec3<f32>(1.0) * (1.0 - 0.3 * c.x), vis) * (0.92 + 0.1 * grain.x);
+        f.grad = grain.yzw * 0.01;
+        f.ao = 1.0 - 0.3 * c.x * vis;
+        f.spec = 0.1;
+    } else if (kind == 5) {
+        // Roof tiles and slates: overlapping courses, each darker at its lower edge.
+        let c = courses(uv, vec2<f32>(0.3, 0.24), 0.008, 0.5);
+        let vis = octave_fade(1.0 / 0.24, fp);
+        let lap = 0.72 + 0.28 * smoothstep(0.0, 0.5, c.z);
+        f.albedo = base * mix(vec3<f32>(0.88), (0.82 + 0.3 * c.y) * lap * (1.0 - 0.35 * c.x) * vec3<f32>(1.0), vis) * (0.94 + 0.08 * blotch.x);
+        f.ao = mix(0.9, lap, vis);
+        f.spec = 0.18; f.shin = 30.0;
+    } else if (kind == 6) {
+        // Metal: a brushed sheen, dulled in patches.
+        f.albedo = base * (0.9 + 0.12 * blotch.x);
+        f.spec = 0.55 - 0.25 * smoothstep(0.0, 0.6, blotch.x); f.shin = 70.0;
+    } else if (kind == 7) {
+        // Wood: boards with their own tone and grain running along them.
+        let c = courses(uv, vec2<f32>(2.7, 0.16), 0.006, 0.37);
+        let vis = octave_fade(1.0 / 0.16, fp);
+        let g = fbm(vec3<f32>(uv.x * 0.15, uv.y * 6.0, c.y * 31.0), 4.0, 3, 0.5, fp);
+        f.albedo = base * mix(vec3<f32>(0.95), (0.8 + 0.35 * c.y) * (0.9 + 0.15 * g.x) * (1.0 - 0.4 * c.x) * vec3<f32>(1.0), vis);
+        f.ao = 1.0 - 0.3 * c.x * vis;
+        f.spec = 0.1; f.shin = 20.0;
+    } else {
+        f.albedo = base * (0.95 + 0.06 * blotch.x);
+    }
+    if (wall && kind != 6) {
+        // Weathering: grime splashed up from the street, and rain streaks down from the top.
+        let h = p.y;
+        let splash = 1.0 - 0.28 * (1.0 - smoothstep(0.0, 1.1, h)) * (0.7 + 0.3 * blotch.x);
+        let streak = vnoise(vec3<f32>(uv.x * 2.2, h * 0.09, 5.0), TEX_PERIOD).x;
+        let rain = 1.0 - 0.12 * smoothstep(0.1, 0.8, streak) * smoothstep(0.5, 3.0, h);
+        f.albedo = f.albedo * splash * rain;
+        f.ao = f.ao * (0.82 + 0.18 * smoothstep(0.0, 0.6, h));
+    }
+    return f;
+}
+
 // Bare rock: lumpy grain, fracture lines and faint strata along the planet's up direction.
 fn rock_surface(base: vec3<f32>, t: vec3<f32>, n: vec3<f32>, up: vec3<f32>, fp: f32) -> Surface {
     var s: Surface;
@@ -317,6 +476,10 @@ fn ground_surface(base: vec3<f32>, t: vec3<f32>, n: vec3<f32>, fp: f32) -> Surfa
     let pebbles = smoothstep(0.55, 0.75, pebble_n.x) * octave_fade(32.0, fp) * (0.25 + 0.75 * dirt);
     let soil = base * vec3<f32>(1.05, 0.86, 0.66) * 0.8;
     var albedo = base * (0.82 + 0.35 * clumps.x) * (0.85 + 0.3 * blades.x * green);
+    // Meadow patches tens of meters across: lusher, darker swards and drier, yellower ones.
+    let sward = fbm(t + vec3<f32>(41.0, 7.0, 23.0), 1.0 / 32.0, 3, 0.5, fp).x;
+    albedo = mix(albedo, albedo * vec3<f32>(1.16, 1.04, 0.6), smoothstep(0.0, 0.45, sward) * green * 0.5);
+    albedo = mix(albedo, albedo * vec3<f32>(0.74, 0.92, 0.78), smoothstep(0.0, -0.4, sward) * green * 0.55);
     albedo = mix(albedo, soil * (0.9 + 0.2 * blades.x), dirt * 0.7);
     let stone = mix(soil, vec3<f32>(0.1, 0.095, 0.09), 0.5) * (0.8 + 0.4 * pebble_n.x);
     albedo = mix(albedo, stone, pebbles * 0.7);
@@ -460,6 +623,75 @@ fn lod_color(level: f32) -> vec3<f32> {
     return clamp(vec3<f32>(abs(k - 3.0) - 1.0, 2.0 - abs(k - 2.0), 2.0 - abs(k - 4.0)), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// --- Clouds ----------------------------------------------------------------------------------
+
+const CLOUD_PERIOD: f32 = ${CLOUD_PERIOD}.0;
+
+// Cloud density (0..1) at a point (render space) of the cloud layer: broad billows with ragged
+// edges, thinned by the cover. \`octaves\` trades detail for cost (ground shadows need few).
+fn cloud_density(p: vec3<f32>, octaves: i32) -> f32 {
+    let cover = world.cloud.w;
+    if (cover <= 0.0) { return 0.0; }
+    let q = p + world.cloud.xyz;
+    var sum = 0.0;
+    var amp = 0.5;
+    var freq = 1.0 / 4096.0;
+    for (var o = 0; o < octaves; o = o + 1) {
+        sum = sum + vnoise(q * freq + vec3<f32>(f32(o) * 5.0, f32(o) * 13.0, f32(o) * 3.0), CLOUD_PERIOD * freq).x * amp;
+        amp = amp * 0.5;
+        freq = freq * 2.0;
+    }
+    return smoothstep(1.0 - cover * 1.15, 1.25 - cover * 0.9, sum + 0.5);
+}
+
+// Where a ray from o along unit d crosses planet i's cloud layer (meters along it), or -1.
+fn cloud_hit(o: vec3<f32>, d: vec3<f32>, i: i32) -> f32 {
+    let hit = sphere_hit(o, d, world.planet[i].xyz, world.planet[i].w + world.wind.w);
+    if (hit.y < 0.0) { return -1.0; }
+    // From under the layer the ray leaves through its far side; from above, it enters it first.
+    return select(hit.y, hit.x, hit.x > 0.0);
+}
+
+// How much sun gets through the clouds to point p.
+fn cloud_shadow(p: vec3<f32>, sun: vec3<f32>, i: i32) -> f32 {
+    if (world.cloud.w <= 0.0 || i != 0) { return 1.0; }
+    let t = cloud_hit(p, sun, i);
+    if (t < 0.0) { return 1.0; }
+    return 1.0 - 0.62 * cloud_density(p + sun * t, 3);
+}
+
+// Clouds over the sky color \`col\` along view ray d from the camera.
+fn sky_clouds(col: vec3<f32>, cam: vec3<f32>, d: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
+    if (world.cloud.w <= 0.0) { return col; }
+    let c = world.planet[0].xyz;
+    let up = normalize(cam - c);
+    let alt = length(cam - c) - world.planet[0].w;
+    if (alt > world.wind.w) { return col; }
+    let t = cloud_hit(cam, d, 0);
+    if (t < 0.0) { return col; }
+    let p = cam + d * t;
+    let dens = cloud_density(p, 6);
+    if (dens <= 0.001) { return col; }
+    // Light through the cloud toward the sun: denser there means a darker, bluer underside.
+    let toward = cloud_density(p + sun * 350.0, 4);
+    let day = daylight(p, 0);
+    let sun_h = smoothstep(-0.1, 0.35, dot(up, sun));
+    let warm = mix(vec3<f32>(1.0, 0.62, 0.38), vec3<f32>(1.0), sun_h);
+    let lit = world.sun_color.rgb * warm * (1.25 - 0.85 * toward) * day;
+    let shade = linear(world.atmosphere[0].rgb) * 0.45 * day + vec3<f32>(0.03, 0.035, 0.045);
+    let silver = pow(max(dot(d, sun), 0.0), 8.0) * (1.0 - dens) * 1.5 * world.sun_color.rgb * day;
+    var cloud = mix(shade, lit, 0.55 + 0.45 * (1.0 - dens)) + silver;
+    // Far clouds sink into the haze toward the horizon.
+    let fade = smoothstep(0.0, 0.12, dot(d, up)) * exp(-t / 60000.0);
+    return mix(col, cloud, clamp(dens * 1.3, 0.0, 1.0) * fade);
+}
+
+// How much direct sun reaches a surface point (1 = all): cloud shadows here; games add cast
+// shadows (al_shader.ts).
+fn sun_visibility(p: vec3<f32>, n: vec3<f32>, view_w: f32, i: i32) -> f32 {
+    return cloud_shadow(p, normalize(world.sun_dir.xyz), i);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
@@ -486,6 +718,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             let hz = atmosphere_segment(cam, d, i, 1e9, 1.2, 3.0);
             col = col * hz.transmit + hz.light;
         }
+        col = sky_clouds(col, cam, d, sun);
         out.color = finish(col);
         out.depth = SKY_DEPTH;
         return out;
@@ -520,6 +753,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let atmo = atmo_color(pi);
     var base = linear(in.color.rgb);
     var col = vec3<f32>(0.0);
+    let sun_vis = sun_visibility(in.world_pos, n, in.view_w, pi);
 
     if (material == 4) {
         col = base * (1.1 + item.tint.w * 2.2);
@@ -527,7 +761,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         let r = reflect(-v, n);
         let fres = 0.08 + 0.92 * pow(1.0 - max(dot(n, v), 0.0), 4.0);
         let sky_amb = atmo * (0.22 + 0.18 * max(dot(n, up), 0.0)) * day + vec3<f32>(0.012, 0.014, 0.02);
-        col = base * 0.12 + sky_amb * 0.6 * fres + world.sun_color.rgb * pow(max(dot(r, sun), 0.0), 180.0) * 3.0;
+        col = base * 0.12 + sky_amb * 0.6 * fres + world.sun_color.rgb * pow(max(dot(r, sun), 0.0), 180.0) * 3.0 * sun_vis;
     } else {
         if (material == 3 || material == 6 || material == 11) { base = base * item.tint.rgb; }
         var spec = 0.0;
@@ -576,6 +810,14 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             base = base * (0.9 + 0.12 * g.x);
             spec = 0.08;
             shin = 20.0;
+        } else if (material == 11) {
+            // City surfaces: brick, render, concrete, stone, tiles, metal, wood (see the top).
+            let f = city_surface(i32(floor(in.uv.y + 0.0005)), base, in.tex_pos, normalize(in.local_normal), footprint);
+            base = f.albedo;
+            spec = f.spec;
+            shin = f.shin;
+            ao = f.ao;
+            n = bump(n, (item.model * vec4<f32>(f.grad, 0.0)).xyz);
         } else if (material == 2) {
             // Ice: smooth sheets with pale fracture lines.
             let sheet = fbm(t, 1.0 / 16.0, 5, 0.5, footprint);
@@ -587,15 +829,15 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             shin = 40.0;
         }
         if (material == 3) { spec = 0.35; shin = 48.0; }
-        if (material == 6 || material == 11) { spec = 0.12; shin = 24.0; }
+        if (material == 6) { spec = 0.12; shin = 24.0; }
         let ndl = max(dot(n, sun), 0.0);
         // Sky light from above (colored by the atmosphere by day) and a little starlight at night.
         let sky_amb = atmo * (0.22 + 0.18 * max(dot(n, up), 0.0)) * day + vec3<f32>(0.012, 0.014, 0.02);
         let h = normalize(sun + v);
         let s = pow(max(dot(n, h), 0.0), shin) * spec * ndl;
         // Terminator softening: the ground's own normal and the planet's curvature both count.
-        let lit = ndl * smoothstep(-0.12, 0.2, dot(up, sun));
-        col = base * (world.sun_color.rgb * lit * 1.35 + sky_amb * ao) + world.sun_color.rgb * s * smoothstep(-0.12, 0.2, dot(up, sun));
+        let lit = ndl * smoothstep(-0.12, 0.2, dot(up, sun)) * sun_vis;
+        col = base * (world.sun_color.rgb * lit * 1.35 + sky_amb * ao) + world.sun_color.rgb * s * smoothstep(-0.12, 0.2, dot(up, sun)) * sun_vis;
         // Ship and suit: a faint fill from the camera so a back-lit model still reads.
         if (material == 3 || material == 6 || material == 8 || material == 11) { col = col + base * 0.14 * max(dot(n, v), 0.0); }
         if (material == 1) {
@@ -650,7 +892,7 @@ fn load_instance(i: u32) {
 }`);
     s = injectOnce(s, "    @location(3) color: vec4<f32>,\n};\n\nstruct VertexOutput {", "    @location(3) color: vec4<f32>,\n    @builtin(instance_index) instance: u32,\n};\n\nstruct VertexOutput {");
     s = injectOnce(s, "    @location(6) local_normal: vec3<f32>,\n};", "    @location(6) local_normal: vec3<f32>,\n    @location(7) @interpolate(flat) instance: u32,\n};");
-    s = injectOnce(s, "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n", "fn vs_main(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n    load_instance(in.instance);\n    out.instance = in.instance;\n");
+    s = injectOnce(s, "fn vertex_common(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n", "fn vertex_common(in: VertexInput) -> VertexOutput {\n    var out: VertexOutput;\n    load_instance(in.instance);\n    out.instance = in.instance;\n");
     s = injectOnce(s, "fn fs_main(in: VertexOutput) -> FragmentOutput {\n", "fn fs_main(in: VertexOutput) -> FragmentOutput {\n    load_instance(in.instance);\n");
     return s;
 }

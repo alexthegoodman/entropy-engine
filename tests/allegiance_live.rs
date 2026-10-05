@@ -346,3 +346,80 @@ fn allegiance_iteration2_live_feature() {
     assert_eq!(artifacts.len(), 7);
     println!("Allegiance iteration 2 live BDD: {}", root.display());
 }
+
+/// Mean brightness (0..255) of a region (fractions of the frame).
+fn brightness(path: &str, region: (f32, f32, f32, f32)) -> f64 {
+    let img = image::open(path).unwrap_or_else(|e| panic!("{path}: {e}")).to_rgb8();
+    let (w, h) = img.dimensions();
+    let (x0, y0) = ((region.0 * w as f32) as u32, (region.1 * h as f32) as u32);
+    let (x1, y1) = ((region.2 * w as f32) as u32, (region.3 * h as f32) as u32);
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in (y0..y1).step_by(2) {
+        for x in (x0..x1).step_by(2) {
+            let p = img.get_pixel(x, y).0;
+            sum += (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0;
+            n += 1.0;
+        }
+    }
+    sum / n
+}
+
+#[test]
+fn allegiance_visuals_live_feature() {
+    let (result, artifacts, root) = run("visuals", Some("tests/features/allegiance_visuals_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 2, "{result:#}");
+    // The street in the sun: shadows on, four cascades, the weather the feature fixed.
+    let street = &s[0];
+    assert_eq!(street["mode"], "play");
+    assert_eq!(street["sky"]["shadows"], true, "{:#}", street["sky"]);
+    assert_eq!(street["sky"]["cascades"], 4);
+    assert!(f(&street["sky"]["sunElevation"]) > 15.0, "{:#}", street["sky"]);
+    assert!((f(&street["sky"]["cloudCover"]) - 0.45).abs() < 1e-6, "{:#}", street["sky"]);
+    // Ground cover around you, wherever the map has open ground.
+    if street["terrain"]["city"]["buildings"].as_u64().unwrap_or(0) > 0 {
+        assert!(street["scatter"]["groundCover"].as_u64().unwrap_or(0) > 50, "{:#}", street["scatter"]);
+    }
+    // The same view without sun shadows is brighter in the world below the HUD's top bars (the
+    // shadows took light away), and nowhere near blank.
+    let shaded = find(&artifacts, "vis-street");
+    let unshaded = find(&artifacts, "vis-street-unshadowed");
+    let world = (0.28, 0.2, 0.84, 0.85);
+    let (b_shaded, b_unshaded) = (brightness(&shaded, world), brightness(&unshaded, world));
+    println!("street brightness with shadows {b_shaded:.1}, without {b_unshaded:.1}");
+    assert!(b_unshaded > b_shaded + 1.0, "shadows should darken the street: {b_shaded} vs {b_unshaded}");
+    assert!(b_shaded > 25.0, "{b_shaded}");
+    // Sky and garden frames are real scenes, not black.
+    for name in ["vis-shadows", "vis-sky", "vis-garden", "vis-garden-gust"] {
+        assert!(share(&find(&artifacts, name), (0.3, 0.2, 0.8, 0.8), &dark) < 0.6, "{name} mostly dark");
+    }
+    assert_eq!(artifacts.len(), 6);
+    println!("Allegiance visuals live BDD: {}", root.display());
+}
+
+#[test]
+fn allegiance_materials_live_feature() {
+    let (result, artifacts, root) = run("materials", Some("tests/features/allegiance_materials_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 2, "{result:#}");
+    // Every map of every material set loaded (none fell back to a checkerboard).
+    assert_eq!(s[0]["materials"]["missing"].as_array().map(|a| a.len()), Some(0), "{:#}", s[0]["materials"]);
+    // Up close the fieldstone fills the view: stones and joints (a strongly varied image, not the
+    // flat concrete the wall used to be), moss green in places, and no magenta fallback.
+    let near = find(&artifacts, "mat-wall-near");
+    let view = (0.3, 0.25, 0.7, 0.75);
+    let magenta = |p: Rgb| p[0] > 180 && p[2] > 180 && (p[1] as i32) < 80;
+    assert!(share(&near, view, &magenta) < 0.01, "checkerboard on the wall");
+    let mossy = |p: Rgb| (p[1] as i32) > (p[0] as i32) + 4 && (p[1] as i32) > (p[2] as i32) + 4;
+    assert!(share(&near, view, &mossy) > 0.03, "no moss on the fieldstone");
+    let img = image::open(&near).unwrap().to_rgb8();
+    let (w, h) = img.dimensions();
+    let lum: Vec<f64> = (h / 4..h * 3 / 4).step_by(2).flat_map(|y| (w * 3 / 10..w * 7 / 10).step_by(2).map(move |x| (x, y)))
+        .map(|(x, y)| { let p = img.get_pixel(x, y).0; (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0 }).collect();
+    let mean = lum.iter().sum::<f64>() / lum.len() as f64;
+    let sd = (lum.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / lum.len() as f64).sqrt();
+    println!("fieldstone close-up: mean {mean:.1}, deviation {sd:.1}");
+    assert!(sd > 15.0 && mean > 20.0, "the wall should read as textured stone: mean {mean}, deviation {sd}");
+    assert_eq!(artifacts.len(), 2);
+    println!("Allegiance materials live BDD: {}", root.display());
+}

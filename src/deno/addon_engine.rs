@@ -127,9 +127,9 @@ use crate::deno::addon_ops::{
     op_gizmo_update, op_gizmo_update_rotation, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
     op_mesh_get_data, op_mesh_update_vertices, op_mesh_write_vertices, op_mesh_set_instance_count, op_mesh_set_bounds, op_frame_profile_record, op_frame_profile_count, op_frame_profile_enabled, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
-    op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
+    op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure, op_sun_shadows_update,
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
-    op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
+    op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_load_array, op_texture_update,
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_set_speed, op_video_read_subtitles, op_video_close, op_video_poll,
     op_video_export_start, op_video_export_poll,
     op_ui_clear,
@@ -243,6 +243,7 @@ extension!(
         op_point_light_remove,
         op_lighting_set_point_light_shader,
         op_shadow_configure,
+        op_sun_shadows_update,
         op_composer_set_role_pipeline,
         op_lighting_update_sun,
         op_println,
@@ -408,6 +409,7 @@ extension!(
         op_texture_create,
         op_texture_create_ex,
         op_texture_load,
+        op_texture_load_array,
         op_texture_update,
         op_video_open,
         op_video_bind_texture,
@@ -823,6 +825,7 @@ impl AddonEngine {
             pending_sun_config: None,
             pending_lighting_shader: None,
             pending_shadow_config: None,
+            sun_shadows: None,
             pending_game_mode: None,
             pending_entity_impulses: Vec::new(),
             pending_animation_plays: Vec::new(),
@@ -1215,6 +1218,19 @@ impl AddonEngine {
                             });
                         }
                     }
+                } else if let ResourceType::SamplerRepeat = &b.resource {
+                    let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+                        label: Some("Addon Repeat Sampler"),
+                        address_mode_u: wgpu::AddressMode::Repeat,
+                        address_mode_v: wgpu::AddressMode::Repeat,
+                        address_mode_w: wgpu::AddressMode::Repeat,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Linear,
+                        anisotropy_clamp: 8,
+                        ..Default::default()
+                    });
+                    created_samplers.push((b.binding, sampler));
                 } else if let ResourceType::Sampler = &b.resource {
                     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
                         address_mode_u: wgpu::AddressMode::ClampToEdge,

@@ -167,6 +167,18 @@ pub struct PipelineConfig {
 
     pub form: Option<String>,
 
+    /// Cascaded sun shadows (core/addon_sun_shadows.rs): the shader's `vs_shadow` casts, and the
+    /// receiver group is appended after the extra bind groups.
+    pub sun_shadows: Option<bool>,
+
+    /// With `sun_shadows`: false receives without casting (no caster variant; e.g. terrain,
+    /// whose relief the shader already shades). Default true.
+    pub shadow_caster: Option<bool>,
+
+    /// With `sun_shadows`: cast into only the first this-many cascades (small things such as
+    /// people leave no visible mark in the wide ones). Default: all.
+    pub shadow_cascades: Option<u32>,
+
 }
 
 
@@ -219,6 +231,8 @@ pub enum ResourceType {
     StorageTextureRgba16 { id: String },
     TextureNonFilterable { id: String },
     DepthTexture,
+    /// A tiling material sampler: repeat, trilinear, 8x anisotropic.
+    SamplerRepeat,
 }
 
 
@@ -1540,6 +1554,8 @@ pub struct AddonContext {
     // Some(Some(src)) = recompile it with this addon-supplied WGSL function instead.
     pub pending_lighting_shader: Option<Option<String>>,
     pub pending_shadow_config: Option<ShadowConfig>,
+    /// Sun shadows for `sunShadows` addon pipelines (made with the first one).
+    pub sun_shadows: Option<crate::core::addon_sun_shadows::AddonSunShadows>,
     pub pending_game_mode: Option<bool>,
     pub pending_entity_impulses: Vec<(String, [f32; 3])>,
     pub pending_entity_velocities: Vec<(String, [f32; 3])>,
@@ -2304,6 +2320,104 @@ pub struct TextureConfig {
     /// simulation's ping-pong/ring storage textures (e.g. an accumulated height field) need
     /// to survive a reload instead of resetting.
     pub id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureArrayConfig {
+    /// Stable id (loading the same id again replaces the texture).
+    pub id: String,
+    /// Image files, one per layer, relative to the working directory (or absolute).
+    pub files: Vec<String>,
+    /// Color data (base color): sampled as sRGB. Otherwise linear (normals, roughness, height).
+    pub srgb: Option<bool>,
+    /// Every layer is resized to this square size (default: the first file found, else 256).
+    pub size: Option<u32>,
+    /// What a missing or unreadable file becomes: "checker" (magenta/black, the default) or an
+    /// RGBA color in 0..1 (e.g. a flat normal [0.5, 0.5, 1, 1]).
+    pub fallback: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureArrayResult {
+    pub id: String,
+    pub size: u32,
+    pub layers: u32,
+    pub mips: u32,
+    /// Indices of the layers that fell back (file missing or unreadable).
+    pub missing: Vec<u32>,
+}
+
+/// Entropy.Texture.loadArray: a 2D texture array with a full mip chain (built on the CPU) for
+/// tiling material maps, one layer per file. A file that cannot be read becomes a fallback layer
+/// instead of failing the load, so a missing asset shows up on screen rather than as a crash.
+#[op2]
+#[serde]
+pub fn op_texture_load_array(state: &mut OpState, #[serde] config: TextureArrayConfig) -> Result<TextureArrayResult, deno_error::JsErrorBox> {
+    let ctx = state.borrow_mut::<AddonContext>();
+    let gpu = ctx.gpu_resources.clone().ok_or_else(|| deno_error::JsErrorBox::generic("GPU resources not available"))?;
+    let images: Vec<Option<image::RgbaImage>> = config.files.iter().map(|f| image::open(f).ok().map(|i| i.to_rgba8())).collect();
+    let size = config.size.unwrap_or_else(|| images.iter().flatten().next().map(|i| i.width().max(i.height())).unwrap_or(256)).clamp(4, 8192);
+    let layers = config.files.len().max(1) as u32;
+    let fallback_color: Option<[u8; 4]> = config.fallback.as_ref().and_then(|v| v.as_array()).map(|a| {
+        let c = |i: usize| (a.get(i).and_then(|x| x.as_f64()).unwrap_or(1.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+        [c(0), c(1), c(2), c(3)]
+    });
+    let mut missing = Vec::new();
+    let mut levels: Vec<Vec<image::RgbaImage>> = Vec::new();
+    for layer in 0..layers as usize {
+        let base = match images.get(layer).cloned().flatten() {
+            Some(img) if img.width() == size && img.height() == size => img,
+            Some(img) => image::imageops::resize(&img, size, size, image::imageops::FilterType::Triangle),
+            None => {
+                missing.push(layer as u32);
+                let cell = (size / 8).max(1);
+                image::RgbaImage::from_fn(size, size, |x, y| {
+                    if let Some(c) = fallback_color { return image::Rgba(c); }
+                    if ((x / cell) + (y / cell)) % 2 == 0 { image::Rgba([255, 0, 255, 255]) } else { image::Rgba([20, 20, 20, 255]) }
+                })
+            }
+        };
+        let mut chain = vec![base];
+        while chain.last().unwrap().width() > 1 {
+            let prev = chain.last().unwrap();
+            let s = (prev.width() / 2).max(1);
+            let next = image::imageops::resize(prev, s, s, image::imageops::FilterType::Triangle);
+            chain.push(next);
+        }
+        levels.push(chain);
+    }
+    let mips = levels[0].len() as u32;
+    let format = if config.srgb.unwrap_or(false) { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(&format!("Addon Texture Array {}", config.id)),
+        size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: layers },
+        mip_level_count: mips,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (layer, chain) in levels.iter().enumerate() {
+        for (mip, img) in chain.iter().enumerate() {
+            gpu.queue.write_texture(
+                wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: mip as u32, origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 }, aspect: wgpu::TextureAspect::All },
+                img.as_raw(),
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * img.width()), rows_per_image: Some(img.height()) },
+                wgpu::Extent3d { width: img.width(), height: img.height(), depth_or_array_layers: 1 },
+            );
+        }
+    }
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("Addon Texture Array View"),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    ctx.textures.insert(config.id.clone(), Arc::new(view));
+    ctx.raw_textures.insert(config.id.clone(), Arc::new(texture));
+    Ok(TextureArrayResult { id: config.id, size, layers, mips, missing })
 }
 
 #[op2]
@@ -4046,6 +4160,40 @@ pub fn op_lighting_set_point_light_shader(state: &mut OpState, #[string] wgsl_so
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SunShadowsConfig {
+    /// Light view-projection per cascade (16 floats, column-major, render space -> clip with z
+    /// in [0, 1]); empty turns sun shadows off.
+    pub cascades: Vec<Vec<f32>>,
+    /// One shadow-map texel's size in meters, per cascade.
+    pub texel: Option<Vec<f32>>,
+    /// 0..1: how much of the sun a shadow takes away.
+    pub strength: Option<f32>,
+    pub map_size: Option<u32>,
+    /// Depth from the light's near plane to its far plane, in meters (for biasing in meters).
+    pub depth_range: Option<f32>,
+}
+
+/// Entropy.Lighting.setSunShadows: this frame's cascades for `sunShadows` pipelines.
+#[op2]
+pub fn op_sun_shadows_update(state: &mut OpState, #[serde] config: SunShadowsConfig) {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else { return };
+    let Some(gpu) = ctx.gpu_resources.clone() else { return };
+    let shadows = ctx.sun_shadows.get_or_insert_with(|| crate::core::addon_sun_shadows::AddonSunShadows::new(&gpu.device, crate::core::addon_sun_shadows::DEFAULT_MAP_SIZE));
+    if let Some(size) = config.map_size { shadows.set_map_size(&gpu.device, size); }
+    shadows.cascades = config.cascades.iter()
+        .filter(|m| m.len() == 16)
+        .take(crate::core::addon_sun_shadows::MAX_CASCADES)
+        .map(|m| { let mut a = [0.0f32; 16]; a.copy_from_slice(m); a })
+        .collect();
+    let mut texel = [0.0f32; 4];
+    for (i, t) in config.texel.unwrap_or_default().iter().take(4).enumerate() { texel[i] = *t; }
+    shadows.texel = texel;
+    if let Some(s) = config.strength { shadows.strength = s.clamp(0.0, 1.0); }
+    if let Some(r) = config.depth_range { shadows.depth_per_meter = if r > 0.0 { 1.0 / r } else { 0.0 }; }
+}
+
 #[op2]
 pub fn op_shadow_configure(state: &mut OpState, #[serde] config: ShadowConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -5625,6 +5773,12 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
     // hot-reload rebuild replaces this pipeline in place instead of leaking a new map entry.
     let id = format!("pipeline_{}", config.name);
     let mut ctx = state.borrow_mut::<AddonContext>();
+
+    if config.sun_shadows == Some(true) && ctx.sun_shadows.is_none() {
+        if let Some(gpu) = ctx.gpu_resources.clone() {
+            ctx.sun_shadows = Some(crate::core::addon_sun_shadows::AddonSunShadows::new(&gpu.device, crate::core::addon_sun_shadows::DEFAULT_MAP_SIZE));
+        }
+    }
     
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
@@ -5809,6 +5963,11 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
                              view_dimension: wgpu::TextureViewDimension::D2,
                              multisampled: false,
                          },
+                         "TextureArray" => wgpu::BindingType::Texture {
+                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                             view_dimension: wgpu::TextureViewDimension::D2Array,
+                             multisampled: false,
+                         },
                          "TextureNonFilterable" => wgpu::BindingType::Texture {
                              sample_type: wgpu::TextureSampleType::Float { filterable: false },
                              view_dimension: wgpu::TextureViewDimension::D2,
@@ -5889,6 +6048,14 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
 
         // println!("Working pipeline (3): {:?}", layouts.len());
 
+        // Sun shadows: the depth-only caster sees the layout without the receiver group (it
+        // renders into the very maps that group samples); the main pipeline gets it last.
+        let receiver_layout = if config.sun_shadows == Some(true) { ctx.sun_shadows.as_ref().map(|s| s.receiver_layout.clone()) } else { None };
+        let caster = receiver_layout.as_ref().filter(|_| config.shadow_caster != Some(false))
+            .and_then(|_| config.vertex_shader.as_deref().filter(|src| src.contains("fn vs_shadow")))
+            .map(|src| Arc::new(crate::core::addon_sun_shadows::AddonSunShadows::create_caster(device, &config.name, src, &layouts)));
+        if let Some(l) = &receiver_layout { layouts.push(l.as_ref()); }
+
         let pipeline = create_addon_pipeline(
             device,
             &config,
@@ -5901,6 +6068,13 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
             ctx.composite_pipelines.insert(id.clone(), Arc::new(pipeline));
         } else {
             ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
+        }
+        if let Some(shadows) = ctx.sun_shadows.as_mut() {
+            if receiver_layout.is_some() { shadows.receivers.insert(id.clone()); } else { shadows.receivers.remove(&id); }
+            match caster {
+                Some(c) => { shadows.casters.insert(id.clone(), (c, config.shadow_cascades.unwrap_or(u32::MAX))); }
+                None => { shadows.casters.remove(&id); }
+            }
         }
 
         // println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);
@@ -6186,6 +6360,11 @@ pub fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputeP
                     "Texture" => wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    "TextureArray" => wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     "TextureNonFilterable" => wgpu::BindingType::Texture {

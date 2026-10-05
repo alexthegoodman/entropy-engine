@@ -4,7 +4,7 @@
 // Model space: +X right, +Y up, -Z forward (qp_math.ts frameMatrix), feet on y = 0.
 
 import { MeshBuilder, buildSky, type ModelMesh } from "../../apps/quadplanet/qp_models";
-import { MATERIAL_GLOW, MATERIAL_PAINT } from "../../apps/quadplanet/qp_shader";
+import { MATERIAL_GLOW, MATERIAL_HOUSE, MATERIAL_PAINT, SURFACE } from "../../apps/quadplanet/qp_shader";
 import { MAT_BODY, MAT_CLOTH_TOP } from "./al_shader";
 
 type RGB = [number, number, number];
@@ -260,7 +260,12 @@ export function buildMilitary(kind: "hq" | "barracks" | "depot" | "hangar" | "to
             break;
         case "wall":
             // One meter of wall along x (scaled to the segment's length), with a coping.
-            m.box([0, 1.3, 0], [0.5, 1.3, 0.3], CONCRETE, MATERIAL_PAINT);
+            // The wall is fieldstone (a city surface, al_materials.ts): its surface kind rides in uv.y.
+            {
+                const first = m.vertexData.length / 12;
+                m.box([0, 1.3, 0], [0.5, 1.3, 0.3], CONCRETE, MATERIAL_HOUSE);
+                for (let v = first; v < m.vertexData.length / 12; v++) m.vertexData[v * 12 + 7] = SURFACE.fieldstone + 0.5;
+            }
             m.box([0, 2.65, 0], [0.5, 0.05, 0.36], [0.5, 0.49, 0.46], MATERIAL_PAINT);
             break;
     }

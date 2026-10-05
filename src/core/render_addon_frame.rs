@@ -429,6 +429,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_grasses = Vec::new();
         let mut pbr_meshes = Vec::new();
         let mut non_pbr_meshes = Vec::new();
+        // Sun-shadow casters (addon_sun_shadows.rs): gathered before the camera's frustum culling,
+        // since what shades the view may stand outside it.
+        let mut shadow_meshes = Vec::new();
         let mut pbr_addon_models = Vec::new();
         let mut non_pbr_addon_models = Vec::new();
         let mut mesh_stats = MeshDrawStats::default();
@@ -554,6 +557,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     for mesh in meshes {
                         // An emptied batch or a hidden pooled mesh (Model.setInstanceCount(id, 0)).
                         if mesh.instance_count == 0 { continue; }
+                        if ctx.sun_shadows.as_ref().map_or(false, |sh| sh.casters.contains_key(&mesh.pipeline_id)) {
+                            shadow_meshes.push(mesh);
+                        }
                         if let Some((center, radius)) = mesh.bounds {
                             if !frustum.sphere_visible(center, radius) { mesh_stats.culled += 1; continue; }
                         }
@@ -1161,6 +1167,18 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             drop(lighting_pass);
         }
 
+        // Sun-shadow cascades for addon pipelines that receive them (before the passes that sample them).
+        {
+            let op_state = editor.addon_engine.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                if let Some(shadows) = ctx.sun_shadows.as_mut() {
+                    shadows.render(device, queue, &mut encoder, &camera_binding.uniform, &camera_binding.bind_group_layout, &shadow_meshes);
+                    if shadows.last_draws > 0 { crate::core::frame_profile::count("sun shadow draws", shadows.last_draws as f64); }
+                }
+            }
+        }
+
         // 3. Pass for non-PBR objects
         if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() || !non_pbr_addon_models.is_empty() {
             let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
@@ -1351,6 +1369,11 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                         for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
                             render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
+                        }
+                        if let Some(shadows) = ctx.sun_shadows.as_ref() {
+                            if shadows.receivers.contains(&mesh.pipeline_id) {
+                                render_pass.set_bind_group((mesh.bind_groups.len() + 2) as u32, &shadows.receiver_bind_group, &[]);
+                            }
                         }
                         
                         if let Some(time_buffer) = &mesh.time_buffer {

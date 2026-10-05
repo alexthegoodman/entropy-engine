@@ -634,7 +634,13 @@ const textureAPI = {
     }, null),
     createEx: (config, data = null) => ops.op_texture_create_ex({ ...config, id: config.id || null }, data),
     update: (textureId, data) => ops.op_texture_update(textureId, data),
-    load: (filename) => ops.op_texture_load(filename)
+    load: (filename) => ops.op_texture_load(filename),
+    // A mipmapped 2D texture array, one layer per image file (paths relative to the working
+    // directory); unreadable files become a fallback layer ("checker", or an RGBA color) and are
+    // listed in the result's `missing`.
+    loadArray: (config) => ops.op_texture_load_array({
+        id: config.id, files: config.files, srgb: !!config.srgb, size: config.size ?? null, fallback: config.fallback ?? null
+    })
 };
 
 // Windows/Media-Foundation only (see src/media_player/mod.rs). `poll` writes decoded frame
@@ -909,6 +915,16 @@ function createAddonContextualAPI(resolveTarget) {
             // Call with no argument (or an empty/falsy source) to reset to the default.
             setPointLightShader: (wgslSource) => ops.op_lighting_set_point_light_shader(wgslSource || ""),
             // Any field left out keeps its current value - only pass what you're changing.
+            // Cascaded sun shadows for `sunShadows` pipelines (core/addon_sun_shadows.rs): this
+            // frame's light matrices (16 floats each, column-major, render space). An empty
+            // `cascades` turns them off.
+            setSunShadows: (config) => ops.op_sun_shadows_update({
+                cascades: config.cascades || [],
+                texel: config.texel,
+                strength: config.strength,
+                mapSize: config.mapSize,
+                depthRange: config.depthRange
+            }),
             configureShadows: (config) => ops.op_shadow_configure({
                 mapSize: config.mapSize,
                 bias: config.bias,

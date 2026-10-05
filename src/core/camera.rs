@@ -355,6 +355,12 @@ impl CameraUniform {
         self.inverse_view = camera.inverse_view_matrix.into();
         self.inverse_projection = camera.inverse_projection_matrix.into();
     }
+
+    /// This camera seen through another view-projection (a shadow cascade's light matrix):
+    /// everything else, the eye position included, stays the real camera's.
+    pub fn with_view_proj(&self, view_proj: [[f32; 4]; 4]) -> Self {
+        Self { view_proj, ..*self }
+    }
 }
 
 pub struct CameraBinding {

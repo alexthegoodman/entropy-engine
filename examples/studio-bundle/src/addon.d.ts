@@ -215,6 +215,8 @@ export type BindingResource =
   | { type: "Texture"; value: {id: string} }
   | { type: "TextureNonFilterable"; value: {id: string} }
   | { type: "Sampler" }
+  /** Repeat addressing, trilinear and 8x anisotropic filtering: for tiling material textures. */
+  | { type: "SamplerRepeat" }
   | { type: "Time" }
   | { type: "Buffer"; value: {id: string} }
   | { type: "Storage"; value: {id: string} }
@@ -569,6 +571,14 @@ export interface ScopedAPI {
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
+    /**
+     * A mipmapped 2D texture array (bind it as a "TextureArray"), one layer per image file
+     * (paths relative to the working directory), all resized to `size` (default: the first
+     * file's). `srgb` for color maps. A file that can't be read becomes a fallback layer:
+     * "checker" (magenta/black, the default) or an RGBA color in 0..1; its index is in `missing`.
+     */
+    loadArray: (config: { id: string; files: string[]; srgb?: boolean; size?: number; fallback?: "checker" | [number, number, number, number] }) =>
+      { id: string; size: number; layers: number; mips: number; missing: number[] };
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
@@ -3560,7 +3570,7 @@ export interface TextInputConfig {
 export interface BindingEntry {
   binding: number;
   visibility: ("Compute" | "Vertex" | "Fragment")[];
-  resourceType: "Uniform" | "Time" | "Texture" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16" | "DepthTexture";
+  resourceType: "Uniform" | "Time" | "Texture" | "TextureArray" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16" | "DepthTexture";
 }
 
 export interface PipelineConfig {
@@ -3575,6 +3585,19 @@ export interface PipelineConfig {
   }[];
   lightingBindings?: any[];
   form?: "composite" | "default";
+  /**
+   * Cascaded sun shadows for an unlit "mesh" pipeline: the shader's `vs_shadow` vertex entry
+   * point (depth only; it must not use the receiver group) draws its meshes into the cascades,
+   * and a receiver group is appended after `extraBindGroups`: binding 0 the cascades
+   * (`texture_depth_2d_array`), 1 a `sampler_comparison`, 2 a uniform { cascades:
+   * array<mat4x4<f32>, 4>, texel: vec4<f32>, params: vec4<f32> (count, map size, strength,
+   * depth per meter) }. Place the cascades with Lighting.setSunShadows.
+   */
+  sunShadows?: boolean;
+  /** With `sunShadows`: false only receives (its meshes are not drawn into the cascades). */
+  shadowCaster?: boolean;
+  /** With `sunShadows`: cast into only the first this-many cascades (default all). */
+  shadowCascades?: number;
   // [key: string]: unknown;
 }
 
@@ -4175,6 +4198,14 @@ export interface EntropyAPI {
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
+    /**
+     * A mipmapped 2D texture array (bind it as a "TextureArray"), one layer per image file
+     * (paths relative to the working directory), all resized to `size` (default: the first
+     * file's). `srgb` for color maps. A file that can't be read becomes a fallback layer:
+     * "checker" (magenta/black, the default) or an RGBA color in 0..1; its index is in `missing`.
+     */
+    loadArray: (config: { id: string; files: string[]; srgb?: boolean; size?: number; fallback?: "checker" | [number, number, number, number] }) =>
+      { id: string; size: number; layers: number; mips: number; missing: number[] };
   };
   Particles: {
     createHair: (config: {
@@ -4221,6 +4252,14 @@ export interface EntropyAPI {
     setPointLightShader: (wgslSource?: string) => void;
     // Any field left unset keeps its current value - only pass what you're changing. Directional
     // light only; point lights don't cast shadows.
+    /**
+     * This frame's sun-shadow cascades for `sunShadows` pipelines: light view-projections (16
+     * floats, column-major, render space -> clip with z in 0..1), up to four, nearest first; an
+     * empty list turns them off. `texel` is each cascade's texel size in meters, `depthRange` the
+     * light's near-to-far distance in meters, `strength` 0..1 how much of the sun a shadow
+     * removes, `mapSize` the resolution of every cascade (default 2048).
+     */
+    setSunShadows: (config: { cascades: number[][]; texel?: number[]; depthRange?: number; strength?: number; mapSize?: number }) => void;
     configureShadows: (config: {
       mapSize?: number; // shadow map resolution (square), e.g. 256/512/1024/2048
       bias?: number; // depth bias constant
