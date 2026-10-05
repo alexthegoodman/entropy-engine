@@ -29,6 +29,7 @@
 
 import { QUADPLANET_SHADER, instancedShader } from "../../apps/quadplanet/qp_shader";
 import { materialWgsl } from "./al_materials";
+import { CLOUD_CACHE_WGSL } from "./al_clouds";
 
 export const MAT_CLOTH_TOP = 12;
 export const MAT_CLOTH_BOTTOM = 13;
@@ -48,6 +49,15 @@ function inject(src: string, anchor: string, replacement: string): string {
 
 function build(people: boolean, textured = false): string {
     let s = QUADPLANET_SHADER;
+    s = inject(s, "fn cloud_density(p: vec3<f32>, octaves: i32) -> f32 {", "fn cloud_density_procedural(p: vec3<f32>, octaves: i32) -> f32 {");
+    s += CLOUD_CACHE_WGSL;
+    // Reserved sun_color.w is zero in production. Profiler-only single-feature bypasses
+    // retain geometry, lighting and depth so shader costs can be isolated without guessing.
+    s = inject(s, "    if (world.cloud.w <= 0.0 || i != 0) { return 1.0; }", "    if (world.sun_color.w == 1.0 || world.cloud.w <= 0.0 || i != 0) { return 1.0; }");
+    s = inject(s, "    if (world.cloud.w <= 0.0) { return col; }", "    if (world.sun_color.w == 2.0 || world.cloud.w <= 0.0) { return col; }");
+    s = inject(s, "        if (material == 0) {", "        if (world.sun_color.w == 3.0) {\n            // Diagnostic: retain vertex albedo, normal and default surface properties.\n        } else if (material == 0) {");
+    s = inject(s, "    out.transmit = 1.0;", "    out.transmit = 1.0;\n    if (world.sun_color.w == 4.0) { return out; }");
+    s = inject(s, "fn stars(d: vec3<f32>) -> vec3<f32> {", "fn stars(d: vec3<f32>) -> vec3<f32> {\n    if (world.sun_color.w == 5.0) { return vec3<f32>(0.0); }");
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
         if (material >= 12 && material <= 16) {

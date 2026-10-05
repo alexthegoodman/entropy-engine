@@ -610,6 +610,9 @@ impl EntropyPipeline {
                 .expect("Couldn't get gpu adapter")
         };
 
+        if crate::core::frame_profile::enabled() {
+            eprintln!("[frame-profile] adapter {:?}", adapter.get_info());
+        }
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {

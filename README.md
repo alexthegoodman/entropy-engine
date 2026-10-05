@@ -619,6 +619,8 @@ window and checks the captures (under `xvfb-run -a` on a headless box).
 
 See the [performance investigation and proposed instancing API](docs/ALLEGIANCE_PERFORMANCE.md)
 for live profiling observations and optimization priorities.
+Clouds use a shared GPU noise cache; see [cloud rendering and its measured budget](docs/ALLEGIANCE_CLOUDS.md)
+for the procedural/cached comparison and the live 5% budget check.
 
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md)) is a
 library of procedural objects: an office chair, table, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted

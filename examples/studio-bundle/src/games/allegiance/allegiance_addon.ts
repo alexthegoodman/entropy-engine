@@ -30,7 +30,8 @@ import { type Vec3, add, cross, dot, frameMatrix, identity4, makeFrame, normaliz
 import {
     PLANETS, isEarth, latLonToDir, dirToLatLon, setTerrainBackend, setSunDirection, SUN_DIRECTION, morningSunAt, type PlanetDef,
 } from "../../apps/quadplanet/qp_planet";
-import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_shader";
+import { ITEM_FLOATS, WORLD_FLOATS, MAX_PLANETS, packWorld } from "../../apps/quadplanet/qp_shader";
+import { createCloudCache, cloudBindings, CLOUD_BIND_ENTRIES, CLOUD_CACHE_BYTES } from "./al_clouds";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, houseValues, type CityBuilding } from "../../apps/quadplanet/qp_city";
 import { BUILDING_MODEL, BUILDING_NAMESPACE, buildingValues } from "../../apps/quadplanet/qp_buildings";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
@@ -121,7 +122,11 @@ let people: PeopleMeshes;
 const bindings = (item: string) => [
     { group: 2, binding: 0, resource: { type: "Buffer" as const, value: { id: worldBuffer } } },
     { group: 2, binding: 1, resource: { type: "Buffer" as const, value: { id: item } } },
+    ...cloudBindings(cloudTexture),
 ];
+let cloudTexture = "";
+let cloudCacheEnabled = true;
+const sharedMaterialBindings = () => [...materialBindings(), ...cloudBindings(cloudTexture)];
 const HIDDEN = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 /** One Item's floats, reused: Buffer.write copies them out before returning. */
@@ -1201,6 +1206,7 @@ function makeCrowd(): CrowdBatches {
         createMesh: (key, meshId, buffer, instances) => Entropy.MeshCache.createMesh(PEOPLE_NAMESPACE, key, { id: meshId, pipelineId: peoplePipelineId, instanceCount: instances, bindings: [
             { group: 2, binding: 0, resource: { type: "Buffer", value: { id: worldBuffer } } },
             { group: 2, binding: 1, resource: { type: "Buffer", value: { id: buffer } } },
+            ...cloudBindings(cloudTexture),
         ] }),
         clearMesh: meshId => Entropy.Model.clearMesh(meshId),
         setInstanceCount: (meshId, count) => Entropy.Model.setInstanceCount(meshId, count),
@@ -1229,6 +1235,7 @@ function drawPeople(): void {
     if (!frame) return;
     crowd ??= makeCrowd();
     crowd.begin();
+    if (profileDisable === "people") { crowd.flush(); return; }
     const c = campaign;
     const party = c ? c.party.color : THEME.red;
     const anyEnemy = soldiers(street).length > 0;
@@ -1556,7 +1563,7 @@ function updateShadows(): void {
 }
 
 function writeWorld(): void {
-    Entropy.Buffer.write(worldBuffer, packWorld({
+    const world = packWorld({
         sunDir: SUN_DIRECTION, time, sunColor: sunColor(), exposure: 1.05, debugLod: false, debugOutlines: false,
         planets: WORLD_PLANETS.map(p => ({ center: toRender(p.center), radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
         city: { hideRadius, roadDistance: ROAD_DISTANCE, buildingHideRadius },
@@ -1564,7 +1571,11 @@ function writeWorld(): void {
             cloudCover: weather.cloudCover, cloudOffset: cloudOffset(renderOrigin, cloudDrift), cloudAltitude,
             wind: windVector(weather, frame.east, frame.north),
         } : undefined,
-    }));
+    });
+    // Reserved sun_color.w carries a profiler-only shader disable selector; normal rendering is 0.
+    world[7] = PROFILE_SHADER_DISABLE[profileDisable] ?? 0;
+    world[15 + MAX_PLANETS * 8] = cloudCacheEnabled ? 1 : 0;
+    Entropy.Buffer.write(worldBuffer, world);
     updateShadows();
 }
 
@@ -2039,7 +2050,7 @@ function placeScatter(it: ScatterItem, f: LocalFrame): ScatterPlaced {
 
 function drawScatter(dt: number): void {
     if (!scatterBatches) return;
-    const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue" || mode === "shop");
+    const visible = profileDisable !== "scatter" && !!frame && (mode === "play" || mode === "speech" || mode === "dialogue" || mode === "shop");
     scatterTimer += dt;
     const moved = Math.hypot(body.x - scatterAt[0], body.z - scatterAt[1]);
     if (!visible) {
@@ -2213,8 +2224,10 @@ function snapshot() {
     const rs = here();
     return {
         mode, tab, frames: frameCount, time: r2(time),
+        profile: profiling ? { disable: profileDisable, experiment: profileExperiment, freeze: profileFreeze } : null,
         materials: { missing: materialsMissing },
         sky: {
+            cloudCache: cloudCacheEnabled, cloudCacheBytes: CLOUD_CACHE_BYTES,
             shadows: shadowsLive, cascades: shadowsLive ? shadowCascadeCount : 0, shadowMap: shadowMapSize,
             sunElevation: frame ? r2(Math.asin(Math.max(-1, Math.min(1, dot(SUN_DIRECTION, frame.up)))) * 180 / Math.PI) : null,
             cloudCover: r2(weather.cloudCover), windSpeed: r2(weather.windSpeed), cloudAltitude: Math.round(cloudAltitude),
@@ -2346,8 +2359,20 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     {
         name: "allegiance_config",
         description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000). shadows: sun shadows on or off; shadowCascades 1-4 (default 4) and shadowMap (resolution, default 2048) trade their reach and sharpness for speed. weather: { cloudCover 0..1, windSpeed m/s, windHeading radians } holds the weather (null: follow the day again); dayClock sets the time of day (seconds into the day).",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" }, shadows: { type: "boolean" }, shadowCascades: { type: "integer" }, shadowMap: { type: "integer" }, weather: { type: ["object", "null"] }, dayClock: { type: "number" } } },
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" }, shadows: { type: "boolean" }, shadowCascades: { type: "integer" }, shadowMap: { type: "integer" }, weather: { type: ["object", "null"] }, dayClock: { type: "number" }, profileDisable: { type: "string", enum: ["none", "people", "scatter", "street", "terrainStream", "houses", "sky", "cloudShadows", "skyClouds", "materials", "atmosphere", "stars"], description: "Profiler-only single-subsystem disable; none restores normal play. Houses and terrainStream retain existing draws." }, profileExperiment: { type: "number", description: "Profiler-only experiment ID recorded per frame." }, profileCloudCache: { type: "boolean", description: "Profiler-only switch between cached and reference procedural cloud noise." }, profileFreeze: { type: "boolean", description: "Profiler-only pause of simulation time, retaining production streaming budgets for identical-scene comparisons." } } },
         run: a => {
+            // Diagnostic switches only: never persisted and only available with the profiler on.
+            if ("profileDisable" in a || "profileExperiment" in a || "profileFreeze" in a || "profileCloudCache" in a) {
+                if (!profiling) throw new Error("Diagnostic switches require ENTROPY_FRAME_PROFILE=1.");
+                if ("profileDisable" in a) {
+                    if (!["none", "people", "scatter", "street", "terrainStream", "houses", "sky", ...Object.keys(PROFILE_SHADER_DISABLE)].includes(String(a.profileDisable))) throw new Error("Unknown profileDisable subsystem.");
+                    profileDisable = String(a.profileDisable);
+                    Entropy.Model.setInstanceCount("al-sky", profileDisable === "sky" ? 0 : 1);
+                }
+                if (typeof a.profileExperiment === "number") profileExperiment = a.profileExperiment;
+                if (typeof a.profileFreeze === "boolean") profileFreeze = a.profileFreeze;
+                if (typeof a.profileCloudCache === "boolean") cloudCacheEnabled = a.profileCloudCache;
+            }
             if (typeof a.shadows === "boolean") shadowsEnabled = a.shadows;
             if (typeof a.shadowCascades === "number") shadowCascadeCount = Math.max(1, Math.min(SHADOW_RADII.length, Math.floor(a.shadowCascades)));
             if (typeof a.shadowMap === "number") shadowMapSize = Math.max(256, Math.min(4096, Math.floor(a.shadowMap)));
@@ -2752,8 +2777,16 @@ function registerTools(): void {
 
 // --- Lifecycle -----------------------------------------------------------------------------------
 
+type GamePipelineConfig = Parameters<typeof Entropy.Pipeline.create>[0];
+function createGamePipeline(config: GamePipelineConfig): string {
+    const shared = { ...config, extraBindGroups: config.extraBindGroups!.map((group, i) => i === 0
+        ? { entries: [...group.entries, ...CLOUD_BIND_ENTRIES] } : group) };
+    return Entropy.Pipeline.create(shared);
+}
+
 addon.onInit(() => {
-    pipelineId = Entropy.Pipeline.create({
+    cloudTexture = createCloudCache();
+    pipelineId = createGamePipeline({
         name: "Allegiance",
         layout: "mesh",
         pbr: false,
@@ -2767,7 +2800,7 @@ addon.onInit(() => {
     });
     // The terrain (with its roads and distant building boxes) receives sun shadows but casts none:
     // its own relief is shaded by its normals, and its vertices would cost the cascades the most.
-    terrainPipelineId = Entropy.Pipeline.create({
+    terrainPipelineId = createGamePipeline({
         name: "Allegiance Terrain", layout: "mesh", pbr: false, sunShadows: true, shadowCaster: false,
         vertexShader: ALLEGIANCE_SHADER, fragmentShader: ALLEGIANCE_SHADER,
         extraBindGroups: [{ entries: [
@@ -2777,7 +2810,7 @@ addon.onInit(() => {
     });
     worldBuffer = uniform(WORLD_FLOATS);
     // Houses: instanced batches of Items, one draw per house mesh (qp_city.ts, qp_instances.ts).
-    housePipelineId = Entropy.Pipeline.create({
+    housePipelineId = createGamePipeline({
         name: "Allegiance Houses", layout: "mesh", pbr: false, sunShadows: true,
         vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
         // Group 2: the world, the records, then the material maps (al_materials.ts).
@@ -2787,7 +2820,7 @@ addon.onInit(() => {
     // nearest (12 m): beyond, their shadows are a texel or two, and hundreds of grass patches drawn
     // into every cascade cost more than all the trees.
     for (const [cls, cascades] of [["small", 2], ["ground", 1]] as const) {
-        scatterPipelineIds[cls] = Entropy.Pipeline.create({
+        scatterPipelineIds[cls] = createGamePipeline({
             name: `Allegiance Scatter ${cls}`, layout: "mesh", pbr: false, sunShadows: true, shadowCascades: cascades,
             vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
             extraBindGroups: [{ entries: [...INSTANCED_BIND_GROUPS[0].entries, ...MATERIAL_BIND_ENTRIES] }],
@@ -2800,7 +2833,7 @@ addon.onInit(() => {
         materialsMissing = m.missing.map(x => `${x.set}/${x.map}`);
         if (materialsMissing.length) Entropy.println(`[allegiance] material maps missing (checkerboard): ${materialsMissing.join(", ")}`);
     } catch (e) { Entropy.println(`[allegiance] material maps: ${(e as Error).message}`); }
-    peoplePipelineId = Entropy.Pipeline.create({
+    peoplePipelineId = createGamePipeline({
         // People cast into the two nearest cascades (52 m): further out their shadows are a texel.
         name: "Allegiance People", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 2,
         vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
@@ -2815,6 +2848,7 @@ addon.onInit(() => {
     writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     terrainId = Entropy.QuadPlanet.create({
         id: "allegiance-earth", planets: WORLD_PLANETS, pipelineId: terrainPipelineId, worldBufferId: worldBuffer,
+        extraBindings: cloudBindings(cloudTexture),
         city: { house: houseRule() },
     });
     setTerrainBackend({
@@ -2829,7 +2863,7 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings),
+        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer, sharedMaterialBindings),
         // Mesha evaluations run in a worker isolate (Entropy.Worker); without the bundle they fail
         // and CityHouses evaluates here instead.
         generateInBackground: job => { try { return Entropy.Worker.start(HOUSE_WORKER_SCRIPT, job); } catch { return null; } },
@@ -2845,7 +2879,7 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings),
+        instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer, sharedMaterialBindings),
         now: () => Date.now(),
     // 2 m size steps (the model stretches to the real footprint): streets of similar blocks share meshes.
     }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2, reselectDistance: 2, reselectMs: 100 }, BUILDING_MODEL);
@@ -2855,7 +2889,7 @@ addon.onInit(() => {
     foliage = new FoliageMeshes(Entropy.MeshCache);
     try { cacheProps(Entropy.MeshCache); } catch (e) { Entropy.println(`[allegiance] prop cache: ${(e as Error).message}`); }
     const scatterEngines = Object.fromEntries((["tall", "small", "ground"] as ShadowClass[])
-        .map(cls => [cls, meshCacheInstances(SCATTER_NAMESPACE, () => scatterPipelineIds[cls], () => worldBuffer, materialBindings)])) as Record<ShadowClass, ReturnType<typeof meshCacheInstances>>;
+        .map(cls => [cls, meshCacheInstances(SCATTER_NAMESPACE, () => scatterPipelineIds[cls], () => worldBuffer, sharedMaterialBindings)])) as Record<ShadowClass, ReturnType<typeof meshCacheInstances>>;
     scatterBatches = new InstanceBatches({ ...scatterEngines.tall, createMesh: (key, meshId, buffer, n) => {
         const mesh = meshOfBatch(key);
         return scatterEngines[shadowClass(familyOfMesh(mesh) ?? "")].createMesh(mesh, meshId, buffer, n);
@@ -2881,6 +2915,11 @@ addon.onInit(() => {
 
 // Per-phase timing into the native frame profiler (ENTROPY_FRAME_PROFILE=1); free when it is off.
 let profiling = false;
+// One disabled subsystem per experiment. "houses" / "terrainStream" stop updates, retaining draws.
+let profileDisable = "none";
+let profileExperiment = 0;
+let profileFreeze = false;
+const PROFILE_SHADER_DISABLE: Record<string, number> = { cloudShadows: 1, skyClouds: 2, materials: 3, atmosphere: 4, stars: 5 };
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 function timed<T>(phase: string, f: () => T): T {
     if (!profiling) return f();
@@ -2892,10 +2931,11 @@ function timed<T>(phase: string, f: () => T): T {
 
 addon.onUpdatePlus("Global", () => {
     if (!terrainId) return;
+    if (profiling) Entropy.Profile.count("#al experiment", profileExperiment);
     const now = Date.now();
     const real = lastMs ? Math.min(0.1, Math.max(0, (now - lastMs) / 1000)) : 1 / 60;
     lastMs = now;
-    const dt = fixedStep ?? real;
+    const dt = profileFreeze ? 0 : fixedStep ?? real;
     time += dt;
     frameCount++;
     controller.expire(time);
@@ -2930,7 +2970,7 @@ addon.onUpdatePlus("Global", () => {
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
         }
-        timed("    al street sim", () => stepStreet(street, nav, streetContext(), dt, rng, heightAt));
+        if (profileDisable !== "street") timed("    al street sim", () => stepStreet(street, nav, streetContext(), dt, rng, heightAt));
         handleStreetEvents();
         if (speech) { stepSpeech(speech, dt); setCrowdTarget(street, speech.crowd); }
         if (dialogue) {
@@ -2988,11 +3028,12 @@ addon.onUpdatePlus("Global", () => {
     const orbit = mode === "title" || mode === "setup";
     // A fixed-step run streams everything it wants every frame, so it looks the same on any machine.
     timed("    al terrain stream", () => {
+        if (profileDisable === "terrainStream") return;
         if (fixedStep) stream(Infinity, Infinity);
         else stream(loadingNow || orbit ? 40 : 10, loadingNow || orbit ? 30 : 12);
     });
     if (campaign && frameCount % 30 === 0) for (const place of stats?.settlements ?? []) discoverSettlement(campaign, place);
-    timed("    al houses", () => updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10));
+    if (profileDisable !== "houses") timed("    al houses", () => updateHouses(fixedStep ? Infinity : loadingNow ? 30 : 10));
     writeWorld();
     if (loadingNow) loadingStep();
     timed("    al ui", () => drawUi(dt));

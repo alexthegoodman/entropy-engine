@@ -274,6 +274,7 @@ impl AddonSunShadows {
         camera: &CameraUniform,
         camera_layout: &wgpu::BindGroupLayout,
         meshes: &[&'m CustomMesh],
+        mut gpu_timer: Option<&mut crate::core::gpu_timer::GpuTimer>,
     ) {
         let count = self.cascades.len().min(MAX_CASCADES);
         let mut uniform = SunShadowUniform {
@@ -309,7 +310,9 @@ impl AddonSunShadows {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass([
+                    "gpu sun shadow 0", "gpu sun shadow 1", "gpu sun shadow 2", "gpu sun shadow 3",
+                ][i])),
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.camera_bind_groups[i], &[]);

@@ -88,6 +88,8 @@ declare global {
     create: (config: {
       id?: string; planets: QuadPlanetDef[]; defaultChunkDetail?: QuadPlanetChunkDetail;
       pipelineId: string; worldBufferId: string;
+      /** Shared resources appended to every terrain chunk and city tile's bindings. */
+      extraBindings?: BindingConfig[];
       splitFactor?: number; minLevel?: number; triangleBudget?: number; cacheDir?: string; geocoderUrl?: string;
       /** OpenStreetMap buildings and roads on Earth (on by default; tiles from OpenFreeMap unless `tileUrl`). */
       city?: { enabled?: boolean; tileUrl?: string; radius?: number; maxAltitude?: number; house?: QuadPlanetHouseRule };

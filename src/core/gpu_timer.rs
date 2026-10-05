@@ -102,6 +102,7 @@ impl GpuTimer {
                     if end > start {
                         let ns = (end - start) as f64 * self.period;
                         crate::core::frame_profile::record(label, std::time::Duration::from_nanos(ns as u64));
+                        crate::core::frame_profile::count(crate::core::frame_profile::intern(&format!("#samples {label}")), 1.0);
                     }
                 }
             }

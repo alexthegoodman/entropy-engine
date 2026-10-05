@@ -68,6 +68,9 @@ pub struct QuadPlanetConfig {
     /// Uniform buffer bound at group 2 binding 0 of every chunk; each chunk's own uniform goes at
     /// group 2 binding 1.
     pub world_buffer_id: String,
+    /// Shared shader resources appended to every terrain and city mesh's bindings.
+    #[serde(default)]
+    pub extra_bindings: Vec<crate::deno::addon_ops::BindingConfig>,
     #[serde(default)]
     pub split_factor: Option<f64>,
     #[serde(default)]
@@ -104,6 +107,7 @@ pub struct QuadPlanetSystem {
     pub streamer: PlanetStreamer,
     pub pipeline_id: String,
     pub world_buffer_id: String,
+    pub extra_bindings: Vec<crate::deno::addon_ops::BindingConfig>,
     pub render_origin: V3,
     pub items: HashMap<String, ChunkItem>,
     pub geocoder: Geocoder,
@@ -157,6 +161,7 @@ impl QuadPlanetSystem {
             streamer: PlanetStreamer::new(lod, budget),
             pipeline_id: config.pipeline_id,
             world_buffer_id: config.world_buffer_id,
+            extra_bindings: config.extra_bindings,
             render_origin: [0.0; 3],
             items: HashMap::new(),
             geocoder: Geocoder::new(config.geocoder_url),

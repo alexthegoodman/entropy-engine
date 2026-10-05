@@ -169,10 +169,10 @@ fn update(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, args: UpdateArgs) 
                 pipeline_id: sys.pipeline_id.clone(),
                 render_role: None,
                 instance_count: Some(1),
-                bindings: Some(vec![
+                bindings: Some([
                     BindingConfig { group: 2, binding: 0, resource: ResourceType::Buffer { id: sys.world_buffer_id.clone() } },
                     BindingConfig { group: 2, binding: 1, resource: ResourceType::Buffer { id: item.buffer_id.clone() } },
-                ]),
+                ].into_iter().chain(sys.extra_bindings.iter().cloned()).collect()),
                 physics: None,
                 behavior_id: None,
                 yumon_id: None,
@@ -225,10 +225,10 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
                 pipeline_id: sys.pipeline_id.clone(),
                 render_role: None,
                 instance_count: Some(1),
-                bindings: Some(vec![
+                bindings: Some([
                     BindingConfig { group: 2, binding: 0, resource: ResourceType::Buffer { id: sys.world_buffer_id.clone() } },
                     BindingConfig { group: 2, binding: 1, resource: ResourceType::Buffer { id: buffer_id.clone() } },
-                ]),
+                ].into_iter().chain(sys.extra_bindings.iter().cloned()).collect()),
                 physics: None,
                 behavior_id: None,
                 yumon_id: None,

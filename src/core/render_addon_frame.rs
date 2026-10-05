@@ -1173,7 +1173,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 if let Some(shadows) = ctx.sun_shadows.as_mut() {
-                    shadows.render(device, queue, &mut encoder, &camera_binding.uniform, &camera_binding.bind_group_layout, &shadow_meshes);
+                    crate::core::frame_profile::time("sun shadow encode", || {
+                        shadows.render(device, queue, &mut encoder, &camera_binding.uniform, &camera_binding.bind_group_layout, &shadow_meshes, gpu_timer.as_mut());
+                    });
                     if shadows.last_draws > 0 { crate::core::frame_profile::count("sun shadow draws", shadows.last_draws as f64); }
                     if shadows.last_rendered > 0 { crate::core::frame_profile::count("sun shadow cascades", shadows.last_rendered as f64); }
                 }
