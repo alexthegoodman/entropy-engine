@@ -55,7 +55,7 @@ describe("the speech mini-game", () => {
         const m0 = s.marker;
         stepSpeech(s, 0.2);
         expect(s.marker).not.toBe(m0);
-        for (let t = 0; t < 60 && s.phase === "deliver"; t++) stepSpeech(s, 0.1);
+        for (let t = 0; t < 100 && s.phase === "deliver"; t++) stepSpeech(s, 0.1);
         expect(s.lastGrade).toBe("miss");
         expect(s.marker).toBeGreaterThanOrEqual(0);
         expect(s.marker).toBeLessThanOrEqual(1);
@@ -333,12 +333,16 @@ describe("street combat", () => {
         expect(events).toContain("squad-defeated");
     });
 
-    it("hurting civilians is reported against you", () => {
+    it("never harms civilians: shots pass through them and only scare them", () => {
         const st = newStreet(), r = makeRng(8);
         stepStreet(st, null, ctx(), 0.1, r, flat);
-        const a = st.actors[0];
+        const a = st.actors.find(x => x.kind === "civilian")!;
         a.x = 0; a.z = 5; a.health = 1;
-        playerShoot(st, null, [0, 1.2, 0], [0, 0, 1], { ...weaponById("pistol"), spread: 0 }, 0, r);
-        expect(st.events.some(e => e.kind === "civilian-killed" && e.byPlayer)).toBe(true);
+        const shots = playerShoot(st, null, [0, 1.2, 0], [0, 0, 1], { ...weaponById("pistol"), spread: 0 }, 0, r);
+        expect(shots[0].hit).toBeNull();
+        expect(a.health).toBe(1);
+        expect(a.state).not.toBe("dead");
+        expect(st.events.some(e => e.kind === "civilian-killed")).toBe(false);
+        expect(st.alarm).not.toBeNull();
     });
 });

@@ -138,3 +138,156 @@ export function buildFlyingCar(): ModelMesh {
     }
     return m.build();
 }
+
+// --- Low-poly set dressing -----------------------------------------------------------------------
+// Simple stand-ins (a few dozen boxes each) that can be swapped for detailed meshes later; all
+// are drawn instanced (al_scatter.ts). Paint takes the instance tint; MAT_CLOTH_TOP takes it too
+// (flags, awnings) in the instanced shader.
+
+const CONCRETE: RGB = [0.62, 0.6, 0.56];
+const OLIVE: RGB = [0.36, 0.4, 0.3];
+const STEEL: RGB = [0.45, 0.47, 0.5];
+const WOOD: RGB = [0.45, 0.32, 0.2];
+
+export function buildBench(): ModelMesh {
+    const m = new MeshBuilder();
+    for (const x of [-0.75, 0.75]) m.box([x, 0.22, 0], [0.04, 0.22, 0.22], GUN, MATERIAL_PAINT);
+    for (const z of [-0.12, 0, 0.12]) m.box([0, 0.45, z], [0.9, 0.025, 0.05], WOOD, MATERIAL_PAINT);
+    for (const y of [0.62, 0.78]) m.box([0, y, 0.2], [0.9, 0.05, 0.02], WOOD, MATERIAL_PAINT);
+    return m.build();
+}
+
+export function buildStreetLamp(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0.15, 0], [0.16, 0.15, 0.16], STEEL, MATERIAL_PAINT);
+    m.box([0, 2.6, 0], [0.05, 2.5, 0.05], STEEL, MATERIAL_PAINT);
+    m.box([0, 5.05, -0.45], [0.05, 0.05, 0.5], STEEL, MATERIAL_PAINT);
+    m.box([0, 4.95, -0.85], [0.18, 0.06, 0.12], [1, 0.92, 0.7], MATERIAL_GLOW);
+    return m.build();
+}
+
+export function buildTrashBin(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0.45, 0], [0.28, 0.45, 0.28], [0.22, 0.35, 0.28], MATERIAL_PAINT);
+    m.box([0, 0.93, 0], [0.31, 0.04, 0.31], [0.18, 0.28, 0.22], MATERIAL_PAINT);
+    return m.build();
+}
+
+export function buildBarrier(): ModelMesh {
+    const m = new MeshBuilder();
+    m.hexa([[-1, 0, -0.3], [1, 0, -0.3], [1, 0, 0.3], [-1, 0, 0.3], [-1, 0.8, -0.1], [1, 0.8, -0.1], [1, 0.8, 0.1], [-1, 0.8, 0.1]], CONCRETE, MATERIAL_PAINT);
+    m.box([0, 0.55, -0.205], [0.95, 0.06, 0.01], [0.95, 0.6, 0.1], MATERIAL_PAINT);
+    return m.build();
+}
+
+export function buildCrates(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0.4, 0], [0.4, 0.4, 0.4], WOOD, MATERIAL_PAINT);
+    m.box([0.85, 0.35, 0.1], [0.35, 0.35, 0.35], [0.5, 0.38, 0.24], MATERIAL_PAINT);
+    m.box([0.3, 1.1, 0.05], [0.3, 0.3, 0.3], [0.42, 0.3, 0.18], MATERIAL_PAINT);
+    return m.build();
+}
+
+export function buildSandbags(): ModelMesh {
+    const m = new MeshBuilder();
+    for (let row = 0; row < 3; row++) for (let i = 0; i < 5 - row; i++)
+        m.ellipsoid([(i - (4 - row) / 2) * 0.55, 0.14 + row * 0.24, 0], [0.3, 0.14, 0.22], [0.6, 0.55, 0.4], MATERIAL_PAINT, 8, 4);
+    return m.build();
+}
+
+/** A shop's street kiosk: counter and an awning in the shop's color (instance tint). */
+export function buildKiosk(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0.55, 0], [1.1, 0.55, 0.35], [0.85, 0.82, 0.75], MATERIAL_PAINT);
+    for (const x of [-1.05, 1.05]) m.box([x, 1.4, 0.2], [0.04, 1.4, 0.04], STEEL, MATERIAL_PAINT);
+    m.hexa([[-1.25, 2.6, -0.5], [1.25, 2.6, -0.5], [1.25, 2.6, 0.45], [-1.25, 2.6, 0.45], [-1.25, 2.75, -0.5], [1.25, 2.75, -0.5], [1.25, 3.0, 0.45], [-1.25, 3.0, 0.45]], WHITE, MAT_CLOTH_TOP);
+    m.box([0, 3.35, 0.3], [0.9, 0.3, 0.03], [0.1, 0.1, 0.1], MATERIAL_PAINT);
+    m.box([0, 3.35, 0.27], [0.8, 0.2, 0.01], WHITE, MAT_CLOTH_TOP);
+    return m.build();
+}
+
+/** A supply cache left in a house: a footlocker with a glowing latch. */
+export function buildLootCrate(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0.22, 0], [0.42, 0.22, 0.26], OLIVE, MATERIAL_PAINT);
+    m.box([0, 0.46, 0], [0.44, 0.03, 0.28], [0.28, 0.3, 0.22], MATERIAL_PAINT);
+    m.box([0, 0.3, -0.27], [0.08, 0.06, 0.01], [1, 0.8, 0.3], MATERIAL_GLOW);
+    return m.build();
+}
+
+/** A vertical light beam (glow), 1 m wide and `height` tall: party headquarters seen from the sky. */
+export function buildBeacon(height = 300): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, height / 2, 0], [0.6, height / 2, 0.6], WHITE, MATERIAL_GLOW);
+    return m.build();
+}
+
+/** Military buildings at their nominal sizes (al_military.ts SIZES): low, hard, olive. */
+export function buildMilitary(kind: "hq" | "barracks" | "depot" | "hangar" | "tower" | "wall"): ModelMesh {
+    const m = new MeshBuilder();
+    const slab = (w: number, d: number, h: number, color: RGB) => {
+        m.box([0, h / 2, 0], [w / 2, h / 2, d / 2], color, MATERIAL_PAINT);
+        m.box([0, h + 0.15, 0], [w / 2 + 0.25, 0.15, d / 2 + 0.25], [0.3, 0.31, 0.28], MATERIAL_PAINT);
+    };
+    const door = (w: number, d: number, dw: number, dh: number) => m.box([0, dh / 2, -d / 2 - 0.03], [dw / 2, dh / 2, 0.04], [0.18, 0.2, 0.17], MATERIAL_PAINT);
+    const windows = (w: number, d: number, y: number) => {
+        for (let x = -w / 2 + 1.5; x <= w / 2 - 1.5; x += 2.5) m.box([x, y, -d / 2 - 0.03], [0.5, 0.25, 0.03], [0.15, 0.25, 0.3], MATERIAL_PAINT);
+    };
+    switch (kind) {
+        case "hq": slab(14, 10, 7, CONCRETE); door(14, 10, 2.4, 2.6); windows(14, 10, 4.8);
+            m.box([4, 7.8, 2], [0.1, 1.5, 0.1], STEEL, MATERIAL_PAINT); m.ellipsoid([4, 9.4, 2], [0.6, 0.15, 0.6], STEEL, MATERIAL_PAINT, 10, 4); break;
+        case "barracks": slab(18, 7, 4.5, OLIVE); door(18, 7, 1.4, 2.2); windows(18, 7, 2.6); break;
+        case "depot": slab(11, 11, 5.5, [0.5, 0.48, 0.42]); door(11, 11, 4, 4); break;
+        case "hangar": {
+            // A quonset: half-cylinder roof.
+            for (let i = 0; i < 10; i++) {
+                const a0 = i / 10 * Math.PI, a1 = (i + 1) / 10 * Math.PI, r = 7;
+                m.hexa([[Math.cos(a0) * r, Math.sin(a0) * 6.5, -7], [Math.cos(a1) * r, Math.sin(a1) * 6.5, -7], [Math.cos(a1) * r, Math.sin(a1) * 6.5, 7], [Math.cos(a0) * r, Math.sin(a0) * 6.5, 7],
+                    [Math.cos(a0) * (r - 0.2), Math.sin(a0) * 6.3, -7], [Math.cos(a1) * (r - 0.2), Math.sin(a1) * 6.3, -7], [Math.cos(a1) * (r - 0.2), Math.sin(a1) * 6.3, 7], [Math.cos(a0) * (r - 0.2), Math.sin(a0) * 6.3, 7]], OLIVE, MATERIAL_PAINT);
+            }
+            m.box([0, 2.5, -7.02], [4.5, 2.5, 0.05], [0.22, 0.24, 0.2], MATERIAL_PAINT);
+            break;
+        }
+        case "tower":
+            for (const x of [-1.2, 1.2]) for (const z of [-1.2, 1.2]) m.box([x, 3.5, z], [0.12, 3.5, 0.12], STEEL, MATERIAL_PAINT);
+            m.box([0, 7.1, 0], [1.6, 0.1, 1.6], WOOD, MATERIAL_PAINT);
+            m.box([0, 7.7, -1.55], [1.6, 0.5, 0.05], OLIVE, MATERIAL_PAINT);
+            m.box([0, 7.7, 1.55], [1.6, 0.5, 0.05], OLIVE, MATERIAL_PAINT);
+            m.box([-1.55, 7.7, 0], [0.05, 0.5, 1.6], OLIVE, MATERIAL_PAINT);
+            m.box([1.55, 7.7, 0], [0.05, 0.5, 1.6], OLIVE, MATERIAL_PAINT);
+            m.box([0, 9.1, 0], [1.8, 0.08, 1.8], [0.3, 0.31, 0.28], MATERIAL_PAINT);
+            m.box([0, 8.6, -1.3], [0.12, 0.08, 0.12], [1, 0.95, 0.75], MATERIAL_GLOW);
+            break;
+        case "wall":
+            // One meter of wall along x (scaled to the segment's length), with a coping.
+            m.box([0, 1.3, 0], [0.5, 1.3, 0.3], CONCRETE, MATERIAL_PAINT);
+            m.box([0, 2.65, 0], [0.5, 0.05, 0.36], [0.5, 0.49, 0.46], MATERIAL_PAINT);
+            break;
+    }
+    return m.build();
+}
+
+/** First-person view model: the weapon in your hands, in camera space (+x right, +y up, -z ahead),
+ * low and to the right of the crosshair. */
+export function buildViewWeapon(kind: string): ModelMesh {
+    const m = new MeshBuilder();
+    const skin: RGB = [0.85, 0.66, 0.5];
+    const x = 0.24, y = -0.24;
+    if (kind === "none") {
+        m.ellipsoid([x, y, -0.7], [0.05, 0.045, 0.07], skin, MATERIAL_PAINT, 8, 6);
+        m.ellipsoid([-x, y, -0.7], [0.05, 0.045, 0.07], skin, MATERIAL_PAINT, 8, 6);
+        return m.build();
+    }
+    const long = kind === "pistol" ? 0.17 : kind === "rail" ? 0.6 : 0.5;
+    const front = -0.62 - long;
+    const color: RGB = kind === "rail" ? [0.25, 0.6, 0.85] : [0.2, 0.2, 0.22];
+    // Barrel and receiver, then the grip, a stock for long guns, and the hands.
+    m.box([x, y, (front - 0.62) / 2], [0.022, 0.03, long / 2], color, MATERIAL_PAINT);
+    m.box([x, y + 0.035, -0.66 - long * 0.3], [0.012, 0.008, long * 0.25], [0.1, 0.1, 0.11], MATERIAL_PAINT);
+    m.box([x, y - 0.06, -0.66], [0.018, 0.045, 0.022], [0.12, 0.12, 0.13], MATERIAL_PAINT);
+    if (kind !== "pistol") m.box([x, y - 0.01, -0.5], [0.025, 0.035, 0.12], [0.12, 0.12, 0.13], MATERIAL_PAINT);
+    if (kind === "rail") m.box([x, y + 0.04, -0.62 - long * 0.5], [0.01, 0.01, long * 0.4], [0.4, 0.85, 1], MATERIAL_GLOW);
+    m.ellipsoid([x, y - 0.075, -0.64], [0.035, 0.04, 0.045], skin, MATERIAL_PAINT, 8, 6);
+    if (kind !== "pistol") m.ellipsoid([x - 0.02, y - 0.03, -0.62 - long * 0.6], [0.035, 0.035, 0.045], skin, MATERIAL_PAINT, 8, 6);
+    return m.build();
+}

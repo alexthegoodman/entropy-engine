@@ -604,7 +604,8 @@ OpenStreetMap streets and Mesha houses stream in and cache. Streamed cities, tow
 are independent political targets inside future-country territories. Xbox/DualShock controls and
 sparse housing-based hover-car traffic are supported. You arrive beside a parked personal flying
 car: press E (X/Square) to board, Space (A/Cross) to rise, WASD (left stick) to fly and L
-(D-pad down) to land. Position, altitude and occupancy are saved with the campaign. People use Mesha's full human model
+(D-pad down) to land; hold Shift to build boost up to 120 m/s for long trips, and fit garage upgrades. Position, altitude and occupancy are saved with the campaign.
+You play in first person with five armed comrades, starting with a guided mission to storm a regime outpost near your hometown and make it your party headquarters. Sky markers and a mini map show nearby towns, cities, military compounds and your HQ. Every town and city has a walled military compound sized to its population: clear its garrison and raise your flag to take the place (civilians are never harmed). Walk into houses to search them for supplies, buy from street shops, use your inventory, and come back at your last checkpoint if you fall (the game autosaves). Mesha trees, shrubs and grass and low-poly street props are drawn instanced and culled. People use Mesha's full human model
 nearby, with distance LODs prepared on the loading screen and cached to disk. On the street, pedestrians walk between
 real building doors on A* paths. Give speeches as a five-beat mini-game (pick a line for the crowd,
 hit the timing, rebut hecklers, out-argue rival orators), hand out pamphlets, and recruit passers-by.
