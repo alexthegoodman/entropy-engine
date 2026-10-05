@@ -43,8 +43,10 @@
 // - 8: building boxes (level of detail 2), one mesh per city tile. Each vertex knows its
 //   building's anchor: uv.x's fraction and uv.y's fraction hold the x/z offset from it
 //   ((f - 0.5) * 4000 m), the color's alpha the height above it; uv.y's integer part is 1 for a
-//   house. A house box within world.city.x of the camera is folded away: the house model is
-//   there instead. Walls get rows of windows from the height above the anchor.
+//   house and 2 for another building standing on the ground. A house box within world.city.x of
+//   the camera, and another building's box within world.city.z, is folded away: a model is there
+//   instead (qp_city.ts houses, qp_buildings.ts city buildings). Walls get rows of windows from
+//   the height above the anchor.
 // - 10: roads, faded out past world.city.y and nudged toward the camera in depth so they stay
 //   over the ground they are draped on, even where a coarser terrain chunk is drawn.
 
@@ -65,8 +67,8 @@ export interface WorldUniform {
     /** Outline every chunk (independent of the level tint). */
     debugOutlines?: boolean;
     planets: { center: [number, number, number]; radius: number; atmosphere: [number, number, number]; atmosphereHeight: number }[];
-    /** Cities: house boxes within `hideRadius` of the camera are folded away; roads end at `roadDistance`. */
-    city?: { hideRadius: number; roadDistance: number };
+    /** Cities: house boxes within `hideRadius` of the camera (other buildings' within `buildingHideRadius`) are folded away; roads end at `roadDistance`. */
+    city?: { hideRadius: number; roadDistance: number; buildingHideRadius?: number };
 }
 
 export function packWorld(w: WorldUniform): Float32Array {
@@ -80,7 +82,7 @@ export function packWorld(w: WorldUniform): Float32Array {
         out.set([...p.center, p.radius], 12 + i * 4);
         out.set([...p.atmosphere, p.atmosphereHeight], 12 + MAX_PLANETS * 4 + i * 4);
     }
-    out.set([w.city?.hideRadius ?? 0, w.city?.roadDistance ?? 3000, 0, 0], 12 + MAX_PLANETS * 8);
+    out.set([w.city?.hideRadius ?? 0, w.city?.roadDistance ?? 3000, w.city?.buildingHideRadius ?? 0, 0], 12 + MAX_PLANETS * 8);
     return out;
 }
 
@@ -107,7 +109,7 @@ struct World {
     params: vec4<f32>,         // x = exposure, y = LOD debug tint, z = planet count, w = chunk outlines
     planet: array<vec4<f32>, ${MAX_PLANETS}>,     // center xyz (relative to the render origin), radius
     atmosphere: array<vec4<f32>, ${MAX_PLANETS}>, // color rgb, shell thickness
-    city: vec4<f32>,           // x = house box hide radius, y = road distance
+    city: vec4<f32>,           // x = house box hide radius, y = road distance, z = other buildings' box hide radius
 };
 @group(2) @binding(0) var<uniform> world: World;
 
@@ -171,10 +173,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let w = item.model * vec4<f32>(pos, 1.0);
         clip = camera.view_proj * w;
         if (material == 8 && in.tex_coords.y >= 1.0) {
-            // A house box: fold it away where the house model is drawn instead (see the top).
+            // A house's (or another building's) box: fold it away where its model is drawn
+            // instead (see the top).
             let anchor = in.position - vec3<f32>((fract(in.tex_coords.x) - 0.5) * 4000.0, in.color.a, (fract(in.tex_coords.y) - 0.5) * 4000.0);
             let a = item.model * vec4<f32>(anchor, 1.0);
-            if (length(a.xyz - camera.view_pos.xyz) < world.city.x) {
+            let hide = select(world.city.z, world.city.x, in.tex_coords.y < 2.0);
+            if (length(a.xyz - camera.view_pos.xyz) < hide) {
                 clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
             }
         }

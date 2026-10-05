@@ -1576,6 +1576,7 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadLeft => "DPadLeft",
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
+                            Button::Select => "Select",
                             Button::LeftThumb => "LeftThumb",
                             Button::RightThumb => "RightThumb",
                             Button::RightTrigger2 => "RightTrigger2",
@@ -1604,6 +1605,7 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadLeft => "DPadLeft",
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
+                            Button::Select => "Select",
                             Button::LeftThumb => "LeftThumb",
                             Button::RightThumb => "RightThumb",
                             Button::RightTrigger2 => "RightTrigger2",
@@ -1623,7 +1625,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     gilrs::EventType::Disconnected => {
                         if let Some(editor) = self.windows.values_mut().next().and_then(|w| w.pipeline.export_editor.as_mut()) {
                             crate::handlers::handle_gamepad_input(editor, (0.0, 0.0), (0.0, 0.0));
-                            for button in ["South", "East", "North", "West", "Start", "LeftThumb", "RightThumb", "RightTrigger2", "LeftTrigger2", "LeftTrigger", "RightTrigger", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"] {
+                            for button in ["South", "East", "North", "West", "Start", "Select", "LeftThumb", "RightThumb", "RightTrigger2", "LeftTrigger2", "LeftTrigger", "RightTrigger", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"] {
                                 crate::handlers::handle_gamepad_button(editor, button, false);
                             }
                         }

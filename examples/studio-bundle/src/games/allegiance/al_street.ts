@@ -71,6 +71,9 @@ export interface Actor {
     compound?: string | null;
     post?: [number, number] | null;
     alerted?: boolean;
+    /** Seconds spent drawing a bead on the current target (enemies' aim settles in), and on whom (-1: you). */
+    aim?: number;
+    aimAt?: number;
 }
 
 export interface Shot { ax: number; ay: number; az: number; bx: number; by: number; bz: number; side: Side; hit: boolean; age: number }
@@ -386,9 +389,9 @@ export function alarm(st: StreetState, x: number, z: number): void {
  * The player fires one shot (pellets for shotguns) along `dir` from `eye` (local). Returns what
  * was hit. Civilians hit count against your karma (the addon reads the events).
  */
-export function playerShoot(st: StreetState, nav: NavGrid | null, eye: Vec3, dir: Vec3, w: WeaponDef, marksmanship: number, r: Rng): ShotResult[] {
+export function playerShoot(st: StreetState, nav: NavGrid | null, eye: Vec3, dir: Vec3, w: WeaponDef, marksmanship: number, r: Rng, spreadScale = 1): ShotResult[] {
     const out: ShotResult[] = [];
-    const spread = w.spread * (1 - marksmanship * 0.12) * (st.player.moving ? 1.6 : 1);
+    const spread = w.spread * spreadScale * (1 - marksmanship * 0.12) * (st.player.moving ? 1.6 : 1);
     for (let k = 0; k < w.pellets; k++) {
         const d = jitter(dir, spread, r);
         const res = castShot(st, nav, eye, d, w.range, null, false);
@@ -499,8 +502,25 @@ export function spawnSquad(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     return n;
 }
 
+/** Seconds of tracking one target before an enemy's aim has fully settled. */
+export const AIM_SETTLE = 5;
+
+/**
+ * How well an enemy's aim has settled after `seconds` on one target: they start rattled and wide
+ * (a fifth of their accuracy) and tighten up over AIM_SETTLE seconds. Switching targets starts over.
+ */
+export function aimSettle(seconds: number): number {
+    const t = clamp(seconds / AIM_SETTLE, 0, 1);
+    return 0.2 + 0.8 * t * t * (3 - 2 * t);
+}
+
+/** Accuracy of compound defenders: an outpost's are green conscripts. */
+export function guardAccuracy(enemyQuality: number, rookie: boolean): number {
+    return (0.22 + enemyQuality * 0.3) * (rookie ? 0.5 : 1);
+}
+
 /** Compound defenders at their posts (local x, z). They hold position until you come close or shoot. */
-export function spawnGuards(st: StreetState, ctx: StreetContext, r: Rng, compound: string, posts: [number, number][]): number {
+export function spawnGuards(st: StreetState, ctx: StreetContext, r: Rng, compound: string, posts: [number, number][], rookie = false): number {
     let n = 0;
     for (const [x, z] of posts) {
         const a = newActor(st, "soldier", x, z, r);
@@ -508,7 +528,7 @@ export function spawnGuards(st: StreetState, ctx: StreetContext, r: Rng, compoun
         a.faction = "concordat";
         a.weapon = r.next() < 0.7 ? "rifle" : "smg";
         a.mag = weaponById(a.weapon).magazine;
-        a.accuracy = 0.22 + ctx.enemyQuality * 0.3;
+        a.accuracy = guardAccuracy(ctx.enemyQuality, rookie);
         a.maxHealth = a.health = 80 + ctx.enemyQuality * 40;
         a.state = "fight";
         a.compound = compound;
@@ -700,6 +720,10 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
             if (d < bestD && (!nav || nav.sightClear(a.x, a.z, f.x, f.z))) { bestD = d; target = f; }
         }
     }
+    // Aim settles while one target is held; a new target starts over.
+    const aimAt = target ? target.id ?? -1 : null;
+    if (aimAt === null || aimAt !== a.aimAt) a.aim = 0; else a.aim = (a.aim ?? 0) + dt;
+    a.aimAt = aimAt ?? undefined;
     if (target && a.weapon !== "fists") {
         const d = Math.sqrt(dist2(a.x, a.z, target.x, target.z));
         a.heading = turn(a.heading, Math.atan2(target.x - a.x, target.z - a.z), dt * 8);
@@ -718,10 +742,11 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
             a.mag--;
             // People fire in short, aimed bursts, not at the weapon's cyclic rate.
             a.cooldown = 1 / Math.min(w.rate, 1.6) * (1 + r.next() * 0.8);
-            const hitP = a.accuracy * 0.55 * clamp(1 - d / w.range * 0.8, 0.1, 1) * (target.id === null && st.player.moving ? 0.7 : 1);
+            const settle = a.side === "enemy" ? aimSettle(a.aim ?? 0) : 1;
+            const hitP = a.accuracy * 0.55 * settle * clamp(1 - d / w.range * 0.8, 0.1, 1) * (target.id === null && st.player.moving ? 0.7 : 1);
             const hit = r.next() < hitP;
             const ty = target.y + 1.2 + (hit ? 0 : (r.next() - 0.5) * 1.5);
-            const miss = hit ? 0 : 1.2;
+            const miss = hit ? 0 : 1.2 + (1 - settle) * 2.5;
             st.shots.push({ ax: a.x, ay: a.y + 1.4, az: a.z, bx: target.x + (r.next() - 0.5) * miss, by: ty, bz: target.z + (r.next() - 0.5) * miss, side: a.side, hit, age: 0 });
             if (hit) {
                 const dmg = w.damage * Math.min(w.pellets, 3) * 0.45 * (0.8 + 0.4 * r.next());

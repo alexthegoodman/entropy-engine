@@ -27,7 +27,6 @@ import {
     applyLedger, dailyLedger, dailyMembers, gainXp, hasFacility, holder, orgReport, partyQuality, skill, maxHealth,
 } from "./al_party";
 import type { Rng } from "./al_rng";
-import { reinforceCompounds } from "./al_military";
 
 /** Real seconds per campaign day while you play (the day also advances when you rest or travel). */
 export const DAY_SECONDS = 120;
@@ -700,7 +699,6 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
         resolveSchemes(c, r);
     });
     dailyMembers(c);
-    reinforceCompounds(c);
     if (!c.outlawedDay && (worldSupport(c) > 0.04 || partyRegions(c).length > 0)) outlaw(c);
     c.party.peakMembers = Math.max(c.party.peakMembers, totalMembers(c));
     checkOutcome(c);

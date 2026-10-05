@@ -107,6 +107,8 @@ declare global {
     placeName: (id: string, lat: number, lon: number) => string | null;
     /** Earth's buildings within `radius` of `position` (world), nearest first. */
     buildings: (id: string, position: [number, number, number], radius: number, options?: { kind?: "house" | "box"; limit?: number }) => QuadPlanetBuilding[];
+    /** Earth's roads (center lines as [lat, lon] degrees, paved width in meters) whose extent comes within `radius` meters of (lat, lon). */
+    roads: (id: string, lat: number, lon: number, radius: number) => Array<{ points: [number, number][]; width: number; street: boolean }>;
   }
 
 
@@ -4357,6 +4359,8 @@ export interface EntropyAPI {
     // the current value (10 world units by default). screenToWorldRay already accounts
     // for whichever projection is active.
     setOrthographic: (enabled: boolean, viewHeight?: number) => void;
+    /** Vertical field of view in degrees for the perspective camera (aiming down sights); 0 restores the default. */
+    setFov: (degrees: number) => void;
     screenToWorldRay: (screenX: number, screenY: number) => Ray;
   };
   /**

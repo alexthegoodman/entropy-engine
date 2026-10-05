@@ -153,6 +153,8 @@ export interface Campaign {
         inventory?: Record<string, number>;
         /** Garage upgrade tiers bought for the flying car (al_vehicle.ts CAR_UPGRADES). */
         carUpgrades?: Partial<Record<"turbine" | "capacitor" | "lift" | "gyro" | "ceiling", number>>;
+        /** Aim assist strength (0..1) and look sensitivity (al_aim.ts); defaults 0.5 and 1. */
+        controls?: { aimAssist: number; lookSensitivity: number };
     };
     members: Member[];
     nextMemberId: number;

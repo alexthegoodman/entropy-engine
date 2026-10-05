@@ -11,13 +11,13 @@ import {
     ITEMS, addItem, itemCount, useItem, quickHealItem, shopForBuilding, shopStock, buyStock, buyCarUpgrade, sellItem, houseLoot, takeHouseLoot, isLooted, SHOP_EVERY,
 } from "../src/games/allegiance/al_items";
 import {
-    compoundBuildings, compoundGarrison, compoundPlan, compoundLayout, compoundToLocal, findClearSite, stepCapture, defenderDown, reinforceCompounds,
+    compoundBuildings, compoundGarrison, compoundPlan, compoundLayout, compoundToLocal, findClearSite, stepCapture, defenderDown,
     ensureCompound, compoundsNear, offsetLatLon, RAISE_SECONDS,
 } from "../src/games/allegiance/al_military";
 import { startFoundingMission, updateMission, missionObjective, missionDistance, MISSION_REWARD } from "../src/games/allegiance/al_mission";
 import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, enterable, toU, toV, doorSide } from "../src/games/allegiance/al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, miniMapRuns, toMapCell } from "../src/games/allegiance/al_markers";
-import { scatterAround, scatterMesh, foliageKey, FOLIAGE, FoliageMeshes, packFoliage, cacheProps, PROPS, batchKey, meshOfBatch, SCATTER_NAMESPACE } from "../src/games/allegiance/al_scatter";
+import { scatterAround, scatterMesh, foliageKey, foliageLods, FOLIAGE, FoliageMeshes, packFoliage, cacheProps, PROPS, batchKey, meshOfBatch, SCATTER_NAMESPACE } from "../src/games/allegiance/al_scatter";
 import { newStreet, stepStreet, spawnGuards, guardsOf, playerShoot, type StreetContext } from "../src/games/allegiance/al_street";
 import { startSpeech, chooseCard, MARKER_SPEED } from "../src/games/allegiance/al_speech";
 import { weaponById } from "../src/games/allegiance/al_data";
@@ -206,13 +206,13 @@ describe("military compounds", () => {
         expect(stepCapture(cs, progress, true, RAISE_SECONDS / 2 + 0.01)).toBe("captured");
         expect(cs.captured).toBe(true);
     });
-    it("changes hands with the town, and refills its garrison while you are away", () => {
+    it("changes hands with the town; fallen defenders stay down as the days pass", () => {
         const c = newCampaign({ seed: 8, spawn: "rome" });
         const cs = ensureCompound(c, "berlin")!;
         cs.garrison = 1;
         c.player.lat = 0; c.player.lon = 0;
-        reinforceCompounds(c);
-        expect(cs.garrison).toBeGreaterThan(1);
+        for (let d = 0; d < 5; d++) advanceDay(c);
+        expect(cs.garrison).toBe(1);
         takeRegion(c, c.regions.berlin, "war");
         expect(cs.captured).toBe(true);
         loseRegion(c, c.regions.berlin, "concordat", "test");
@@ -383,17 +383,17 @@ describe("set dressing", () => {
         expect(items).toEqual(scatterAround(rects(), { walkable, shopOf: r => (r.key === "b-0" ? "garage" : null), origin: { lat: 51, lon: 0 }, area: { x: 100, z: 60, half: 200 } }));
         expect(items.every(it => walkable(it.x, it.z))).toBe(true);
         const families = new Set(items.map(i => i.family));
-        expect(families.has("shrub") || families.has("tree-round") || families.has("tree-oval")).toBe(true);
+        expect(families.has("shrub") || families.has("tree-oak") || families.has("tree-maple") || families.has("tree-birch")).toBe(true);
         expect(items.filter(i => i.family === "kiosk")).toHaveLength(1);
         expect(scatterAround(rects(), { walkable, tropical: true, origin: { lat: 0, lon: 0 }, area: { x: 0, z: 0, half: 400 } }).some(i => i.family === "conifer")).toBe(false);
         const reserved = scatterAround(rects(), { walkable, reserved: () => true });
         expect(reserved).toHaveLength(0);
     });
     it("draws near foliage in full, far foliage simplified, and nothing out of range", () => {
-        const tree = FOLIAGE.find(f => f.family === "tree-round")!;
-        expect(scatterMesh("tree-round", 10)).toBe(foliageKey(tree, 0));
-        expect(scatterMesh("tree-round", 100)).toBe(foliageKey(tree, 1));
-        expect(scatterMesh("tree-round", 5000)).toBeNull();
+        const tree = FOLIAGE.find(f => f.family === "tree-oak")!;
+        expect(scatterMesh("tree-oak", 10)).toBe(foliageKey(tree, 0));
+        expect(scatterMesh("tree-oak", 100)).toBe(foliageKey(tree, 1));
+        expect(scatterMesh("tree-oak", 5000)).toBeNull();
         expect(scatterMesh("grass", 200)).toBeNull();
         expect(scatterMesh("bench", 50)).toContain("bench");
         expect(scatterMesh("bench", 900)).toBeNull();
@@ -414,9 +414,10 @@ describe("set dressing", () => {
         const f = new FoliageMeshes(cache, () => { evaluations++; return grass; });
         let frames = 0;
         while (!f.prepare() && frames < 50) frames++;
-        expect(evaluations).toBe(FOLIAGE.length);
-        expect(store.size).toBe(FOLIAGE.length * 2);
-        expect([...store.entries()].filter(([k]) => k.endsWith("lod1")).every(([, v]) => v.simplify)).toBe(true);
+        // One evaluation per family, plus one per distance mesh with values of its own (trees).
+        expect(evaluations).toBe(FOLIAGE.reduce((n, s) => n + 1 + (s.lod1 ? 1 : 0) + (s.lod2 ? 1 : 0), 0));
+        expect(store.size).toBe(FOLIAGE.reduce((n, s) => n + foliageLods(s).length, 0));
+        expect([...store.entries()].filter(([k]) => !k.endsWith("lod0")).every(([, v]) => v.simplify)).toBe(true);
         const packed = packFoliage(grass);
         expect(packed.vertexData.length % 12).toBe(0);
         expect(packed.triangles).toBeGreaterThan(100);

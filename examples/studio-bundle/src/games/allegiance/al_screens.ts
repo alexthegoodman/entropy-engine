@@ -81,6 +81,8 @@ export interface GameView {
     weapon: { name: string; mag: number; reserve: number; reloading: boolean; magazine: number };
     pamphlet: string;
     stamina: number;
+    /** Down the sights (0..1), whether aim assist has a soldier, and its strength. */
+    aim?: { ads: number; locked: boolean; assist: number };
     armor: number;
     land: LandRuns | null;
     hasSave: boolean;
@@ -414,12 +416,18 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     p.text(`PAMPHLETS: ${pam.name.toUpperCase()} x${c.player.pamphlets[pam.id] ?? 0}`, 14, by + 92, 12, THEME.gold, FONT.head, 360);
     // Followers.
     if (g.street.followers) p.text(`FOLLOWERS ${g.street.followers}/${followerLimit(c)}`, 14, by - 26, 13, THEME.cream, FONT.head);
-    // Crosshair.
+    // Crosshair: it tightens as the sights come up (the gun's own sights take over), and turns gold
+    // while aim assist has a soldier.
     const cx = W / 2, cy = H / 2;
-    p.rect(cx - 12, cy - 1, 8, 2, THEME.cream);
-    p.rect(cx + 4, cy - 1, 8, 2, THEME.cream);
-    p.rect(cx - 1, cy - 12, 2, 8, THEME.cream);
-    p.rect(cx - 1, cy + 4, 2, 8, THEME.cream);
+    const ads = g.aim?.ads ?? 0;
+    const hair = g.aim?.locked ? THEME.gold : THEME.cream;
+    if (ads < 0.9) {
+        const gap = 4 + 6 * (1 - ads), len = 8 * (1 - ads * 0.6);
+        p.rect(cx - gap - len, cy - 1, len, 2, hair);
+        p.rect(cx + gap, cy - 1, len, 2, hair);
+        p.rect(cx - 1, cy - gap - len, 2, len, hair);
+        p.rect(cx - 1, cy + gap, 2, len, hair);
+    } else p.rect(cx - 1.5, cy - 1.5, 3, 3, hair);
     // Prompt.
     if (g.prompt) {
         const tw2 = Math.min(W - 40, textWidth(g.prompt, 17, FONT.head) + 40);
@@ -1009,6 +1017,20 @@ function drawInventory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
     y += 30;
     const hq = c.party.hqSite;
     p.text(hq ? `${hq.name}: quartermaster (every shop), safehouse and respawn point. Marked in the sky and on the maps.` : "None yet. Take the regime outpost near your hometown (the gold marker).", x, y, 14, THEME.cream, FONT.body, col, 80);
+    y += 110;
+    p.text("CONTROLS", x, y, 16, THEME.gold, FONT.head);
+    y += 30;
+    const k = c.player.controls ?? { aimAssist: 0.5, lookSensitivity: 1 };
+    const setting = (id: string, label: string, value: string, step: number) => {
+        p.text(label, x, y + 6, 13, THEME.cream, FONT.head);
+        ui.button(`${id}-down`, x + col - 150, y, 40, 30, "-", "dark", () => g.act(id, -step), { size: 14 });
+        p.textC(value, x + col - 85, y + 4, 18, THEME.gold, FONT.num);
+        ui.button(`${id}-up`, x + col - 50, y, 40, 30, "+", "dark", () => g.act(id, step), { size: 14 });
+        y += 38;
+    };
+    setting("aim-assist", "AIM ASSIST", `${Math.round(k.aimAssist * 100)}%`, 0.1);
+    setting("look-sensitivity", "LOOK SPEED", `${k.lookSensitivity.toFixed(1)}x`, 0.1);
+    p.text("Aim down sights: hold middle mouse, Z, or LT / L2. Call your car: G or View / Share.", x, y + 4, 12, THEME.dim, FONT.body, col, 40);
 }
 
 function drawShop(g: GameView, ui: UiFrame): void {

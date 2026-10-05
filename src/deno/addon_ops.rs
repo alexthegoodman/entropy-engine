@@ -1672,6 +1672,8 @@ pub struct AddonContext {
     /// whose "up" points away from the planet's center). Unset keeps the current up (world +Y).
     pub pending_camera_up: Option<[f32; 3]>,
     pub pending_camera_ortho: Option<(bool, Option<f32>)>,
+    /// A perspective field of view (vertical, radians) from `Camera.setFov`; 0 restores the default.
+    pub pending_camera_fov: Option<f32>,
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
     pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_instances: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
@@ -6494,6 +6496,15 @@ pub fn op_camera_set_transform(state: &mut OpState, #[serde] position: Option<[f
 pub fn op_camera_set_orthographic(state: &mut OpState, enabled: bool, view_height: Option<f32>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_camera_ortho = Some((enabled, view_height));
+    }
+}
+
+/// The perspective camera's vertical field of view in degrees (aiming down sights, scopes);
+/// 0 or less restores the default.
+#[op2(fast)]
+pub fn op_camera_set_fov(state: &mut OpState, degrees: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_camera_fov = Some(if degrees > 0.0 { (degrees.clamp(5.0, 150.0) as f32).to_radians() } else { 0.0 });
     }
 }
 

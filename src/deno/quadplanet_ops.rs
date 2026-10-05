@@ -236,7 +236,7 @@ fn update_city(ctx: &mut AddonContext, sys: &mut QuadPlanetSystem, gpu: &Arc<cra
                 player: None,
             }));
         }
-        city.live.insert(tile, LiveTile { mesh_id, buffer_id, radius, origin: built.origin, basis: built.basis, placements: built.placements, settlements: built.settlements, triangles, roads: built.roads });
+        city.live.insert(tile, LiveTile { mesh_id, buffer_id, radius, origin: built.origin, basis: built.basis, placements: built.placements, settlements: built.settlements, triangles, roads: built.roads, road_lines: built.road_lines });
     }
     Some(city.stats())
 }
@@ -270,6 +270,17 @@ pub fn op_quadplanet_buildings(state: &mut OpState, #[string] id: String, #[serd
         let limit = args.limit.filter(|l| l.is_finite()).map(|l| l.max(0.0) as usize).unwrap_or(usize::MAX);
         Ok(city.near(args.position, args.radius.max(0.0), args.kind.as_deref(), limit).into_iter()
             .map(|(distance, p)| NearBuilding { distance, placement: p.clone() }).collect())
+    })
+}
+
+/// Earth's roads (center lines in latitude/longitude, with their paved widths) from the city
+/// tiles streamed so far, near (lat, lon): everything whose extent comes within `radius` meters.
+#[op2]
+#[serde]
+pub fn op_quadplanet_roads(state: &mut OpState, #[string] id: String, lat: f64, lon: f64, radius: f64) -> Result<Vec<crate::heightfield_landscapes::QuadPlanet::city::RoadLine>, JsErrorBox> {
+    with_system(state, &id, |sys| {
+        let Some(city) = &sys.city else { return Ok(Vec::new()) };
+        Ok(city.roads_near(lat, lon, radius.max(0.0)).into_iter().cloned().collect())
     })
 }
 

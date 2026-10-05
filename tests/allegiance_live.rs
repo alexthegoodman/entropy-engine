@@ -301,3 +301,48 @@ fn allegiance_upgrades_live_feature() {
     assert_eq!(artifacts.len(), 6);
     println!("Allegiance upgrades live BDD: {}", root.display());
 }
+
+#[test]
+fn allegiance_iteration2_live_feature() {
+    let (result, artifacts, root) = run("iteration2", Some("tests/features/allegiance_iteration2_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 10, "{result:#}");
+    // London: the map's non-house buildings drawn as Mesha city blocks, the boxes folded where they
+    // stand; leafy trees only, none on the roads (the roads came from the city tiles).
+    let street = &s[1];
+    assert_eq!(street["mode"], "play");
+    let online = street["terrain"]["city"]["buildings"].as_u64().unwrap_or(0) > 0;
+    let families: Vec<String> = street["scatter"]["families"].as_array().unwrap().iter().map(|f| f[0].as_str().unwrap().to_string()).collect();
+    assert!(!families.iter().any(|f| f == "tree-round" || f == "tree-oval"), "{families:?}");
+    if online {
+        let b = &street["buildings"];
+        assert!(b["lod0"].as_u64().unwrap() + b["lod1"].as_u64().unwrap() > 20, "Mesha city blocks: {b:#}");
+        assert!(f(&b["hideRadius"]) > 50.0, "{b:#}");
+        assert!(street["scatter"]["roadSegments"].as_u64().unwrap() > 0, "{:#}", street["scatter"]);
+        assert!(families.iter().any(|f| f.starts_with("tree-")), "{families:?}");
+    }
+    // A house, furnished.
+    assert!(!s[2]["indoors"].is_null(), "{:#}", s[2]["toasts"]);
+    // The car, called: on its way, then landed beside you.
+    assert!(!s[3]["flyingCar"]["call"].is_null(), "{:#}", s[3]["flyingCar"]);
+    assert!(s[4]["flyingCar"]["call"].is_null(), "{:#}", s[4]["flyingCar"]);
+    assert_eq!(s[4]["flyingCar"]["state"], "parked");
+    assert!(f(&s[4]["flyingCar"]["distance"]) < 15.0, "{:#}", s[4]["flyingCar"]);
+    // Real shots at the outpost: every defender who falls leaves the garrison, and none comes back.
+    let shot = result["tools"].as_array().unwrap().iter().map(|t| &t["result"]).find(|r| !r["kills"].is_null()).expect("shoot-guard result").clone();
+    let kills = shot["kills"].as_i64().unwrap();
+    assert!(kills >= 1, "{shot:#}");
+    assert_eq!(shot["garrison"].as_i64().unwrap(), shot["garrisonBefore"].as_i64().unwrap() - kills, "{shot:#}");
+    let outpost = s[6]["compounds"].as_array().unwrap().iter().find(|c| c["kind"] == "outpost").cloned().expect("outpost");
+    assert_eq!(outpost["garrison"], shot["garrison"], "{outpost:#}");
+    assert!(outpost["guards"].as_i64().unwrap() <= outpost["garrison"].as_i64().unwrap(), "no defender respawns: {outpost:#}");
+    // Down the sights: the view narrowed; back at the hip again.
+    assert_eq!(f(&s[7]["aim"]["ads"]), 1.0, "{:#}", s[7]["aim"]);
+    assert!((f(&s[7]["aim"]["fov"]) - 28.0).abs() < 0.5, "{:#}", s[7]["aim"]);
+    assert_eq!(f(&s[8]["aim"]["ads"]), 0.0);
+    // The skyline from the car.
+    assert_eq!(s[9]["flyingCar"]["piloting"], true, "{:#}", s[9]["toasts"]);
+    assert!(f(&s[9]["flyingCar"]["altitude"]) > 8.0);
+    assert_eq!(artifacts.len(), 7);
+    println!("Allegiance iteration 2 live BDD: {}", root.display());
+}
