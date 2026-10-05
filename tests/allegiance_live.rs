@@ -346,3 +346,53 @@ fn allegiance_iteration2_live_feature() {
     assert_eq!(artifacts.len(), 7);
     println!("Allegiance iteration 2 live BDD: {}", root.display());
 }
+
+/// Mean brightness (0..255) of a region (fractions of the frame).
+fn brightness(path: &str, region: (f32, f32, f32, f32)) -> f64 {
+    let img = image::open(path).unwrap_or_else(|e| panic!("{path}: {e}")).to_rgb8();
+    let (w, h) = img.dimensions();
+    let (x0, y0) = ((region.0 * w as f32) as u32, (region.1 * h as f32) as u32);
+    let (x1, y1) = ((region.2 * w as f32) as u32, (region.3 * h as f32) as u32);
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in (y0..y1).step_by(2) {
+        for x in (x0..x1).step_by(2) {
+            let p = img.get_pixel(x, y).0;
+            sum += (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0;
+            n += 1.0;
+        }
+    }
+    sum / n
+}
+
+#[test]
+fn allegiance_visuals_live_feature() {
+    let (result, artifacts, root) = run("visuals", Some("tests/features/allegiance_visuals_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 2, "{result:#}");
+    // The street in the sun: shadows on, four cascades, the weather the feature fixed.
+    let street = &s[0];
+    assert_eq!(street["mode"], "play");
+    assert_eq!(street["sky"]["shadows"], true, "{:#}", street["sky"]);
+    assert_eq!(street["sky"]["cascades"], 4);
+    assert!(f(&street["sky"]["sunElevation"]) > 15.0, "{:#}", street["sky"]);
+    assert!((f(&street["sky"]["cloudCover"]) - 0.45).abs() < 1e-6, "{:#}", street["sky"]);
+    // Ground cover around you, wherever the map has open ground.
+    if street["terrain"]["city"]["buildings"].as_u64().unwrap_or(0) > 0 {
+        assert!(street["scatter"]["groundCover"].as_u64().unwrap_or(0) > 50, "{:#}", street["scatter"]);
+    }
+    // The same view without sun shadows is brighter in the world below the HUD's top bars (the
+    // shadows took light away), and nowhere near blank.
+    let shaded = find(&artifacts, "vis-street");
+    let unshaded = find(&artifacts, "vis-street-unshadowed");
+    let world = (0.28, 0.2, 0.84, 0.85);
+    let (b_shaded, b_unshaded) = (brightness(&shaded, world), brightness(&unshaded, world));
+    println!("street brightness with shadows {b_shaded:.1}, without {b_unshaded:.1}");
+    assert!(b_unshaded > b_shaded + 1.0, "shadows should darken the street: {b_shaded} vs {b_unshaded}");
+    assert!(b_shaded > 25.0, "{b_shaded}");
+    // Sky and garden frames are real scenes, not black.
+    for name in ["vis-shadows", "vis-sky", "vis-garden", "vis-garden-gust"] {
+        assert!(share(&find(&artifacts, name), (0.3, 0.2, 0.8, 0.8), &dark) < 0.6, "{name} mostly dark");
+    }
+    assert_eq!(artifacts.len(), 6);
+    println!("Allegiance visuals live BDD: {}", root.display());
+}

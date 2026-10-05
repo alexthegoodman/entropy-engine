@@ -6,7 +6,7 @@ import { compoundsNear, compoundLayout, compoundToLocal, findClearSite, stepCapt
 import { startFoundingMission, updateMission, missionCompound, completeMission } from "./al_mission";
 import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside, doorSide } from "./al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, distanceLabel, miniMapRuns, toMapCell, type CameraBasis, type ScreenMarker, type SkyMarker, type MiniMap } from "./al_markers";
-import { FoliageMeshes, cacheProps, scatterAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, SCATTER_NAMESPACE, type ScatterItem } from "./al_scatter";
+import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, SCATTER_NAMESPACE, type ScatterItem } from "./al_scatter";
 import { InstanceBatches } from "../../apps/quadplanet/qp_instances";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
@@ -34,6 +34,7 @@ import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_s
 import { CityHouses, HOUSE_NAMESPACE, houseRule, houseValues, type CityBuilding } from "../../apps/quadplanet/qp_city";
 import { BUILDING_MODEL, BUILDING_NAMESPACE, buildingValues } from "../../apps/quadplanet/qp_buildings";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { shadowCascades, weatherAt, cloudOffset, windVector, CLOUD_WIND_FACTOR, SHADOW_MAP_SIZE, SHADOW_RADII, type Weather } from "./al_sky";
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
 import { CrowdBatches, maybeVisible } from "./al_crowd";
@@ -80,7 +81,20 @@ const EARTH: PlanetDef = { ...PLANETS.find(isEarth)!, center: [0, 0, 0] };
 const WORLD_PLANETS = [EARTH];
 
 let pipelineId = "";
+let terrainPipelineId = "";
 let peoplePipelineId = "";
+// The sky (al_sky.ts): sun shadows, the day's weather, how far the clouds have drifted (world
+// meters) and the cloud layer's height above sea level.
+let shadowsEnabled = true;
+/** Cascades drawn (1-4, nearest first) and their resolution: graphics settings (allegiance_config). */
+let shadowCascadeCount = SHADOW_RADII.length;
+let shadowMapSize = SHADOW_MAP_SIZE;
+let shadowsLive = false;
+let weather: Weather = { cloudCover: 0.35, windSpeed: 3, windHeading: 0.6 };
+let cloudDrift: Vec3 = [0, 0, 0];
+let cloudAltitude = 2700;
+/** Weather fixed by allegiance_config (tests, captures); null follows the day. */
+let weatherHold: Weather | null = null;
 let housePipelineId = "";
 let worldBuffer = "";
 let skyItem = "";
@@ -1474,14 +1488,43 @@ function updateSun(): void {
     const el = (18 + 48 * Math.sin(Math.PI * t)) * Math.PI / 180;
     const horiz = normalize(add(scale(frame.east, Math.cos(Math.PI * t)), scale(frame.north, -0.45 * Math.sin(Math.PI * t))));
     setSunDirection(normalize(add(scale(frame.up, Math.sin(el)), scale(horiz, Math.cos(el)))));
+    weather = weatherHold ?? weatherAt(region ?? "street", campaign.day, t);
+    cloudAltitude = Math.max(0, sampleEarth(normalize(focus)).surface) + 2700;
+}
+
+/** The sun's color: warmer and weaker the lower it stands. */
+function sunColor(): [number, number, number] {
+    if (!frame) return [1.0, 0.96, 0.9];
+    const k = Math.max(0, Math.min(1, (dot(SUN_DIRECTION, frame.up) - 0.25) / 0.5));
+    const e = k * k * (3 - 2 * k);
+    return [1.0, 0.8 + 0.17 * e, 0.62 + 0.3 * e];
+}
+
+/** This frame's sun-shadow cascades around the camera (none off the street or with the sun down). */
+function updateShadows(): void {
+    const on = shadowsEnabled && !!frame && !!lastCamera && mode !== "title" && mode !== "setup" && mode !== "loading"
+        && dot(SUN_DIRECTION, frame.up) > 0.04;
+    if (!on) {
+        if (shadowsLive) { Entropy.Lighting.setSunShadows({ cascades: [] }); shadowsLive = false; }
+        return;
+    }
+    const cam = lastCamera!;
+    const c = shadowCascades(toRender(cam.position), normalize(sub(cam.target, cam.position)), SUN_DIRECTION, SHADOW_RADII.slice(0, shadowCascadeCount), shadowMapSize);
+    Entropy.Lighting.setSunShadows({ ...c, strength: 1, mapSize: shadowMapSize });
+    shadowsLive = true;
 }
 
 function writeWorld(): void {
     Entropy.Buffer.write(worldBuffer, packWorld({
-        sunDir: SUN_DIRECTION, time, sunColor: [1.0, 0.96, 0.9], exposure: 1.05, debugLod: false, debugOutlines: false,
+        sunDir: SUN_DIRECTION, time, sunColor: sunColor(), exposure: 1.05, debugLod: false, debugOutlines: false,
         planets: WORLD_PLANETS.map(p => ({ center: toRender(p.center), radius: p.radius, atmosphere: p.atmosphereColor, atmosphereHeight: p.atmosphereHeight })),
         city: { hideRadius, roadDistance: ROAD_DISTANCE, buildingHideRadius },
+        weather: frame && mode !== "title" && mode !== "setup" ? {
+            cloudCover: weather.cloudCover, cloudOffset: cloudOffset(renderOrigin, cloudDrift), cloudAltitude,
+            wind: windVector(weather, frame.east, frame.north),
+        } : undefined,
     }));
+    updateShadows();
 }
 
 function stream(maxBuilds: number, maxMs: number): void {
@@ -1836,12 +1879,16 @@ let scatterBatches: InstanceBatches | null = null;
 let scatterAt: [number, number] = [Infinity, Infinity];
 let scatterTimer = 0;
 let scatterDirty = true;
+// Ground cover near you (al_scatter.ts lawnAround), replanted when you have moved a few meters.
+let lawnItems: ScatterItem[] = [];
+let lawnAt: [number, number] = [Infinity, Infinity];
 
 function frameLatLon(): { lat: number; lon: number } {
     return dirToLatLon(normalize(frame!.origin));
 }
 
 let roadsInScatter = 0;
+let scatterRoads: RoadMask | undefined;
 function computeScatter(): void {
     if (!frame || !nav) { scatterItems = []; return; }
     const ll = frameLatLon();
@@ -1855,6 +1902,8 @@ function computeScatter(): void {
         roads = new RoadMask(roadSegments(lines, (lat, lon) => { const p = toLocal(f, scale(latLonToDir(lat, lon), EARTH.radius)); return [p[0], p[2]]; }));
     } catch { roads = undefined; }
     roadsInScatter = roads?.segments ?? 0;
+    scatterRoads = roads;
+    lawnAt = [Infinity, Infinity];
     scatterItems = scatterAround(g.rects, {
         roads,
         walkable: (x, z) => g.walkable(x, z),
@@ -1915,9 +1964,18 @@ function drawScatter(dt: number): void {
     }
     if (!scatterDirty && moved < 4 && scatterTimer < 1) return;
     scatterDirty = false; scatterTimer = 0; scatterAt = [body.x, body.z];
+    if (nav && Math.hypot(body.x - lawnAt[0], body.z - lawnAt[1]) > 10) {
+        const g = nav;
+        lawnAt = [body.x, body.z];
+        lawnItems = lawnAround(body.x, body.z, {
+            walkable: (x, z) => g.walkable(x, z), roads: scatterRoads,
+            reserved: (x, z) => !!inCompound(x, z, 4) || (!!playerCar && Math.hypot(x - playerCar.x, z - playerCar.z) < 4),
+            origin: frameLatLon(),
+        });
+    }
     scatterBatches.begin();
     const f = frame!;
-    for (const it of [...scatterItems, ...compoundItems()]) {
+    for (const it of [...scatterItems, ...lawnItems, ...compoundItems()]) {
         const d = Math.hypot(it.x - body.x, it.z - body.z);
         const mesh = scatterMesh(it.family, d);
         if (!mesh) continue;
@@ -1934,7 +1992,8 @@ function drawScatter(dt: number): void {
         data[o + 3] = 0; data[o + 7] = 0; data[o + 11] = 0;
         data[o + 12] = m[12]; data[o + 13] = m[13]; data[o + 14] = m[14]; data[o + 15] = 1;
         data[o + 16] = it.tint[0]; data[o + 17] = it.tint[1]; data[o + 18] = it.tint[2]; data[o + 19] = it.glow ?? 0;
-        data[o + 20] = 0; data[o + 21] = 0; data[o + 22] = 0; data[o + 23] = 0;
+        // Where it stands on the street (wrapped): the phase of its sway in the wind (al_shader.ts).
+        data[o + 20] = it.x - 1024 * Math.floor(it.x / 1024); data[o + 21] = 0; data[o + 22] = it.z - 1024 * Math.floor(it.z / 1024); data[o + 23] = 0;
     }
     scatterBatches.flush();
 }
@@ -2069,6 +2128,11 @@ function snapshot() {
     const rs = here();
     return {
         mode, tab, frames: frameCount, time: r2(time),
+        sky: {
+            shadows: shadowsLive, cascades: shadowsLive ? shadowCascadeCount : 0, shadowMap: shadowMapSize,
+            sunElevation: frame ? r2(Math.asin(Math.max(-1, Math.min(1, dot(SUN_DIRECTION, frame.up)))) * 180 / Math.PI) : null,
+            cloudCover: r2(weather.cloudCover), windSpeed: r2(weather.windSpeed), cloudAltitude: Math.round(cloudAltitude),
+        },
         loading: { progress: r2(loading.progress), stage: loading.stage, lines: loading.lines, elapsed: r2(loading.elapsed) },
         region: region ? { id: region, name: regionDefById(region)?.name, country: regionDefById(region)?.country, population: Math.round((regionDefById(region)?.pop ?? 0) * 1e6), kind: regionDefById(region)?.kind ?? "territory", governor: rs?.governor, partyShare: rs ? Math.round(partyShare(rs) * 10000) / 10000 : 0, members: rs?.members, army: rs?.army, garrison: rs?.garrison, war: !!rs?.war, heat: rs ? r2(rs.heat) : 0 } : null,
         campaign: c ? {
@@ -2120,7 +2184,7 @@ function snapshot() {
         prompt: nearbyAction()?.label ?? null,
         markers: skyCache.map(m => ({ id: m.id, kind: m.kind, label: m.label, km: Math.round(m.km * 100) / 100 })),
         miniMap: miniMap ? { runs: miniMap.runs.length, dots: miniMap.dots.length, cellMeters: miniMap.cellMeters } : null,
-        scatter: { items: scatterItems.length, roadSegments: roadsInScatter, foliageGenerated: foliage?.generated ?? 0, batches: scatterBatches?.lastStats ?? null,
+        scatter: { items: scatterItems.length, groundCover: lawnItems.length, groundCoverNear: lawnItems.filter(i => Math.hypot(i.x - body.x, i.z - body.z) < 20).length, lawnAt: lawnAt.map(r2), roadSegments: roadsInScatter, foliageGenerated: foliage?.generated ?? 0, batches: scatterBatches?.lastStats ?? null,
             families: Object.entries(scatterItems.reduce((acc, it) => { acc[it.family] = (acc[it.family] ?? 0) + 1; return acc; }, {} as Record<string, number>)) },
         fixedStep,
     };
@@ -2195,9 +2259,18 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_config",
-        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000).",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" } } },
+        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000). shadows: sun shadows on or off; shadowCascades 1-4 (default 4) and shadowMap (resolution, default 2048) trade their reach and sharpness for speed. weather: { cloudCover 0..1, windSpeed m/s, windHeading radians } holds the weather (null: follow the day again); dayClock sets the time of day (seconds into the day).",
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" }, shadows: { type: "boolean" }, shadowCascades: { type: "integer" }, shadowMap: { type: "integer" }, weather: { type: ["object", "null"] }, dayClock: { type: "number" } } },
         run: a => {
+            if (typeof a.shadows === "boolean") shadowsEnabled = a.shadows;
+            if (typeof a.shadowCascades === "number") shadowCascadeCount = Math.max(1, Math.min(SHADOW_RADII.length, Math.floor(a.shadowCascades)));
+            if (typeof a.shadowMap === "number") shadowMapSize = Math.max(256, Math.min(4096, Math.floor(a.shadowMap)));
+            if (typeof a.dayClock === "number" && campaign) { campaign.dayClock = Math.max(0, Math.min(DAY_SECONDS, a.dayClock)); updateSun(); }
+            if (a.weather === null) weatherHold = null;
+            else if (a.weather && typeof a.weather === "object") {
+                const w = a.weather as Partial<Weather>;
+                weather = weatherHold = { cloudCover: w.cloudCover ?? weather.cloudCover, windSpeed: w.windSpeed ?? weather.windSpeed, windHeading: w.windHeading ?? weather.windHeading };
+            }
             if ("fixedStep" in a) fixedStep = typeof a.fixedStep === "number" && a.fixedStep > 0 ? Math.min(0.1, a.fixedStep) : null;
             if (typeof a.peopleDetail === "number" && a.peopleDetail > 0) peopleDetail = Math.min(4, a.peopleDetail);
             if (typeof a.peopleMaxFull === "number" && a.peopleMaxFull >= 0) peopleBudget = { ...peopleBudget, maxFull: Math.floor(a.peopleMaxFull) };
@@ -2339,7 +2412,13 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     const foe = soldiers(street).sort((p, q) => Math.hypot(p.x - body.x, p.z - body.z) - Math.hypot(q.x - body.x, q.z - body.z))[0];
                     if (foe) { body.yaw = Math.atan2(foe.x - body.x, foe.z - body.z); street.player.heading = body.yaw; out.enemyDistance = r2(Math.hypot(foe.x - body.x, foe.z - body.z)); }
                 } break;
-                case "face": if (typeof a.yaw === "number") body.yaw = a.yaw; if (typeof a.turn === "number") body.yaw += a.turn; if (typeof a.pitch === "number") body.pitch = a.pitch; break;
+                case "face": {
+                    if (typeof a.yaw === "number") body.yaw = a.yaw;
+                    // sunSide: turn so the sun stands this many radians to your right (0: ahead, pi: behind).
+                    if (typeof a.sunSide === "number" && frame) body.yaw = Math.atan2(dot(SUN_DIRECTION, frame.east), dot(SUN_DIRECTION, frame.north)) - a.sunSide;
+                    if (typeof a.turn === "number") body.yaw += a.turn;
+                    if (typeof a.pitch === "number") body.pitch = a.pitch;
+                } break;
                 case "shoot": fire(c?.player.weapon ?? "pistol"); break;
                 case "shoot-guard": {
                     // Real shots (the same path as the trigger) at the nearest compound defender, aimed at
@@ -2569,8 +2648,19 @@ addon.onInit(() => {
         name: "Allegiance",
         layout: "mesh",
         pbr: false,
+        sunShadows: true,
         vertexShader: ALLEGIANCE_SHADER,
         fragmentShader: ALLEGIANCE_SHADER,
+        extraBindGroups: [{ entries: [
+            { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+            { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+        ] }],
+    });
+    // The terrain (with its roads and distant building boxes) receives sun shadows but casts none:
+    // its own relief is shaded by its normals, and its vertices would cost the cascades the most.
+    terrainPipelineId = Entropy.Pipeline.create({
+        name: "Allegiance Terrain", layout: "mesh", pbr: false, sunShadows: true, shadowCaster: false,
+        vertexShader: ALLEGIANCE_SHADER, fragmentShader: ALLEGIANCE_SHADER,
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
             { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
@@ -2579,12 +2669,13 @@ addon.onInit(() => {
     worldBuffer = uniform(WORLD_FLOATS);
     // Houses: instanced batches of Items, one draw per house mesh (qp_city.ts, qp_instances.ts).
     housePipelineId = Entropy.Pipeline.create({
-        name: "Allegiance Houses", layout: "mesh", pbr: false,
+        name: "Allegiance Houses", layout: "mesh", pbr: false, sunShadows: true,
         vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
         extraBindGroups: INSTANCED_BIND_GROUPS,
     });
     peoplePipelineId = Entropy.Pipeline.create({
-        name: "Allegiance People", layout: "mesh", pbr: false,
+        // People cast into the two nearest cascades (52 m): further out their shadows are a texel.
+        name: "Allegiance People", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 2,
         vertexShader: PEOPLE_SHADER, fragmentShader: PEOPLE_SHADER,
         // binding 1: every instance's PersonRecord (al_crowd.ts), read by instance index.
         extraBindGroups: [{ entries: [
@@ -2596,7 +2687,7 @@ addon.onInit(() => {
     skyItem = uniform(ITEM_FLOATS);
     writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     terrainId = Entropy.QuadPlanet.create({
-        id: "allegiance-earth", planets: WORLD_PLANETS, pipelineId, worldBufferId: worldBuffer,
+        id: "allegiance-earth", planets: WORLD_PLANETS, pipelineId: terrainPipelineId, worldBufferId: worldBuffer,
         city: { house: houseRule() },
     });
     setTerrainBackend({
@@ -2754,6 +2845,7 @@ addon.onUpdatePlus("Global", () => {
     timed("    al scatter", () => drawScatter(dt));
     drawViewModel();
     updateSky(dt);
+    if (frame) cloudDrift = add(cloudDrift, scale(windVector(weather, frame.east, frame.north), CLOUD_WIND_FACTOR * dt));
     updateMiniMap(dt);
     const loadingNow = mode === "loading";
     const orbit = mode === "title" || mode === "setup";

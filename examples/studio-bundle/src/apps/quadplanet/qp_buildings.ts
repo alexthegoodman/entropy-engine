@@ -16,10 +16,11 @@ import { evaluateObject, resolveParams, defaultValues, type Evaluation, type Par
 import { lookupObject } from "../mesha/library";
 import cityBlock from "../mesha/library/city_block";
 import { type CityBuilding, type CityModel, MAT_PAINT, MAT_GLOW, MAT_GLASS, MAT_FOUNDATION } from "./qp_city";
+import { surfaceKind } from "./qp_shader";
 
 export const BUILDING_NAMESPACE = "quadplanet-buildings";
 /** Bump when city_block.ts, the mapping or the packing changes: old meshes then miss. */
-export const BUILDING_GENERATOR = "architecture.city_block:2";
+export const BUILDING_GENERATOR = "architecture.city_block:3";
 
 const PRESETS = new Map((cityBlock.presets ?? []).map(p => [p.name, p.values]));
 const preset = (name: string): ParamValues => PRESETS.get(name) ?? {};
@@ -84,11 +85,13 @@ export function packBuilding(e: Evaluation, _lod: 0 | 1): { vertexData: Float32A
         else if (p.region === "foundation") material = MAT_FOUNDATION;
         // Glazing reads darker than the glass color (the dim rooms behind it).
         const k = material === MAT_GLASS ? 0.55 : 1;
+        // The surface the shader draws on paint (qp_shader.ts surfaceKind): brick, render, tiles...
+        const kind = material === MAT_PAINT ? surfaceKind(m?.id) : 0;
         const base = vo / 12;
         for (let i = 0; i < p.positions.length / 3; i++) {
             v[vo] = p.positions[i * 3]; v[vo + 1] = p.positions[i * 3 + 1]; v[vo + 2] = p.positions[i * 3 + 2];
             v[vo + 3] = p.normals[i * 3]; v[vo + 4] = p.normals[i * 3 + 1]; v[vo + 5] = p.normals[i * 3 + 2];
-            v[vo + 6] = material + 0.5; v[vo + 7] = 0.5;
+            v[vo + 6] = material + 0.5; v[vo + 7] = kind + 0.5;
             v[vo + 8] = color[0] * k; v[vo + 9] = color[1] * k; v[vo + 10] = color[2] * k; v[vo + 11] = alpha;
             vo += 12;
         }

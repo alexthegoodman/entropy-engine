@@ -3575,6 +3575,19 @@ export interface PipelineConfig {
   }[];
   lightingBindings?: any[];
   form?: "composite" | "default";
+  /**
+   * Cascaded sun shadows for an unlit "mesh" pipeline: the shader's `vs_shadow` vertex entry
+   * point (depth only; it must not use the receiver group) draws its meshes into the cascades,
+   * and a receiver group is appended after `extraBindGroups`: binding 0 the cascades
+   * (`texture_depth_2d_array`), 1 a `sampler_comparison`, 2 a uniform { cascades:
+   * array<mat4x4<f32>, 4>, texel: vec4<f32>, params: vec4<f32> (count, map size, strength,
+   * depth per meter) }. Place the cascades with Lighting.setSunShadows.
+   */
+  sunShadows?: boolean;
+  /** With `sunShadows`: false only receives (its meshes are not drawn into the cascades). */
+  shadowCaster?: boolean;
+  /** With `sunShadows`: cast into only the first this-many cascades (default all). */
+  shadowCascades?: number;
   // [key: string]: unknown;
 }
 
@@ -4221,6 +4234,14 @@ export interface EntropyAPI {
     setPointLightShader: (wgslSource?: string) => void;
     // Any field left unset keeps its current value - only pass what you're changing. Directional
     // light only; point lights don't cast shadows.
+    /**
+     * This frame's sun-shadow cascades for `sunShadows` pipelines: light view-projections (16
+     * floats, column-major, render space -> clip with z in 0..1), up to four, nearest first; an
+     * empty list turns them off. `texel` is each cascade's texel size in meters, `depthRange` the
+     * light's near-to-far distance in meters, `strength` 0..1 how much of the sun a shadow
+     * removes, `mapSize` the resolution of every cascade (default 2048).
+     */
+    setSunShadows: (config: { cascades: number[][]; texel?: number[]; depthRange?: number; strength?: number; mapSize?: number }) => void;
     configureShadows: (config: {
       mapSize?: number; // shadow map resolution (square), e.g. 256/512/1024/2048
       bias?: number; // depth bias constant

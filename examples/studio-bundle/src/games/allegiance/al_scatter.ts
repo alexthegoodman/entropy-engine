@@ -22,11 +22,15 @@ import { doorSide, fromUV } from "./al_interior";
 import { hashString } from "./al_rng";
 
 export const SCATTER_NAMESPACE = "allegiance-scatter";
-export const FOLIAGE_GENERATOR = "allegiance-foliage:2";
+export const FOLIAGE_GENERATOR = "allegiance-foliage:3";
 export const PROP_GENERATOR = "allegiance-props:2";
 
 /** Paint material in the city vertex layout (tinted by the instance's tint). */
 const MAT_PAINT = 11;
+/** Foliage: paint that the wind bends (al_shader.ts). */
+const MAT_FOLIAGE = 17;
+/** Mesha plant regions that are leaves, blades or petals: they flutter and let the sun through. */
+const LEAFY = new Set(["leaves", "grass", "plumes", "flowers", "centers", "petals", "center", "dead"]);
 
 // --- Mesha meshes: plants and furniture ----------------------------------------------------------
 
@@ -70,6 +74,12 @@ export const FOLIAGE: FoliageSpec[] = [
     { family: "rock", object: "nature.rock", values: {}, near: 30, range: 160 },
     { family: "grass", object: "nature.grass", values: {}, near: 30, range: 70 },
     { family: "flowers", object: "nature.flowers", values: {}, near: 20, range: 55 },
+    // Ground cover on open ground near you (lawnAround): short lawn patches, longer meadow grass
+    // and the odd clump of poppies or daisies. Light meshes (about 4,000 triangles a patch).
+    { family: "lawn", object: "nature.grass", values: { clumps: 12, patchRadius: 0.75, blades: 12, height: 0.13, heightVariation: 0.5, bladeWidth: 0.011, clumpRadius: 0.1, lean: 30, curl: 30, tipTint: 0.25, grassFinish: "grass.lawn", seed: 3 }, near: 14, range: 40 },
+    { family: "meadow", object: "nature.grass", values: { clumps: 9, patchRadius: 0.75, blades: 14, height: 0.26, heightVariation: 0.5, bladeWidth: 0.011, clumpRadius: 0.11, lean: 35, curl: 40, tipTint: 0.45, grassFinish: "grass.meadow", seed: 4 }, near: 14, range: 45 },
+    { family: "poppies", object: "nature.flowers", values: preset("nature.flowers", "Poppies"), near: 14, range: 45 },
+    { family: "daisies", object: "nature.flowers", values: { seed: 6 }, near: 14, range: 45 },
     // Furniture: cafe sets on the pavement, dining sets and plants inside houses.
     { family: "cafe-table", object: "furniture.table", values: preset("furniture.table", "Bistro round"), near: 20, range: 90 },
     { family: "cafe-chair", object: "furniture.office_chair", values: preset("furniture.office_chair", "Scandinavian"), near: 18, range: 80 },
@@ -99,9 +109,29 @@ export function foliageKey(spec: FoliageSpec, lod: FoliageLod): string {
 export const FOLIAGE_LOD1 = { maxError: 0.12, minFeature: 0.05, targetRatio: 0.12 };
 export const FOLIAGE_LOD2 = { maxError: 0.3, minFeature: 0.12, targetRatio: 0.05 };
 
-/** A Mesha evaluation in the city vertex layout (position, normal, material, color; opaque). */
-export function packFoliage(e: Evaluation): { vertexData: Float32Array; indexData: Uint32Array; triangles: number } {
+/** Plants move in the wind; rocks, furniture and potted plants (often indoors) do not. */
+export const sways = (spec: FoliageSpec): boolean => spec.object.startsWith("nature.") && spec.object !== "nature.rock";
+
+/**
+ * How far (m) a point `y` meters up a plant `height` tall bends in a full gust: nothing at the
+ * root, growing with the square of the height, more for taller plants (a tree's crown a third of
+ * a meter, a grass tip a few centimeters).
+ */
+export function bendAt(y: number, height: number): number {
+    if (height <= 0) return 0;
+    const k = Math.min(0.5, 0.06 + height * 0.025);
+    const h = Math.max(0, Math.min(1, y / height));
+    return Math.min(0.98, k * h * h);
+}
+
+/**
+ * A Mesha evaluation in the city vertex layout (position, normal, material, color; opaque). With
+ * `wind`, it is foliage (material 17): uv.y carries the bend (fraction) and a leaf flag (integer).
+ */
+export function packFoliage(e: Evaluation, wind = false): { vertexData: Float32Array; indexData: Uint32Array; triangles: number } {
     const parts = e.mesh.parts.filter(p => p.indices.length);
+    let height = 0;
+    if (wind) for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
     const nv = parts.reduce((n, p) => n + p.positions.length / 3, 0);
     const ni = parts.reduce((n, p) => n + p.indices.length, 0);
     const v = new Float32Array(nv * 12);
@@ -109,11 +139,13 @@ export function packFoliage(e: Evaluation): { vertexData: Float32Array; indexDat
     let vo = 0, io = 0;
     for (const p of parts) {
         const color = e.materials[p.region]?.color ?? [0.3, 0.5, 0.25];
+        const leaf = wind && LEAFY.has(p.region) ? 1 : 0;
         const base = vo / 12;
         for (let i = 0; i < p.positions.length / 3; i++) {
             v[vo] = p.positions[i * 3]; v[vo + 1] = p.positions[i * 3 + 1]; v[vo + 2] = p.positions[i * 3 + 2];
             v[vo + 3] = p.normals[i * 3]; v[vo + 4] = p.normals[i * 3 + 1]; v[vo + 5] = p.normals[i * 3 + 2];
-            v[vo + 6] = MAT_PAINT + 0.5; v[vo + 7] = 0.5;
+            if (wind) { v[vo + 6] = MAT_FOLIAGE + 0.5; v[vo + 7] = leaf + bendAt(p.positions[i * 3 + 1], height); }
+            else { v[vo + 6] = MAT_PAINT + 0.5; v[vo + 7] = 0.5; }
             v[vo + 8] = color[0]; v[vo + 9] = color[1]; v[vo + 10] = color[2]; v[vo + 11] = 0;
             vo += 12;
         }
@@ -145,7 +177,7 @@ export class FoliageMeshes {
             // The LOD whose values this evaluation uses: its own overrides, or LOD 0's.
             const source = (l: FoliageLod): FoliageLod => (l === 0 || (l === 1 ? spec.lod1 : spec.lod2) ? l : 0);
             const from = source(missing[0]);
-            const mesh = packFoliage(this.evaluate(spec, foliageValues(spec, from)));
+            const mesh = packFoliage(this.evaluate(spec, foliageValues(spec, from)), sways(spec));
             this.generated++;
             const meta = { generator: FOLIAGE_GENERATOR, family: spec.family, triangles: mesh.triangles };
             for (const l of missing) {
@@ -422,6 +454,42 @@ export function scatterAround(rects: readonly Rect[], o: ScatterOptions): Scatte
                 put(f < 0.35 ? "shrub" : f < 0.6 ? "fern" : f < 0.85 ? "grass" : "rock", x + (rnd() - 0.5) * 14, z + (rnd() - 0.5) * 14, rnd() * 6.28, 0.7 + rnd() * 0.6);
             }
         }
+    }
+    return out;
+}
+
+/** Ground cover is planted on this grid (meters), anchored to latitude/longitude. */
+export const LAWN_CELL = 2.4;
+/** ...within this distance of you (it is replanted as you move). */
+export const LAWN_RADIUS = 46;
+
+/**
+ * Ground cover around (cx, cz): on open ground (no building within a meter, no road, not
+ * reserved) a lat/lon-anchored grid of lawn patches, meadow grass in drifts, and now and then a
+ * clump of wildflowers. Deterministic in where each cell is on Earth, so walking away and back
+ * finds the same grass.
+ */
+export function lawnAround(cx: number, cz: number, o: ScatterOptions & { origin: { lat: number; lon: number } }, radius = LAWN_RADIUS): ScatterItem[] {
+    const out: ScatterItem[] = [];
+    const mLat = 110540, mLon = 111320 * Math.cos(o.origin.lat * Math.PI / 180);
+    const gLat = LAWN_CELL / mLat, gLon = LAWN_CELL / mLon;
+    const latOf = (z: number) => o.origin.lat + z / mLat, lonOf = (x: number) => o.origin.lon + x / mLon;
+    const j0 = Math.floor(latOf(cz - radius) / gLat), j1 = Math.floor(latOf(cz + radius) / gLat);
+    const i0 = Math.floor(lonOf(cx - radius) / gLon), i1 = Math.floor(lonOf(cx + radius) / gLon);
+    const clear = (x: number, z: number) => o.walkable(x, z) && !(o.reserved?.(x, z) ?? false)
+        && o.walkable(x + 1, z) && o.walkable(x - 1, z) && o.walkable(x, z + 1) && o.walkable(x, z - 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const rnd = rand(hashString(`lawn:${i}:${j}`));
+        const x = ((i + rnd()) * gLon - o.origin.lon) * mLon, z = ((j + rnd()) * gLat - o.origin.lat) * mLat;
+        if ((x - cx) ** 2 + (z - cz) ** 2 > radius * radius) continue;
+        const p = rnd();
+        if (p > 0.82) continue;
+        if (!clear(x, z) || (o.roads?.covers(x, z, 0.5) ?? false)) continue;
+        // Drifts: meadow grass where a slow hash of the cell's neighbourhood says so.
+        const drift = rand(hashString(`drift:${Math.floor(i / 5)}:${Math.floor(j / 5)}`))();
+        const family = p < 0.025 ? "poppies" : p < 0.05 ? "daisies" : drift < 0.35 ? "meadow" : "lawn";
+        const g = 0.9 + rnd() * 0.2;
+        out.push({ family, x, z, yaw: rnd() * 6.28, scale: family === "lawn" || family === "meadow" ? 1 + rnd() * 0.6 : 0.85 + rnd() * 0.5, tint: [g * (0.95 + rnd() * 0.12), g, g * (0.9 + rnd() * 0.12)] });
     }
     return out;
 }

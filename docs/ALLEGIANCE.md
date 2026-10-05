@@ -379,6 +379,41 @@ crackdowns and talent. The console stops time. **Rest until tomorrow** skips ahe
 the new city. The campaign autosaves every day and every 45 seconds of safe play. **Continue** on the title screen picks it up
 where you left off.
 
+## Light and weather
+
+The street is lit by one sun that everything agrees on.
+
+- **Sun shadows.** Buildings, houses, trees, shrubs, props, cars and people cast real shadows onto
+  the ground, the walls and each other, and people standing in a building's shadow are shaded
+  too. Four shadow cascades surround the camera (12, 40, 140 and 520 m), sharpest at your feet.
+  Each is a view down the sun's rays a little ahead of where you look, the same size however you
+  turn and moved only in whole texels, so shadow edges hold still as you walk. Its far side
+  reaches 2.5 km toward the sun, so a tower down the street still shades you. A soft 3 x 3
+  filter and a blend across each cascade's edge keep the transitions quiet. The ground does not
+  cast (its relief is shaded by its own normals), and the first-person weapon casts nothing.
+- **The sun's color** warms toward amber as it sinks and whitens toward noon.
+- **Clouds.** A layer of billowing cloud about 2.7 km above the ground drifts across the sky with
+  the upper wind, lit on top, grey-blue underneath and silver-edged toward the sun. Their
+  shadows sweep across the streets and rooftops.
+- **Wind.** Every tree, shrub, fern, flower and tuft of grass bends with the wind in rolling
+  gusts, more at the top than at the root and more for a tall tree than for grass. Leaves
+  flutter, and the sun glows through them when you look toward it.
+- **Weather** is picked per region and day (fair to broken cloud, light to fresh wind) and
+  drifts into the next day's, so dawn never jumps. It is cosmetic: it has its own hash and never
+  draws from the campaign's random numbers, so it cannot change an election.
+- **City surfaces.** Houses and city buildings are drawn in the materials Mesha gave them:
+  stretcher-bond brick with mortar joints, trowelled render, concrete with formwork seams and
+  tie holes, dressed stone, overlapping roof tiles and slates, metal sheen and timber boards.
+  Walls are weathered: grime splashed up from the pavement and rain streaks down from the top.
+  Neighbours that share a mesh still differ in tone and where their weathering falls. Lawns and
+  meadows mix lusher and drier swards, and near you they are real grass (see Set dressing).
+
+`allegiance_config` turns shadows off (`shadows`), trades their reach and sharpness for speed
+(`shadowCascades` 1-4, `shadowMap` resolution), fixes the weather (`weather`) and sets the time of
+day (`dayClock`).
+
+![Sun shadows on a London street](../public/allegiance-shadows.png)
+
 ## How it is built
 
 | File | What it holds |
@@ -398,9 +433,11 @@ where you left off.
 | `al_items.ts` | Inventory items, shops and their stock, house supplies |
 | `al_interior.ts` | Going inside houses: doors, entry and exit, staying within the walls |
 | `al_markers.ts` | Sky markers (projection, pinned to the screen's edge) and the mini map |
+| `al_sky.ts` | Sun-shadow cascades around the camera, the day's weather, the clouds' drift and the wind |
 | `al_scatter.ts` | Mesha foliage and furniture, low-poly props, the road mask: placement, levels of detail and instanced, culled drawing |
 | `apps/quadplanet/qp_buildings.ts`, `apps/mesha/library/city_block.ts` | Mesha city buildings on the map's non-house footprints |
-| `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers, low-poly props and military buildings, the first-person weapon; three materials injected into QuadPlanet's shader |
+| `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers, low-poly props and military buildings, the first-person weapon; people's and foliage's materials, the wind, the shadow caster (`vs_shadow`) and receiver injected into QuadPlanet's shader |
+| `src/core/addon_sun_shadows.rs` | The engine's cascaded sun shadows for addon pipelines (`sunShadows`, `Entropy.Lighting.setSunShadows`) |
 | `al_ui.ts`, `al_screens.ts` | The propaganda UI kit and every screen |
 | `allegiance_addon.ts` | The engine wiring: terrain, the loading screen, rendering, input, the day clock, saving, MCP tools |
 
@@ -443,7 +480,10 @@ Shrubs, boxwood, hydrangeas, ferns, rocks, grass and flowers make the understory
 evaluated once on the loading screen and kept in the mesh cache (`mesh-cache/allegiance-scatter`).
 Houses get one to three yard trees, shrubs and hedges at their sides, a flower bed and tufts of
 grass and ferns; town streets get a row of street trees along each verge; open ground gets stands
-of trees with an understory on a 22 m grid anchored to latitude and longitude. **Nothing is planted
+of trees with an understory on a 22 m grid anchored to latitude and longitude. Open ground within
+46 m of you is carpeted with ground cover on a 2.4 m grid, also anchored to latitude and longitude
+(replanted as you move, the same grass where you left it): short lawn patches, drifts of longer
+meadow grass, and now and then a clump of poppies or daisies, kept a meter from walls. **Nothing is planted
 on a road**: the OpenStreetMap center lines and widths come from `Entropy.QuadPlanet.roads`, and
 trunks keep 1.8 m from a road's edge. Other buildings get cafe tables with chairs round them
 (Mesha's bistro table and chairs), potted plants by their doors, benches, lamps, bins and crates;
@@ -453,6 +493,20 @@ crates, sandbags, kiosks, footlockers, watchtowers and walls are still low-poly 
 (al_models.ts). Everything is drawn instanced: each mesh in each 96 m tile is one draw with a
 bounding sphere, so the engine culls tiles out of view; each family is skipped beyond its range.
 Records are rewritten only when you move.
+
+**Sun shadows in the engine.** Allegiance draws with its own shader rather than the engine's
+deferred PBR path, so shadows are an engine feature any such addon can use
+(`src/core/addon_sun_shadows.rs`). A pipeline created with `sunShadows: true` gets a depth-only
+caster variant built from the shader's `vs_shadow` entry point, and a receiver bind group appended
+after its own (the cascades as a depth texture array, a comparison sampler and the light
+matrices). Each frame, before the scene, every caster mesh is drawn into every cascade, culled by
+the cascade's own frustum rather than the camera's, with group 0 swapped for a copy of the camera
+uniform holding the light's matrix (the eye position stays the camera's, so anything the vertex
+stage decides by distance, such as folding away a building's box, decides the same way for its
+shadow). The game places the cascades (`Entropy.Lighting.setSunShadows`), since only it knows its
+render origin and sun. `vs_shadow` runs the same vertex code as the color pass (the people's limb
+swing, the trees' sway), so a shadow matches its pose. `shadowCaster: false` receives without
+casting (the terrain), and `shadowCascades` limits a pipeline to the nearest cascades (people).
 
 **The UI.** Rects and texts are retained by the engine until `UI.clear()`, and every text is
 rasterized when it is created. So each screen describes its whole frame into a `Painter`, which
@@ -500,8 +554,11 @@ These tools also drive the live test:
   boost build-up and car upgrades, items, shops and house supplies, compound sizes, layouts,
   siting and capture, the founding mission, membership dynamics, entering houses, marker
   projection and the mini map, set dressing and Mesha foliage caching, compound guards, the
-  respawn shield, civilians' immunity and the slower speech marker. `npm run typecheck:allegiance` checks
-  the types.
+  respawn shield, civilians' immunity and the slower speech marker. `allegiance_visuals.test.ts`
+  covers the shadow cascades (coverage, depth toward the sun, whole-texel steps), the weather
+  (deterministic, continuous across dawn), the cloud offset across render-origin moves, wind
+  weights in foliage meshes, surface kinds in house meshes and the shader entry points.
+  `npm run typecheck:allegiance` checks the types.
 - `cargo test --release --test allegiance_live -- --nocapture --test-threads=1` runs under
   `xvfb-run -a` on a headless box. It plays `tests/features/allegiance_live.feature` in the real
   window: title, founding, loading London, walking, a speech, a conversation, every console tab,
@@ -518,7 +575,9 @@ These tools also drive the live test:
   street trees, a furnished house, calling the car, real shots at the outpost (the garrison count
   drops with each defender and none come back), aiming down sights with aim assist, and the
   skyline from the car, with seven captured frames; `allegiance_iteration2.test.ts` is its
-  TypeScript tier. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  TypeScript tier. `allegiance_visuals_live.feature` captures a sunlit London street with and
+  without sun shadows (and checks the shadowed frame is darker where the shadows fall), clouds
+  over the rooftops, and a garden in the wind. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.

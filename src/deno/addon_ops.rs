@@ -167,6 +167,18 @@ pub struct PipelineConfig {
 
     pub form: Option<String>,
 
+    /// Cascaded sun shadows (core/addon_sun_shadows.rs): the shader's `vs_shadow` casts, and the
+    /// receiver group is appended after the extra bind groups.
+    pub sun_shadows: Option<bool>,
+
+    /// With `sun_shadows`: false receives without casting (no caster variant; e.g. terrain,
+    /// whose relief the shader already shades). Default true.
+    pub shadow_caster: Option<bool>,
+
+    /// With `sun_shadows`: cast into only the first this-many cascades (small things such as
+    /// people leave no visible mark in the wide ones). Default: all.
+    pub shadow_cascades: Option<u32>,
+
 }
 
 
@@ -1540,6 +1552,8 @@ pub struct AddonContext {
     // Some(Some(src)) = recompile it with this addon-supplied WGSL function instead.
     pub pending_lighting_shader: Option<Option<String>>,
     pub pending_shadow_config: Option<ShadowConfig>,
+    /// Sun shadows for `sunShadows` addon pipelines (made with the first one).
+    pub sun_shadows: Option<crate::core::addon_sun_shadows::AddonSunShadows>,
     pub pending_game_mode: Option<bool>,
     pub pending_entity_impulses: Vec<(String, [f32; 3])>,
     pub pending_entity_velocities: Vec<(String, [f32; 3])>,
@@ -4046,6 +4060,40 @@ pub fn op_lighting_set_point_light_shader(state: &mut OpState, #[string] wgsl_so
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SunShadowsConfig {
+    /// Light view-projection per cascade (16 floats, column-major, render space -> clip with z
+    /// in [0, 1]); empty turns sun shadows off.
+    pub cascades: Vec<Vec<f32>>,
+    /// One shadow-map texel's size in meters, per cascade.
+    pub texel: Option<Vec<f32>>,
+    /// 0..1: how much of the sun a shadow takes away.
+    pub strength: Option<f32>,
+    pub map_size: Option<u32>,
+    /// Depth from the light's near plane to its far plane, in meters (for biasing in meters).
+    pub depth_range: Option<f32>,
+}
+
+/// Entropy.Lighting.setSunShadows: this frame's cascades for `sunShadows` pipelines.
+#[op2]
+pub fn op_sun_shadows_update(state: &mut OpState, #[serde] config: SunShadowsConfig) {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else { return };
+    let Some(gpu) = ctx.gpu_resources.clone() else { return };
+    let shadows = ctx.sun_shadows.get_or_insert_with(|| crate::core::addon_sun_shadows::AddonSunShadows::new(&gpu.device, crate::core::addon_sun_shadows::DEFAULT_MAP_SIZE));
+    if let Some(size) = config.map_size { shadows.set_map_size(&gpu.device, size); }
+    shadows.cascades = config.cascades.iter()
+        .filter(|m| m.len() == 16)
+        .take(crate::core::addon_sun_shadows::MAX_CASCADES)
+        .map(|m| { let mut a = [0.0f32; 16]; a.copy_from_slice(m); a })
+        .collect();
+    let mut texel = [0.0f32; 4];
+    for (i, t) in config.texel.unwrap_or_default().iter().take(4).enumerate() { texel[i] = *t; }
+    shadows.texel = texel;
+    if let Some(s) = config.strength { shadows.strength = s.clamp(0.0, 1.0); }
+    if let Some(r) = config.depth_range { shadows.depth_per_meter = if r > 0.0 { 1.0 / r } else { 0.0 }; }
+}
+
 #[op2]
 pub fn op_shadow_configure(state: &mut OpState, #[serde] config: ShadowConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -5625,6 +5673,12 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
     // hot-reload rebuild replaces this pipeline in place instead of leaking a new map entry.
     let id = format!("pipeline_{}", config.name);
     let mut ctx = state.borrow_mut::<AddonContext>();
+
+    if config.sun_shadows == Some(true) && ctx.sun_shadows.is_none() {
+        if let Some(gpu) = ctx.gpu_resources.clone() {
+            ctx.sun_shadows = Some(crate::core::addon_sun_shadows::AddonSunShadows::new(&gpu.device, crate::core::addon_sun_shadows::DEFAULT_MAP_SIZE));
+        }
+    }
     
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
@@ -5889,6 +5943,14 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
 
         // println!("Working pipeline (3): {:?}", layouts.len());
 
+        // Sun shadows: the depth-only caster sees the layout without the receiver group (it
+        // renders into the very maps that group samples); the main pipeline gets it last.
+        let receiver_layout = if config.sun_shadows == Some(true) { ctx.sun_shadows.as_ref().map(|s| s.receiver_layout.clone()) } else { None };
+        let caster = receiver_layout.as_ref().filter(|_| config.shadow_caster != Some(false))
+            .and_then(|_| config.vertex_shader.as_deref().filter(|src| src.contains("fn vs_shadow")))
+            .map(|src| Arc::new(crate::core::addon_sun_shadows::AddonSunShadows::create_caster(device, &config.name, src, &layouts)));
+        if let Some(l) = &receiver_layout { layouts.push(l.as_ref()); }
+
         let pipeline = create_addon_pipeline(
             device,
             &config,
@@ -5901,6 +5963,13 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
             ctx.composite_pipelines.insert(id.clone(), Arc::new(pipeline));
         } else {
             ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
+        }
+        if let Some(shadows) = ctx.sun_shadows.as_mut() {
+            if receiver_layout.is_some() { shadows.receivers.insert(id.clone()); } else { shadows.receivers.remove(&id); }
+            match caster {
+                Some(c) => { shadows.casters.insert(id.clone(), (c, config.shadow_cascades.unwrap_or(u32::MAX))); }
+                None => { shadows.casters.remove(&id); }
+            }
         }
 
         // println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);

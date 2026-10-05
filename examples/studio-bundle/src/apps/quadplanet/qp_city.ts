@@ -27,11 +27,11 @@ import { evaluateObject, objectParamRange, resolveParams, defaultValues, type Ev
 import { lookupObject } from "../mesha/library";
 import houseDef from "../mesha/library/house";
 import { InstanceBatches, type InstanceEngine } from "./qp_instances";
-import { ITEM_FLOATS } from "./qp_shader";
+import { ITEM_FLOATS, surfaceKind } from "./qp_shader";
 
 export const HOUSE_NAMESPACE = "quadplanet-houses";
 /** Bump when house.ts, the parameter mapping or the packing below changes: old meshes then miss. */
-export const HOUSE_GENERATOR = "architecture.house:1";
+export const HOUSE_GENERATOR = "architecture.house:2";
 
 /** QuadPlanet shader material ids (qp_shader.ts). */
 export const MAT_PAINT = 11;
@@ -132,12 +132,14 @@ export function packHouse(e: Evaluation, lod: 0 | 1): { vertexData: Float32Array
         if (m?.clear || m?.transmission) { material = lod === 0 ? MAT_CLEAR_GLASS : MAT_GLASS; alpha = m.clear ?? 0.7; }
         else if (m?.pattern === "glow") material = MAT_GLOW;
         else if (p.region === "foundation") material = MAT_FOUNDATION;
+        // The surface the shader draws on paint (qp_shader.ts surfaceKind): brick, render, tiles...
+        const kind = material === MAT_PAINT ? surfaceKind(m?.id) : 0;
         const base = vo / 12;
         const n = p.positions.length / 3;
         for (let i = 0; i < n; i++) {
             v[vo] = p.positions[i * 3]; v[vo + 1] = p.positions[i * 3 + 1]; v[vo + 2] = p.positions[i * 3 + 2];
             v[vo + 3] = p.normals[i * 3]; v[vo + 4] = p.normals[i * 3 + 1]; v[vo + 5] = p.normals[i * 3 + 2];
-            v[vo + 6] = material + 0.5; v[vo + 7] = 0.5;
+            v[vo + 6] = material + 0.5; v[vo + 7] = kind + 0.5;
             v[vo + 8] = color[0]; v[vo + 9] = color[1]; v[vo + 10] = color[2]; v[vo + 11] = alpha;
             vo += 12;
         }
@@ -400,8 +402,13 @@ export class CityHouses {
             data[o + 4] = b.up[0] * fy; data[o + 5] = b.up[1] * fy; data[o + 6] = b.up[2] * fy; data[o + 7] = 0;
             data[o + 8] = b.forward[0] * fz; data[o + 9] = b.forward[1] * fz; data[o + 10] = b.forward[2] * fz; data[o + 11] = 0;
             data[o + 12] = t[0]; data[o + 13] = t[1]; data[o + 14] = t[2]; data[o + 15] = 1;
-            data[o + 16] = 1; data[o + 17] = 1; data[o + 18] = 1; data[o + 19] = 0;
-            data[o + 20] = 0; data[o + 21] = 0; data[o + 22] = 0; data[o + 23] = s.skirt;
+            // Neighbours sharing a mesh still differ: a tone (lighter, darker, warmer, cooler) and
+            // where the surface patterns and weathering fall (tex_origin.xz; y stays 0, the
+            // shader reads height above the ground from it).
+            const r1 = (Math.imul(b.seed | 0, 0x9e3779b1) >>> 0) / 4294967296, r2 = (Math.imul((b.seed | 0) ^ 0x5bd1e995, 0x85ebca6b) >>> 0) / 4294967296;
+            const tone = 0.9 + 0.17 * r1, warm = (r2 - 0.5) * 0.08;
+            data[o + 16] = tone * (1 + warm); data[o + 17] = tone; data[o + 18] = tone * (1 - warm); data[o + 19] = 0;
+            data[o + 20] = (b.seed % 61) * 3.1; data[o + 21] = 0; data[o + 22] = (b.seed % 47) * 2.3; data[o + 23] = s.skirt;
         }
         this.batches.flush();
         this.dirty = false;

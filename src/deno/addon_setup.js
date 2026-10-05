@@ -909,6 +909,16 @@ function createAddonContextualAPI(resolveTarget) {
             // Call with no argument (or an empty/falsy source) to reset to the default.
             setPointLightShader: (wgslSource) => ops.op_lighting_set_point_light_shader(wgslSource || ""),
             // Any field left out keeps its current value - only pass what you're changing.
+            // Cascaded sun shadows for `sunShadows` pipelines (core/addon_sun_shadows.rs): this
+            // frame's light matrices (16 floats each, column-major, render space). An empty
+            // `cascades` turns them off.
+            setSunShadows: (config) => ops.op_sun_shadows_update({
+                cascades: config.cascades || [],
+                texel: config.texel,
+                strength: config.strength,
+                mapSize: config.mapSize,
+                depthRange: config.depthRange
+            }),
             configureShadows: (config) => ops.op_shadow_configure({
                 mapSize: config.mapSize,
                 bias: config.bias,

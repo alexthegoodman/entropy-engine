@@ -14,6 +14,20 @@ Crimson Desert is a useful reference for environmental movement, atmosphere, mat
 
 This is a recommendation document, not an implemented upgrade or a measured performance assessment. I inspected the two existing public screenshots; I did not launch the native game, capture new frames, build Rust, measure GPU costs, or play a long campaign. The source findings below distinguish current behavior from hypotheses and proposed targets.
 
+## Progress
+
+First visual pass, aimed at the roadmap's largest gains (coherent light and shadow, materials, a
+world in motion) without leaving Allegiance's own shader. See [Light and weather](ALLEGIANCE.md#light-and-weather).
+
+| Roadmap item | Done | Still open |
+|---|---|---|
+| 4.3 Sun shadows; section 2's "does not sample a shadow map" and "shadow deformation" findings | Engine-level cascaded sun shadows for unlit addon pipelines (`src/core/addon_sun_shadows.rs`, `sunShadows`/`shadowCaster`/`shadowCascades`, `Entropy.Lighting.setSunShadows`). Four texel-snapped cascades, 3 x 3 PCF, cascade blending, normal-offset and metric depth bias. The caster runs the same vertex code as the color pass, so people's limb poses and the trees' sway match their shadows | Shadowed local lights; a debug view of the cascades; measured GPU cost on target hardware |
+| 4.3 Materials | Procedural city surfaces from Mesha material ids: brick, render, concrete, stone, roof tiles, metal, timber; per-building tone and weathering placement | Real metallic/roughness BRDF, environment lighting, texture/trim-sheet pipeline |
+| 5.2 One wind field; clouds and moving cloud shadows | World wind (velocity in the World uniform) drives foliage sway and the clouds' drift; a cloud layer with lit tops, dark undersides and silver edges; its shadows on everything | Rain, wetness, fog volumes, banners and cloth in the same wind |
+| 5.3 Vegetation with wind weights and leaf transmission | Mesha plants packed with per-vertex bend weights and a leaf flag: gusting sway, leaf flutter, sun through leaves. Ground cover (lawn, meadow drifts, wildflowers) on open ground near the player, anchored to latitude/longitude and kept off roads and walls | Impostors, shadow LOD for foliage; OSM land use (parks, plazas) to decide lawn versus paving |
+| 5.2 Cosmetic weather that cannot change outcomes | Weather from its own hash of region and day, continuous across dawn | Weather states with transitions and audio |
+| 4.4 HDR, exposure, tone map | Not yet: the ACES curve is still per material | Linear HDR target, bloom, grade |
+
 ## 1. What is already worth preserving
 
 Allegiance has an unusually useful combination of systems:

@@ -29,6 +29,7 @@ pub mod video_timeline_ui;
 pub mod scattered_model_pipeline;
 pub mod execute_tool_call;
 pub mod addon_pipeline;
+pub mod addon_sun_shadows;
 pub mod sophia;
 pub mod render_frame;
 pub mod render_egui;
