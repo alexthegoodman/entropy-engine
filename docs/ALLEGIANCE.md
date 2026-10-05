@@ -234,7 +234,7 @@ and speech after speech on the same day returns less. Hope earns karma; fear cos
 
 **Rivals.** The Concordat (the incumbent world order), the Iron Vanguard, the Verdant Accord and
 the Free Current campaign across the planet every day, hardest where you are strong. They also
-send orators: one sets up across the square, a banner on the HUD counts down, and listeners drift
+send orators: one sets up across the square where the crowd is, a banner on the HUD counts down, and listeners drift
 to them. Walk up and press **E** to challenge them to a **debate**. That is a speech with the
 rival speaking too, and their next topic is announced. Answer it with the same topic to tear the
 argument apart: your line lands harder and theirs softer. Win, and you take support from them.

@@ -91,6 +91,8 @@ export function skyMarkers(c: Campaign, lat: number, lon: number, opts: { rangeK
         .filter(x => x.km <= range && x.km > 0.4)
         .sort((a, b) => a.km - b.km).slice(0, max);
     for (const { d, km } of places) {
+        // A territory's anchor and the mapped city of the same name: one marker (the nearer).
+        if (out.some(m => m.label === d.name.toUpperCase() && angularDistance(m.lat, m.lon, d.lat, d.lon) * EARTH_RADIUS_KM < 5)) continue;
         const gov = c.regions[d.id]?.governor ?? "concordat";
         out.push({ id: d.id, kind: d.parent && d.kind === "town" ? "town" : "city", label: d.name.toUpperCase(), lat: d.lat, lon: d.lon, km,
             color: gov === PARTY ? c.party.color : factionById(gov).color, lift: d.parent ? 220 : 400 });

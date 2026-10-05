@@ -528,7 +528,14 @@ export const guardsOf = (st: StreetState, compound: string): Actor[] => st.actor
 export function spawnOrator(st: StreetState, nav: NavGrid | null, ctx: StreetContext, r: Rng): void {
     const rivals = RIVALS.map(id => ctx.rivalShares[id] ?? 0);
     const faction = RIVALS[weighted(r, rivals)];
-    const at = spawnPoint(st, nav, r, 30, 55);
+    // Orators set up where people are: the candidate spot with the most passers-by within earshot.
+    let at: [number, number] | null = null, best = -1;
+    for (let k = 0; k < 8; k++) {
+        const p = spawnPoint(st, nav, r, 30, 55);
+        if (!p) continue;
+        const near = st.actors.filter(a => a.kind === "civilian" && alive(a) && dist2(a.x, a.z, p[0], p[1]) < 28 * 28).length;
+        if (near > best) { best = near; at = p; }
+    }
     if (!at) return;
     const a = newActor(st, "orator", at[0], at[1], r);
     a.faction = faction;

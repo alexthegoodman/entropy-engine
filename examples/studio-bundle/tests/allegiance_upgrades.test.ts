@@ -558,3 +558,27 @@ describe("named members and rival parties", () => {
         expect(c.news.some(n => n.text.includes("leaves the party for"))).toBe(true);
     });
 });
+
+describe("marker and rally polish", () => {
+    it("shows one marker for a territory anchor and the mapped city of the same name", () => {
+        const c = newCampaign({ seed: 15, spawn: "paris" });
+        const p = regionDefById("paris")!;
+        discoverSettlement(c, { name: "Paris", kind: "city", lat: p.lat + 0.01, lon: p.lon + 0.01 });
+        const markers = skyMarkers(c, p.lat + 0.2, p.lon, { rangeKm: 60 });
+        expect(markers.filter(m => m.label === "PARIS")).toHaveLength(1);
+    });
+    it("sets rival orators up where people are, so rallies draw a crowd", async () => {
+        const { spawnOrator, listeners } = await import("../src/games/allegiance/al_street");
+        const ctx: StreetContext = { partyShare: 0.01, rivalShares: { concordat: 0.3, vanguard: 0.1, verdant: 0.1, current: 0.1 }, atWar: false, heat: 0, enemyQuality: 0.5,
+            followers: Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: `F${i}`, armed: true, combat: 5 })), playerWeapon: "pistol" };
+        let low = 0;
+        for (let seed = 1; seed <= 60; seed++) {
+            const st = newStreet(), r = makeRng(seed);
+            for (let i = 0; i < 40; i++) stepStreet(st, null, ctx, 0.1, r, () => 0);
+            spawnOrator(st, null, ctx, r);
+            for (let i = 0; i < 200; i++) stepStreet(st, null, ctx, 0.033, r, () => 0);
+            if (listeners(st).length < 3) low++;
+        }
+        expect(low).toBeLessThanOrEqual(6);
+    });
+});
