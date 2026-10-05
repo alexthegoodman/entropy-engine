@@ -89,7 +89,8 @@ export const FOLIAGE: FoliageSpec[] = [
     { family: "table-lamp", object: "household.table_lamp", values: {}, near: 15, range: 40 },
 ];
 
-export const foliageSpec = (family: string): FoliageSpec | undefined => FOLIAGE.find(f => f.family === family);
+const SPEC_OF = new Map(FOLIAGE.map(f => [f.family, f]));
+export const foliageSpec = (family: string): FoliageSpec | undefined => SPEC_OF.get(family) ?? FOLIAGE.find(f => f.family === family);
 
 /** Every broadleaf tree family (temperate streets, yards and stands). */
 export const BROADLEAF = ["tree-oak", "tree-maple", "tree-birch"];
@@ -100,9 +101,17 @@ export function foliageValues(spec: FoliageSpec, lod: FoliageLod): ParamValues {
     return o ? { ...spec.values, ...o } : spec.values;
 }
 
+/** Each spec's keys by LOD: building one sorts and joins its values (microseconds, for every item drawn). */
+const FOLIAGE_KEYS = new WeakMap<FoliageSpec, string[]>();
+
 export function foliageKey(spec: FoliageSpec, lod: FoliageLod): string {
-    const values = Object.keys(spec.values).sort().map(k => `${k}=${spec.values[k]}`).join(",");
-    return `${FOLIAGE_GENERATOR}|${spec.object}|${values}|lod${lod}`;
+    let keys = FOLIAGE_KEYS.get(spec);
+    if (!keys) {
+        const values = Object.keys(spec.values).sort().map(k => `${k}=${spec.values[k]}`).join(",");
+        keys = [0, 1, 2].map(l => `${FOLIAGE_GENERATOR}|${spec.object}|${values}|lod${l}`);
+        FOLIAGE_KEYS.set(spec, keys);
+    }
+    return keys[lod];
 }
 
 /** Simplification for distant foliage (welded and decimated on a Rust thread). */
@@ -222,7 +231,12 @@ export const PROPS: Record<string, () => ModelMesh> = {
     "mil-tower": () => buildMilitary("tower"), "mil-wall": () => buildMilitary("wall"),
 };
 
-export const propKey = (name: string): string => `${PROP_GENERATOR}|${name}`;
+const PROP_KEYS = new Map<string, string>();
+export const propKey = (name: string): string => {
+    let k = PROP_KEYS.get(name);
+    if (k === undefined) { k = `${PROP_GENERATOR}|${name}`; PROP_KEYS.set(name, k); }
+    return k;
+};
 
 /** Caches every prop mesh that isn't cached yet (they are small; this is instant). */
 export function cacheProps(cache: ScatterCache): number {
@@ -501,6 +515,34 @@ export function lawnAround(cx: number, cz: number, o: ScatterOptions & { origin:
 
 /** Meters per culling tile: everything of one mesh in one tile is a single draw with one bounding sphere. */
 export const TILE = 96;
+/** Ground cover (hundreds of patches around you) is tiled finer, so the patches behind you, and
+ * those outside the nearest shadow cascade, are culled rather than drawn with the rest of a tile. */
+export const GROUND_TILE = 32;
+
+/** Low plants on open ground (lawnAround) and in yards. */
+export const GROUND_COVER = new Set(["lawn", "meadow", "poppies", "daisies", "grass", "flowers"]);
+/** Things too small to throw a shadow worth a texel beyond the two nearest cascades (52 m). */
+const SMALL = new Set(["shrub", "boxwood", "hydrangea", "fern", "rock", "cafe-table", "cafe-chair", "dining-table", "dining-chair",
+    "potted-plant", "table-lamp", "bench", "lamp", "bin", "barrier", "crates", "sandbags", "kiosk", "loot"]);
+
+/**
+ * Which sun-shadow cascades a family casts into: ground cover only the nearest (12 m: the grass at
+ * your feet), small props and understory the two nearest, trees and buildings all of them. Each
+ * class is drawn with its own pipeline (same shader), so the shadow passes skip what cannot show.
+ */
+export type ShadowClass = "ground" | "small" | "tall";
+export const shadowClass = (family: string): ShadowClass => GROUND_COVER.has(family) ? "ground" : SMALL.has(family) ? "small" : "tall";
+
+/** The family a scatter mesh key draws (null for keys this module did not make). */
+let familyOfKey: Map<string, string> | null = null;
+export function familyOfMesh(meshKey: string): string | null {
+    if (!familyOfKey) {
+        familyOfKey = new Map();
+        for (const spec of FOLIAGE) for (const l of [0, 1, 2] as FoliageLod[]) familyOfKey.set(foliageKey(spec, l), spec.family);
+        for (const name of Object.keys(PROPS)) familyOfKey.set(propKey(name), name);
+    }
+    return familyOfKey.get(meshKey) ?? null;
+}
 /** Props are drawn out to this distance. */
 export const PROP_RANGE = 180;
 
@@ -516,6 +558,8 @@ export function scatterMesh(family: string, distance: number): string | null {
     return distance <= (family === "beacon" ? 6000 : PROP_RANGE) ? propKey(family) : null;
 }
 
-/** The batch an item goes in: its mesh and its culling tile. */
-export const batchKey = (mesh: string, x: number, z: number): string => `${mesh}#${Math.floor(x / TILE)},${Math.floor(z / TILE)}`;
+/** The batch an item goes in: its mesh and its culling tile (`tile` meters). */
+export const batchKey = (mesh: string, x: number, z: number, tile = TILE): string => `${mesh}#${Math.floor(x / tile)},${Math.floor(z / tile)}`;
+/** The culling tile size for a family. */
+export const tileOf = (family: string): number => GROUND_COVER.has(family) ? GROUND_TILE : TILE;
 export const meshOfBatch = (key: string): string => key.slice(0, key.lastIndexOf("#"));

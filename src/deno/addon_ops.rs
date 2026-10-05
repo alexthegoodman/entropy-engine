@@ -4173,6 +4173,9 @@ pub struct SunShadowsConfig {
     pub map_size: Option<u32>,
     /// Depth from the light's near plane to its far plane, in meters (for biasing in meters).
     pub depth_range: Option<f32>,
+    /// Per cascade: re-render it every n-th frame while its matrix holds still (1: every frame,
+    /// the default). A matrix change always re-renders.
+    pub refresh: Option<Vec<u32>>,
 }
 
 /// Entropy.Lighting.setSunShadows: this frame's cascades for `sunShadows` pipelines.
@@ -4192,6 +4195,11 @@ pub fn op_sun_shadows_update(state: &mut OpState, #[serde] config: SunShadowsCon
     shadows.texel = texel;
     if let Some(s) = config.strength { shadows.strength = s.clamp(0.0, 1.0); }
     if let Some(r) = config.depth_range { shadows.depth_per_meter = if r > 0.0 { 1.0 / r } else { 0.0 }; }
+    if let Some(refresh) = config.refresh {
+        let mut every = [1u32; crate::core::addon_sun_shadows::MAX_CASCADES];
+        for (i, n) in refresh.iter().take(every.len()).enumerate() { every[i] = (*n).clamp(1, 60); }
+        shadows.refresh = every;
+    }
 }
 
 #[op2]

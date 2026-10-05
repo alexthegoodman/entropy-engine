@@ -262,6 +262,55 @@ describe("house streaming costs", () => {
         expect(city.lastStats).not.toBe(moved);
     });
 
+    it("chooses a finished street again only after the camera has moved reselectDistance", () => {
+        const f = fakeEngine(street);
+        let calls = 0, status = 0;
+        const engine: CityEngine = { ...f.engine, buildings: (...a) => { calls++; return f.engine.buildings(...a); }, status: (...a) => { status++; return f.engine.status(...a); } };
+        const city = new CityHouses(engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300, reselectDistance: 1.5 });
+        for (let frame = 0; frame < 12; frame++) { city.update(camera, [0, 0, 0], 1, 12); f.land(); }
+        expect(city.busy()).toBe(false);
+        const settled = city.lastStats, hide = city.hideRadius;
+        // A short walk: no selection, and the hide radius shrinks by the distance walked.
+        let h = 0;
+        for (let k = 1; k <= 7; k++) h = city.update([0, 101.8, k * 0.2], [0, 0, 0], 1, 12);
+        expect(city.lastStats).toBe(settled);
+        expect(h).toBeCloseTo(Math.max(0, hide - 1.4), 5);
+        expect(status).toBeGreaterThan(0);
+        // Past the threshold the street is chosen again.
+        city.update([0, 101.8, 1.6], [0, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(settled);
+        // Unlimited budgets (settling, fixed steps) stay exact.
+        const exact = city.lastStats;
+        city.update([0, 101.8, 1.7], [0, 0, 0], 1, Infinity);
+        expect(city.lastStats).not.toBe(exact);
+    });
+
+    it("limits how often a moving camera reselects with reselectMs", () => {
+        const f = fakeEngine(street);
+        let now = 0;
+        const city = new CityHouses({ ...f.engine, now: () => now }, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300, reselectDistance: 1, reselectMs: 100 });
+        for (let frame = 0; frame < 12; frame++) { city.update(camera, [0, 0, 0], 1, 12); f.land(); now += 16; }
+        city.update(camera, [0, 0, 0], 1, 12);
+        expect(city.busy()).toBe(false);
+        const before = city.lastStats;
+        // The first move after standing still is chosen at once...
+        city.update([0, 101.8, 2], [0, 0, 0], 1, 12);
+        const first = city.lastStats;
+        expect(first).not.toBe(before);
+        // ...then 2 m in 16 ms (a fast car) waits until 100 ms have passed since that choice...
+        now += 16;
+        city.update([0, 101.8, 4], [0, 0, 0], 1, 12);
+        expect(city.lastStats).toBe(first);
+        now += 100;
+        city.update([0, 101.8, 6], [0, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(first);
+        // ...unless it has gone ten times reselectDistance.
+        const later = city.lastStats;
+        now += 16;
+        city.update([0, 101.8, 17], [0, 0, 0], 1, 12);
+        expect(city.lastStats).not.toBe(later);
+    });
+
     it("spaces Mesha evaluations by minBuildIntervalMs", () => {
         const f = fakeEngine(street.map((b, i) => ({ ...b, seed: i, width: 8 + i * 0.5 })));
         let now = 0;

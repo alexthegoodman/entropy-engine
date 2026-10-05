@@ -6,7 +6,7 @@ import { compoundsNear, compoundLayout, compoundToLocal, findClearSite, stepCapt
 import { startFoundingMission, updateMission, missionCompound, completeMission } from "./al_mission";
 import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside, doorSide } from "./al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, distanceLabel, miniMapRuns, toMapCell, type CameraBasis, type ScreenMarker, type SkyMarker, type MiniMap } from "./al_markers";
-import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, SCATTER_NAMESPACE, type ScatterItem } from "./al_scatter";
+import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, tileOf, shadowClass, familyOfMesh, SCATTER_NAMESPACE, type ScatterItem, type ShadowClass } from "./al_scatter";
 import { InstanceBatches } from "../../apps/quadplanet/qp_instances";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
@@ -97,6 +97,9 @@ let cloudAltitude = 2700;
 /** Weather fixed by allegiance_config (tests, captures); null follows the day. */
 let weatherHold: Weather | null = null;
 let housePipelineId = "";
+/** Set dressing that casts only into the nearest cascades (al_scatter.ts shadowClass): the houses'
+ * shader and bindings, fewer shadow draws. */
+const scatterPipelineIds: Record<ShadowClass, string> = { tall: "", small: "", ground: "" };
 /** Material maps that fell back to a checkerboard or neutral value ("set/map"). */
 let materialsMissing: string[] = [];
 let worldBuffer = "";
@@ -121,8 +124,15 @@ const bindings = (item: string) => [
 ];
 const HIDDEN = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-function writeItem(item: string, matrix: number[], tint: number[], extra: number[] = [0, 0, 0, 0]): void {
-    Entropy.Buffer.write(item, new Float32Array([...matrix, tint[0], tint[1], tint[2], tint[3], extra[0], extra[1], extra[2], extra[3]]));
+/** One Item's floats, reused: Buffer.write copies them out before returning. */
+const itemScratch = new Float32Array(ITEM_FLOATS);
+const NO_EXTRA = [0, 0, 0, 0];
+function writeItem(item: string, matrix: readonly number[], tint: readonly number[], extra: readonly number[] = NO_EXTRA): void {
+    const d = itemScratch;
+    for (let i = 0; i < 16; i++) d[i] = matrix[i];
+    d[16] = tint[0]; d[17] = tint[1]; d[18] = tint[2]; d[19] = tint[3];
+    d[20] = extra[0]; d[21] = extra[1]; d[22] = extra[2]; d[23] = extra[3];
+    Entropy.Buffer.write(item, d);
 }
 
 function spawnMesh(id: string, mesh: ModelMesh, item: string): void {
@@ -190,6 +200,10 @@ function controls(): { aimAssist: number; lookSensitivity: number } {
 
 const heightCache = new Map<number, number>();
 let heightCacheAge = 0;
+/** Bumped whenever heightCache is emptied: anything placed on the ground re-reads its height. */
+let heightGeneration = 0;
+let wasWaitingForData = false;
+function clearHeights(): void { heightCache.clear(); heightGeneration++; }
 
 /** Ground height (local y) at local (x, z), sampled from the same terrain the chunks are built from. */
 function heightAt(x: number, z: number): number {
@@ -207,10 +221,20 @@ function heightAt(x: number, z: number): number {
     return y;
 }
 
+/** Open water on a 4 m grid, kept with the heights (the nav grid asks thousands of times a build). */
+const seaCache = new Map<number, boolean>();
+let seaGeneration = -1;
 function isSea(x: number, z: number): boolean {
     if (!frame) return false;
-    const s = sampleEarth(normalize(toWorld(frame, x, 0, z)));
-    return s.sea && s.terrain < -0.5;
+    if (seaGeneration !== heightGeneration) { seaCache.clear(); seaGeneration = heightGeneration; }
+    const qx = Math.round(x / 4), qz = Math.round(z / 4);
+    const key = (qx + 50000) * 100003 + (qz + 50000);
+    const hit = seaCache.get(key);
+    if (hit !== undefined) return hit;
+    const s = sampleEarth(normalize(toWorld(frame, qx * 4, 0, qz * 4)));
+    const sea = s.sea && s.terrain < -0.5;
+    seaCache.set(key, sea);
+    return sea;
 }
 
 function surfaceAt(lat: number, lon: number): Vec3 {
@@ -284,13 +308,13 @@ function startLoading(lat: number, lon: number): void {
     resetStreet(street);
     nav = null;
     navBuildings = -1;
-    heightCache.clear();
+    clearHeights();
     const dir = latLonToDir(lat, lon);
     setSunDirection(morningSunAt(dir));
     const origin = surfaceAt(lat, lon);
     frame = makeLocalFrame(origin);
     renderOrigin = [Math.round(origin[0]), Math.round(origin[1]), Math.round(origin[2])];
-    controller.reset(); trafficSampleTime = -Infinity; trafficHouses = [];
+    controller.reset(); trafficSampleTime = -Infinity; trafficUnits = 0; trafficRoof = -Infinity;
     playerCar = null;
     indoors = null; shopState = null; placedCompounds = []; compoundSig = ""; captureView = null;
     scatterItems = []; scatterDirty = true; skyCache = []; miniMap = null; skyTimer = 99;
@@ -337,7 +361,7 @@ function loadingStep(): void {
 }
 
 function finishLoading(): void {
-    heightCache.clear();
+    clearHeights();
     buildNav(0, 0);
     if (loadState) loadState.navBuilt = true;
     // Stand on a street near the city center.
@@ -435,7 +459,7 @@ function maintainNav(dt: number): void {
             indoors.floor -= body.y;
         }
         body.x -= dx; body.z -= dz; body.y = indoors ? indoors.floor : 0;
-        heightCache.clear();
+        clearHeights();
     }
     buildNav(body.x, body.z);
 }
@@ -1390,7 +1414,9 @@ function addCarObstacle(): void {
         height: 1.6, base: p.y - 0.22, key: "al-player-car", door: [p.x, p.z] });
 }
 let trafficVisible = 0;
-let trafficHouses: QuadPlanetBuilding[] = [];
+/** Traffic density and the rooftops it flies over, from a buildings query every 2 s. */
+let trafficUnits = 0;
+let trafficRoof = -Infinity;
 let trafficSampleTime = -Infinity;
 function drawTraffic(): void {
     const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue");
@@ -1400,11 +1426,14 @@ function drawTraffic(): void {
     }
     showProp("al-player-car", visible && !!playerCar);
     if (visible && time - trafficSampleTime > 2) {
+        // Up to 1,500 buildings: reduced to the two numbers traffic needs here, not every frame.
         trafficSampleTime = time;
-        trafficHouses = Entropy.QuadPlanet.buildings(terrainId, toWorld(frame!, body.x, body.y, body.z), 400, { limit: 1500 });
+        const near = Entropy.QuadPlanet.buildings(terrainId, toWorld(frame!, body.x, body.y, body.z), 400, { limit: 1500 });
+        trafficUnits = housingUnits(near);
+        trafficRoof = near.reduce((h, b) => Math.max(h, toLocal(frame!, b.anchor)[1] + b.height), -Infinity);
     }
-    trafficVisible = visible ? trafficCount(housingUnits(trafficHouses)) : 0;
-    const roof = trafficHouses.reduce((h, b) => Math.max(h, toLocal(frame!, b.anchor)[1] + b.height), body.y);
+    trafficVisible = visible ? trafficCount(trafficUnits) : 0;
+    const roof = Math.max(trafficRoof, body.y);
     for (let i = 0; i < TRAFFIC_LIMIT; i++) {
         if (i < trafficVisible) {
             const pose = trafficPose(i, time, body.x, body.z, roof);
@@ -1504,16 +1533,25 @@ function sunColor(): [number, number, number] {
 }
 
 /** This frame's sun-shadow cascades around the camera (none off the street or with the sun down). */
+/** What was last sent: map size, depth range, then each cascade's texel and matrix. */
+let shadowSent: number[] = [];
+const SHADOW_REFRESH = [1, 1, 2, 4];
 function updateShadows(): void {
     const on = shadowsEnabled && !!frame && !!lastCamera && mode !== "title" && mode !== "setup" && mode !== "loading"
         && dot(SUN_DIRECTION, frame.up) > 0.04;
     if (!on) {
-        if (shadowsLive) { Entropy.Lighting.setSunShadows({ cascades: [] }); shadowsLive = false; }
+        if (shadowsLive) { Entropy.Lighting.setSunShadows({ cascades: [] }); shadowsLive = false; shadowSent = []; }
         return;
     }
     const cam = lastCamera!;
     const c = shadowCascades(toRender(cam.position), normalize(sub(cam.target, cam.position)), SUN_DIRECTION, SHADOW_RADII.slice(0, shadowCascadeCount), shadowMapSize);
-    Entropy.Lighting.setSunShadows({ ...c, strength: 1, mapSize: shadowMapSize });
+    // Texel-snapped cascades hold still while the view barely moves: nothing to send then.
+    const sent = [shadowMapSize, c.depthRange, ...c.texel, ...c.cascades.flat()];
+    if (shadowsLive && sent.length === shadowSent.length && sent.every((v, i) => v === shadowSent[i])) return;
+    shadowSent = sent;
+    // The two far cascades (140 and 520 m: buildings, trees; no people) refresh every 2nd and
+    // 4th frame while they hold still: their swaying crowns move a fraction of a texel meanwhile.
+    Entropy.Lighting.setSunShadows({ ...c, strength: 1, mapSize: shadowMapSize, refresh: SHADOW_REFRESH });
     shadowsLive = true;
 }
 
@@ -1956,6 +1994,49 @@ function compoundItems(): ScatterItem[] {
 
 const SCATTER_RADIUS: Record<string, number> = { "mil-hq": 10, "mil-barracks": 11, "mil-depot": 9, "mil-hangar": 11, "mil-tower": 6, "mil-wall": 4, beacon: 160, flag: 6 };
 
+/**
+ * An item's record as far as it never changes: its rotation and scale, tint, sway phase, where it
+ * stands (world, so a rebase only moves the translation) and its bounding sphere. Computed once
+ * per item, frame and ground height (it was a dozen small arrays per item per repack).
+ */
+interface ScatterPlaced {
+    frame: LocalFrame;
+    heights: number;
+    record: Float32Array;
+    world: Vec3;
+    /** Bounding sphere center (world) and radius. */
+    center: Vec3;
+    radius: number;
+    /** The last mesh drawn and its batch key. */
+    mesh: string;
+    batch: string;
+}
+const scatterPlaced = new WeakMap<ScatterItem, ScatterPlaced>();
+const scatterSphere = [0, 0, 0, 0];
+let scatterOrigin: Vec3 = [NaN, NaN, NaN];
+let scatterHeights = -1;
+
+function placeScatter(it: ScatterItem, f: LocalFrame): ScatterPlaced {
+    const known = scatterPlaced.get(it);
+    if (known && known.frame === f && (it.y !== undefined || known.heights === heightGeneration)) return known;
+    const y = it.y ?? heightAt(it.x, it.z);
+    const world = toWorld(f, it.x, y, it.z);
+    const fr = makeFrame(dirToWorld(f, Math.sin(it.yaw), 0, Math.cos(it.yaw)), f.up);
+    const m = frameMatrix([0, 0, 0], fr);
+    const sx = it.scale * (it.sx ?? 1), s = it.scale;
+    const radius = (SCATTER_RADIUS[it.family] ?? (it.family.startsWith("tree") || it.family === "conifer" || it.family === "palm" ? 11 : 3)) * Math.max(s, sx / 2);
+    const record = new Float32Array(ITEM_FLOATS);
+    for (let k = 0; k < 3; k++) { record[k] = m[k] * sx; record[4 + k] = m[4 + k] * s; record[8 + k] = m[8 + k] * s; }
+    record[15] = 1;
+    record[16] = it.tint[0]; record[17] = it.tint[1]; record[18] = it.tint[2]; record[19] = it.glow ?? 0;
+    // Where it stands on the street (wrapped): the phase of its sway in the wind (al_shader.ts).
+    record[20] = it.x - 1024 * Math.floor(it.x / 1024); record[22] = it.z - 1024 * Math.floor(it.z / 1024);
+    const placed: ScatterPlaced = { frame: f, heights: heightGeneration, record, world, center: add(world, scale(f.up, radius * 0.5)), radius,
+        mesh: known?.mesh ?? "", batch: known?.batch ?? "" };
+    scatterPlaced.set(it, placed);
+    return placed;
+}
+
 function drawScatter(dt: number): void {
     if (!scatterBatches) return;
     const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue" || mode === "shop");
@@ -1965,8 +2046,12 @@ function drawScatter(dt: number): void {
         if (scatterAt[0] !== Infinity) { scatterBatches.begin(); scatterBatches.flush(); scatterAt = [Infinity, Infinity]; }
         return;
     }
-    if (!scatterDirty && moved < 4 && scatterTimer < 1) return;
+    const rebased = renderOrigin.some((v, i) => v !== scatterOrigin[i]);
+    // Repacking is cheap now (cached placements) and an unchanged batch is not uploaded again, so
+    // the once-a-second refresh (compounds, interiors, the beacon) costs a compare.
+    if (!scatterDirty && !rebased && scatterHeights === heightGeneration && moved < 4 && scatterTimer < 1) return;
     scatterDirty = false; scatterTimer = 0; scatterAt = [body.x, body.z];
+    scatterOrigin = renderOrigin; scatterHeights = heightGeneration;
     if (nav && Math.hypot(body.x - lawnAt[0], body.z - lawnAt[1]) > 10) {
         const g = nav;
         lawnAt = [body.x, body.z];
@@ -1978,26 +2063,23 @@ function drawScatter(dt: number): void {
     }
     scatterBatches.begin();
     const f = frame!;
-    for (const it of [...scatterItems, ...lawnItems, ...compoundItems()]) {
-        const d = Math.hypot(it.x - body.x, it.z - body.z);
-        const mesh = scatterMesh(it.family, d);
-        if (!mesh) continue;
-        const y = it.y ?? heightAt(it.x, it.z);
-        const pos = toRender(toWorld(f, it.x, y, it.z));
-        const fwd = dirToWorld(f, Math.sin(it.yaw), 0, Math.cos(it.yaw));
-        const fr = makeFrame(fwd, f.up);
-        const m = frameMatrix(pos, fr);
-        const sx = it.scale * (it.sx ?? 1), s = it.scale;
-        const radius = (SCATTER_RADIUS[it.family] ?? (it.family.startsWith("tree") || it.family === "conifer" || it.family === "palm" ? 11 : 3)) * Math.max(s, sx / 2);
-        const up = scale(f.up, radius * 0.5);
-        const { data, offset: o } = scatterBatches.add(batchKey(mesh, it.x, it.z), [pos[0] + up[0], pos[1] + up[1], pos[2] + up[2], radius]);
-        for (let k = 0; k < 3; k++) { data[o + k] = m[k] * sx; data[o + 4 + k] = m[4 + k] * s; data[o + 8 + k] = m[8 + k] * s; }
-        data[o + 3] = 0; data[o + 7] = 0; data[o + 11] = 0;
-        data[o + 12] = m[12]; data[o + 13] = m[13]; data[o + 14] = m[14]; data[o + 15] = 1;
-        data[o + 16] = it.tint[0]; data[o + 17] = it.tint[1]; data[o + 18] = it.tint[2]; data[o + 19] = it.glow ?? 0;
-        // Where it stands on the street (wrapped): the phase of its sway in the wind (al_shader.ts).
-        data[o + 20] = it.x - 1024 * Math.floor(it.x / 1024); data[o + 21] = 0; data[o + 22] = it.z - 1024 * Math.floor(it.z / 1024); data[o + 23] = 0;
-    }
+    const o = renderOrigin;
+    const pack = (items: readonly ScatterItem[]) => {
+        for (const it of items) {
+            const dx = it.x - body.x, dz = it.z - body.z;
+            const mesh = scatterMesh(it.family, Math.sqrt(dx * dx + dz * dz));
+            if (!mesh) continue;
+            const p = placeScatter(it, f);
+            if (p.mesh !== mesh) { p.mesh = mesh; p.batch = batchKey(mesh, it.x, it.z, tileOf(it.family)); }
+            scatterSphere[0] = p.center[0] - o[0]; scatterSphere[1] = p.center[1] - o[1]; scatterSphere[2] = p.center[2] - o[2]; scatterSphere[3] = p.radius;
+            const { data, offset } = scatterBatches!.add(p.batch, scatterSphere);
+            data.set(p.record, offset);
+            data[offset + 12] = p.world[0] - o[0]; data[offset + 13] = p.world[1] - o[1]; data[offset + 14] = p.world[2] - o[2];
+        }
+    };
+    pack(scatterItems);
+    pack(lawnItems);
+    pack(compoundItems());
     scatterBatches.flush();
 }
 
@@ -2701,6 +2783,17 @@ addon.onInit(() => {
         // Group 2: the world, the records, then the material maps (al_materials.ts).
         extraBindGroups: [{ entries: [...INSTANCED_BIND_GROUPS[0].entries, ...MATERIAL_BIND_ENTRIES] }],
     });
+    // Small props and understory cast into the two nearest cascades (52 m), ground cover into the
+    // nearest (12 m): beyond, their shadows are a texel or two, and hundreds of grass patches drawn
+    // into every cascade cost more than all the trees.
+    for (const [cls, cascades] of [["small", 2], ["ground", 1]] as const) {
+        scatterPipelineIds[cls] = Entropy.Pipeline.create({
+            name: `Allegiance Scatter ${cls}`, layout: "mesh", pbr: false, sunShadows: true, shadowCascades: cascades,
+            vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
+            extraBindGroups: [{ entries: [...INSTANCED_BIND_GROUPS[0].entries, ...MATERIAL_BIND_ENTRIES] }],
+        });
+    }
+    scatterPipelineIds.tall = housePipelineId;
     // The maps every mesh of that pipeline binds; missing files load as checkerboards.
     try {
         const m = loadMaterials(c => Entropy.Texture.loadArray(c));
@@ -2743,7 +2836,8 @@ addon.onInit(() => {
         pollBackground: id => Entropy.Worker.poll(id).status,
         now: () => Date.now(),
     // 1 m size steps: similar footprints share one house mesh (and one instanced draw).
-    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1 });
+    // Chosen again every 1.5 m (at most every 100 ms in a fast car), not every frame you move.
+    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1, reselectDistance: 1.5, reselectMs: 100 });
     // Every other building on the map: Mesha city blocks (evaluated here, 5-80 ms each, cached).
     try { Entropy.MeshCache.prune(BUILDING_NAMESPACE, 2e9); } catch (e) { Entropy.println(`[allegiance] building cache: ${(e as Error).message}`); }
     buildings = new CityHouses({
@@ -2754,14 +2848,18 @@ addon.onInit(() => {
         instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings),
         now: () => Date.now(),
     // 2 m size steps (the model stretches to the real footprint): streets of similar blocks share meshes.
-    }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2 }, BUILDING_MODEL);
+    }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2, reselectDistance: 2, reselectMs: 100 }, BUILDING_MODEL);
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     setupViewModels();
     foliage = new FoliageMeshes(Entropy.MeshCache);
     try { cacheProps(Entropy.MeshCache); } catch (e) { Entropy.println(`[allegiance] prop cache: ${(e as Error).message}`); }
-    const scatterEngine = meshCacheInstances(SCATTER_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings);
-    scatterBatches = new InstanceBatches({ ...scatterEngine, createMesh: (key, meshId, buffer, n) => scatterEngine.createMesh(meshOfBatch(key), meshId, buffer, n) }, ITEM_FLOATS, { prefix: "al-scatter", idleFrames: 120 });
+    const scatterEngines = Object.fromEntries((["tall", "small", "ground"] as ShadowClass[])
+        .map(cls => [cls, meshCacheInstances(SCATTER_NAMESPACE, () => scatterPipelineIds[cls], () => worldBuffer, materialBindings)])) as Record<ShadowClass, ReturnType<typeof meshCacheInstances>>;
+    scatterBatches = new InstanceBatches({ ...scatterEngines.tall, createMesh: (key, meshId, buffer, n) => {
+        const mesh = meshOfBatch(key);
+        return scatterEngines[shadowClass(familyOfMesh(mesh) ?? "")].createMesh(mesh, meshId, buffer, n);
+    } }, ITEM_FLOATS, { prefix: "al-scatter", idleFrames: 120 });
     const flyingCar = buildFlyingCar();
     playerCarItem = uniform(ITEM_FLOATS);
     spawnMesh("al-player-car", flyingCar, playerCarItem); showProp("al-player-car", false);
@@ -2860,8 +2958,13 @@ addon.onUpdatePlus("Global", () => {
         }
     }
     if (frameCount % 30 === 0) updateSun();
+    // Cached ground heights are refreshed while elevation data is arriving and once when the last
+    // of it lands; with nothing arriving they are final (refreshing them on a timer re-sampled
+    // every planted thing, a hitch every 15 s). A minute's refresh stays as a backstop.
     heightCacheAge += dt;
-    if (heightCacheAge > (stats && stats.waitingForData > 0 ? 2 : 15)) { heightCacheAge = 0; heightCache.clear(); }
+    const waiting = (stats?.waitingForData ?? 0) > 0;
+    if (heightCacheAge > (waiting ? 2 : 60) || (wasWaitingForData && !waiting)) { heightCacheAge = 0; clearHeights(); }
+    wasWaitingForData = waiting;
 
     const pose = cameraForMode(dt);
     const look = normalize(sub(pose.target, pose.position));

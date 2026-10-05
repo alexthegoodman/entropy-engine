@@ -720,7 +720,11 @@ const bufferAPI = {
         id: config.id || null
     }),
     write: (bufferId, data, offset = 0) => {
-        const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
+        // A typed-array view uploads only its own bytes: `subarray(0, n)` of a pooled array used
+        // to send the whole backing buffer.
+        const bufferData = data instanceof Uint8Array ? data
+            : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+            : new Uint8Array(data.buffer || data);
         ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
     },
     // Frees a buffer (e.g. a per-mesh uniform once its mesh is cleared). Unknown ids are ignored.
@@ -923,7 +927,8 @@ function createAddonContextualAPI(resolveTarget) {
                 texel: config.texel,
                 strength: config.strength,
                 mapSize: config.mapSize,
-                depthRange: config.depthRange
+                depthRange: config.depthRange,
+                refresh: config.refresh
             }),
             configureShadows: (config) => ops.op_shadow_configure({
                 mapSize: config.mapSize,

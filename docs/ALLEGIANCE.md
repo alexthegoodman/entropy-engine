@@ -391,6 +391,10 @@ The street is lit by one sun that everything agrees on.
   reaches 2.5 km toward the sun, so a tower down the street still shades you. A soft 3 x 3
   filter and a blend across each cascade's edge keep the transitions quiet. The ground does not
   cast (its relief is shaded by its own normals), and the first-person weapon casts nothing.
+  What casts where follows what a texel can show: people and small props and understory (benches,
+  lamps, shrubs, ferns, rocks, cafe furniture) cast into the two nearest cascades (52 m), lawn,
+  meadow grass and flowers into the nearest (the grass at your feet), trees and buildings into
+  all four. The two far cascades are redrawn every 2nd and 4th frame while they hold still.
 - **The sun's color** warms toward amber as it sinks and whitens toward noon.
 - **Clouds.** A layer of billowing cloud about 2.7 km above the ground drifts across the sky with
   the upper wind, lit on top, grey-blue underneath and silver-edged toward the sun. Their

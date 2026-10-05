@@ -346,3 +346,18 @@ describe("street combat", () => {
         expect(st.alarm).not.toBeNull();
     });
 });
+
+describe("nav grid queries", () => {
+    it("answers walkable exactly as its cells say, in bounds and out", () => {
+        const g = new NavGrid(13, -7, 40, 2);
+        g.addRect({ cx: 13, cz: -7, ux: 0.8, uz: 0.6, hw: 6, hd: 3, height: 5, base: 0, key: "b", door: [13, -3] });
+        let blocked = 0;
+        for (let k = 0; k < 4000; k++) {
+            const x = 13 + Math.sin(k * 12.9898) * 50, z = -7 + Math.cos(k * 78.233) * 50;
+            const [i, j] = g.cellOf(x, z);
+            expect(g.walkable(x, z)).toBe(!g.isBlocked(i, j));
+            if (!g.walkable(x, z)) blocked++;
+        }
+        expect(blocked).toBeGreaterThan(0);
+    });
+});

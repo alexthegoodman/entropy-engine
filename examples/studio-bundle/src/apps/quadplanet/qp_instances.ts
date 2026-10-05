@@ -8,7 +8,8 @@ import type { BindingConfig, BindingEntry } from "../../addon";
 //
 // Batches keep their mesh and buffer while empty (instance count 0 skips the draw) and are only
 // destroyed after `idleFrames` flushes unused, or by `clear`. A batch that outgrows its capacity
-// is rebuilt at twice the size. Callers that give each record a bounding sphere get a sphere
+// is rebuilt at twice the size. A batch whose records come out exactly as last uploaded is not
+// written again (static placements repacked every so often cost a compare, not an upload). Callers that give each record a bounding sphere get a sphere
 // around the whole batch handed to the engine (Model.setBounds), so a batch out of view is not
 // drawn at all. The geometry of one key is shared on the GPU (MeshCache.createMesh).
 
@@ -50,15 +51,20 @@ interface Batch {
     drawn: number;
     bounds: string;
     idle: number;
+    /** The records as last written to the GPU (count * recordFloats of them). */
+    uploaded: Float32Array | null;
+    uploadedCount: number;
 }
 
-export interface InstanceStats { batches: number; drawnBatches: number; instances: number; uploads: number; rebuilds: number }
+export interface InstanceStats { batches: number; drawnBatches: number; instances: number; uploads: number; rebuilds: number;
+    /** Batches whose records were unchanged, so nothing was written. */
+    unchanged: number }
 
 export class InstanceBatches {
     private batches = new Map<string, Batch>();
     private serial = 0;
     private rebuilds = 0;
-    lastStats: InstanceStats = { batches: 0, drawnBatches: 0, instances: 0, uploads: 0, rebuilds: 0 };
+    lastStats: InstanceStats = { batches: 0, drawnBatches: 0, instances: 0, uploads: 0, rebuilds: 0, unchanged: 0 };
 
     constructor(private engine: InstanceEngine, readonly recordFloats: number, private options: InstanceOptions = {}) {}
 
@@ -82,7 +88,7 @@ export class InstanceBatches {
         if (!b) {
             b = { key, data: new Float32Array((this.options.initialCapacity ?? 16) * f), count: 0,
                 lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity], unbounded: false,
-                meshId: "", buffer: "", gpuCapacity: 0, drawn: 0, bounds: "", idle: 0 };
+                meshId: "", buffer: "", gpuCapacity: 0, drawn: 0, bounds: "", idle: 0, uploaded: null, uploadedCount: 0 };
             this.batches.set(key, b);
         }
         if ((b.count + 1) * f > b.data.length) {
@@ -103,7 +109,7 @@ export class InstanceBatches {
     /** Uploads this frame's records: one buffer write per non-empty batch. */
     flush(): InstanceStats {
         const f = this.recordFloats;
-        const stats: InstanceStats = { batches: 0, drawnBatches: 0, instances: 0, uploads: 0, rebuilds: 0 };
+        const stats: InstanceStats = { batches: 0, drawnBatches: 0, instances: 0, uploads: 0, rebuilds: 0, unchanged: 0 };
         const idleFrames = this.options.idleFrames ?? 600;
         for (const b of [...this.batches.values()]) {
             if (b.count === 0) {
@@ -118,7 +124,7 @@ export class InstanceBatches {
                 b.buffer = this.engine.createBuffer(capacity * f * 4);
                 b.gpuCapacity = capacity;
                 // The records go in first, so the mesh's first frame draws them.
-                this.engine.writeBuffer(b.buffer, b.data.subarray(0, b.count * f));
+                this.upload(b);
                 stats.uploads++;
                 const meshId = `${this.options.prefix ?? "instances"}-${this.serial++}`;
                 if (!this.engine.createMesh(b.key, meshId, b.buffer, b.count)) {
@@ -130,8 +136,8 @@ export class InstanceBatches {
                 b.drawn = b.count;
                 this.rebuilds++;
             } else {
-                this.engine.writeBuffer(b.buffer, b.data.subarray(0, b.count * f));
-                stats.uploads++;
+                if (this.unchanged(b)) stats.unchanged++;
+                else { this.upload(b); stats.uploads++; }
                 if (b.drawn !== b.count) { this.engine.setInstanceCount(b.meshId, b.count); b.drawn = b.count; }
             }
             this.updateBounds(b);
@@ -147,6 +153,23 @@ export class InstanceBatches {
     /** Destroys every batch's mesh and buffer. */
     clear(): void {
         for (const b of [...this.batches.values()]) this.destroy(b);
+    }
+
+    /** Whether `b`'s records are exactly what its buffer already holds. */
+    private unchanged(b: Batch): boolean {
+        if (b.count !== b.uploadedCount || !b.uploaded) return false;
+        const n = b.count * this.recordFloats, d = b.data, u = b.uploaded;
+        for (let i = 0; i < n; i++) if (d[i] !== u[i]) return false;
+        return true;
+    }
+
+    private upload(b: Batch): void {
+        const n = b.count * this.recordFloats;
+        const records = b.data.subarray(0, n);
+        this.engine.writeBuffer(b.buffer, records);
+        if (!b.uploaded || b.uploaded.length < n) b.uploaded = new Float32Array(b.data.length);
+        b.uploaded.set(records);
+        b.uploadedCount = b.count;
     }
 
     private updateBounds(b: Batch): void {
@@ -165,7 +188,7 @@ export class InstanceBatches {
     private release(b: Batch): void {
         if (b.meshId) this.engine.clearMesh(b.meshId);
         if (b.buffer) this.engine.destroyBuffer(b.buffer);
-        b.meshId = ""; b.buffer = ""; b.gpuCapacity = 0; b.drawn = 0; b.bounds = "";
+        b.meshId = ""; b.buffer = ""; b.gpuCapacity = 0; b.drawn = 0; b.bounds = ""; b.uploadedCount = 0;
     }
 
     private destroy(b: Batch): void {
