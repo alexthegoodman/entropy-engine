@@ -1,4 +1,4 @@
-import type { BindingEntry } from "../../addon";
+import type { BindingConfig, BindingEntry } from "../../addon";
 
 // Instanced batches. Every instance of one cached mesh (one Entropy.MeshCache key) is drawn by a
 // single engine mesh: the shader reads each instance's record from a storage buffer by
@@ -176,9 +176,10 @@ export class InstanceBatches {
 
 /**
  * An InstanceEngine on Entropy: batches spawn `namespace`'s cached meshes with `pipelineId`
- * (an instanced shader whose group 2 is the world uniform and the records' storage buffer).
+ * (an instanced shader whose group 2 is the world uniform and the records' storage buffer, then
+ * any `extra` group-2 bindings the pipeline declares, such as material textures).
  */
-export function meshCacheInstances(namespace: string, pipelineId: () => string, worldBuffer: () => string): InstanceEngine {
+export function meshCacheInstances(namespace: string, pipelineId: () => string, worldBuffer: () => string, extra: () => BindingConfig[] = () => []): InstanceEngine {
     return {
         createBuffer: bytes => Entropy.Buffer.create({ size: bytes, usage: "Storage" }),
         destroyBuffer: id => Entropy.Buffer.destroy(id),
@@ -186,6 +187,7 @@ export function meshCacheInstances(namespace: string, pipelineId: () => string, 
         createMesh: (key, meshId, buffer, instances) => Entropy.MeshCache.createMesh(namespace, key, { id: meshId, pipelineId: pipelineId(), instanceCount: instances, bindings: [
             { group: 2, binding: 0, resource: { type: "Buffer", value: { id: worldBuffer() } } },
             { group: 2, binding: 1, resource: { type: "Buffer", value: { id: buffer } } },
+            ...extra(),
         ] }),
         clearMesh: meshId => Entropy.Model.clearMesh(meshId),
         setInstanceCount: (meshId, count) => Entropy.Model.setInstanceCount(meshId, count),

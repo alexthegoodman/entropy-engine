@@ -23,7 +23,7 @@ import { hashString } from "./al_rng";
 
 export const SCATTER_NAMESPACE = "allegiance-scatter";
 export const FOLIAGE_GENERATOR = "allegiance-foliage:3";
-export const PROP_GENERATOR = "allegiance-props:2";
+export const PROP_GENERATOR = "allegiance-props:3";
 
 /** Paint material in the city vertex layout (tinted by the instance's tint). */
 const MAT_PAINT = 11;

@@ -396,3 +396,30 @@ fn allegiance_visuals_live_feature() {
     assert_eq!(artifacts.len(), 6);
     println!("Allegiance visuals live BDD: {}", root.display());
 }
+
+#[test]
+fn allegiance_materials_live_feature() {
+    let (result, artifacts, root) = run("materials", Some("tests/features/allegiance_materials_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 2, "{result:#}");
+    // Every map of every material set loaded (none fell back to a checkerboard).
+    assert_eq!(s[0]["materials"]["missing"].as_array().map(|a| a.len()), Some(0), "{:#}", s[0]["materials"]);
+    // Up close the fieldstone fills the view: stones and joints (a strongly varied image, not the
+    // flat concrete the wall used to be), moss green in places, and no magenta fallback.
+    let near = find(&artifacts, "mat-wall-near");
+    let view = (0.3, 0.25, 0.7, 0.75);
+    let magenta = |p: Rgb| p[0] > 180 && p[2] > 180 && (p[1] as i32) < 80;
+    assert!(share(&near, view, &magenta) < 0.01, "checkerboard on the wall");
+    let mossy = |p: Rgb| (p[1] as i32) > (p[0] as i32) + 4 && (p[1] as i32) > (p[2] as i32) + 4;
+    assert!(share(&near, view, &mossy) > 0.03, "no moss on the fieldstone");
+    let img = image::open(&near).unwrap().to_rgb8();
+    let (w, h) = img.dimensions();
+    let lum: Vec<f64> = (h / 4..h * 3 / 4).step_by(2).flat_map(|y| (w * 3 / 10..w * 7 / 10).step_by(2).map(move |x| (x, y)))
+        .map(|(x, y)| { let p = img.get_pixel(x, y).0; (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0 }).collect();
+    let mean = lum.iter().sum::<f64>() / lum.len() as f64;
+    let sd = (lum.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / lum.len() as f64).sqrt();
+    println!("fieldstone close-up: mean {mean:.1}, deviation {sd:.1}");
+    assert!(sd > 15.0 && mean > 20.0, "the wall should read as textured stone: mean {mean}, deviation {sd}");
+    assert_eq!(artifacts.len(), 2);
+    println!("Allegiance materials live BDD: {}", root.display());
+}

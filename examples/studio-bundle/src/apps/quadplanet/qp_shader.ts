@@ -48,7 +48,8 @@
 //   instead (qp_city.ts houses, qp_buildings.ts city buildings). Walls get rows of windows from
 //   the height above the anchor.
 // - 11's surface kind rides in uv.y's integer part (surfaceKind, from the Mesha material): 1 brick,
-//   2 render/plaster/paint, 3 concrete, 4 stone, 5 roof tiles and slates, 6 metal, 7 wood. Each
+//   2 render/plaster/paint, 3 concrete, 4 dressed stone, 5 roof tiles and slates, 6 metal, 7 wood,
+//   8 fieldstone (rubble walls; a texture set in Allegiance, dressed stone here). Each
 //   is drawn procedurally in the object's own space (courses, joints, tiles, planks, blotches)
 //   with weathering: grime rising from the ground and rain streaks running down the walls.
 // - 10: roads, faded out past world.city.y and nudged toward the camera in depth so they stay
@@ -116,7 +117,7 @@ export const MATERIAL_BUILDING_BOX = 8;
 export const MATERIAL_ROAD = 10;
 
 /** Surface kinds for material 11 (uv.y's integer part): see the top. */
-export const SURFACE = { plain: 0, brick: 1, render: 2, concrete: 3, stone: 4, tiles: 5, metal: 6, wood: 7 } as const;
+export const SURFACE = { plain: 0, brick: 1, render: 2, concrete: 3, stone: 4, tiles: 5, metal: 6, wood: 7, fieldstone: 8 } as const;
 
 /** The surface kind a Mesha material is drawn as (by its id; plain when unknown). */
 export function surfaceKind(id: string | undefined): number {
@@ -124,7 +125,8 @@ export function surfaceKind(id: string | undefined): number {
     if (id === "masonry.brick" || id === "masonry.buff" || id === "masonry.whitewash") return SURFACE.brick;
     if (id === "masonry.stucco" || id === "masonry.plaster" || id.startsWith("paint.")) return SURFACE.render;
     if (id.startsWith("masonry.") && id.includes("oncrete") || id.startsWith("composite.")) return SURFACE.concrete;
-    if (id.startsWith("stone.") || id === "masonry.fieldstone") return SURFACE.stone;
+    if (id === "masonry.fieldstone") return SURFACE.fieldstone;
+    if (id.startsWith("stone.")) return SURFACE.stone;
     if (id === "roofing.seam") return SURFACE.metal;
     if (id.startsWith("roofing.")) return SURFACE.tiles;
     if (id.startsWith("metal.")) return SURFACE.metal;
@@ -396,7 +398,7 @@ fn city_surface(kind: i32, base: vec3<f32>, p: vec3<f32>, ln: vec3<f32>, fp: f32
         f.albedo = base * (0.86 + 0.16 * blotch.x + 0.06 * grain.x) * (1.0 - 0.18 * c.x * vis) * (1.0 - 0.3 * hole) * (0.97 + 0.06 * c.y * vis);
         f.grad = grain.yzw * 0.008;
         f.ao = 1.0 - 0.2 * c.x * vis;
-    } else if (kind == 4) {
+    } else if (kind == 4 || kind == 8) {
         // Dressed stone: large blocks, each its own tone, with fine joints.
         let c = courses(uv, vec2<f32>(0.62, 0.34), 0.012, 0.5);
         let vis = octave_fade(1.0 / 0.34, fp);

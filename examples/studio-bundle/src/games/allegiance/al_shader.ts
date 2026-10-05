@@ -28,6 +28,7 @@
 // the cascade it falls in, with the cloud shadows on top (al_sky.ts places the cascades).
 
 import { QUADPLANET_SHADER, instancedShader } from "../../apps/quadplanet/qp_shader";
+import { materialWgsl } from "./al_materials";
 
 export const MAT_CLOTH_TOP = 12;
 export const MAT_CLOTH_BOTTOM = 13;
@@ -45,7 +46,7 @@ function inject(src: string, anchor: string, replacement: string): string {
     return src.replace(anchor, replacement);
 }
 
-function build(people: boolean): string {
+function build(people: boolean, textured = false): string {
     let s = QUADPLANET_SHADER;
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
@@ -117,6 +118,48 @@ fn sun_visibility(p: vec3<f32>, n: vec3<f32>, view_w: f32, i: i32) -> f32 {
         let sky_tone = mix(atmo, vec3<f32>(dot(atmo, vec3<f32>(0.3, 0.5, 0.2))), 0.55 + 0.35 * world.cloud.w);
         let bounce = world.sun_color.rgb * 0.09 * clamp(0.55 - 0.45 * dot(n, up), 0.0, 1.0) * smoothstep(-0.12, 0.2, dot(up, sun));
         let sky_amb = (sky_tone * (0.3 + 0.22 * max(dot(n, up), 0.0)) + bounce) * day + vec3<f32>(0.012, 0.014, 0.02);`);
+    if (textured) {
+        // PBR material maps (al_materials.ts) on the surface kinds that have a set; the rest stay
+        // procedural. Coordinates and their derivatives are taken where control flow is uniform.
+        s = inject(s, "// --- Texture noise ---", `${materialWgsl()}
+// --- Texture noise ---`);
+        s = inject(s, "    let win_fw = max(fwidth(win_uv.x), fwidth(win_uv.y));\n", `    let win_fw = max(fwidth(win_uv.x), fwidth(win_uv.y));
+    // In meters on the object as drawn (a wall segment is one meter stretched to its length).
+    let mat_scale = vec3<f32>(length(item.model[0].xyz), length(item.model[1].xyz), length(item.model[2].xyz));
+    let mat_uv0 = surface_uv(in.tex_pos * mat_scale, normalize(in.local_normal));
+    let mat_dx = dpdx(mat_uv0);
+    let mat_dy = dpdy(mat_uv0);
+`);
+        s = inject(s, `            let f = city_surface(i32(floor(in.uv.y + 0.0005)), base, in.tex_pos, normalize(in.local_normal), footprint);
+            base = f.albedo;
+            spec = f.spec;
+            shin = f.shin;
+            ao = f.ao;
+            n = bump(n, (item.model * vec4<f32>(f.grad, 0.0)).xyz);`, `            let kind = i32(floor(in.uv.y + 0.0005));
+            let layer = surface_layer(kind);
+            let ln = normalize(in.local_normal);
+            if (layer >= 0) {
+                // Textured: maps with parallax near the eye, then the same weathering.
+                let m = item.model;
+                let vl = normalize(vec3<f32>(dot(v, normalize(m[0].xyz)), dot(v, normalize(m[1].xyz)), dot(v, normalize(m[2].xyz))));
+                let tx = textured_surface(kind, layer, mat_uv0, mat_dx, mat_dy, ln, vl, dist);
+                let f = city_surface(0, tx.albedo * item.tint.rgb, in.tex_pos * mat_scale, ln, footprint);
+                base = f.albedo;
+                // Roughness as a normalized specular lobe (dielectric).
+                let a = tx.rough * tx.rough;
+                shin = clamp(2.0 / (a * a) - 2.0, 2.0, 2048.0);
+                spec = 0.04 * (shin + 8.0) / 8.0;
+                ao = f.ao * mix(0.5, 1.0, smoothstep(0.05, 0.55, tx.height));
+                n = normalize((m * vec4<f32>(tx.n_local, 0.0)).xyz);
+            } else {
+                let f = city_surface(kind, base, in.tex_pos, ln, footprint);
+                base = f.albedo;
+                spec = f.spec;
+                shin = f.shin;
+                ao = f.ao;
+                n = bump(n, (item.model * vec4<f32>(f.grad, 0.0)).xyz);
+            }`);
+    }
     s += CASTER_WGSL;
     if (people) s = instancedShader(s, {
         recordType: "PersonRecord",
@@ -248,6 +291,6 @@ fn vs_shadow(in: VertexInput) -> @builtin(position) vec4<f32> {
 `;
 
 export const ALLEGIANCE_SHADER = build(false);
-/** ALLEGIANCE_SHADER for instanced batches of Items (houses: qp_city.ts). */
-export const ALLEGIANCE_INSTANCED_SHADER = instancedShader(ALLEGIANCE_SHADER);
+/** ALLEGIANCE_SHADER for instanced batches of Items (houses, city buildings, set dressing), with the material maps. */
+export const ALLEGIANCE_INSTANCED_SHADER = instancedShader(build(false, true));
 export const PEOPLE_SHADER = build(true);

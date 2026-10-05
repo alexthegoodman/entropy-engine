@@ -34,6 +34,7 @@ import { ITEM_FLOATS, WORLD_FLOATS, packWorld } from "../../apps/quadplanet/qp_s
 import { CityHouses, HOUSE_NAMESPACE, houseRule, houseValues, type CityBuilding } from "../../apps/quadplanet/qp_city";
 import { BUILDING_MODEL, BUILDING_NAMESPACE, buildingValues } from "../../apps/quadplanet/qp_buildings";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { loadMaterials, materialBindings, MATERIAL_BIND_ENTRIES } from "./al_materials";
 import { shadowCascades, weatherAt, cloudOffset, windVector, CLOUD_WIND_FACTOR, SHADOW_MAP_SIZE, SHADOW_RADII, type Weather } from "./al_sky";
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
@@ -96,6 +97,8 @@ let cloudAltitude = 2700;
 /** Weather fixed by allegiance_config (tests, captures); null follows the day. */
 let weatherHold: Weather | null = null;
 let housePipelineId = "";
+/** Material maps that fell back to a checkerboard or neutral value ("set/map"). */
+let materialsMissing: string[] = [];
 let worldBuffer = "";
 let skyItem = "";
 let terrainId = "";
@@ -2128,6 +2131,7 @@ function snapshot() {
     const rs = here();
     return {
         mode, tab, frames: frameCount, time: r2(time),
+        materials: { missing: materialsMissing },
         sky: {
             shadows: shadowsLive, cascades: shadowsLive ? shadowCascadeCount : 0, shadowMap: shadowMapSize,
             sunElevation: frame ? r2(Math.asin(Math.max(-1, Math.min(1, dot(SUN_DIRECTION, frame.up)))) * 180 / Math.PI) : null,
@@ -2593,6 +2597,29 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     street.player.x = body.x; street.player.z = body.z; street.player.heading = body.yaw;
                     out.compound = p.cs.id;
                 } break;
+                case "view-wall": {
+                    // Stand a couple of meters outside the nearest compound's nearest wall, looking at
+                    // it a little obliquely (the material maps' parallax shows best at an angle).
+                    updateCompounds();
+                    const p = [...placedCompounds].sort((x, y) => Math.hypot(x.cx - body.x, x.cz - body.z) - Math.hypot(y.cx - body.x, y.cz - body.z))[0];
+                    if (!p) throw new Error("No compound nearby.");
+                    let wall: Rect | null = null;
+                    p.layout.structures.forEach((st, i) => {
+                        const r = p.rects[i];
+                        if (st.kind === "wall" && (!wall || Math.hypot(r.cx - body.x, r.cz - body.z) < Math.hypot(wall.cx - body.x, wall.cz - body.z))) wall = r;
+                    });
+                    if (!wall) throw new Error("No wall there.");
+                    const w: Rect = wall;
+                    const nx = -w.uz, nz = w.ux;
+                    const out1 = Math.sign((w.cx - p.cx) * nx + (w.cz - p.cz) * nz) || 1;
+                    const dist = typeof a.distance === "number" ? a.distance : 2.6;
+                    body.x = w.cx + nx * out1 * (w.hd + dist) + w.ux * 1.5; body.z = w.cz + nz * out1 * (w.hd + dist) + w.uz * 1.5;
+                    body.y = heightAt(body.x, body.z);
+                    body.yaw = Math.atan2(w.cx - body.x, w.cz - body.z);
+                    body.pitch = -0.08;
+                    street.player.x = body.x; street.player.z = body.z; street.player.heading = body.yaw;
+                    out.compound = p.cs.id;
+                } break;
                 case "storm": {
                     // Debug: defeat the defenders of the nearest compound (as if you had fought them).
                     const p = placedCompounds.filter(x => !x.cs.captured).sort((x, y) => Math.hypot(x.cx - body.x, x.cz - body.z) - Math.hypot(y.cx - body.x, y.cz - body.z))[0];
@@ -2671,8 +2698,15 @@ addon.onInit(() => {
     housePipelineId = Entropy.Pipeline.create({
         name: "Allegiance Houses", layout: "mesh", pbr: false, sunShadows: true,
         vertexShader: ALLEGIANCE_INSTANCED_SHADER, fragmentShader: ALLEGIANCE_INSTANCED_SHADER,
-        extraBindGroups: INSTANCED_BIND_GROUPS,
+        // Group 2: the world, the records, then the material maps (al_materials.ts).
+        extraBindGroups: [{ entries: [...INSTANCED_BIND_GROUPS[0].entries, ...MATERIAL_BIND_ENTRIES] }],
     });
+    // The maps every mesh of that pipeline binds; missing files load as checkerboards.
+    try {
+        const m = loadMaterials(c => Entropy.Texture.loadArray(c));
+        materialsMissing = m.missing.map(x => `${x.set}/${x.map}`);
+        if (materialsMissing.length) Entropy.println(`[allegiance] material maps missing (checkerboard): ${materialsMissing.join(", ")}`);
+    } catch (e) { Entropy.println(`[allegiance] material maps: ${(e as Error).message}`); }
     peoplePipelineId = Entropy.Pipeline.create({
         // People cast into the two nearest cascades (52 m): further out their shadows are a texel.
         name: "Allegiance People", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 2,
@@ -2702,7 +2736,7 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        instances: meshCacheInstances(HOUSE_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings),
         // Mesha evaluations run in a worker isolate (Entropy.Worker); without the bundle they fail
         // and CityHouses evaluates here instead.
         generateInBackground: job => { try { return Entropy.Worker.start(HOUSE_WORKER_SCRIPT, job); } catch { return null; } },
@@ -2717,7 +2751,7 @@ addon.onInit(() => {
         status: (ns, k) => Entropy.MeshCache.status(ns, k),
         put: (ns, k, mesh, options) => Entropy.MeshCache.put(ns, k, mesh, options),
         info: (ns, k) => Entropy.MeshCache.info(ns, k),
-        instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer),
+        instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings),
         now: () => Date.now(),
     // 2 m size steps (the model stretches to the real footprint): streets of similar blocks share meshes.
     }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2 }, BUILDING_MODEL);
@@ -2726,7 +2760,7 @@ addon.onInit(() => {
     setupViewModels();
     foliage = new FoliageMeshes(Entropy.MeshCache);
     try { cacheProps(Entropy.MeshCache); } catch (e) { Entropy.println(`[allegiance] prop cache: ${(e as Error).message}`); }
-    const scatterEngine = meshCacheInstances(SCATTER_NAMESPACE, () => housePipelineId, () => worldBuffer);
+    const scatterEngine = meshCacheInstances(SCATTER_NAMESPACE, () => housePipelineId, () => worldBuffer, materialBindings);
     scatterBatches = new InstanceBatches({ ...scatterEngine, createMesh: (key, meshId, buffer, n) => scatterEngine.createMesh(meshOfBatch(key), meshId, buffer, n) }, ITEM_FLOATS, { prefix: "al-scatter", idleFrames: 120 });
     const flyingCar = buildFlyingCar();
     playerCarItem = uniform(ITEM_FLOATS);

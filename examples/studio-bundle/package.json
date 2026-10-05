@@ -54,7 +54,7 @@
     "typecheck:quadplanet": "tsc --project tsconfig.quadplanet.json --noEmit",
     "build-allegiance": "npm run ensure-dist && deno bundle src/games/allegiance/allegiance_addon.ts --output dist/allegiance.js && npm run build-house-worker",
     "build-house-worker": "npm run ensure-dist && deno bundle src/apps/quadplanet/qp_house_worker.ts --output dist/qp_house_worker.js",
-    "test:allegiance": "vitest run tests/allegiance_world.test.ts tests/allegiance_street.test.ts tests/allegiance_screens.test.ts tests/allegiance_people.test.ts tests/allegiance_crowd.test.ts tests/allegiance_iteration1.test.ts tests/allegiance_upgrades.test.ts tests/allegiance_iteration2.test.ts tests/allegiance_visuals.test.ts",
+    "test:allegiance": "vitest run tests/allegiance_world.test.ts tests/allegiance_street.test.ts tests/allegiance_screens.test.ts tests/allegiance_people.test.ts tests/allegiance_crowd.test.ts tests/allegiance_iteration1.test.ts tests/allegiance_upgrades.test.ts tests/allegiance_iteration2.test.ts tests/allegiance_visuals.test.ts tests/allegiance_materials.test.ts",
     "typecheck:allegiance": "tsc --project tsconfig.allegiance.json --noEmit",
     "test:mesha": "vitest run tests/mesha.test.ts tests/mesha_viewport.test.ts",
     "typecheck:mesha": "tsc --project tsconfig.mesha.json --noEmit",

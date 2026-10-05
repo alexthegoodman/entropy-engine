@@ -408,6 +408,19 @@ The street is lit by one sun that everything agrees on.
   Neighbours that share a mesh still differ in tone and where their weathering falls. Lawns and
   meadows mix lusher and drier swards, and near you they are real grass (see Set dressing).
 
+- **Textured materials.** Surfaces with a material set are drawn from real PBR maps (base color,
+  normal, roughness and height) instead of procedural patterns. The first set is mossy
+  fieldstone, on rubble walls: stone cottages, farmhouse plinths and chimneys, and the
+  military compounds' perimeter walls. Within 14 m the height map drives parallax occlusion
+  mapping, so stones stand proud of their joints and hide what lies behind them; further out
+  the normal map carries the relief. Crevices darken with the height, and roughness sets the
+  sheen. A map that is missing on disk shows as a magenta and black checkerboard, so a gap in
+  the assets is plain to see. Sets live in `examples/studio-bundle/assets/materials/`
+  ([its README](../examples/studio-bundle/assets/materials/README.md)); adding one is a folder
+  of four PNGs and a line in `al_materials.ts`.
+
+![A fieldstone compound wall up close](../public/allegiance-fieldstone.png)
+
 `allegiance_config` turns shadows off (`shadows`), trades their reach and sharpness for speed
 (`shadowCascades` 1-4, `shadowMap` resolution), fixes the weather (`weather`) and sets the time of
 day (`dayClock`).
@@ -434,6 +447,7 @@ day (`dayClock`).
 | `al_interior.ts` | Going inside houses: doors, entry and exit, staying within the walls |
 | `al_markers.ts` | Sky markers (projection, pinned to the screen's edge) and the mini map |
 | `al_sky.ts` | Sun-shadow cascades around the camera, the day's weather, the clouds' drift and the wind |
+| `al_materials.ts` | Textured PBR material sets: the table of surface kinds, loading the map arrays, their bindings and the parallax-mapped sampling |
 | `al_scatter.ts` | Mesha foliage and furniture, low-poly props, the road mask: placement, levels of detail and instanced, culled drawing |
 | `apps/quadplanet/qp_buildings.ts`, `apps/mesha/library/city_block.ts` | Mesha city buildings on the map's non-house footprints |
 | `al_models.ts`, `al_shader.ts` | People (one mesh each, limbs animated in the vertex shader), the podium, the flag, tracers, low-poly props and military buildings, the first-person weapon; people's and foliage's materials, the wind, the shadow caster (`vs_shadow`) and receiver injected into QuadPlanet's shader |
@@ -508,6 +522,18 @@ render origin and sun. `vs_shadow` runs the same vertex code as the color pass (
 swing, the trees' sway), so a shadow matches its pose. `shadowCaster: false` receives without
 casting (the terrain), and `shadowCascades` limits a pipeline to the nearest cascades (people).
 
+**Why not the engine's PBR path?** The engine's deferred PBR pipeline writes a G-buffer and
+lights it in a separate pass; it knows nothing of Allegiance's logarithmic depth, render origin,
+atmosphere, clouds or sun shadows, and mixing it with this shader has depth-clearing and
+pass-ordering hazards (see the [AAA roadmap](ALLEGIANCE_AAA_ROADMAP.md), section 2). What makes
+a surface rich is the material maps, and those work just as well in a forward shader: the
+engine loads each map type as one mipmapped texture array (`Entropy.Texture.loadArray`, with a
+checkerboard for a missing file), binds it with a repeating, trilinear, anisotropic sampler
+(`SamplerRepeat`), and Allegiance's shader samples them. Mesha meshes have no texture
+coordinates, so the maps are laid on the same planes as the procedural surfaces (along and up a
+wall, across and up a roof), in meters on the object as drawn. Sampling uses explicit
+gradients taken before any branch, so the parallax loop is legal anywhere in the shader.
+
 **The UI.** Rects and texts are retained by the engine until `UI.clear()`, and every text is
 rasterized when it is created. So each screen describes its whole frame into a `Painter`, which
 resubmits only when the description changed: about 10 times a second at most on the street, and
@@ -577,7 +603,9 @@ These tools also drive the live test:
   skyline from the car, with seven captured frames; `allegiance_iteration2.test.ts` is its
   TypeScript tier. `allegiance_visuals_live.feature` captures a sunlit London street with and
   without sun shadows (and checks the shadowed frame is darker where the shadows fall), clouds
-  over the rooftops, and a garden in the wind. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  over the rooftops, and a garden in the wind. `allegiance_materials_live.feature` looks at a
+  compound's fieldstone wall up close and from across the lawn (no checkerboard, textured, mossy);
+  `allegiance_materials.test.ts` is its TypeScript tier. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.

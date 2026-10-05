@@ -215,6 +215,8 @@ export type BindingResource =
   | { type: "Texture"; value: {id: string} }
   | { type: "TextureNonFilterable"; value: {id: string} }
   | { type: "Sampler" }
+  /** Repeat addressing, trilinear and 8x anisotropic filtering: for tiling material textures. */
+  | { type: "SamplerRepeat" }
   | { type: "Time" }
   | { type: "Buffer"; value: {id: string} }
   | { type: "Storage"; value: {id: string} }
@@ -569,6 +571,14 @@ export interface ScopedAPI {
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
+    /**
+     * A mipmapped 2D texture array (bind it as a "TextureArray"), one layer per image file
+     * (paths relative to the working directory), all resized to `size` (default: the first
+     * file's). `srgb` for color maps. A file that can't be read becomes a fallback layer:
+     * "checker" (magenta/black, the default) or an RGBA color in 0..1; its index is in `missing`.
+     */
+    loadArray: (config: { id: string; files: string[]; srgb?: boolean; size?: number; fallback?: "checker" | [number, number, number, number] }) =>
+      { id: string; size: number; layers: number; mips: number; missing: number[] };
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
@@ -3560,7 +3570,7 @@ export interface TextInputConfig {
 export interface BindingEntry {
   binding: number;
   visibility: ("Compute" | "Vertex" | "Fragment")[];
-  resourceType: "Uniform" | "Time" | "Texture" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16" | "DepthTexture";
+  resourceType: "Uniform" | "Time" | "Texture" | "TextureArray" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16" | "DepthTexture";
 }
 
 export interface PipelineConfig {
@@ -4188,6 +4198,14 @@ export interface EntropyAPI {
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
+    /**
+     * A mipmapped 2D texture array (bind it as a "TextureArray"), one layer per image file
+     * (paths relative to the working directory), all resized to `size` (default: the first
+     * file's). `srgb` for color maps. A file that can't be read becomes a fallback layer:
+     * "checker" (magenta/black, the default) or an RGBA color in 0..1; its index is in `missing`.
+     */
+    loadArray: (config: { id: string; files: string[]; srgb?: boolean; size?: number; fallback?: "checker" | [number, number, number, number] }) =>
+      { id: string; size: number; layers: number; mips: number; missing: number[] };
   };
   Particles: {
     createHair: (config: {

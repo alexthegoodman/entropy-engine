@@ -231,6 +231,8 @@ pub enum ResourceType {
     StorageTextureRgba16 { id: String },
     TextureNonFilterable { id: String },
     DepthTexture,
+    /// A tiling material sampler: repeat, trilinear, 8x anisotropic.
+    SamplerRepeat,
 }
 
 
@@ -2318,6 +2320,104 @@ pub struct TextureConfig {
     /// simulation's ping-pong/ring storage textures (e.g. an accumulated height field) need
     /// to survive a reload instead of resetting.
     pub id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureArrayConfig {
+    /// Stable id (loading the same id again replaces the texture).
+    pub id: String,
+    /// Image files, one per layer, relative to the working directory (or absolute).
+    pub files: Vec<String>,
+    /// Color data (base color): sampled as sRGB. Otherwise linear (normals, roughness, height).
+    pub srgb: Option<bool>,
+    /// Every layer is resized to this square size (default: the first file found, else 256).
+    pub size: Option<u32>,
+    /// What a missing or unreadable file becomes: "checker" (magenta/black, the default) or an
+    /// RGBA color in 0..1 (e.g. a flat normal [0.5, 0.5, 1, 1]).
+    pub fallback: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureArrayResult {
+    pub id: String,
+    pub size: u32,
+    pub layers: u32,
+    pub mips: u32,
+    /// Indices of the layers that fell back (file missing or unreadable).
+    pub missing: Vec<u32>,
+}
+
+/// Entropy.Texture.loadArray: a 2D texture array with a full mip chain (built on the CPU) for
+/// tiling material maps, one layer per file. A file that cannot be read becomes a fallback layer
+/// instead of failing the load, so a missing asset shows up on screen rather than as a crash.
+#[op2]
+#[serde]
+pub fn op_texture_load_array(state: &mut OpState, #[serde] config: TextureArrayConfig) -> Result<TextureArrayResult, deno_error::JsErrorBox> {
+    let ctx = state.borrow_mut::<AddonContext>();
+    let gpu = ctx.gpu_resources.clone().ok_or_else(|| deno_error::JsErrorBox::generic("GPU resources not available"))?;
+    let images: Vec<Option<image::RgbaImage>> = config.files.iter().map(|f| image::open(f).ok().map(|i| i.to_rgba8())).collect();
+    let size = config.size.unwrap_or_else(|| images.iter().flatten().next().map(|i| i.width().max(i.height())).unwrap_or(256)).clamp(4, 8192);
+    let layers = config.files.len().max(1) as u32;
+    let fallback_color: Option<[u8; 4]> = config.fallback.as_ref().and_then(|v| v.as_array()).map(|a| {
+        let c = |i: usize| (a.get(i).and_then(|x| x.as_f64()).unwrap_or(1.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+        [c(0), c(1), c(2), c(3)]
+    });
+    let mut missing = Vec::new();
+    let mut levels: Vec<Vec<image::RgbaImage>> = Vec::new();
+    for layer in 0..layers as usize {
+        let base = match images.get(layer).cloned().flatten() {
+            Some(img) if img.width() == size && img.height() == size => img,
+            Some(img) => image::imageops::resize(&img, size, size, image::imageops::FilterType::Triangle),
+            None => {
+                missing.push(layer as u32);
+                let cell = (size / 8).max(1);
+                image::RgbaImage::from_fn(size, size, |x, y| {
+                    if let Some(c) = fallback_color { return image::Rgba(c); }
+                    if ((x / cell) + (y / cell)) % 2 == 0 { image::Rgba([255, 0, 255, 255]) } else { image::Rgba([20, 20, 20, 255]) }
+                })
+            }
+        };
+        let mut chain = vec![base];
+        while chain.last().unwrap().width() > 1 {
+            let prev = chain.last().unwrap();
+            let s = (prev.width() / 2).max(1);
+            let next = image::imageops::resize(prev, s, s, image::imageops::FilterType::Triangle);
+            chain.push(next);
+        }
+        levels.push(chain);
+    }
+    let mips = levels[0].len() as u32;
+    let format = if config.srgb.unwrap_or(false) { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(&format!("Addon Texture Array {}", config.id)),
+        size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: layers },
+        mip_level_count: mips,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    for (layer, chain) in levels.iter().enumerate() {
+        for (mip, img) in chain.iter().enumerate() {
+            gpu.queue.write_texture(
+                wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: mip as u32, origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 }, aspect: wgpu::TextureAspect::All },
+                img.as_raw(),
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * img.width()), rows_per_image: Some(img.height()) },
+                wgpu::Extent3d { width: img.width(), height: img.height(), depth_or_array_layers: 1 },
+            );
+        }
+    }
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("Addon Texture Array View"),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    ctx.textures.insert(config.id.clone(), Arc::new(view));
+    ctx.raw_textures.insert(config.id.clone(), Arc::new(texture));
+    Ok(TextureArrayResult { id: config.id, size, layers, mips, missing })
 }
 
 #[op2]
@@ -5863,6 +5963,11 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
                              view_dimension: wgpu::TextureViewDimension::D2,
                              multisampled: false,
                          },
+                         "TextureArray" => wgpu::BindingType::Texture {
+                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                             view_dimension: wgpu::TextureViewDimension::D2Array,
+                             multisampled: false,
+                         },
                          "TextureNonFilterable" => wgpu::BindingType::Texture {
                              sample_type: wgpu::TextureSampleType::Float { filterable: false },
                              view_dimension: wgpu::TextureViewDimension::D2,
@@ -6255,6 +6360,11 @@ pub fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputeP
                     "Texture" => wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    "TextureArray" => wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     "TextureNonFilterable" => wgpu::BindingType::Texture {
