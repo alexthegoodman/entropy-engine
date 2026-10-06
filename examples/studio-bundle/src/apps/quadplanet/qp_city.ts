@@ -27,11 +27,11 @@ import { evaluateObject, objectParamRange, resolveParams, defaultValues, type Ev
 import { lookupObject } from "../mesha/library";
 import houseDef from "../mesha/library/house";
 import { InstanceBatches, type InstanceEngine } from "./qp_instances";
-import { ITEM_FLOATS, surfaceKind } from "./qp_shader";
+import { ITEM_FLOATS, materialSurfaceKind } from "./qp_shader";
 
 export const HOUSE_NAMESPACE = "quadplanet-houses";
 /** Bump when house.ts, the parameter mapping or the packing below changes: old meshes then miss. */
-export const HOUSE_GENERATOR = "architecture.house:2";
+export const HOUSE_GENERATOR = "architecture.house:3";
 
 /** QuadPlanet shader material ids (qp_shader.ts). */
 export const MAT_PAINT = 11;
@@ -132,8 +132,8 @@ export function packHouse(e: Evaluation, lod: 0 | 1): { vertexData: Float32Array
         if (m?.clear || m?.transmission) { material = lod === 0 ? MAT_CLEAR_GLASS : MAT_GLASS; alpha = m.clear ?? 0.7; }
         else if (m?.pattern === "glow") material = MAT_GLOW;
         else if (p.region === "foundation") material = MAT_FOUNDATION;
-        // The surface the shader draws on paint (qp_shader.ts surfaceKind): brick, render, tiles...
-        const kind = material === MAT_PAINT ? surfaceKind(m?.id) : 0;
+        // The surface the shader draws on paint (qp_shader.ts materialSurfaceKind): brick, render, tiles...
+        const kind = material === MAT_PAINT || material === MAT_FOUNDATION ? materialSurfaceKind(m?.id) : 0;
         const base = vo / 12;
         const n = p.positions.length / 3;
         for (let i = 0; i < n; i++) {

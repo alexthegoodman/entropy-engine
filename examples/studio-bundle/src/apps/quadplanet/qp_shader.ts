@@ -119,6 +119,24 @@ export const MATERIAL_ROAD = 10;
 /** Surface kinds for material 11 (uv.y's integer part): see the top. */
 export const SURFACE = { plain: 0, brick: 1, render: 2, concrete: 3, stone: 4, tiles: 5, metal: 6, wood: 7, fieldstone: 8 } as const;
 
+/** Distinct authored finishes; procedural rendering still uses their broad SURFACE category. */
+export const FINISH = { paint: 9, buff: 10, whitewash: 11, granite: 12, marble: 13,
+    clay: 14, cedar: 15, seam: 16, corrugated: 17, walnut: 18, cherry: 19, slate: 20, ash: 21 } as const;
+export const FINISH_BASE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 2, 1, 1, 4, 4, 5, 5, 6, 6, 7, 7, 4, 7];
+
+/** Keep finish identity in cached meshes so a game can select an authored texture set. */
+export function materialSurfaceKind(id: string | undefined): number {
+    if (id?.startsWith("paint.")) return FINISH.paint;
+    const finishes: Record<string, number> = {
+        "masonry.buff": FINISH.buff, "masonry.whitewash": FINISH.whitewash,
+        "stone.granite": FINISH.granite, "stone.marble": FINISH.marble, "stone.slate": FINISH.slate,
+        "roofing.clay": FINISH.clay, "roofing.cedar": FINISH.cedar, "roofing.seam": FINISH.seam,
+        "metal.corrugated": FINISH.corrugated, "metal.corrugatedGreen": FINISH.corrugated,
+        "wood.walnut": FINISH.walnut, "wood.cherry": FINISH.cherry, "wood.ash": FINISH.ash,
+    };
+    return (id ? finishes[id] : undefined) ?? surfaceKind(id);
+}
+
 /** The surface kind a Mesha material is drawn as (by its id; plain when unknown). */
 export function surfaceKind(id: string | undefined): number {
     if (!id) return SURFACE.plain;
@@ -362,7 +380,9 @@ fn surface_uv(p: vec3<f32>, ln: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(dot(p.xz, across), p.y / fl);
 }
 
-fn city_surface(kind: i32, base: vec3<f32>, p: vec3<f32>, ln: vec3<f32>, fp: f32) -> Facade {
+fn city_surface(finish_kind: i32, base: vec3<f32>, p: vec3<f32>, ln: vec3<f32>, fp: f32) -> Facade {
+    let categories = array<i32, ${FINISH_BASE.length}>(${FINISH_BASE.join(", ")});
+    let kind = categories[clamp(finish_kind, 0, ${FINISH_BASE.length - 1})];
     var f: Facade;
     f.albedo = base;
     f.grad = vec3<f32>(0.0);

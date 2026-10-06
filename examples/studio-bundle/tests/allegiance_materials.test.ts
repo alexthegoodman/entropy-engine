@@ -7,17 +7,32 @@ import { resolve } from "node:path";
 import { MATERIAL_SETS, MATERIAL_MAPS, materialFiles, materialFallback, materialTable, materialBindings, MATERIAL_BIND_ENTRIES, loadMaterials, materialTextureId } from "../src/games/allegiance/al_materials";
 import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "../src/games/allegiance/al_shader";
 import { buildMilitary } from "../src/games/allegiance/al_models";
-import { SURFACE, surfaceKind } from "../src/apps/quadplanet/qp_shader";
+import { SURFACE, FINISH, surfaceKind, materialSurfaceKind } from "../src/apps/quadplanet/qp_shader";
+import { CLOUD_BIND_ENTRIES } from "../src/games/allegiance/al_clouds";
 
 describe("material sets", () => {
     it("has every map of every set on disk (paths are relative to the repository root)", () => {
         for (const map of MATERIAL_MAPS) for (const f of materialFiles(map)) expect(existsSync(resolve(__dirname, "../../..", f)), f).toBe(true);
     });
 
-    it("lays fieldstone on rubble walls only, leaving dressed stone procedural", () => {
+    it("keeps supplied finishes distinct and leaves unsupplied slate and paint procedural", () => {
         const t = materialTable();
         expect(t.layer[SURFACE.fieldstone]).toBe(0);
-        expect(t.layer[SURFACE.stone]).toBe(-1);
+        expect(MATERIAL_SETS).toHaveLength(21);
+        const name = (id: string) => MATERIAL_SETS[t.layer[materialSurfaceKind(id)]]?.name;
+        expect(name("stone.sandstone")).toBe("sandstone-blocks");
+        expect(name("stone.granite")).toBe("granite");
+        expect(name("stone.marble")).toBe("marble");
+        expect(name("masonry.buff")).toBe("brick-buff");
+        expect(name("masonry.whitewash")).toBe("brick-whitewashed");
+        expect(name("roofing.clay")).toBe("roof-clay");
+        expect(name("roofing.cedar")).toBe("roof-cedar");
+        expect(name("roofing.seam")).toBe("roof-standing-seam");
+        expect(name("metal.corrugatedGreen")).toBe("metal-corrugated");
+        expect(name("wood.walnut")).toBe("wood-walnut");
+        expect(name("wood.cherry")).toBe("wood-cherry");
+        expect(name("roofing.slate")).toBeUndefined();
+        expect(t.layer[FINISH.paint]).toBe(-1);
         expect(t.tile[SURFACE.fieldstone]).toBeGreaterThan(0.5);
         expect(surfaceKind("masonry.fieldstone")).toBe(SURFACE.fieldstone);
         expect(surfaceKind("stone.sandstone")).toBe(SURFACE.stone);
@@ -36,10 +51,12 @@ describe("material sets", () => {
 
     it("binds the maps and a tiling sampler after the world and records in group 2", () => {
         const b = materialBindings();
-        expect(b.map(x => x.binding)).toEqual([2, 3, 4, 5, 6]);
+        expect(b.map(x => x.binding)).toEqual([2, 3, 4, 5, 9, 6]);
         expect(b.every(x => x.group === 2)).toBe(true);
-        expect(b[4].resource).toEqual({ type: "SamplerRepeat" });
-        expect(MATERIAL_BIND_ENTRIES.slice(0, 4).every(e => e.resourceType === "TextureArray")).toBe(true);
+        expect(b[5].resource).toEqual({ type: "SamplerRepeat" });
+        expect(MATERIAL_BIND_ENTRIES.slice(0, 5).every(e => e.resourceType === "TextureArray")).toBe(true);
+        const slots = [...MATERIAL_BIND_ENTRIES, ...CLOUD_BIND_ENTRIES].map(e => e.binding);
+        expect(new Set(slots).size).toBe(slots.length);
     });
 
     it("draws the compounds' perimeter walls as fieldstone", () => {
@@ -51,12 +68,15 @@ describe("material sets", () => {
 });
 
 describe("textured shader", () => {
-    it("samples the maps (with parallax) only in the houses pipeline, whose layout binds them", () => {
+    it("samples maps in the terrain and houses pipelines, keeping people separate", () => {
         expect(ALLEGIANCE_INSTANCED_SHADER).toContain("var mat_basecolor: texture_2d_array<f32>;");
         expect(ALLEGIANCE_INSTANCED_SHADER).toContain("fn textured_surface(");
         expect(ALLEGIANCE_INSTANCED_SHADER).toContain("textureSampleGrad(mat_height");
         // Derivatives are taken before any branch (uniform control flow).
         expect(ALLEGIANCE_INSTANCED_SHADER.indexOf("let mat_dx = dpdx(mat_uv0);")).toBeLessThan(ALLEGIANCE_INSTANCED_SHADER.lastIndexOf("if (material == 9) {"));
-        for (const s of [ALLEGIANCE_SHADER, PEOPLE_SHADER]) expect(s).not.toContain("mat_basecolor");
+        expect(ALLEGIANCE_SHADER).toContain("ground_surface_maps(in.color.rgb");
+        expect(ALLEGIANCE_SHADER).toContain("let road = ground_maps(");
+        expect(ALLEGIANCE_SHADER).toContain("var mat_metallic");
+        expect(PEOPLE_SHADER).not.toContain("mat_basecolor");
     });
 });

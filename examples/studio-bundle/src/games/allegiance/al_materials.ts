@@ -17,7 +17,7 @@
 //   darkens the crevices. Roughness feeds a normalized specular lobe (dielectric, F0 = 0.04).
 
 import type { BindingConfig, BindingEntry } from "../../addon";
-import { SURFACE } from "../../apps/quadplanet/qp_shader";
+import { SURFACE, FINISH } from "../../apps/quadplanet/qp_shader";
 
 export interface MaterialSet {
     /** Folder under MATERIAL_DIR holding basecolor.png, normal.png, roughness.png and height.png. */
@@ -31,11 +31,35 @@ export interface MaterialSet {
 }
 
 export const MATERIAL_DIR = "examples/studio-bundle/assets/materials";
+export const GROUND = { asphalt: 22, grass: 23, meadow: 24, soil: 25, snow: 26 } as const;
 export const MATERIAL_SETS: MaterialSet[] = [
     // Rubble walls: cottages, farmhouse plinths and chimneys, and the compounds' perimeter walls.
-    { name: "fieldstone", kinds: [SURFACE.fieldstone], tile: 1.6, depth: 0.06 },
+    { name: "fieldstone", kinds: [SURFACE.fieldstone], tile: 1.6, depth: 0.15 },
+    // Repeat sizes are estimates from the visible courses, not metadata supplied by the ZIPs.
+    { name: "brick-red", kinds: [SURFACE.brick], tile: 1.8, depth: 0.15 },
+    { name: "brick-buff", kinds: [FINISH.buff], tile: 1.8, depth: 0.1 },
+    { name: "stucco", kinds: [SURFACE.render], tile: 1.5, depth: 0.08 },
+    { name: "brick-whitewashed", kinds: [FINISH.whitewash], tile: 1.8, depth: 0.1 },
+    { name: "concrete", kinds: [SURFACE.concrete], tile: 2.4, depth: 0.08 },
+    { name: "sandstone-blocks", kinds: [SURFACE.stone], tile: 2.4, depth: 0.15 },
+    { name: "granite", kinds: [FINISH.granite], tile: 2.4, depth: 0.08 },
+    { name: "marble", kinds: [FINISH.marble], tile: 2, depth: 0.02 },
+    { name: "roof-clay", kinds: [FINISH.clay], tile: 1.8, depth: 0.1 },
+    { name: "roof-cedar", kinds: [FINISH.cedar], tile: 1.8, depth: 0.1 },
+    { name: "roof-standing-seam", kinds: [FINISH.seam], tile: 2.4, depth: 0.15 },
+    { name: "metal-corrugated", kinds: [FINISH.corrugated], tile: 2, depth: 0.15 },
+    { name: "wood-oak", kinds: [SURFACE.wood, FINISH.ash], tile: 2.4, depth: 0.03 },
+    { name: "wood-walnut", kinds: [FINISH.walnut], tile: 2, depth: 0.03 },
+    { name: "wood-cherry", kinds: [FINISH.cherry], tile: 2, depth: 0.03 },
+    { name: "asphalt", kinds: [GROUND.asphalt], tile: 4, depth: 0.05 },
+    { name: "grass-ground", kinds: [GROUND.grass], tile: 2, depth: 0.1 },
+    { name: "meadow-ground", kinds: [GROUND.meadow], tile: 2, depth: 0.1 },
+    { name: "soil", kinds: [GROUND.soil], tile: 2, depth: 0.1 },
+    { name: "snow", kinds: [GROUND.snow], tile: 4, depth: 0.1 },
 ];
-export const MATERIAL_MAPS = ["basecolor", "normal", "roughness", "height"] as const;
+export const MATERIAL_MAPS = ["basecolor", "normal", "roughness", "height", "metallic"] as const;
+// Leave cloud bindings 7/8 intact, including the original repeat sampler at 6.
+export const materialMapBinding = (map: typeof MATERIAL_MAPS[number]): number => map === "metallic" ? 9 : MATERIAL_BINDING + MATERIAL_MAPS.indexOf(map);
 export const MATERIAL_SIZE = 1024;
 /** Parallax is full within PARALLAX_NEAR meters and gone by PARALLAX_FAR. */
 export const PARALLAX_NEAR = 6;
@@ -53,6 +77,7 @@ export function materialFallback(map: typeof MATERIAL_MAPS[number]): "checker" |
     if (map === "basecolor") return "checker";
     if (map === "normal") return [0.5, 0.5, 1, 1];
     if (map === "roughness") return [0.8, 0.8, 0.8, 1];
+    if (map === "metallic") return [0, 0, 0, 1];
     return [1, 1, 1, 1];
 }
 
@@ -73,21 +98,22 @@ export const MATERIAL_BINDING = 2;
 
 /** The pipeline's layout entries for the maps and their sampler. */
 export const MATERIAL_BIND_ENTRIES: BindingEntry[] = [
-    ...MATERIAL_MAPS.map((_, i) => ({ binding: MATERIAL_BINDING + i, visibility: ["Fragment"], resourceType: "TextureArray" } as BindingEntry)),
-    { binding: MATERIAL_BINDING + MATERIAL_MAPS.length, visibility: ["Fragment"], resourceType: "Sampler" },
+    ...MATERIAL_MAPS.map(map => ({ binding: materialMapBinding(map), visibility: ["Fragment"], resourceType: "TextureArray" } as BindingEntry)),
+    { binding: 6, visibility: ["Fragment"], resourceType: "Sampler" },
 ];
 
 /** A mesh's bindings for the maps and the tiling sampler. */
 export function materialBindings(): BindingConfig[] {
     return [
-        ...MATERIAL_MAPS.map((map, i) => ({ group: 2, binding: MATERIAL_BINDING + i, resource: { type: "Texture", value: { id: materialTextureId(map) } } } as BindingConfig)),
-        { group: 2, binding: MATERIAL_BINDING + MATERIAL_MAPS.length, resource: { type: "SamplerRepeat" } } as BindingConfig,
+        ...MATERIAL_MAPS.map(map => ({ group: 2, binding: materialMapBinding(map), resource: { type: "Texture", value: { id: materialTextureId(map) } } } as BindingConfig)),
+        { group: 2, binding: 6, resource: { type: "SamplerRepeat" } } as BindingConfig,
     ];
 }
 
 /** Per surface kind: its layer (-1: procedural), tile and depth, as WGSL constants. */
 export function materialTable(sets = MATERIAL_SETS): { layer: number[]; tile: number[]; depth: number[] } {
-    const layer = new Array(9).fill(-1), tile = new Array(9).fill(1), depth = new Array(9).fill(0);
+    const size = Math.max(27, ...sets.flatMap(s => s.kinds.map(k => k + 1)));
+    const layer = new Array(size).fill(-1), tile = new Array(size).fill(1), depth = new Array(size).fill(0);
     sets.forEach((s, i) => { for (const k of s.kinds) { layer[k] = i; tile[k] = s.tile; depth[k] = s.depth; } });
     return { layer, tile, depth };
 }
@@ -107,15 +133,16 @@ export function materialWgsl(sets = MATERIAL_SETS): string {
 @group(2) @binding(${b + 2}) var mat_roughness: texture_2d_array<f32>;
 @group(2) @binding(${b + 3}) var mat_height: texture_2d_array<f32>;
 @group(2) @binding(${b + 4}) var mat_sampler: sampler;
+@group(2) @binding(9) var mat_metallic: texture_2d_array<f32>;
 
-const SURFACE_LAYER = array<i32, 9>(${t.layer.join(", ")});
-const SURFACE_TILE = array<f32, 9>(${t.tile.map(f).join(", ")});
-const SURFACE_DEPTH = array<f32, 9>(${t.depth.map(f).join(", ")});
+const SURFACE_LAYER = array<i32, ${t.layer.length}>(${t.layer.join(", ")});
+const SURFACE_TILE = array<f32, ${t.layer.length}>(${t.tile.map(f).join(", ")});
+const SURFACE_DEPTH = array<f32, ${t.layer.length}>(${t.depth.map(f).join(", ")});
 
-struct Textured { albedo: vec3<f32>, n_local: vec3<f32>, rough: f32, height: f32 };
+struct Textured { albedo: vec3<f32>, n_local: vec3<f32>, rough: f32, height: f32, metallic: f32 };
 
 fn surface_layer(kind: i32) -> i32 {
-    if (kind < 0 || kind > 8) { return -1; }
+    if (kind < 0 || kind >= ${t.layer.length}) { return -1; }
     return SURFACE_LAYER[kind];
 }
 
@@ -138,7 +165,7 @@ fn textured_surface(kind: i32, layer: i32, uv0: vec2<f32>, dx: vec2<f32>, dy: ve
     // Parallax occlusion near the eye: march the view ray down through the height field.
     let near = 1.0 - smoothstep(${f(PARALLAX_NEAR)}, ${f(PARALLAX_FAR)}, dist);
     let vt = vec3<f32>(dot(v_local, t), dot(v_local, b), dot(v_local, ln));
-    if (near > 0.0 && vt.z > 0.08) {
+    if (near > 0.0 && vt.z > 0.08 && SURFACE_DEPTH[kind] > 0.0) {
         let shift = vec2<f32>(vt.x, -vt.y) / vt.z * (SURFACE_DEPTH[kind] / tile) * near;
         let steps = mix(24.0, 8.0, vt.z);
         let step = 1.0 / steps;
@@ -165,6 +192,70 @@ fn textured_surface(kind: i32, layer: i32, uv0: vec2<f32>, dx: vec2<f32>, dy: ve
     out.n_local = normalize(t * nt.x + b * nt.y + ln * max(nt.z, 0.05));
     out.rough = clamp(textureSampleGrad(mat_roughness, mat_sampler, uv, layer, gx, gy).r, 0.04, 1.0);
     out.height = textureSampleGrad(mat_height, mat_sampler, uv, layer, gx, gy).r;
+    out.metallic = clamp(textureSampleGrad(mat_metallic, mat_sampler, uv, layer, gx, gy).r, 0.0, 1.0);
+    return out;
+}
+
+// Terrain coordinates include the chunk's wrapped texture origin. Triplanar projection keeps
+// neighboring chunks continuous and avoids pinching at Earth's poles and on steep terrain.
+fn ground_maps(kind: i32, p: vec3<f32>, ln: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>) -> Textured {
+    let layer = surface_layer(kind);
+    let tile = SURFACE_TILE[kind];
+    let q = p / tile;
+    let gx = dx / tile;
+    let gy = dy / tile;
+    let w0 = pow(abs(ln), vec3<f32>(4.0));
+    let w = w0 / max(w0.x + w0.y + w0.z, 1.0e-5);
+    let uvx = vec2<f32>(q.z, -q.y);
+    let uvy = vec2<f32>(q.x, -q.z);
+    let uvz = vec2<f32>(q.x, -q.y);
+    let dxx = vec2<f32>(gx.z, -gx.y); let dyx = vec2<f32>(gy.z, -gy.y);
+    let dxy = vec2<f32>(gx.x, -gx.z); let dyy = vec2<f32>(gy.x, -gy.z);
+    let dxz = vec2<f32>(gx.x, -gx.y); let dyz = vec2<f32>(gy.x, -gy.y);
+    var out: Textured;
+    out.albedo = textureSampleGrad(mat_basecolor, mat_sampler, uvx, layer, dxx, dyx).rgb * w.x
+        + textureSampleGrad(mat_basecolor, mat_sampler, uvy, layer, dxy, dyy).rgb * w.y
+        + textureSampleGrad(mat_basecolor, mat_sampler, uvz, layer, dxz, dyz).rgb * w.z;
+    let nx = textureSampleGrad(mat_normal, mat_sampler, uvx, layer, dxx, dyx).xyz * 2.0 - 1.0;
+    let ny = textureSampleGrad(mat_normal, mat_sampler, uvy, layer, dxy, dyy).xyz * 2.0 - 1.0;
+    let nz = textureSampleGrad(mat_normal, mat_sampler, uvz, layer, dxz, dyz).xyz * 2.0 - 1.0;
+    // Add tangent detail to the geometric normal; a neutral normal leaves it unchanged.
+    let detail = vec3<f32>(0.0, nx.y, nx.x) * w.x + vec3<f32>(ny.x, 0.0, ny.y) * w.y + vec3<f32>(nz.x, nz.y, 0.0) * w.z;
+    out.n_local = normalize(ln + detail - ln * dot(detail, ln));
+    out.rough = clamp(textureSampleGrad(mat_roughness, mat_sampler, uvx, layer, dxx, dyx).r * w.x
+        + textureSampleGrad(mat_roughness, mat_sampler, uvy, layer, dxy, dyy).r * w.y
+        + textureSampleGrad(mat_roughness, mat_sampler, uvz, layer, dxz, dyz).r * w.z, 0.04, 1.0);
+    out.height = textureSampleGrad(mat_height, mat_sampler, uvx, layer, dxx, dyx).r * w.x
+        + textureSampleGrad(mat_height, mat_sampler, uvy, layer, dxy, dyy).r * w.y
+        + textureSampleGrad(mat_height, mat_sampler, uvz, layer, dxz, dyz).r * w.z;
+    out.metallic = 0.0;
+    return out;
+}
+
+fn ground_surface_maps(base: vec3<f32>, p: vec3<f32>, n: vec3<f32>, up: vec3<f32>, fp: f32, dx: vec3<f32>, dy: vec3<f32>) -> Surface {
+    let green = clamp((base.g - max(base.r, base.b)) * 6.0, 0.0, 1.0);
+    let meadow = vnoise(p / 32.0, TEX_PERIOD / 32.0).x > 0.0;
+    let grass_kind = select(${GROUND.grass}, ${GROUND.meadow}, meadow);
+    let grass = ground_maps(grass_kind, p, n, dx, dy);
+    let dirt = ground_maps(${GROUND.soil}, p, n, dx, dy);
+    let snow_w = smoothstep(0.72, 0.86, min(base.r, min(base.g, base.b)));
+    var albedo = mix(dirt.albedo, grass.albedo, green);
+    var norm = normalize(mix(dirt.n_local, grass.n_local, green));
+    var rough = mix(dirt.rough, grass.rough, green);
+    var height = mix(dirt.height, grass.height, green);
+    if (snow_w > 0.0) {
+        let snow = ground_maps(${GROUND.snow}, p, n, dx, dy);
+        albedo = mix(albedo, snow.albedo, snow_w);
+        norm = normalize(mix(norm, snow.n_local, snow_w));
+        rough = mix(rough, snow.rough, snow_w);
+        height = mix(height, snow.height, snow_w);
+    }
+    var out: Surface;
+    out.albedo = albedo; out.n = norm;
+    out.ao = mix(0.75, 1.0, height);
+    let a = rough * rough;
+    out.shin = clamp(2.0 / (a * a) - 2.0, 2.0, 2048.0);
+    out.spec = 0.04 * (out.shin + 8.0) / 8.0;
     return out;
 }
 `;

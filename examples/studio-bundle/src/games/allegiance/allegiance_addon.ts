@@ -122,6 +122,7 @@ let people: PeopleMeshes;
 const bindings = (item: string) => [
     { group: 2, binding: 0, resource: { type: "Buffer" as const, value: { id: worldBuffer } } },
     { group: 2, binding: 1, resource: { type: "Buffer" as const, value: { id: item } } },
+    ...materialBindings(),
     ...cloudBindings(cloudTexture),
 ];
 let cloudTexture = "";
@@ -2796,6 +2797,7 @@ addon.onInit(() => {
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
             { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+            ...MATERIAL_BIND_ENTRIES,
         ] }],
     });
     // The terrain (with its roads and distant building boxes) receives sun shadows but casts none:
@@ -2806,6 +2808,7 @@ addon.onInit(() => {
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
             { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+            ...MATERIAL_BIND_ENTRIES,
         ] }],
     });
     worldBuffer = uniform(WORLD_FLOATS);
@@ -2848,7 +2851,7 @@ addon.onInit(() => {
     writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     terrainId = Entropy.QuadPlanet.create({
         id: "allegiance-earth", planets: WORLD_PLANETS, pipelineId: terrainPipelineId, worldBufferId: worldBuffer,
-        extraBindings: cloudBindings(cloudTexture),
+        extraBindings: sharedMaterialBindings(),
         city: { house: houseRule() },
     });
     setTerrainBackend({

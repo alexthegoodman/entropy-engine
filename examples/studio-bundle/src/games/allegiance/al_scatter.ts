@@ -15,6 +15,7 @@
 import { evaluateObject, type Evaluation } from "../../apps/mesha/mesha_object";
 import { lookupObject } from "../../apps/mesha/library";
 import { resolveParams, defaultValues, type ParamValues } from "../../apps/mesha/mesha_object";
+import { materialSurfaceKind } from "../../apps/quadplanet/qp_shader";
 import { packBuilding } from "../../apps/quadplanet/qp_buildings";
 import { type Rect } from "./al_nav";
 import { type ModelMesh, buildBench, buildStreetLamp, buildTrashBin, buildBarrier, buildCrates, buildSandbags, buildKiosk, buildLootCrate, buildMilitary, buildBeacon, buildFlag } from "./al_models";
@@ -23,7 +24,7 @@ import { hashString } from "./al_rng";
 
 export const SCATTER_NAMESPACE = "allegiance-scatter";
 export const FOLIAGE_GENERATOR = "allegiance-foliage:3";
-export const PROP_GENERATOR = "allegiance-props:3";
+export const PROP_GENERATOR = "allegiance-props:4";
 
 /** Paint material in the city vertex layout (tinted by the instance's tint). */
 const MAT_PAINT = 11;
@@ -154,7 +155,7 @@ export function packFoliage(e: Evaluation, wind = false): { vertexData: Float32A
             v[vo] = p.positions[i * 3]; v[vo + 1] = p.positions[i * 3 + 1]; v[vo + 2] = p.positions[i * 3 + 2];
             v[vo + 3] = p.normals[i * 3]; v[vo + 4] = p.normals[i * 3 + 1]; v[vo + 5] = p.normals[i * 3 + 2];
             if (wind) { v[vo + 6] = MAT_FOLIAGE + 0.5; v[vo + 7] = leaf + bendAt(p.positions[i * 3 + 1], height); }
-            else { v[vo + 6] = MAT_PAINT + 0.5; v[vo + 7] = 0.5; }
+            else { v[vo + 6] = MAT_PAINT + 0.5; v[vo + 7] = materialSurfaceKind(e.materials[p.region]?.id) + 0.5; }
             v[vo + 8] = color[0]; v[vo + 9] = color[1]; v[vo + 10] = color[2]; v[vo + 11] = 0;
             vo += 12;
         }
