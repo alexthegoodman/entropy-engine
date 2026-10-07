@@ -8,6 +8,8 @@ Priority TODOs:
 
 Secondary TODOs:
 
+- [ ] Make houses all a low quality LOD when in flying car, regardless of how close to buildings
+- [ ] Make the LOD budget for houses tighter in general, so that there are fewer triangles in the scene
 - [ ] Show color coded overlay when flying at sufficient height; fade it in as you increase altitude in flying car so at high height you can see your territory and competiting territory
 - [ ] Comrades should auto-follow, unless I redirect
 - [ ] Comrades should follow at a distance
