@@ -75,7 +75,14 @@ export interface RegionState {
     ceasefire: number;
     /** Recent momentum from speeches given here in person (decays daily). */
     momentum: number;
+    /**
+     * An invasion on the march toward a party region: who, how many, and the day it arrives (at
+     * that dawn it meets whatever troops stand there). Gives a day's warning to send help.
+     */
+    threat?: Threat | null;
 }
+
+export interface Threat { attacker: string; force: number; day: number }
 
 /** A military compound: the target for taking a settlement (or, for the founding outpost, your
  * headquarters). Civilians are never the target; the garrison is. */

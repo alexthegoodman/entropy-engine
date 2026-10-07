@@ -347,7 +347,8 @@ export function roadMargin(family: string): number {
     return 0.4;
 }
 
-const SHOP_TINT: Record<string, [number, number, number]> = { general: [0.2, 0.55, 0.35], gunsmith: [0.75, 0.15, 0.12], garage: [0.2, 0.4, 0.8] };
+/** Each kind of shop's awning color (also its sky marker and mini map dot). */
+export const SHOP_TINT: Record<string, [number, number, number]> = { general: [0.2, 0.55, 0.35], gunsmith: [0.75, 0.15, 0.12], garage: [0.2, 0.4, 0.8] };
 
 function rand(seed: number): () => number {
     let h = seed >>> 0;

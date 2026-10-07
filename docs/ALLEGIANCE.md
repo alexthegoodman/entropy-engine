@@ -98,6 +98,9 @@ objective strip tracks each step, and the normal objectives take over once it is
 | I | the inventory (command console) |
 | F | hand the nearest person a pamphlet; Q cycles the pamphlet you carry |
 | B | take the stage: start a speech |
+| T | comrades hold the spot under the crosshair; T again calls them back behind you |
+| J | an invasion on the march: send half your troops there (also from the air) |
+| P | the autopilot to the destination set in the Territory tab (on or off) |
 | V | first person (the default on foot) / over the shoulder; mouse wheel zooms that camera |
 | Tab, M or Esc | the command console (time stops while it is open) |
 
@@ -150,7 +153,7 @@ between you, flies there and lands; the prompt shows its distance and time to ar
 | Take off / rise | Space | A / Cross |
 | Descend | C or Control | B / Circle |
 | Boost (builds from 35 to 120 m/s while held) | Shift | Click left stick |
-| Automatic landing | L | D-pad down |
+| Automatic landing (ground or a flat roof) | L | D-pad down |
 | Exit after landing | E | X / Square |
 
 The flying car is always filmed from behind; on foot you see through your own eyes, weapon in hand.
@@ -163,7 +166,13 @@ Altitude Permit (ceiling 1,000 / 1,500 / 2,500 m).
 
 Releasing the controls brakes to a stationary hover. The car stays above terrain and collides
 with building walls and roofs across its rotor footprint; it can fly over water but lands only
-on clear, dry, level ground. Flight is capped at 500 metres above local terrain (the Altitude Permit raises it). Land before
+on clear, dry, level ground or a **flat roof** (a city block or a compound building whose roof
+takes the whole rotor footprint; houses' roofs are pitched). **L** comes straight down when the
+spot below is clear, otherwise the car glides to the nearest clear ground or roof within 90 m at
+25 m over what lies beneath, then descends. The descent runs at up to 14 m/s and eases off over
+the last few meters: 300 m takes about 25 s (it was a fixed 3 m/s). Leaving the car on a roof,
+you take the stairs down and come out of the building's street door; E at that door takes you
+back up to it. Flight is capped at 500 metres above local terrain (the Altitude Permit raises it). Land before
 exiting; you step onto clear ground beside the car. Its location, altitude and whether you are
 aboard persist with the campaign; airborne saves resume in a stationary hover. The console
 pauses flight. Ambient traffic remains decorative.
@@ -176,10 +185,26 @@ officers, raise support, call an election, stage a coup, then take the next regi
 
 **Sky markers and the mini map.** Towns and cities within 45 km (90 km while flying) carry a
 marker high in the sky over them, with their name and distance, colored by who governs them, so
-you can see where to fly. Markers behind you or off to the side are pinned to the screen's edge in
+you can see where to fly. Shops carry one too, over their roof, in their awning's color with a
+gold ring (the five nearest within 260 m on foot, eight within 700 m in the air); on the mini
+map they are dots in the same colors. Markers behind you or off to the side are pinned to the screen's edge in
 their direction. Military compounds within 5 km, the mission objective and your headquarters are
 marked too. The mini map (bottom right, north up) is the street map around you: buildings, water,
 compounds, shops, your car, your comrades and alerted soldiers. It zooms out while you fly.
+
+**Territory from the air.** Above 120 m in the car or the Cobra, the ground is washed in the
+color of whoever governs it (your party's color where you rule, each rival's where they do), with
+a bright line along every border and around every town, fully shown by 450 m. Ownership follows
+the game's own rule: a town's radius belongs to the town, the country around it to the nearest
+territory center. The terrain shader works it out per pixel from up to 64 places
+(`al_territory.ts`): 48 towns within 160 km and the 12 nearest territory centers.
+
+**Autopilot.** Pick any place in COMMAND > TERRITORY and press **AUTOPILOT HERE**, then P aboard
+the car or the Cobra (it engages at once if you are flying). It climbs to its cruise height (300
+m, or under a lower ceiling), turns, flies with boost, and over the destination hands over to an
+automatic landing nearby. On a long leg high over the country time runs up to 12 times faster,
+the campaign clock included, so a long trip costs its hours. Any flight control takes back the
+controls; P resumes.
 
 **Houses.** Walk to a house's front door and press **E** to go in (office blocks and other
 buildings stay closed). You walk its floor inside the outer walls. Many houses hide a footlocker
@@ -206,6 +231,12 @@ compound you leave half cleared is still half cleared when you come back. Only a
 retakes the town brings a fresh garrison. Compounds change hands with their settlement however it
 is won or lost.
 
+**Soldiers take cover and spread out.** A squad no longer comes on in a file: each soldier
+closes in along a bearing of their own, so they fan out across a wide arc around you. Under fire
+(always likelier when hit or out of rounds) they break for cover: a spot a few meters off,
+hugging a wall between them and you, out of your sight, where they crouch two to five seconds and
+reload before coming back out.
+
 **Enemy aim settles in.** A soldier who has just found a target is rattled: their first shots go
 wide (a fifth of their accuracy), and they tighten up over five seconds of tracking the same
 target; switching targets starts over. The founding outpost's guards are green conscripts with
@@ -222,12 +253,25 @@ their posts, you are protected for four seconds, no new squad comes for 25 secon
 saves at once.
 
 **People.** The pedestrians are individuals with a name, an audience segment (worker, student,
-professional, elder, faithful, veteran) and an opinion of your party. Each one also leans toward
+professional, elder, faithful, veteran) and an opinion of your party. They keep to the town:
+they come out of doors and along pavements near buildings, never in open fields, and as many
+as the streets around you carry (a third of the doors and pavement points within 130 m, up to
+the 34). Each one also leans toward
 a rival faction. Their first opinion comes from your party's support in the region. They walk
 between the doors of real buildings along A* paths, stop, and walk on. They also run from
 gunfire. Talk to them (**E**) to persuade them, give them a pamphlet, or invite them to join.
 Recruits become named party members you can promote. Members wear your color. A member can walk
 with you as a **follower** and fights beside you if armed.
+
+**Comrades.** Your followers walk in a loose column of rows of three, six meters and more behind
+you, with a little slack so they don't shuffle at every step. They **hold their fire** until the
+shooting starts: you fire first (or the enemy fires on you), and they fight for 25 s after the
+last shot. **T** sends them to hold the spot under the crosshair (they stand in a ring there,
+fighting anything that comes); T again calls them back. When you take off, they ride in their
+**own flying cars**, four to a car (at most three cars): two off your rear quarters and one
+behind, matching your height and speed, climbing over anything in the way. When you set down
+(or step out), each lands on a clear spot by its place in the formation and its riders climb
+out and fall in behind you. Comrades told to hold stay behind.
 
 **Pamphlets.** There are three kinds. The Plain Truth is honest: slow, and good for karma.
 Glorious Tomorrow is bold promises. What They Hide is lies about your rivals, which hurt your
@@ -373,9 +417,17 @@ support shares, unrest, the regime's **heat** toward your party, and a garrison.
   beside you as militia, and every soldier you drop counts for 25 troops in the war. Fallen
   soldiers drop their weapons for you to collect.
 
+**Sending troops.** The Territory tab sends 25%, 50% or all of the troops stationed everywhere
+else (not regions at war) to the selected place: to **defend** a party region, or to **take**
+another (with 10 or more there, war is declared at once).
+
 Once you govern a region it pays taxes, organizes members, and you travel there free. It is
 also a target. The Concordat and the rivals invade party regions more often the more of the
-world you hold. Unrest turns into insurgencies. Democracies can vote you out, unless you
+world you hold. An invasion **marches for a day**: the news and an alert under the objective
+say who is coming, where, how many, and how your troops there compare with what it takes to
+turn them back, with SEND 25% / 50% / ALL buttons (J sends half, wherever you are). At dawn
+it arrives: troops worth one and a half times its strength (by quality) turn it back at the
+border; otherwise the war begins. Unrest turns into insurgencies. Democracies can vote you out, unless you
 **suspend elections**, a tyrant's move. When the regime's heat runs high anywhere, it cracks down
 on your members and can send troops after you in the street.
 
@@ -485,7 +537,9 @@ day (`dayClock`).
 | `al_cobra.ts` | The Cobra flying tank: flight spec, courtyard spot, solar cells, missiles (launch, guidance, impacts), the crosshair's aim point |
 | `al_fx.ts` | Explosions, fires, smoke, sparks and scorch marks as particles; fire damage |
 | `al_destruction.ts` | Building strength and blast damage, ruins and rebuilding, breaking a building into pieces, piece physics, rubble |
-| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks, and the autopilot that brings it when called |
+| `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks (flat roofs too), landing spots, the autopilot that brings it when called, and the long-distance autopilot |
+| `al_convoy.ts` | Comrades' own flying cars: how many, formation slots, flying in formation on yours |
+| `al_territory.ts` | The territory overlay from the air: its strength by altitude, the places uniform, the terrain shader's WGSL |
 | `al_military.ts` | Military compounds: size by population, layouts, siting on clear ground, garrisons and capture |
 | `al_mission.ts` | The founding mission |
 | `al_items.ts` | Inventory items, shops and their stock, house supplies |
@@ -525,8 +579,12 @@ style from the map's height and footprint and the building's seed (towers are gl
 concrete blocks, big low sheds warehouses, the rest brick tenements, stucco apartments, concrete
 blocks and the odd civic hall), snaps the footprint to 2 m so a street shares meshes, and stretches
 the model to the real footprint and height. QuadPlanet's `CityHouses` streams them exactly like
-the houses (full detail within 90 m, simplified on a Rust thread to 600 m, cached in
-`mesh-cache/quadplanet-buildings`); city.rs marks ground-standing boxes (uv.y 2) and the shader
+the houses (full detail for at most 24 within 70 m, simplified on a Rust thread to 500 m, 2.5
+million triangles in all, cached in `mesh-cache/quadplanet-buildings`; houses: full, rooms and
+all, for at most three within 35 m, simplified to 220 m, 1.5 million triangles). In the car or
+the Cobra every house and block is its simplified exterior however close you fly
+(`CityHouses.configure`); `allegiance_config` `houseLod` / `buildingLod` change the on-foot limits.
+city.rs marks ground-standing boxes (uv.y 2) and the shader
 folds them away where a model has taken over (World `city.z`). The compounds' headquarters,
 barracks, depots and hangars are the same object (Barracks and Warehouse presets).
 
@@ -609,7 +667,9 @@ These tools also drive the live test:
   position), `face-guard`, `ads`, `view-building` (stand before the nearest Mesha city block) and
   `view-furniture` (inside a house, look at its table); for destruction `to-cobra`, `board-cobra`,
   `cobra-fire` (`at`: `structure`, `building` or `soldier`, `count`; real missiles from the pods),
-  `aim-at`, `detonate` (`key` or `ahead`, `power`), `fx-run` (`seconds`) and `cobra-hull`. `face` also takes a relative `turn`. `allegiance_new` takes `mission: false` to
+  `aim-at`, `detonate` (`key` or `ahead`, `power`), `fx-run` (`seconds`) and `cobra-hull`; for the
+secondary pass `altitude` (`meters`, flying), `over-roof` (`above`), `face-shop`, `threaten`
+(`region`, `count`), `troops` (`region`, `count`) and `autopilot` (`region`, or `lat`/`lon`). `face` also takes a relative `turn`. `allegiance_new` takes `mission: false` to
   skip the founding mission. `allegiance_state` also reports the mission, nearby compounds and
   their guards, the capture, inventory, car upgrades, checkpoint, the house you are in, the open
   shop, sky markers, the mini map and set dressing counts.
@@ -656,7 +716,12 @@ These tools also drive the live test:
   real missiles at its buildings (they break apart and settle as rubble), brings down a map house,
   then saves and continues to find the ruins as rubble, with six captured frames;
   `allegiance_destruction.test.ts` is its TypeScript tier (strength, pieces, settling, fire,
-  blasts, missiles, the hull). `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  blasts, missiles, the hull). `allegiance_secondary_live.feature` walks with the comrades,
+  measures the house and block triangles under the previous and the new budgets, holds and
+  recalls the comrades, flies with them in their cars over London at 650 m with the territory
+  overlay, lands on a flat roof from 280 m and takes the stairs, looks at a shop's sky marker,
+  answers an invasion alert with one click, watches a squad take cover, and lets the autopilot
+  fly toward Hatfield; `allegiance_secondary.test.ts` is its TypeScript tier. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.
@@ -686,4 +751,9 @@ These tools also drive the live test:
   a pile overlaps itself. A destroyed building's distant box (beyond the city-model range, about
   600 m) still shows until the ruin is rebuilt. Damage short of collapse is not kept between
   sessions. Fire does not spread between buildings. Soldiers have no Cobras of their own yet.
+- Comrades climb into and out of their cars instantly (no walk to the door). Their cars are not
+  kept with the campaign, and they do not take part in fights in the air.
+- The autopilot flies the straight line on the local map; on a long leg the street (and its
+  people) is not simulated faster, only the flight and the campaign clock. Very long legs stream
+  coarse terrain under the car.
 - First iteration: balance is tuned by simulation and short play sessions, not long campaigns.

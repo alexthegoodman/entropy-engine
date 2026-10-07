@@ -332,6 +332,18 @@ export class CityHouses {
 
     private meshKey(v: Variant, lod: 0 | 1) { return `${v.key}|lod${lod}`; }
 
+    /**
+     * Changes level-of-detail options while streaming (a game drops the full models in a fast
+     * vehicle, say): the next update chooses again with them.
+     */
+    configure(options: Partial<CityOptions>): void {
+        const changed = (Object.keys(options) as (keyof CityOptions)[]).some(k => options[k] !== undefined && options[k] !== this.options[k]);
+        if (!changed) return;
+        this.options = { ...this.options, ...options };
+        this.settled = false;
+        this.lastCamera = null;
+    }
+
     /** Stops drawing the buildings in `keys` (and draws again any no longer in it). */
     setExcluded(keys: ReadonlySet<string>): void {
         const changed = keys.size !== this.excluded.size || [...keys].some(k => !this.excluded.has(k));

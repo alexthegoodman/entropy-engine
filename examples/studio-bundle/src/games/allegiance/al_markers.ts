@@ -59,7 +59,7 @@ export function project(b: CameraBasis, p: Vec3, W: number, H: number, margin = 
 
 // --- Markers -------------------------------------------------------------------------------------
 
-export type MarkerKind = "city" | "town" | "compound" | "hq" | "mission";
+export type MarkerKind = "city" | "town" | "compound" | "hq" | "mission" | "shop";
 
 export interface SkyMarker {
     id: string;

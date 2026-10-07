@@ -282,6 +282,31 @@ export function moveArmy(c: Campaign, from: string, to: string, count: number): 
     return null;
 }
 
+/**
+ * Sends `share` (0..1) of the party's troops from every other region (not those at war) to `to`.
+ * Returns how many marched, and from how many regions.
+ */
+export function dispatchTroops(c: Campaign, to: string, share: number): { moved: number; from: number } {
+    let moved = 0, from = 0;
+    const k = Math.max(0, Math.min(1, share));
+    for (const rs of Object.values(c.regions)) {
+        if (rs.id === to || rs.army <= 0 || rs.war) continue;
+        const n = Math.min(rs.army, Math.round(rs.army * k));
+        if (n <= 0) continue;
+        moveArmy(c, rs.id, to, n);
+        moved += n;
+        from++;
+    }
+    return { moved, from };
+}
+
+/** Troops that dispatchTroops could send to `to` (all of them, from everywhere else not at war). */
+export function troopsAvailable(c: Campaign, to: string): number {
+    let n = 0;
+    for (const rs of Object.values(c.regions)) if (rs.id !== to && !rs.war) n += rs.army;
+    return n;
+}
+
 /** How well the party's troops fight (0..~1.6). */
 export function partyQuality(c: Campaign, region: string, playerPresent: boolean): number {
     let q = 0.5;

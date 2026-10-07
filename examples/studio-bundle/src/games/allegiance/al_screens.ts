@@ -8,7 +8,7 @@ import {
 import { angularDistance, campaignRegions, regionAt, type Campaign, dateLabel, karmaTitle, partyShare, totalMembers, strongestRival, INNER_CIRCLE, type Member } from "./al_state";
 import {
     ROLE_NAMES, orgReport, holder, maxHealth, xpForLevel, followers, followerLimit, ammoPrice, pamphletPrice, schemeChance,
-    schemeCost, hasFacility, ARM_COST, blocOf,
+    schemeCost, hasFacility, ARM_COST, blocOf, troopsAvailable,
 } from "./al_party";
 import { controlLevel, coupChance, electionCost, governedShare, travelCost, worldSupport, DAY_SECONDS, VICTORY_SHARE } from "./al_world";
 import { BEATS, HECKLE_KEYS, type SpeechState } from "./al_speech";
@@ -104,6 +104,15 @@ export interface GameView {
     indoors?: string | null;
     /** The shop you walked into. */
     shop?: { kind: ShopKind | "hq"; name: string } | null;
+    /**
+     * An invasion marching on a party region: where, who, how many; your troops there, those you
+     * could send, and how their strength compares with what it takes to turn it back (1 = enough).
+     */
+    threat?: { region: string; name: string; attacker: string; force: number; defenders: number; available: number; ratio: number; here: boolean } | null;
+    /** The autopilot's destination, how far it is, the time warp, and whether it is flying now. */
+    autopilot?: { name: string; km: number; warp: number; on: boolean } | null;
+    /** Your comrades: walking with you, holding a spot, riding in their cars; and whether they are fighting. */
+    comrades?: { following: number; holding: number; riding: number; engaged: boolean };
     act(name: string, arg?: unknown): void;
 }
 
@@ -368,6 +377,7 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     p.rect(0, 100, tw, 46, [0.6, 0.05, 0.07, 0.88]);
     p.text("OBJECTIVE", 14, 104, 11, THEME.gold, FONT.head);
     p.text(obj, 14, 118, 13, THEME.cream, FONT.body, tw - 24, 28);
+    drawThreat(g, ui, tw);
     // Top-right: where you are.
     const def = g.region ? regionDefById(g.region) : null;
     if (def) {
@@ -417,7 +427,11 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     const pam = PAMPHLETS.find(x => x.id === g.pamphlet)!;
     p.text(`PAMPHLETS: ${pam.name.toUpperCase()} x${c.player.pamphlets[pam.id] ?? 0}`, 14, by + 92, 12, THEME.gold, FONT.head, 360);
     // Followers.
-    if (g.street.followers) p.text(`FOLLOWERS ${g.street.followers}/${followerLimit(c)}`, 14, by - 26, 13, THEME.cream, FONT.head);
+    const cm = g.comrades;
+    if (g.street.followers) {
+        const how = cm ? [cm.holding ? `${cm.holding} HOLDING` : "", cm.riding ? `${cm.riding} IN THEIR CARS` : "", cm.engaged ? "FIGHTING" : "HOLDING FIRE"].filter(Boolean).join("  ") : "";
+        p.text(`COMRADES ${g.street.followers}/${followerLimit(c)}${how ? `  ${how}` : ""}   T ${cm?.holding ? "CALL BACK" : "HOLD THERE"}`, 14, by - 26, 13, THEME.cream, FONT.head, 520);
+    }
     // Crosshair: it tightens as the sights come up (the gun's own sights take over), and turns gold
     // while aim assist has a soldier.
     const cx = W / 2, cy = H / 2;
@@ -455,12 +469,31 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     }
     // Controls hint and org warnings.
     const report = orgReport(c);
-    const hint = g.car?.cobra ? "WASD FLY  SPACE RISE  C DESCEND  SHIFT BOOST  LMB / RT SOLAR MISSILES (AT THE CROSSHAIR)  L LAND  E EXIT" : g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  HOLD SHIFT BOOST (BUILDS UP)  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK/ENTER  F PAMPHLET  B SPEECH  H HEAL  I INVENTORY  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
+    const hint = g.car?.cobra ? "WASD FLY  SPACE RISE  C DESCEND  SHIFT BOOST  LMB / RT SOLAR MISSILES (AT THE CROSSHAIR)  L LAND  E EXIT" : g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  HOLD SHIFT BOOST (BUILDS UP)  L / D-PAD DOWN LAND (GROUND OR FLAT ROOF)" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK/ENTER  F PAMPHLET  B SPEECH  H HEAL  T COMRADES HOLD/FOLLOW  I INVENTORY  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
     p.rect(436, 4, W - 436 - 370, 26, [0.04, 0.035, 0.035, 0.7]);
     p.text(hint, 444, 9, 12, report.warnings.length ? THEME.gold : THEME.cream, FONT.head, W - 440 - 380);
     if (g.debug) p.text(g.debug, 440, 30, 12, THEME.dim, FONT.mono, W - 840);
     drawMiniMap(g, ui);
     drawCaptureAndFlight(g, ui);
+}
+
+/**
+ * An invasion on the march: who, where, how strong against the troops standing there, and one
+ * click (or J for half) sends help from everywhere else.
+ */
+function drawThreat(g: GameView, ui: UiFrame, tw: number): void {
+    const t = g.threat;
+    if (!t) return;
+    const { p } = ui;
+    const y = 150, h = 92;
+    p.rect(0, y, tw, h, [0.35, 0.04, 0.05, 0.92], 2, THEME.gold);
+    p.text(`INVASION: ${t.attacker} MARCH ON ${t.name.toUpperCase()}`, 12, y + 6, 14, THEME.gold, FONT.head, tw - 20);
+    p.text(`${fmt(t.force)} troops at dawn vs ${fmt(t.defenders)} there (${Math.round(t.ratio * 100)}% of what turns them back). ${fmt(t.available)} you can send.${t.here ? "" : " You are away."}`,
+        12, y + 28, 12, THEME.cream, FONT.body, tw - 20, 30);
+    const shares: [string, number][] = [["SEND 25%", 0.25], ["SEND 50% (J)", 0.5], ["SEND ALL", 1]];
+    const bw = (tw - 36) / 3;
+    shares.forEach(([label, share], i) => ui.button(`threat-send-${Math.round(share * 100)}`, 12 + i * (bw + 6), y + 60, bw, 26, label, i === 2 ? "red" : "dark",
+        () => g.act("threat-send", share), { size: 11, disabled: t.available <= 0 }));
 }
 
 export function clockLabel(dayClock: number): string {
@@ -840,6 +873,7 @@ function drawTerritory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
     const t = travelCost(c, c.player.lat, c.player.lon, id);
     actions.push(["act-travel", id === g.region ? "YOU ARE HERE" : `TRAVEL (${t.cost ? money(t.cost) : "FREE"}${t.days ? `, ${t.days}D` : ""})`, "travel", id !== g.region]);
     actions.push(["act-hq", id === c.party.hq ? "HEADQUARTERS" : "MOVE HQ HERE", "move-hq", id !== c.party.hq]);
+    actions.push(["act-autopilot", `AUTOPILOT HERE (${Math.round(angularDistance(c.player.lat, c.player.lon, def.lat, def.lon) * 6371)} KM)`, "autopilot", id !== g.region]);
     if (rs.governor !== PARTY) {
         actions.push(["act-election", rs.gov === "democracy" ? `SNAP ELECTION (${money(electionCost(rs))})` : "NO ELECTIONS", "election", rs.gov === "democracy"]);
         actions.push(["act-coup", `COUP (${Math.round(coupChance(c, id) * 100)}%)`, "coup", rs.army >= 10 && !rs.war]);
@@ -860,6 +894,17 @@ function drawTerritory(g: GameView, ui: UiFrame, c: Campaign, top: number): void
         ui.button(bid, dx + (i % 2) * (bw + 10), y + Math.floor(i / 2) * 44, bw, 38, label, action === "war" || action === "coup" ? "red" : "dark", () => g.act(action, id), { disabled: !enabled, size: 11 });
     });
     y += Math.ceil(actions.length / 2) * 44 + 10;
+    // Send troops from every other region: to hold a party region, or to take this one (war).
+    const avail = troopsAvailable(c, id);
+    const verb = rs.governor === PARTY ? "DEFEND" : "TAKE";
+    p.text(`SEND TROOPS: ${fmt(avail)} AVAILABLE ELSEWHERE${rs.threat ? `  -  ${factionById(rs.threat.attacker).short} ARRIVE AT DAWN WITH ${fmt(rs.threat.force)}` : ""}`, dx, y, 12, rs.threat ? THEME.red : THEME.gold, FONT.head, dw);
+    y += 20;
+    const sw3 = (dw - 20) / 3;
+    ([["25%", 0.25], ["50%", 0.5], ["ALL", 1]] as [string, number][]).forEach(([label, share], i) => {
+        ui.button(`dispatch-${Math.round(share * 100)}`, dx + i * (sw3 + 10), y, sw3, 34, `${verb} WITH ${label}`, rs.governor === PARTY ? "dark" : "red",
+            () => g.act("dispatch", { region: id, share }), { disabled: avail <= 0, size: 11 });
+    });
+    y += 44;
     p.text("SCHEMES", dx, y, 13, THEME.gold, FONT.head);
     y += 22;
     const sw = (dw - 10) / 2;
@@ -1074,7 +1119,7 @@ function drawShop(g: GameView, ui: UiFrame): void {
 
 // --- HUD overlays: sky markers, the mini map, capture and flight ---------------------------------
 
-const MARKER_PRIORITY: Record<string, number> = { mission: 0, hq: 1, compound: 2, city: 3, town: 4 };
+const MARKER_PRIORITY: Record<string, number> = { mission: 0, hq: 1, compound: 2, city: 3, town: 4, shop: 5 };
 
 /**
  * Sky markers, most important first. Markers pinned to the screen's edge stay clear of the HUD's
@@ -1106,8 +1151,10 @@ export function layoutMarkers(markers: readonly ScreenMarker[], W: number, H: nu
 function drawMarkers(g: GameView, ui: UiFrame): void {
     const p = ui.p;
     for (const { m, x, y, label } of layoutMarkers(g.markers ?? [], ui.W, ui.H)) {
-        const s = m.kind === "hq" || m.kind === "mission" ? 14 : m.kind === "city" ? 12 : 9;
+        const s = m.kind === "hq" || m.kind === "mission" ? 14 : m.kind === "city" ? 12 : m.kind === "shop" ? 11 : 9;
         const edge = m.onScreen ? 1 : 0.8;
+        // Shops: their awning's color in a gold ring, so they stand out from towns.
+        if (m.kind === "shop") p.rect(x - s / 2 - 3, y - s / 2 - 3, s + 6, s + 6, withAlpha(THEME.gold, 0.9 * edge), 1, THEME.black);
         p.rect(x - s / 2, y - s / 2, s, s, withAlpha(m.color, 0.95 * edge), 2, THEME.black);
         if (m.kind === "hq") p.rect(x - 2, y - s / 2 - 10, 4, 10, m.color);
         if (label) p.text(label.text, label.x, label.y, 12, m.kind === "compound" ? [1, 0.75, 0.7, 1] : THEME.cream, FONT.head, label.w, 18, [0.04, 0.035, 0.035, 0.6]);
@@ -1164,6 +1211,14 @@ function drawCaptureAndFlight(g: GameView, ui: UiFrame): void {
         }
     }
     if (g.indoors) p.text(`INSIDE ${g.indoors.toUpperCase()}  -  E AT THE DOOR TO LEAVE`, 444, 34, 12, THEME.gold, FONT.head);
+    const ap = g.autopilot;
+    if (ap) {
+        const text = ap.on ? `AUTOPILOT: ${ap.name.toUpperCase()}  ${ap.km >= 10 ? Math.round(ap.km) : ap.km.toFixed(1)} KM${ap.warp > 1.05 ? `  TIME x${Math.round(ap.warp)}` : ""}   P / ANY CONTROL TAKES OVER`
+            : `DESTINATION: ${ap.name.toUpperCase()}  ${Math.round(ap.km)} KM   P ENGAGES THE AUTOPILOT${g.piloting ? "" : " ONCE ABOARD"}`;
+        const w = Math.min(W - 40, textWidth(text, 14, FONT.head) + 30);
+        p.rect((W - w) / 2, 124, w, 28, ap.on ? [0.05, 0.2, 0.35, 0.9] : [0.04, 0.035, 0.035, 0.8], 2, [0.3, 0.7, 1, 1]);
+        p.textC(text, W / 2, 129, 14, THEME.cream, FONT.head);
+    }
 }
 
 export { holder, weaponById, type RegionDef };

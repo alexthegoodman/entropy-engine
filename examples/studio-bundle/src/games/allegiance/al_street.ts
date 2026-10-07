@@ -74,6 +74,20 @@ export interface Actor {
     /** Seconds spent drawing a bead on the current target (enemies' aim settles in), and on whom (-1: you). */
     aim?: number;
     aimAt?: number;
+    /** Comrades: riding in a convoy car (its index; the addon carries them), and a spot you told them to hold. */
+    aboard?: number | null;
+    hold?: [number, number] | null;
+    /** Their place in the column behind you (0 nearest), set each step. */
+    rank?: number;
+    /** Soldiers: the cover they are making for (or crouched behind) and for how long, seconds until
+     * they next look for cover, health last step (a hit sends them to cover), the bearing they
+     * close in from (each one its own, so a squad fans out), and where they last saw their target. */
+    cover?: [number, number] | null;
+    coverTime?: number;
+    nextCover?: number;
+    lastHealth?: number;
+    approach?: number | null;
+    lastSeen?: [number, number] | null;
 }
 
 export interface Shot { ax: number; ay: number; az: number; bx: number; by: number; bz: number; side: Side; hit: boolean; age: number }
@@ -130,7 +144,22 @@ export interface StreetState {
     pathBudget: number;
     fighterBudget: number;
     civilianTarget: number;
+    /** Seconds of fighting left: comrades hold their fire until you (or the enemy) shoot first. */
+    engaged: number;
+    /**
+     * Where townspeople walk (local): building doors and points along the streets (the addon sets
+     * them from the map). Civilians appear and walk only among these, and as many as the streets
+     * around you can carry: none in open country. Null: anywhere walkable (tests).
+     */
+    streetPoints: [number, number][] | null;
+    /** Civilians the streets around you carry (the addon sets it with streetPoints). */
+    urbanCap: number;
+    /** Times a soldier has broken for cover (for the state report). */
+    covers: number;
 }
+
+/** Seconds comrades keep fighting after the last shot. */
+export const ENGAGE_SECONDS = 25;
 
 export const CIVILIAN_TARGET = 34;
 export const SPAWN_MIN = 25;
@@ -148,6 +177,7 @@ export function newStreet(): StreetState {
         player: { x: 0, z: 0, y: 0, heading: 0, health: 100, armor: 0, absorb: 0, dead: false, moving: false },
         alarm: null, speech: null, rally: null,
         squadTimer: 40, rallyTimer: 90, squadAlive: 0, pathBudget: 0, fighterBudget: 0, civilianTarget: CIVILIAN_TARGET,
+        engaged: 0, streetPoints: null, urbanCap: Infinity, covers: 0,
     };
 }
 
@@ -413,6 +443,7 @@ export function blastStreet(st: StreetState, x: number, y: number, z: number, ra
         if (d < radius) damagePlayer(st, damage * 0.6 * (1 - d / radius));
     }
     alarm(st, x, z);
+    if (by === "party") st.engaged = ENGAGE_SECONDS;
     return killed;
 }
 
@@ -448,6 +479,7 @@ export function playerShoot(st: StreetState, nav: NavGrid | null, eye: Vec3, dir
         out.push(res);
     }
     if (w.id !== "fists") alarm(st, st.player.x, st.player.z);
+    st.engaged = ENGAGE_SECONDS;
     return out;
 }
 
@@ -469,8 +501,26 @@ function spawnPoint(st: StreetState, nav: NavGrid | null, r: Rng, min: number, m
     return null;
 }
 
+/** A random street point (a door, a pavement) between `min` and `max` meters from (x, z), a little jittered. */
+function streetSpot(st: StreetState, nav: NavGrid | null, r: Rng, x: number, z: number, min: number, max: number): [number, number] | null {
+    const pts = st.streetPoints;
+    if (!pts?.length) return null;
+    for (let t = 0; t < 24; t++) {
+        const q = pts[Math.floor(r.next() * pts.length)];
+        const d2 = dist2(q[0], q[1], x, z);
+        if (d2 < min * min || d2 > max * max) continue;
+        const px = q[0] + (r.next() - 0.5) * 3, pz = q[1] + (r.next() - 0.5) * 3;
+        if (!nav || nav.walkable(px, pz)) return [px, pz];
+        if (!nav || nav.walkable(q[0], q[1])) return [q[0], q[1]];
+    }
+    return null;
+}
+
 function spawnCivilian(st: StreetState, nav: NavGrid | null, ctx: StreetContext, r: Rng, near = false): void {
-    const at = spawnPoint(st, nav, r, near ? 6 : SPAWN_MIN, near ? 40 : SPAWN_MAX);
+    // Townspeople come out of doors and along the streets, never in the middle of a field.
+    const at = st.streetPoints
+        ? streetSpot(st, nav, r, st.player.x, st.player.z, near ? 6 : SPAWN_MIN, near ? 40 : SPAWN_MAX) ?? streetSpot(st, nav, r, st.player.x, st.player.z, 0, SPAWN_MAX)
+        : spawnPoint(st, nav, r, near ? 6 : SPAWN_MIN, near ? 40 : SPAWN_MAX);
     if (!at) return;
     const a = newActor(st, "civilian", at[0], at[1], r);
     a.opinion = initialOpinion(ctx.partyShare, r);
@@ -663,7 +713,9 @@ function civilianGoal(st: StreetState, a: Actor, nav: NavGrid | null, r: Rng): v
         const near = nav.rects.filter(rc => dist2(rc.door[0], rc.door[1], a.x, a.z) < 110 * 110);
         if (near.length) { const rc = pick(r, near); requestPath(st, a, nav, rc.door[0], rc.door[1]); return; }
     }
-    const p = nav ? nav.randomWalkable(a.x, a.z, 60, () => r.next()) : [a.x + (r.next() - 0.5) * 60, a.z + (r.next() - 0.5) * 60] as [number, number];
+    // Otherwise along the streets (anywhere walkable only where there is no street map).
+    const p = st.streetPoints ? streetSpot(st, nav, r, a.x, a.z, 8, 80)
+        : nav ? nav.randomWalkable(a.x, a.z, 60, () => r.next()) : [a.x + (r.next() - 0.5) * 60, a.z + (r.next() - 0.5) * 60] as [number, number];
     if (p) requestPath(st, a, nav, p[0], p[1]);
 }
 
@@ -738,11 +790,59 @@ function hostiles(st: StreetState, a: Actor): { x: number; z: number; y: number;
     const out: { x: number; z: number; y: number; id: number | null }[] = [];
     if (a.side === "enemy") {
         if (!st.player.dead) out.push({ x: st.player.x, z: st.player.z, y: st.player.y, id: null });
-        for (const b of st.actors) if (b.side === "party" && alive(b)) out.push({ x: b.x, z: b.z, y: b.y, id: b.id });
+        for (const b of st.actors) if (b.side === "party" && alive(b) && b.aboard == null) out.push({ x: b.x, z: b.z, y: b.y, id: b.id });
     } else if (a.side === "party") {
+        // Comrades hold their fire until the shooting starts (you fire first, or the enemy does).
+        if (st.engaged <= 0) return out;
         for (const b of st.actors) if (b.side === "enemy" && alive(b)) out.push({ x: b.x, z: b.z, y: b.y, id: b.id });
     }
     return out;
+}
+
+/**
+ * Cover for a soldier under fire: a walkable spot a few meters away, reachable in a straight line,
+ * with a wall right between it and the target (hidden from them), not too close to them. Null:
+ * nothing near.
+ */
+export function findCover(nav: NavGrid, a: { x: number; z: number }, t: { x: number; z: number }, range: number, r: Rng): [number, number] | null {
+    let best: [number, number] | null = null, bestScore = Infinity;
+    const turn0 = r.next() * Math.PI * 2;
+    for (const rad of [2.5, 4.5, 7, 10]) {
+        for (let k = 0; k < 12; k++) {
+            const ang = turn0 + k / 12 * Math.PI * 2;
+            const x = a.x + Math.sin(ang) * rad, z = a.z + Math.cos(ang) * rad;
+            if (!nav.walkable(x, z)) continue;
+            const dx = t.x - x, dz = t.z - z, d = Math.hypot(dx, dz);
+            if (d < 6 || d > range * 1.2) continue;
+            // Hugging a wall on the target's side, and out of their sight.
+            if (nav.walkable(x + dx / d * 1.6, z + dz / d * 1.6)) continue;
+            if (nav.sightClear(x, z, t.x, t.z)) continue;
+            if (!nav.lineClear(a.x, a.z, x, z)) continue;
+            const score = rad + Math.abs(d - range * 0.5) * 0.15;
+            if (score < bestScore) { bestScore = score; best = [x, z]; }
+        }
+        if (best) break;
+    }
+    return best;
+}
+
+/** How far back the first row of comrades walks, the rows' spacing, and the column's spacing across. */
+export const FOLLOW_BACK = 6;
+export const FOLLOW_ROW = 3.2;
+export const FOLLOW_SIDE = 3.4;
+
+/** Where comrade number `rank` (of `of`) walks: in rows of three behind you, or in a ring around the spot they hold. */
+export function followSlot(rank: number, of: number, p: { x: number; z: number; heading: number }, hold: [number, number] | null): [number, number] {
+    if (hold) {
+        if (of <= 1) return hold;
+        const ang = rank / of * Math.PI * 2;
+        const rad = 2.2 + of * 0.35;
+        return [hold[0] + Math.sin(ang) * rad, hold[1] + Math.cos(ang) * rad];
+    }
+    const row = Math.floor(rank / 3), col = (rank % 3) - 1;
+    const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+    const back = FOLLOW_BACK + row * FOLLOW_ROW, side = col * FOLLOW_SIDE + (row % 2 ? FOLLOW_SIDE / 2 : 0);
+    return [p.x - fx * back + fz * side, p.z - fz * back - fx * side];
 }
 
 function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null, r: Rng): void {
@@ -750,14 +850,28 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
     a.cooldown = Math.max(0, a.cooldown - dt);
     if (a.reload > 0) { a.reload -= dt; if (a.reload <= 0) a.mag = w.magazine; }
     a.retarget -= dt;
+    const soldier = a.kind === "soldier";
+    const hurt = a.lastHealth !== undefined && a.health < a.lastHealth;
+    a.lastHealth = a.health;
     let target: { x: number; z: number; y: number; id: number | null } | null = null;
     // Guards stay at their posts until someone comes close, shoots near them or hits one of them.
     if (a.post && !a.alerted) {
         const near = (x: number, z: number) => dist2(x, z, a.post![0], a.post![1]) < 45 * 45;
         if ((!st.player.dead && near(st.player.x, st.player.z)) || (st.alarm && near(st.alarm.x, st.alarm.z))
-            || st.actors.some(b => b.side === "party" && alive(b) && near(b.x, b.z))) {
+            || st.actors.some(b => b.side === "party" && alive(b) && b.aboard == null && near(b.x, b.z))) {
             for (const g of st.actors) if (g.compound === a.compound) g.alerted = true;
         }
+    }
+    // In cover: crouched behind the wall (reloading), then back out to fight.
+    if (soldier && (a.coverTime ?? 0) > 0) {
+        a.coverTime = (a.coverTime ?? 0) - dt;
+        if (a.cover && moveToward(a, a.cover[0], a.cover[1], RUN, dt, nav)) {
+            a.speed = 0;
+            if (a.lastSeen) a.heading = turn(a.heading, Math.atan2(a.lastSeen[0] - a.x, a.lastSeen[1] - a.z), dt * 4);
+            if (a.mag < w.magazine && a.reload <= 0) a.reload = w.reload;
+        }
+        if (a.coverTime <= 0) { a.cover = null; a.nextCover = 4 + r.next() * 5; }
+        return;
     }
     const foes = a.post && !a.alerted ? [] : hostiles(st, a);
     if (foes.length) {
@@ -768,17 +882,37 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
             if (d < bestD && (!nav || nav.sightClear(a.x, a.z, f.x, f.z))) { bestD = d; target = f; }
         }
     }
-    // Aim settles while one target is held; a new target starts over.
+    // Aim settles while one target is held; a new target starts over (and so does the approach).
     const aimAt = target ? target.id ?? -1 : null;
-    if (aimAt === null || aimAt !== a.aimAt) a.aim = 0; else a.aim = (a.aim ?? 0) + dt;
+    if (aimAt === null || aimAt !== a.aimAt) { a.aim = 0; a.approach = null; } else a.aim = (a.aim ?? 0) + dt;
     a.aimAt = aimAt ?? undefined;
     if (target && a.weapon !== "fists") {
+        a.lastSeen = [target.x, target.z];
+        // Soldiers under fire break for cover now and then (more likely when hit, or out of rounds).
+        if (soldier && nav) {
+            a.nextCover = (a.nextCover ?? 2 + r.next() * 4) - dt;
+            const wantCover = (hurt && r.next() < 0.6) || (a.nextCover <= 0 && r.next() < 0.5) || (a.mag <= 0 && r.next() < 0.7);
+            if (wantCover) {
+                const spot = findCover(nav, a, target, w.range, r);
+                a.nextCover = 3 + r.next() * 4;
+                if (spot) { a.cover = spot; a.coverTime = 2.2 + r.next() * 2.6; st.covers++; return; }
+            }
+        }
         const d = Math.sqrt(dist2(a.x, a.z, target.x, target.z));
         a.heading = turn(a.heading, Math.atan2(target.x - a.x, target.z - a.z), dt * 8);
         // Soldiers press in to fighting distance; followers hold a little farther back.
-        const engage = w.range * (a.kind === "soldier" ? 0.35 : 0.55);
-        if (d > engage) moveToward(a, target.x, target.z, RUN * 0.8, dt, nav);
-        else {
+        const engage = w.range * (soldier ? 0.35 : 0.55);
+        if (d > engage) {
+            if (soldier) {
+                // Each closes in along their own bearing (fanning out around the target), not in a file.
+                if (a.approach == null) {
+                    const spread = (((a.id * 0.6180339) % 1) - 0.5) * 1.9;
+                    a.approach = Math.atan2(a.x - target.x, a.z - target.z) + spread;
+                }
+                const gx = target.x + Math.sin(a.approach) * engage * 0.9, gz = target.z + Math.cos(a.approach) * engage * 0.9;
+                moveToward(a, gx, gz, RUN * 0.8, dt, nav);
+            } else moveToward(a, target.x, target.z, RUN * 0.8, dt, nav);
+        } else {
             // Strafe a little while shooting.
             const side = (a.id % 2 ? 1 : -1) * Math.sin(st.squadTimer + a.id);
             const sx = a.x + Math.cos(a.heading) * side, sz = a.z - Math.sin(a.heading) * side;
@@ -796,6 +930,7 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
             const ty = target.y + 1.2 + (hit ? 0 : (r.next() - 0.5) * 1.5);
             const miss = hit ? 0 : 1.2 + (1 - settle) * 2.5;
             st.shots.push({ ax: a.x, ay: a.y + 1.4, az: a.z, bx: target.x + (r.next() - 0.5) * miss, by: ty, bz: target.z + (r.next() - 0.5) * miss, side: a.side, hit, age: 0 });
+            if (a.side === "enemy") st.engaged = ENGAGE_SECONDS;
             if (hit) {
                 const dmg = w.damage * Math.min(w.pellets, 3) * 0.45 * (0.8 + 0.4 * r.next());
                 if (target.id === null) damagePlayer(st, dmg);
@@ -805,17 +940,18 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
         }
         return;
     }
-    // No one to shoot: followers walk with you, soldiers hunt you.
+    // No one to shoot: comrades walk with you (in a loose column a few meters back) or hold where
+    // you sent them; soldiers hunt you.
     if (a.side === "party") {
         const p = st.player;
-        const k = (a.id % 4) - 1.5;
-        const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-        const tx = p.x - fx * 2.5 + fz * k * 1.4, tz = p.z - fz * 2.5 - fx * k * 1.4;
+        const of = st.actors.filter(b => b.kind === "follower" && alive(b) && b.aboard == null && !!b.hold === !!a.hold).length;
+        const [tx, tz] = followSlot(a.rank ?? 0, of, p, a.hold ?? null);
         const d = Math.sqrt(dist2(a.x, a.z, tx, tz));
         if (d > 30 && (a.repath -= dt) <= 0 && requestPath(st, a, nav, tx, tz)) a.repath = 2;
         if (a.path.length && d > 8) followPath(st, a, RUN, dt, nav);
-        else if (d > 1.2) moveToward(a, tx, tz, d > 6 ? RUN : WALK * 1.2, dt, nav);
-        else { a.speed = 0; a.heading = turn(a.heading, p.heading, dt * 3); }
+        // A little slack, so they don't shuffle at every step you take.
+        else if (d > (a.speed > 0.1 ? 0.8 : 2.4)) moveToward(a, tx, tz, d > 8 ? RUN : WALK * 1.25, dt, nav);
+        else { a.speed = 0; a.heading = turn(a.heading, a.hold ? Math.atan2(a.x - a.hold[0], a.z - a.hold[1]) : p.heading, dt * 3); }
     } else if (a.post && !a.alerted) {
         // On guard: back to the post, then a slow look around.
         if (!moveToward(a, a.post[0], a.post[1], WALK, dt, nav)) return;
@@ -828,6 +964,18 @@ function stepFighter(st: StreetState, a: Actor, dt: number, nav: NavGrid | null,
         // No path (yet): close in directly only when nothing stands in the way.
         if (!nav || nav.lineClear(a.x, a.z, p.x, p.z)) moveToward(a, p.x, p.z, WALK, dt, nav);
     }
+}
+
+/** Comrades on foot (not riding) hold around (x, z), or with `null` fall in behind you again. Returns how many. */
+export function orderComrades(st: StreetState, at: [number, number] | null): number {
+    let n = 0;
+    for (const a of st.actors) {
+        if (a.kind !== "follower" || !alive(a) || a.aboard != null) continue;
+        a.hold = at ? [at[0], at[1]] : null;
+        a.path = [];
+        n++;
+    }
+    return n;
 }
 
 function stepOrator(st: StreetState, a: Actor, dt: number): void {
@@ -871,6 +1019,7 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     st.fighterBudget = 2;
     if (st.alarm) { st.alarm.time -= dt; if (st.alarm.time <= 0) st.alarm = null; }
     if (st.player.shield) st.player.shield = Math.max(0, st.player.shield - dt);
+    st.engaged = Math.max(0, st.engaged - dt);
     for (const s of st.shots) s.age += dt;
     st.shots = st.shots.filter(s => s.age < 0.12);
     const p = st.player;
@@ -878,8 +1027,12 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
     // Population: civilians around you, despawned far away.
     st.actors = st.actors.filter(a => !(a.state === "dead" && a.stateTime > (a.loot ? 90 : 25)) && !(a.kind !== "follower" && dist2(a.x, a.z, p.x, p.z) > DESPAWN * DESPAWN && a.state !== "dead"));
     const civilians = st.actors.filter(a => a.kind === "civilian" && alive(a)).length;
-    if (civilians < st.civilianTarget) spawnCivilian(st, nav, ctx, r, civilians < st.civilianTarget / 3);
+    const wanted = Math.min(st.civilianTarget, st.urbanCap);
+    if (civilians < wanted) spawnCivilian(st, nav, ctx, r, civilians < wanted / 3);
     ensureFollowers(st, ctx, r);
+    // Comrades on foot, in the order they fall in behind you (riders are carried by the addon).
+    let rank = 0, held = 0;
+    for (const a of st.actors) if (a.kind === "follower" && alive(a) && a.aboard == null) a.rank = a.hold ? held++ : rank++;
 
     // Trouble: soldier squads during a war (or a raid when the regime's heat runs high), rivals.
     if (!ctx.calm) {
@@ -900,7 +1053,7 @@ export function stepStreet(st: StreetState, nav: NavGrid | null, ctx: StreetCont
 
     for (const a of st.actors) {
         a.stateTime += dt;
-        if (a.state === "dead") continue;
+        if (a.state === "dead" || a.aboard != null) continue;
         if (a.kind === "civilian") stepCivilian(st, a, dt, nav, r);
         else if (a.kind === "orator") stepOrator(st, a, dt);
         else stepFighter(st, a, dt, nav, r);
@@ -918,13 +1071,13 @@ function separate(st: StreetState): void {
     const grid = new Map<number, Actor[]>();
     const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096);
     for (const a of st.actors) {
-        if (!alive(a)) continue;
+        if (!alive(a) || a.aboard != null) continue;
         const k = key(Math.floor(a.x / cell), Math.floor(a.z / cell));
         const list = grid.get(k);
         if (list) list.push(a); else grid.set(k, [a]);
     }
     for (const a of st.actors) {
-        if (!alive(a)) continue;
+        if (!alive(a) || a.aboard != null) continue;
         const i = Math.floor(a.x / cell), j = Math.floor(a.z / cell);
         for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
             for (const b of grid.get(key(i + di, j + dj)) ?? []) {
@@ -948,7 +1101,11 @@ export function shiftStreet(st: StreetState, dx: number, dz: number): void {
         if (a.post) a.post = [a.post[0] - dx, a.post[1] - dz];
         a.path = a.path.map(([x, z]) => [x - dx, z - dz] as [number, number]);
         if (a.slot) a.slot = [a.slot[0] - dx, a.slot[1] - dz];
+        if (a.hold) a.hold = [a.hold[0] - dx, a.hold[1] - dz];
+        if (a.cover) a.cover = [a.cover[0] - dx, a.cover[1] - dz];
+        if (a.lastSeen) a.lastSeen = [a.lastSeen[0] - dx, a.lastSeen[1] - dz];
     }
+    if (st.streetPoints) st.streetPoints = st.streetPoints.map(([x, z]) => [x - dx, z - dz] as [number, number]);
     st.player.x -= dx; st.player.z -= dz;
     if (st.speech) { st.speech.x -= dx; st.speech.z -= dz; }
     if (st.alarm) { st.alarm.x -= dx; st.alarm.z -= dz; }
@@ -965,6 +1122,9 @@ export function resetStreet(st: StreetState): void {
     st.squadAlive = 0;
     st.squadTimer = 40;
     st.rallyTimer = 90;
+    st.engaged = 0;
+    st.streetPoints = null;
+    st.urbanCap = Infinity;
 }
 
 export { PAMPHLETS, NAV_SIZE };

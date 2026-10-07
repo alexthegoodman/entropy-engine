@@ -10,6 +10,8 @@ export interface FlyingCar extends ParkedCar {
     boost?: number;
     /** Flying itself to you when called (and not being piloted). */
     call?: CarCall | null;
+    /** An automatic landing's spot (local x, z): the car glides over it, then comes straight down. */
+    landAt?: { x: number; z: number } | null;
 }
 
 /** A summons: where to land (a clear spot beside you), and how the trip is going. */
@@ -82,6 +84,38 @@ const FOOTPRINT = [[0, 0], [-3, 0], [3, 0], [0, -3], [0, 3], [-2, -2], [2, -2], 
 export function carGround(x: number, z: number, height: FlightEnvironment["height"]): number {
     return Math.max(...FOOTPRINT.map(([dx, dz]) => height(x + dx, z + dz))) + 0.22;
 }
+
+/** A roof must cover this much of its rectangle: a building round a courtyard (or an L) does not
+ * have a roof over the whole rectangle, and a car set down there would stand on thin air. */
+export const ROOF_FILL = 0.9;
+
+/** Flat roofs a car can set down on: city blocks and compound buildings that fill their rectangle
+ * (houses' roofs are pitched; towers and walls are too narrow anyway, and a parked vehicle is not a roof). */
+const landsOn = (r: Rect): boolean => r.kind !== "house" && r.kind !== "vehicle" && (r.fill ?? 1) >= ROOF_FILL
+    && !r.key.startsWith("al-player-car") && !r.key.startsWith("al-comrade-car");
+
+/**
+ * The flat roof under the whole rotor footprint, if there is one: its top (local y). Each footprint
+ * point must stand on a roof, and the roofs under them within 0.65 m of each other (one block, or
+ * a terrace of equal ones).
+ */
+export function roofUnder(x: number, z: number, buildings: readonly Rect[]): number | null {
+    let lo = Infinity, hi = -Infinity;
+    for (const [dx, dz] of FOOTPRINT) {
+        let top = -Infinity;
+        for (const r of buildings) if (landsOn(r) && insideRect(r, x + dx, z + dz)) top = Math.max(top, r.base + r.height);
+        if (top === -Infinity) return null;
+        lo = Math.min(lo, top); hi = Math.max(hi, top);
+    }
+    return hi - lo <= 0.65 ? hi : null;
+}
+
+/** Where the car rests at (x, z): the ground, or a flat roof under its whole footprint. */
+export function carFloor(x: number, z: number, env: FlightEnvironment): number {
+    const ground = carGround(x, z, env.height);
+    const roof = roofUnder(x, z, env.buildings);
+    return roof !== null ? Math.max(ground, roof + 0.22) : ground;
+}
 /** Full rotor clearance, including terrain at the outer corners. Water is flyable. */
 export function flightClear(p: ParkedCar, env: FlightEnvironment): boolean {
     for (const r of env.buildings) if (r.key !== "al-player-car" && insideRect(r, p.x, p.z, RADIUS)
@@ -91,6 +125,9 @@ export function flightClear(p: ParkedCar, env: FlightEnvironment): boolean {
     return true;
 }
 export function landingClear(p: ParkedCar, env: FlightEnvironment): boolean {
+    // On a flat roof: the roof is level (roofUnder) and nothing taller stands in the rotors' way.
+    const roof = roofUnder(p.x, p.z, env.buildings);
+    if (roof !== null && roof + 0.22 > carGround(p.x, p.z, env.height)) return flightClear({ ...p, y: roof + 0.22 }, env);
     const ground = env.height(p.x, p.z);
     for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
         if (dx * dx + dz * dz > 12.25) continue;
@@ -98,6 +135,11 @@ export function landingClear(p: ParkedCar, env: FlightEnvironment): boolean {
     }
     return flightClear({ ...p, y: carGround(p.x, p.z, env.height) }, env);
 }
+/** Descent speed (m/s) of an automatic landing `above` meters over where it will set down. */
+export function landingRate(above: number, spec: CarSpec = BASE_CAR): number {
+    return Math.max(1.2, Math.min(Math.max(14, spec.climb * 2), 1.2 + Math.max(0, above) * 0.9));
+}
+
 /** Autostabilized multicopter: releasing the controls brakes to a stationary hover. */
 export function stepCar(c: FlyingCar, input: PlayerInput, descend: boolean, dt: number, env: FlightEnvironment, spec: CarSpec = BASE_CAR): void {
     if (!c.piloting) return;
@@ -114,24 +156,96 @@ export function stepCar(c: FlyingCar, input: PlayerInput, descend: boolean, dt: 
         // Boost builds up the longer it is held (long-distance travel), and bleeds off quickly.
         c.boost = input.sprint && moving ? Math.min(1, (c.boost ?? 0) + h / spec.boostRamp) : Math.max(0, (c.boost ?? 0) - h * 0.8);
         const speed = input.sprint && moving ? boostSpeed(spec, c.boost) : spec.cruise;
-        const tx = landing ? 0 : (Math.cos(c.yaw) * mx + Math.sin(c.yaw) * mz) * speed;
-        const tz = landing ? 0 : (-Math.sin(c.yaw) * mx + Math.cos(c.yaw) * mz) * speed;
-        const ty = landing ? -3 : (Number(input.jump) - Number(descend)) * spec.climb;
-        const blend = 1 - Math.exp(-4 * h);
+        let tx = landing ? 0 : (Math.cos(c.yaw) * mx + Math.sin(c.yaw) * mz) * speed;
+        let tz = landing ? 0 : (-Math.sin(c.yaw) * mx + Math.cos(c.yaw) * mz) * speed;
+        // Gliding to the landing spot first (braking to arrive over it), then straight down.
+        const spot = landing ? c.landAt : null;
+        const off = spot ? Math.hypot(spot.x - c.x, spot.z - c.z) : 0;
+        if (spot && off > 0.4) {
+            const v = Math.min(Math.max(spec.cruise, 30), Math.sqrt(2 * 6 * off));
+            tx = (spot.x - c.x) / off * v; tz = (spot.z - c.z) / off * v;
+        }
+        // Automatic landing comes down briskly from height (faster than the climb rate) and eases
+        // off over the last few meters.
+        const above = c.y - carFloor(c.x, c.z, env);
+        // While it glides it comes down to 25 m over what lies beneath (rooftops included) and no lower.
+        const ty = landing ? (off > 3 ? Math.max(-spec.climb, Math.min(spec.climb, 25 - above)) : -landingRate(above, spec)) : (Number(input.jump) - Number(descend)) * spec.climb;
+        const blend = 1 - Math.exp(-(landing ? 6 : 4) * h);
         c.vx += (tx - c.vx) * blend; c.vz += (tz - c.vz) * blend; c.vy += (ty - c.vy) * blend;
-        const ground = carGround(c.x, c.z, env.height);
+        const ground = c.y - above;
         let next = { ...c, x: c.x + c.vx * h, z: c.z + c.vz * h, y: c.y };
         // Grounded cars must take off before moving.
         if (c.y <= ground + 0.1 && ty <= 0) { c.vx = c.vz = 0; next.x = c.x; next.z = c.z; }
-        if (flightClear(next, env)) { c.x = next.x; c.z = next.z; } else c.vx = c.vz = 0;
-        const floor = carGround(c.x, c.z, env.height);
+        if (flightClear(next, env)) { c.x = next.x; c.z = next.z; }
+        else { c.vx = c.vz = 0; if (spot) c.vy = Math.max(c.vy, spec.climb); }
+        const floor = carFloor(c.x, c.z, env);
         next = { ...c, y: Math.max(floor, Math.min(floor + spec.ceiling, c.y + c.vy * h)) };
         if (flightClear(next, env)) c.y = next.y; else c.vy = 0;
         if (c.y <= floor + 0.03 && ty <= 0) {
-            if (landingClear(c, env)) { c.y = floor; c.vy = 0; c.state = "parked"; }
-            else { c.y = Math.max(c.y, floor + 1); c.vy = 0; c.state = "hovering"; }
+            if (landingClear(c, env)) { c.y = floor; c.vy = 0; c.state = "parked"; c.landAt = null; }
+            else { c.y = Math.max(c.y, floor + 1); c.vy = 0; c.state = "hovering"; c.landAt = null; }
         } else if (!landing) c.state = Math.hypot(c.vx, c.vz, c.vy) > 0.2 ? "flying" : "hovering";
     }
+}
+
+// --- Autopilot -----------------------------------------------------------------------------------
+
+/** A destination anywhere on Earth for the autopilot. */
+export interface Autopilot { name: string; lat: number; lon: number }
+
+/** Within this many meters of the destination the autopilot hands over to an automatic landing. */
+export const AUTOPILOT_ARRIVE = 250;
+/** Time runs up to this many times faster on a long leg high over the country (the campaign clock too). */
+export const AUTOPILOT_WARP = 12;
+
+/** How high the autopilot cruises over what lies beneath: clear of towers, under the ceiling. */
+export const autopilotAltitude = (spec: CarSpec): number => Math.max(150, Math.min(spec.ceiling - 25, 300));
+
+/** Time warp for a leg with `km` to go at `above` meters: none near the ends or low down, the full warp on a long leg. */
+export function autopilotWarp(km: number, above: number, spec: CarSpec): number {
+    if (above < autopilotAltitude(spec) * 0.8) return 1;
+    return Math.max(1, Math.min(AUTOPILOT_WARP, (km - 4) / 3));
+}
+
+/**
+ * One frame of the autopilot: the controls it holds (climb first, then forward with boost on a
+ * long leg, holding its cruise height) and the heading it turns toward. `tx, tz` is the
+ * destination in the local frame, `km` the great-circle distance to it.
+ */
+export function steerAutopilot(c: FlyingCar, tx: number, tz: number, km: number, env: FlightEnvironment, spec: CarSpec = BASE_CAR): { input: PlayerInput; descend: boolean; yaw: number; arrived: boolean } {
+    const above = c.y - carFloor(c.x, c.z, env);
+    const cruise = autopilotAltitude(spec);
+    const bearing = Math.atan2(tx - c.x, tz - c.z);
+    let d = bearing - c.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const arrived = km * 1000 < AUTOPILOT_ARRIVE;
+    const input: PlayerInput = {
+        moveX: 0, moveY: 0, lookX: 0, lookY: 0,
+        // Up over the rooftops before setting off; along only roughly facing the destination.
+        forward: !arrived && above > Math.min(60, cruise * 0.5) && Math.abs(d) < 0.6,
+        back: false, left: false, right: false,
+        jump: above < cruise - 10, sprint: km > 3,
+        turnLeft: false, turnRight: false, lookUp: false, lookDown: false,
+    };
+    return { input, descend: above > cruise + 20, yaw: c.yaw + Math.max(-0.05, Math.min(0.05, d)), arrived };
+}
+
+/**
+ * Where an automatic landing should set down: right below if it is clear, otherwise the nearest
+ * clear spot (ground or flat roof) within `reach` meters, searched in rings. Null: nowhere near.
+ */
+export function landingSpot(c: ParkedCar, env: FlightEnvironment, reach = 90): { x: number; z: number } | null {
+    if (landingClear(c, env)) return { x: c.x, z: c.z };
+    for (let ring = 1; ring * 4 <= reach; ring++) {
+        const count = ring * 8;
+        for (let i = 0; i < count; i++) {
+            const a = (i + 0.5 * (ring % 2)) / count * Math.PI * 2;
+            const x = c.x + Math.sin(a) * ring * 4, z = c.z + Math.cos(a) * ring * 4;
+            if (landingClear({ x, y: c.y, z, yaw: c.yaw }, env)) return { x, z };
+        }
+    }
+    return null;
 }
 
 /** Find room for the multicopter's rotor footprint and a player standing beside it. */

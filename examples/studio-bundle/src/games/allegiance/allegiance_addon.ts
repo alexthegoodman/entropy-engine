@@ -1,16 +1,17 @@
 import { Controller } from "./al_controller";
 import { newLook, addMouse, stepLook, stepAds, adsFov, pickAssistTarget, assistFriction, assistPull, bendAngle, adsSpread, adsMove, type AssistPick } from "./al_aim";
-import { parkBeside, newCar, stepCar, landingClear, carGround, carSpec, callCar, stepCall, callEta, openSky, type FlyingCar } from "./al_vehicle";
+import { parkBeside, newCar, stepCar, landingClear, landingSpot, roofUnder, carGround, carFloor, carSpec, callCar, stepCall, callEta, openSky, steerAutopilot, autopilotWarp, ROOF_FILL, type FlyingCar, type Autopilot } from "./al_vehicle";
 import { useItem, quickHealItem, shopForBuilding, shopStock, buyStock, sellItem, houseLoot, isLooted, takeHouseLoot, SHOP_NAMES, type ShopKind, type LootCache } from "./al_items";
 import { compoundsNear, compoundLayout, compoundToLocal, findClearSite, stepCapture, defenderDown, FLAG_REACH, GUARDS_AT_ONCE, type CompoundLayout } from "./al_military";
 import { startFoundingMission, updateMission, missionCompound, completeMission } from "./al_mission";
 import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside, doorSide } from "./al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, distanceLabel, miniMapRuns, toMapCell, type CameraBasis, type ScreenMarker, type SkyMarker, type MiniMap } from "./al_markers";
-import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, tileOf, shadowClass, familyOfMesh, propKey, PROPS, SCATTER_NAMESPACE, type ScatterItem, type ShadowClass } from "./al_scatter";
+import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, tileOf, shadowClass, familyOfMesh, propKey, PROPS, SCATTER_NAMESPACE, SHOP_TINT, type ScatterItem, type ShadowClass } from "./al_scatter";
 import { InstanceBatches } from "../../apps/quadplanet/qp_instances";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
 import { COBRA_SPEC, COBRA_HULL, COBRA_CELLS, MISSILE_RADIUS, MISSILE_DAMAGE, MISSILE_BUILDING_DAMAGE, newCobraState, chargeCobra, cobraSpot, fireMissile, stepMissiles,
     shiftMissiles, aimPoint, restoreCobras, type CobraState, type Missile, type Impact } from "./al_cobra";
+import { CONVOY_SEATS, CONVOY_MAX, convoySize, convoyCar, escortSlot, stepEscort, type ConvoyCar } from "./al_convoy";
 import { newFx, explode, dustCloud, ignite, stepFx, particleOpacity, particleGlow, fireDamageAt, shiftFx, clearFx, missileTrail, type FxState } from "./al_fx";
 import { Damage, shellPieces, breakApart, rubblePile, debris, stepPieces, pieceAxes, buildingLook, addRuin, rebuildRuins, isMilitary, type Piece } from "./al_destruction";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
@@ -38,7 +39,8 @@ import { ITEM_FLOATS, WORLD_FLOATS, MAX_PLANETS, packWorld } from "../../apps/qu
 import { createCloudCache, cloudBindings, CLOUD_BIND_ENTRIES, CLOUD_CACHE_BYTES } from "./al_clouds";
 import { CityHouses, HOUSE_NAMESPACE, houseRule, houseValues, type CityBuilding } from "../../apps/quadplanet/qp_city";
 import { BUILDING_MODEL, BUILDING_NAMESPACE, buildingValues } from "../../apps/quadplanet/qp_buildings";
-import { ALLEGIANCE_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { ALLEGIANCE_SHADER, ALLEGIANCE_TERRAIN_SHADER, ALLEGIANCE_INSTANCED_SHADER, PEOPLE_SHADER } from "./al_shader";
+import { TERRITORY_FLOATS, TERRITORY_BIND_ENTRIES, territoryBindings, territoryStrength, borderWidth, packTerritories, type TerritorySpot } from "./al_territory";
 import { loadMaterials, materialBindings, MATERIAL_BIND_ENTRIES } from "./al_materials";
 import { shadowCascades, weatherAt, cloudOffset, windVector, CLOUD_WIND_FACTOR, SHADOW_MAP_SIZE, SHADOW_RADII, type Weather } from "./al_sky";
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
@@ -48,22 +50,24 @@ import { buildFlyingCar, buildCobra, buildPodium, buildFlag, buildTracer, buildS
 import {
     PARTY, PARTY_COLORS, REGIONS, RIVALS, IDEOLOGIES, blocById, regionDefById, weaponById, armorById, pamphletById, factionById,
 } from "./al_data";
-import { campaignRegions, discoverSettlement, restoreSettlements, migrateCampaign, type Campaign, type CompoundState, newCampaign, regionAt, partyShare, shiftSupport, pushNews, addKarma, angularDistance, EARTH_RADIUS_KM, SAVE_VERSION } from "./al_state";
+import { campaignRegions, discoverSettlement, restoreSettlements, migrateCampaign, type Campaign, type CompoundState, type RegionState, newCampaign, regionAt, partyShare, shiftSupport, pushNews, addKarma, angularDistance, EARTH_RADIUS_KM, SAVE_VERSION } from "./al_state";
 import {
     advanceDay, applySpeech, applyRivalSpeech, applyPamphlet, reportFieldBattle, travel, moveHq, playerDied, callElection, attemptCoup,
-    declareWar, proposePeace, suspendElections, setTaxRate, DAY_SECONDS, governedShare, worldSupport, takeRegion,
+    declareWar, proposePeace, suspendElections, setTaxRate, DAY_SECONDS, governedShare, worldSupport, takeRegion, defenseRatio,
 } from "./al_world";
 import {
     appoint, autoOrganize, armMembers, disarm, moveArmy, buyWeapon, buyAmmo, buyArmor, buyPamphlets, buyFacility, raiseSkill,
     startScheme, recruitInPerson, setFollower, followers, skill, maxHealth, hasFacility, orgReport, gainXp, setArmed, regionFighters,
+    dispatchTroops, troopsAvailable,
 } from "./al_party";
 import { startSpeech, stepSpeech, chooseCard, deliver, rebutHeckler, autoplay, bestCard, type SpeechState, type Grade } from "./al_speech";
 import {
     type StreetState, type Actor, type StreetContext, newStreet, stepStreet, startCrowd, setCrowdTarget, endCrowd, convertListeners,
     nearestActor, persuade, tryRecruit, recruitChance, givePamphlet, playerShoot, castShot, shiftStreet, resetStreet, spawnSquad,
     listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot, spawnOrator, spawnGuards, guardsOf, blastStreet, burnStreet, alarm,
+    orderComrades, CIVILIAN_TARGET,
 } from "./al_street";
-import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toLocal, toWorld, dirToWorld, dirToLocal, buildingToRect, type LocalFrame, type Rect } from "./al_nav";
+import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toLocal, toWorld, dirToWorld, dirToLocal, buildingToRect, insideRect, type LocalFrame, type Rect } from "./al_nav";
 import { type PlayerBody, type PlayerInput, NO_PLAYER_INPUT, newBody, stepBody, bodyCamera, EYE } from "./al_player";
 import { enginePainter, THEME, type DrawApi } from "./al_ui";
 import {
@@ -329,6 +333,7 @@ function startLoading(lat: number, lon: number): void {
     renderOrigin = [Math.round(origin[0]), Math.round(origin[1]), Math.round(origin[2])];
     controller.reset(); trafficSampleTime = -Infinity; trafficUnits = 0; trafficRoof = -Infinity;
     playerCar = null;
+    convoy = [];
     cobra = null; cobraState = null; missiles = []; pieces = []; ruinRects = []; clearFx(fx); damage.taken.clear();
     blownProps.clear(); scatterBurnReset();
     indoors = null; shopState = null; placedCompounds = []; compoundSig = ""; captureView = null;
@@ -481,6 +486,8 @@ function buildNav(cx: number, cz: number): void {
         shopsHere.push({ rect: r, kind, x: r.cx + u * r.ux - v * r.uz, z: r.cz + u * r.uz + v * r.ux });
     }
     computeScatter();
+    street.streetPoints = streetPointsFrom(g, scatterRoads);
+    urbanTimer = 99;
 }
 
 function maintainNav(dt: number): void {
@@ -500,6 +507,13 @@ function maintainNav(dt: number): void {
         if (playerCar && carWorld) [playerCar.x, playerCar.y, playerCar.z] = toLocal(frame, carWorld);
         if (playerCar?.call) { playerCar.call.x -= dx; playerCar.call.z -= dz; }
         if (cobra && cobraWorld) [cobra.x, cobra.y, cobra.z] = toLocal(frame, cobraWorld);
+        for (const v of convoy) {
+            v.car.x -= dx; v.car.z -= dz;
+            if (v.car.call) { v.car.call.x -= dx; v.car.call.z -= dz; }
+            if (v.car.landAt) { v.car.landAt.x -= dx; v.car.landAt.z -= dz; }
+        }
+        if (playerCar?.landAt) { playerCar.landAt.x -= dx; playerCar.landAt.z -= dz; }
+        if (cobra?.landAt) { cobra.landAt.x -= dx; cobra.landAt.z -= dz; }
         shiftStreet(street, dx, dz);
         shiftFx(fx, dx, dz);
         shiftMissiles(missiles, dx, dz);
@@ -623,6 +637,8 @@ function newDay(): void {
     }
     if (campaign.compounds) restoreCobras(campaign.compounds, cobra ? cobraState?.home ?? null : campaign.player.cobra?.home ?? null);
     if (campaign.news[0]?.day === campaign.day) toast(campaign.news[0].text, campaign.news[0].kind === "good" ? "good" : campaign.news[0].kind === "info" ? "info" : "bad");
+    const t = marchingThreat();
+    if (t && t.threat.day === campaign.day + 1) toast(`INVASION INCOMING: ${regionDefById(t.id)!.name} at dawn. J sends half your troops.`, "bad");
     if (campaign.outcome) { mode = "outcome"; }
     save();
 }
@@ -787,7 +803,7 @@ function dialogueAction(id: string): void {
 }
 
 function interact(): void {
-    if (driving() || (!indoors && playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6) || cobraInReach()) { useCar(); return; }
+    if (driving() || (!indoors && playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6) || atStairsTo(playerCar) || cobraInReach()) { useCar(); return; }
     const near = nearbyAction();
     if (near) { near.run(); return; }
     if (indoors) { toast("Walk back to the front door to leave.", "info"); return; }
@@ -1040,17 +1056,27 @@ function onKey(k: string): void {
     // Play.
     if (k === "Tab" || lower === "m" || k === "Escape") { mode = "console"; selectedRegion = region; return; }
     if (lower === "i") { mode = "console"; tab = "inventory"; return; }
+    // J: half your troops to the region an invasion is marching on (from the air too).
+    if (lower === "j") { const t = marchingThreat(); if (t) dispatch(t.id, 0.5); else toast("No invasion on the march.", "info"); return; }
     if (lower === "h" && campaign) {
         const id = quickHealItem(campaign, street.player.health);
         if (id) useItemNow(id); else toast(street.player.health >= maxHealth(campaign) ? "You are at full health." : "No medkits, stims or rations. Shops sell them; houses hide them.", "info");
         return;
     }
+    if (lower === "p") {
+        // The autopilot: engage it for the destination set (COMMAND > TERRITORY), or take the controls back.
+        if (!autopilot) toast("No destination: pick a place in COMMAND > TERRITORY and press AUTOPILOT.", "info");
+        else if (!driving()) toast(`Board your car (or the Cobra) to fly to ${autopilot.name}.`, "info");
+        else { autopilotOn = !autopilotOn; flightWarp = 1; toast(autopilotOn ? `Autopilot: ${autopilot.name}, ${Math.round(autopilotKm(autopilot))} km.` : "You have the controls.", "info"); }
+        return;
+    }
     if (driving()) {
         if (lower === "e") useCar();
-        else if (lower === "l") landCar();
+        else if (lower === "l") { autopilotOn = false; landCar(); }
         return;
     }
     if (lower === "e") interact();
+    else if (lower === "t") orderHold();
     else if (lower === "g") summonCar();
     else if (lower === "f") quickPamphlet();
     else if (lower === "b") { const err = beginSpeech(); if (err) toast(err, "bad"); }
@@ -1170,6 +1196,10 @@ function act(name: string, arg?: unknown): void {
         case "shop-buy": if (c) { const a = arg as { kind: Parameters<typeof buyStock>[1]["kind"]; id: string }; err(buyStock(c, a), "Bought."); syncStreetPlayerFromCampaign(); } break;
         case "shop-sell": if (c) { const r = sellItem(c, String(arg)); if (typeof r === "string") toast(r, "bad"); else toast(`Sold for CR ${r}.`, "good"); } break;
         case "speech-close": finishSpeech(); break;
+        case "dispatch": { const a = arg as { region: string; share: number }; dispatch(a.region, a.share); break; }
+        case "threat-send": { const t = marchingThreat(); if (t) dispatch(t.id, Number(arg)); break; }
+        case "comrades-hold": orderHold(); break;
+        case "autopilot": { const d = regionDefById(String(arg)); if (d) { setAutopilot(d.name, d.lat, d.lon); if (mode === "console") mode = "play"; } break; }
         default:
             if (name.startsWith("dlg-")) dialogueAction(name);
     }
@@ -1228,6 +1258,20 @@ function view(): GameView {
             cobra: flying === cobra && cobraState ? { hull: cobraState.hull, maxHull: COBRA_HULL, cells: cobraState.cells, maxCells: COBRA_CELLS } : undefined } : null,
         indoors: indoors?.name ?? null,
         shop: shopState,
+        autopilot: autopilot ? { name: autopilot.name, km: autopilotKm(autopilot), warp: flightWarp, on: autopilotOn && !!driving() } : null,
+        threat: (() => {
+            const t = marchingThreat();
+            if (!t || !c) return null;
+            const rs = c.regions[t.id];
+            return { region: t.id, name: regionDefById(t.id)?.name ?? t.id, attacker: factionById(t.threat.attacker).short, force: t.threat.force,
+                defenders: rs.army, available: troopsAvailable(c, t.id), ratio: defenseRatio(c, rs, t.threat.force), here: t.id === region };
+        })(),
+        comrades: {
+            following: street.actors.filter(a => a.kind === "follower" && alive(a) && a.aboard == null && !a.hold).length,
+            holding: street.actors.filter(a => a.kind === "follower" && alive(a) && !!a.hold).length,
+            riding: street.actors.filter(a => a.kind === "follower" && alive(a) && a.aboard != null).length,
+            engaged: street.engaged > 0,
+        },
         act,
     };
 }
@@ -1304,7 +1348,7 @@ function drawPeople(): void {
     // Who is drawn this frame, nearest first, with the LOD their distance asks for.
     const shown: { a: Actor; distance: number; lod: PersonLod }[] = [];
     for (const a of street.actors) {
-        if (Math.hypot(a.x - body.x, a.z - body.z) > 160) { personLods.delete(a.id); continue; }
+        if (a.aboard != null || Math.hypot(a.x - body.x, a.z - body.z) > 160) { personLods.delete(a.id); continue; }
         const center = toWorld(frame, a.x, a.y + 0.9, a.z);
         const actorDistance = cam ? distance(cam.position, center) : Math.hypot(a.x - body.x, a.z - body.z);
         const lod = personLod(actorDistance, personLods.get(a.id), peopleDetail);
@@ -1412,14 +1456,18 @@ function useCar(): void {
         // Board the nearest: your car, or a Cobra (yours or a compound's).
         const cob = cobraInReach();
         const carD = playerCar ? Math.hypot(playerCar.x - body.x, playerCar.z - body.z) : Infinity;
-        if (cob && Math.hypot(cob.x - body.x, cob.z - body.z) < carD) { boardCobra(cob); return; }
+        if (cob && (cob.stairs ? !atStairsTo(playerCar) || carD > 6 : Math.hypot(cob.x - body.x, cob.z - body.z) < carD)) { boardCobra(cob); return; }
     }
     const c = flying ?? playerCar;
     if (!c) return;
     if (c.piloting) {
-        if (c.state !== "parked" || !landingClear(c, flightEnvironment())) { toast("Land on clear, level ground before exiting. Press L / D-pad down."); return; }
+        if (c.state !== "parked" || !landingClear(c, flightEnvironment())) { toast("Land on clear, level ground or a flat roof before exiting. Press L / D-pad down."); return; }
         let exit: [number, number] | null = null;
-        for (let i = 0; i < 16; i++) {
+        const roof = roofOf(c);
+        if (roof) {
+            // Up on a roof: down the stairs and out of the building's street door.
+            exit = nav?.nearestWalkable(roof.door[0], roof.door[1], 8) ?? null;
+        } else for (let i = 0; i < 16; i++) {
             const a = c.yaw + i * Math.PI / 8;
             const reach = c === cobra ? 5.6 : 4.8;
             const x = c.x + Math.sin(a) * reach, z = c.z + Math.cos(a) * reach;
@@ -1428,10 +1476,15 @@ function useCar(): void {
         if (!exit) { toast("No safe space to exit here.", "bad"); return; }
         c.piloting = false; c.vx = c.vy = c.vz = 0;
         [body.x, body.z] = exit; body.y = heightAt(body.x, body.z); body.vy = 0; body.grounded = true;
-        buildNav(body.x, body.z); toast(c === cobra ? "You leave the Cobra." : "You leave your car.");
+        if (roof) body.yaw = Math.atan2(body.x - roof.cx, body.z - roof.cz);
+        buildNav(body.x, body.z);
+        toast(roof ? `You leave the ${c === cobra ? "Cobra" : "car"} on the roof and take the stairs down to the street.` : c === cobra ? "You leave the Cobra." : "You leave your car.");
         if (c === cobra) { saveCobra(); return; }
     } else {
-        if (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3) { toast(c.call ? "Your car is still on its way." : "Get closer to your car."); return; }
+        // A car up on a roof is boarded from the building's street door (up the stairs).
+        const roof = !c.call ? roofOf(c) : null;
+        const atStairs = !!roof && Math.hypot(roof.door[0] - body.x, roof.door[1] - body.z) < 5;
+        if (!atStairs && (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3)) { toast(c.call ? "Your car is still on its way." : roof ? "Your car is on the roof: use the building's front door." : "Get closer to your car."); return; }
         c.call = null;
         c.piloting = true; body.x = c.x; body.y = c.y; body.z = c.z; body.yaw = c.yaw;
         triggerHeld = triggerFresh = false; lookDrag = null;
@@ -1442,8 +1495,24 @@ function useCar(): void {
 function landCar(): void {
     const v = driving();
     if (!v) return;
-    if (!landingClear(v, flightEnvironment())) { toast("Find clear, level ground away from buildings and water.", "bad"); return; }
+    // Right below if it is clear; otherwise it glides to the nearest clear ground or flat roof.
+    const spot = landingSpot(v, flightEnvironment());
+    if (!spot) { toast("Nowhere to land near here: find clear, level ground or a flat roof.", "bad"); return; }
+    v.landAt = spot;
     v.state = "landing";
+}
+
+/** At the street door of the building whose roof a parked vehicle stands on. */
+function atStairsTo(v: FlyingCar | null): boolean {
+    if (!v || v.piloting || v.call || indoors) return false;
+    const roof = roofOf(v);
+    return !!roof && Math.hypot(roof.door[0] - body.x, roof.door[1] - body.z) < 5;
+}
+
+/** The flat roof a parked vehicle stands on (local), if it is up on one. */
+function roofOf(v: FlyingCar): Rect | null {
+    if (v.y - carGround(v.x, v.z, heightAt) < 1) return null;
+    return nav?.rects.find(r => r.kind !== "vehicle" && r.kind !== "house" && (r.fill ?? 1) >= ROOF_FILL && !r.key.startsWith("al-player-car") && insideRect(r, v.x, v.z) && Math.abs(r.base + r.height + 0.22 - v.y) < 0.8) ?? null;
 }
 
 /** Calls your car (G / View-Select): it flies itself over the rooftops and lands beside you. */
@@ -1498,15 +1567,20 @@ let trafficSampleTime = -Infinity;
 function drawTraffic(): void {
     const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue");
     if (visible && playerCar) {
-        if (playerCar.state === "parked") playerCar.y = carGround(playerCar.x, playerCar.z, heightAt);
+        if (playerCar.state === "parked" && !playerCar.call) playerCar.y = carFloor(playerCar.x, playerCar.z, flightEnvironment());
         writeItem(playerCarItem, personMatrix(playerCar.x, playerCar.y, playerCar.z, playerCar.yaw, false), [1, 1, 1, 0]);
     }
     showProp("al-player-car", visible && !!playerCar);
     if (visible && cobra) {
-        if (cobra.state === "parked") cobra.y = carGround(cobra.x, cobra.z, heightAt);
+        if (cobra.state === "parked") cobra.y = carFloor(cobra.x, cobra.z, flightEnvironment());
         writeItem(cobraItem, personMatrix(cobra.x, cobra.y, cobra.z, cobra.yaw, false), [1, 1, 1, 0]);
     }
     showProp("al-cobra", visible && !!cobra);
+    for (let i = 0; i < CONVOY_MAX; i++) {
+        const v = convoy[i];
+        if (visible && v) writeItem(convoyItems[i], personMatrix(v.car.x, v.car.y, v.car.z, v.car.yaw, false), [1, 1, 1, 0]);
+        showProp(`al-comrade-car-${i}`, visible && !!v);
+    }
     if (visible && time - trafficSampleTime > 2) {
         // Up to 1,500 buildings: reduced to the two numbers traffic needs here, not every frame.
         trafficSampleTime = time;
@@ -1525,6 +1599,52 @@ function drawTraffic(): void {
     }
 }
 
+
+// --- The autopilot (al_vehicle.ts steerAutopilot) ------------------------------------------------
+
+/** Where the autopilot is taking you, whether it is flying now, and the time warp it last ran at. */
+let autopilot: Autopilot | null = null;
+let autopilotOn = false;
+let flightWarp = 1;
+
+/** Sets the autopilot's destination; flying, it takes over at once (on foot, P engages it once aboard). */
+function setAutopilot(name: string, lat: number, lon: number): void {
+    autopilot = { name, lat, lon };
+    autopilotOn = !!driving();
+    toast(autopilotOn ? `Autopilot: ${name}. Any control (or P) takes back the controls.` : `Destination set: ${name}. Board your car (or the Cobra) and press P.`, "good");
+}
+
+const autopilotKm = (a: Autopilot): number => campaign ? angularDistance(campaign.player.lat, campaign.player.lon, a.lat, a.lon) * EARTH_RADIUS_KM : 0;
+
+/** You touched the controls: the autopilot lets go. */
+function manualFlight(input: PlayerInput, descend: boolean): boolean {
+    return input.forward || input.back || input.left || input.right || input.jump || descend
+        || Math.hypot(input.moveX ?? 0, input.moveY ?? 0) > 0.3;
+}
+
+/**
+ * One frame of flight with the autopilot holding the controls: climb, turn, cruise (time running
+ * faster on a long leg), and on arrival an automatic landing near the destination.
+ */
+function flyAutopilot(v: FlyingCar, dt: number, spec: ReturnType<typeof carSpec>): void {
+    const a = autopilot!;
+    const env = flightEnvironment();
+    const p = toLocal(frame!, surfaceAt(a.lat, a.lon));
+    const km = autopilotKm(a);
+    const st = steerAutopilot(v, p[0], p[2], km, env, spec);
+    if (st.arrived) {
+        autopilotOn = false; autopilot = null; flightWarp = 1;
+        const spot = landingSpot({ x: p[0], y: v.y, z: p[2], yaw: v.yaw }, env, 160) ?? landingSpot(v, env);
+        if (spot) { v.landAt = spot; v.state = "landing"; toast(`Over ${a.name}. Landing.`, "good"); }
+        else toast(`Over ${a.name}. Nowhere clear to land: take the controls.`, "info");
+        return;
+    }
+    body.yaw = v.yaw = st.yaw;
+    flightWarp = autopilotWarp(km, v.y - carFloor(v.x, v.z, env), spec);
+    for (let left = dt * flightWarp; left > 1e-6; left -= 0.2) stepCar(v, st.input, st.descend, Math.min(0.2, left), env, spec);
+    // The campaign's clock runs with the warp (the street does not: nobody is on it up here).
+    if (campaign && flightWarp > 1) campaign.dayClock += dt * (flightWarp - 1);
+}
 
 // --- The Cobra, explosions and destruction (al_cobra.ts, al_fx.ts, al_destruction.ts) -----------
 
@@ -1584,12 +1704,13 @@ function compoundCobraRect(p: PlacedCompound): Rect {
 }
 
 /** The parked Cobra within reach: yours, or a compound's. */
-function cobraInReach(reach = 6.5): { own: boolean; p: PlacedCompound | null; x: number; z: number } | null {
+function cobraInReach(reach = 6.5): { own: boolean; p: PlacedCompound | null; x: number; z: number; stairs?: boolean } | null {
     if (indoors) return null;
-    let best: { own: boolean; p: PlacedCompound | null; x: number; z: number } | null = null, bestD = reach;
+    let best: { own: boolean; p: PlacedCompound | null; x: number; z: number; stairs?: boolean } | null = null, bestD = reach;
     if (cobra && !cobra.piloting) {
         const d = Math.hypot(cobra.x - body.x, cobra.z - body.z);
         if (d < bestD && Math.abs(body.y - cobra.y) < 3) { bestD = d; best = { own: true, p: null, x: cobra.x, z: cobra.z }; }
+        else if (atStairsTo(cobra)) { bestD = 0; best = { own: true, p: null, x: cobra.x, z: cobra.z, stairs: true }; }
     }
     for (const p of placedCompounds) {
         if (p.cs.cobraTaken) continue;
@@ -1889,6 +2010,196 @@ function drawFx(): void {
     fxBatches.flush();
 }
 
+// --- Comrades: their cars (al_convoy.ts), orders, and where townspeople walk ---------------------
+
+let convoy: ConvoyCar[] = [];
+const convoyItems: string[] = [];
+
+/** Comrades who go where you go: followers on foot or riding, not told to hold a spot. */
+const crew = (): Actor[] => street.actors.filter(a => a.kind === "follower" && alive(a) && !a.hold);
+
+/**
+ * Every live frame: with you in the air, your comrades ride in their own cars in formation; with you
+ * down (parked, or out of the car), the cars set down beside you and the comrades climb out.
+ */
+function stepConvoy(dt: number): void {
+    if (!frame || !campaign) return;
+    const lead = driving();
+    const env = flightEnvironment();
+    const spec = carSpec(campaign.player.carUpgrades);
+    const above = lead ? lead.y - carFloor(lead.x, lead.z, env) : 0;
+    const phase = !lead || lead.state === "parked" ? "land" : above > 2.5 ? "fly" : "wait";
+    if (phase === "fly") {
+        const people = crew();
+        // Cars enough for everyone: new ones stand where the comrades are, and lift off with them.
+        while (convoy.length < convoySize(people.length)) {
+            const free = people.filter(a => a.aboard == null);
+            const at: [number, number] = free.length ? [free.reduce((s, a) => s + a.x, 0) / free.length, free.reduce((s, a) => s + a.z, 0) / free.length] : [lead!.x, lead!.z];
+            const spot = nav?.nearestWalkable(at[0], at[1], 10) ?? at;
+            convoy.push(convoyCar(spot[0], spot[1], lead!.yaw, env));
+        }
+        for (const v of convoy) v.riders = v.riders.filter(id => people.some(a => a.id === id && a.aboard != null));
+        for (const a of people) {
+            if (a.aboard != null) continue;
+            const i = convoy.findIndex(v => v.riders.length < CONVOY_SEATS);
+            if (i < 0) break;
+            convoy[i].riders.push(a.id);
+            a.aboard = i; a.path = []; a.state = "follow";
+        }
+        convoy.forEach((v, i) => { v.car.call = null; for (let left = dt * flightWarp; left > 1e-6; left -= 0.2) stepEscort(v.car, i, lead!, Math.min(0.2, left), env, spec); });
+    } else if (phase === "land") {
+        const anchor = lead ?? { x: body.x, z: body.z, yaw: body.yaw };
+        convoy.forEach((v, i) => {
+            const c = v.car;
+            if (c.state === "parked" && !c.call) { disembark(v); return; }
+            if (!c.call) {
+                // A clear spot near its place in the formation, open to the sky, clear of the others.
+                const [sx, sz] = escortSlot(i, anchor);
+                const taken = (x: number, z: number) => (!!playerCar && Math.hypot(x - playerCar.x, z - playerCar.z) < 7)
+                    || (!!cobra && Math.hypot(x - cobra.x, z - cobra.z) < 8)
+                    || convoy.some((o, j) => j !== i && Math.hypot(x - (o.car.call?.x ?? o.car.x), z - (o.car.call?.z ?? o.car.z)) < 7);
+                const spot = parkBeside(sx, sz, (x, z) => (nav?.walkable(x, z) ?? !isSea(x, z)) && !isSea(x, z), heightAt,
+                    car => openSky(car, nav?.rects ?? []) && !taken(car.x, car.z));
+                if (!spot) { c.x = sx; c.z = sz; c.y = carGround(sx, sz, heightAt); c.vx = c.vy = c.vz = 0; c.state = "parked"; disembark(v); return; }
+                callCar(c, spot.car, env, spec);
+            }
+            if (stepCall(c, dt, env, spec)) disembark(v);
+        });
+        // Empty cars left far behind are gone (they flew home).
+        convoy = convoy.filter(v => v.riders.length || v.car.state !== "parked" || Math.hypot(v.car.x - body.x, v.car.z - body.z) < 1500);
+    } else {
+        // Taking off or hovering low: escorts already up keep station.
+        convoy.forEach((v, i) => { if (v.car.state !== "parked" && !v.car.call) stepEscort(v.car, i, lead!, dt, env, spec); });
+    }
+    // Riders go where their car goes (so they climb out where it lands).
+    for (const v of convoy) for (const id of v.riders) {
+        const a = actorById(street, id);
+        if (a) { a.x = v.car.x; a.z = v.car.z; a.y = v.car.y; }
+    }
+}
+
+/** A landed car's riders climb out around it and fall in behind you. */
+function disembark(v: ConvoyCar): void {
+    v.riders.forEach((id, k) => {
+        const a = actorById(street, id);
+        if (!a) return;
+        const ang = v.car.yaw + Math.PI / 2 + k * Math.PI / 2;
+        const x = v.car.x + Math.sin(ang) * 4.2, z = v.car.z + Math.cos(ang) * 4.2;
+        const p = nav?.nearestWalkable(x, z, 6) ?? [x, z];
+        a.aboard = null; a.x = p[0]; a.z = p[1]; a.y = heightAt(p[0], p[1]); a.path = []; a.state = "follow";
+    });
+    v.riders = [];
+}
+
+/** Everyone out at once, where you are (respawn, travel). */
+function clearConvoy(): void {
+    for (const a of street.actors) if (a.aboard != null) { a.aboard = null; a.x = body.x + 2; a.z = body.z - 3; a.path = []; }
+    convoy = [];
+}
+
+/**
+ * T: comrades on foot hold the spot under the crosshair (or where you stand), or, holding already,
+ * fall in behind you again.
+ */
+function orderHold(): void {
+    if (!frame) return;
+    const onFoot = street.actors.filter(a => a.kind === "follower" && alive(a) && a.aboard == null);
+    if (!onFoot.length) { toast("No comrades with you.", "info"); return; }
+    if (onFoot.some(a => a.hold)) { orderComrades(street, null); toast(`${onFoot.length} comrade${onFoot.length === 1 ? "" : "s"} fall in behind you.`, "good"); return; }
+    let at: [number, number] = [body.x, body.z];
+    if (lastCamera) {
+        const eye = toLocal(frame, lastCamera.position);
+        const p = aimPoint(eye, normalize(dirToLocal(frame, sub(lastCamera.target, lastCamera.position))), 80, heightAt, nav?.rects ?? []);
+        at = nav?.nearestWalkable(p[0], p[2], 8) ?? [p[0], p[2]];
+    }
+    const n = orderComrades(street, at);
+    toast(`${n} comrade${n === 1 ? "" : "s"} hold ${Math.round(Math.hypot(at[0] - body.x, at[1] - body.z))} m away. T again to call them back.`, "good");
+}
+
+/**
+ * Where townspeople walk: every building's door, and the pavements along the streets near
+ * buildings (both edges, every 12 m). Open country has none.
+ */
+function streetPointsFrom(g: NavGrid, roads: RoadMask | undefined): [number, number][] {
+    const out: [number, number][] = [];
+    const cell = 50, doors = new Set<number>();
+    const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
+    for (const r of g.rects) {
+        if (r.key.startsWith("al-") || r.kind === "military" || r.kind === "vehicle") continue;
+        if (!g.walkable(r.door[0], r.door[1])) continue;
+        out.push([r.door[0], r.door[1]]);
+        doors.add(key(Math.floor(r.door[0] / cell), Math.floor(r.door[1] / cell)));
+    }
+    const nearDoor = (x: number, z: number) => {
+        const i = Math.floor(x / cell), j = Math.floor(z / cell);
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if (doors.has(key(i + di, j + dj))) return true;
+        return false;
+    };
+    for (const sg of roads?.list ?? []) {
+        const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, len = Math.hypot(dx, dz);
+        if (len < 1) continue;
+        const nx = -dz / len, nz = dx / len, off = sg.half + 1.6;
+        for (let t = 0; t <= len; t += 12) {
+            const cx = sg.ax + dx / len * t, cz = sg.az + dz / len * t;
+            if (!nearDoor(cx, cz)) continue;
+            for (const side of [-1, 1]) {
+                const x = cx + nx * off * side, z = cz + nz * off * side;
+                if (g.walkable(x, z)) out.push([x, z]);
+            }
+        }
+    }
+    return out;
+}
+
+let urbanTimer = 99;
+/** How many townspeople the streets around you carry: a third of the street points within 130 m. */
+function stepUrban(dt: number): void {
+    urbanTimer += dt;
+    if (urbanTimer < 2) return;
+    urbanTimer = 0;
+    const pts = street.streetPoints;
+    if (!pts) { street.urbanCap = Infinity; return; }
+    let n = 0;
+    for (const [x, z] of pts) if ((x - body.x) ** 2 + (z - body.z) ** 2 < 130 * 130) n++;
+    street.urbanCap = Math.min(CIVILIAN_TARGET, Math.round(n / 3));
+}
+
+// --- Invasions on the march, and sending troops --------------------------------------------------
+
+/** The invasion marching on a party region (the soonest), if any. */
+function marchingThreat(): { id: string; threat: NonNullable<RegionState["threat"]> } | null {
+    const c = campaign;
+    if (!c) return null;
+    let best: { id: string; threat: NonNullable<RegionState["threat"]> } | null = null;
+    for (const rs of Object.values(c.regions)) {
+        if (!rs.threat || rs.governor !== PARTY) continue;
+        if (!best || rs.threat.day < best.threat.day) best = { id: rs.id, threat: rs.threat };
+    }
+    return best;
+}
+
+/** Sends `share` of the party's troops from everywhere else to `to`: to take it (war) or hold it. */
+function dispatch(to: string, share: number): void {
+    const c = campaign;
+    if (!c) return;
+    const def = regionDefById(to);
+    const rs = c.regions[to];
+    if (!def || !rs) return;
+    const res = dispatchTroops(c, to, share);
+    if (!res.moved) { toast("No troops to send. Arm members in COMMAND > TERRITORY.", "bad"); return; }
+    const sent = `${fmtTroops(res.moved)} troops from ${res.from} region${res.from === 1 ? "" : "s"}`;
+    if (rs.governor === PARTY) {
+        const t = rs.threat;
+        toast(t ? `${sent} march to ${def.name}: they meet the ${factionById(t.attacker).short} column at dawn (${Math.round(defenseRatio(c, rs, t.force) * 100)}% of what it takes to turn it back).`
+            : `${sent} dig in at ${def.name}.`, "good");
+    } else if (!rs.war && rs.army >= 10) {
+        const err = declareWar(c, to);
+        toast(err ? `${sent} reach ${def.name}. ${err}` : `${sent} march on ${def.name}. War is declared!`, err ? "info" : "good");
+    } else toast(`${sent} reach ${def.name}${rs.war ? " and join the war" : ""}.`, "good");
+}
+
+const fmtTroops = (n: number) => n.toLocaleString("en-US");
+
 let podiumAt: { x: number; z: number; yaw: number } | null = null;
 
 function drawProps(): void {
@@ -2022,6 +2333,19 @@ function stream(maxBuilds: number, maxMs: number): void {
     stats = Entropy.QuadPlanet.update(terrainId, focus, { renderOrigin, maxBuilds, maxMs });
 }
 
+/**
+ * Level-of-detail limits for the Mesha houses and city blocks (qp_city.ts CityOptions), on foot and
+ * in the air. Full houses (rooms and all, ~150k triangles) only for the nearest two or three.
+ */
+const HOUSE_LOD = { lod0Radius: 35, maxLod0: 3, lod1Radius: 220, triangleBudget: 1_500_000 };
+const HOUSE_LOD_AIR = { lod0Radius: 0, maxLod0: 0, lod1Radius: 220, triangleBudget: 1_200_000 };
+const BUILDING_LOD = { lod0Radius: 70, maxLod0: 24, lod1Radius: 500, triangleBudget: 2_500_000 };
+const BUILDING_LOD_AIR = { lod0Radius: 0, maxLod0: 0, lod1Radius: 500, triangleBudget: 2_000_000 };
+type LodLimits = typeof HOUSE_LOD;
+/** On-foot limits set by allegiance_config (houseLod / buildingLod); null: the defaults above. */
+let houseLod: LodLimits | null = null;
+let buildingLod: LodLimits | null = null;
+
 function updateHouses(buildMs: number): void {
     if (!houses) return;
     const c = stats?.city;
@@ -2032,6 +2356,11 @@ function updateHouses(buildMs: number): void {
         return;
     }
     const cam = lastCamera?.position ?? focus;
+    // In a flying car (or the Cobra) every house and block is its simplified exterior, however close:
+    // from the air nobody sees into the rooms, and full models are 10-30 times the triangles.
+    const air = !!driving();
+    houses.configure(air ? HOUSE_LOD_AIR : houseLod ?? HOUSE_LOD);
+    buildings?.configure(air ? BUILDING_LOD_AIR : buildingLod ?? BUILDING_LOD);
     hideRadius = houses.update(cam, renderOrigin, c.live * 1_000_003 + c.buildings, buildMs);
     if (buildings) buildingHideRadius = buildings.update(cam, renderOrigin, c.live * 1_000_003 + c.buildings, buildMs);
 }
@@ -2288,8 +2617,9 @@ function nearbyAction(): { label: string; run: () => void } | null {
     if (mode !== "play") return null;
     if (driving()) return null;
     const cob = cobraInReach();
-    if (cob) return { label: cob.own ? "[E / X / SQUARE] BOARD YOUR COBRA" : "[E / X / SQUARE] TAKE THE COBRA (FLYING TANK)", run: useCar };
+    if (cob) return { label: cob.own ? (cob.stairs ? "[E / X / SQUARE] UP THE STAIRS TO YOUR COBRA" : "[E / X / SQUARE] BOARD YOUR COBRA") : "[E / X / SQUARE] TAKE THE COBRA (FLYING TANK)", run: useCar };
     if (playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6 && !indoors) return { label: "[E / X / SQUARE] ENTER YOUR FLYING CAR", run: useCar };
+    if (atStairsTo(playerCar)) return { label: "[E / X / SQUARE] UP THE STAIRS TO YOUR CAR ON THE ROOF", run: useCar };
     if (indoors) {
         const loot = lootSpot();
         if (loot && Math.hypot(loot[0] - body.x, loot[1] - body.z) < 1.9) return { label: "[E] SEARCH THE FOOTLOCKER", run: searchLoot };
@@ -2338,6 +2668,7 @@ function respawn(message: string): void {
     indoors = null; shopState = null;
     if (playerCar?.piloting) { playerCar.piloting = false; playerCar.vx = playerCar.vy = playerCar.vz = 0; playerCar.y = carGround(playerCar.x, playerCar.z, heightAt); playerCar.state = "parked"; addCarObstacle(); }
     if (cobra?.piloting) { cobra.piloting = false; cobra.vx = cobra.vy = cobra.vz = 0; cobra.y = carGround(cobra.x, cobra.z, heightAt); cobra.state = "parked"; street.player.hull = undefined; addCobraObstacle(); saveCobra(); }
+    clearConvoy();
     let spot: [number, number] | null = null;
     const cp = c.checkpoint;
     if (cp) {
@@ -2543,6 +2874,51 @@ function drawScatter(dt: number): void {
     scatterBatches.flush();
 }
 
+// --- The territory overlay (al_territory.ts) -----------------------------------------------------
+
+let territoryBuffer = "";
+let territoryTimer = 99;
+let territoryOrigin: Vec3 = [NaN, NaN, NaN];
+/** Strength last written (0: off), and how many places it showed. */
+let territoryShown = 0;
+let territoryPlaces = 0;
+/** Each place's center on the ground (world), sampled once. */
+const territoryPoints = new Map<string, Vec3>();
+
+/** While flying high, the ground is washed in its governors' colors (rewritten at most once a second, or on a rebase). */
+function updateTerritories(dt: number): void {
+    const c = campaign;
+    const v = driving();
+    const alt = c && frame && v && (mode === "play" || mode === "dialogue") ? v.y - carGround(v.x, v.z, heightAt) : 0;
+    const k = territoryStrength(alt);
+    territoryTimer += dt;
+    if (k <= 0 || !c) {
+        if (territoryShown > 0) { Entropy.Buffer.write(territoryBuffer, packTerritories([], 0, 0)); territoryShown = 0; territoryPlaces = 0; }
+        return;
+    }
+    const rebased = renderOrigin.some((x, i) => x !== territoryOrigin[i]);
+    if (!rebased && territoryTimer < 1 && Math.abs(k - territoryShown) < 0.03) return;
+    territoryTimer = 0; territoryOrigin = renderOrigin; territoryShown = k;
+    const { lat, lon } = c.player;
+    const km = (d: { lat: number; lon: number }) => angularDistance(lat, lon, d.lat, d.lon) * EARTH_RADIUS_KM;
+    const towns = (c.settlements ?? []).map(d => ({ d, km: km(d) })).filter(o => o.km < 160).sort((a, b) => a.km - b.km).slice(0, 48);
+    const anchors = REGIONS.map(d => ({ d, km: km(d) })).sort((a, b) => a.km - b.km).slice(0, 12);
+    const spot = (d: { id: string; lat: number; lon: number }, radius: number): TerritorySpot => {
+        let p = territoryPoints.get(d.id);
+        if (!p) {
+            const dir = latLonToDir(d.lat, d.lon);
+            p = scale(dir, EARTH.radius + Math.max(0, sampleEarth(dir).surface));
+            territoryPoints.set(d.id, p);
+        }
+        const gov = c.regions[d.id]?.governor ?? "concordat";
+        const col = gov === PARTY ? c.party.color : factionById(gov).color;
+        return { at: toRender(p), radius, color: [col[0], col[1], col[2]], party: gov === PARTY };
+    };
+    const spots = [...towns.map(o => spot(o.d, (o.d.radiusKm ?? 2) * 1000)), ...anchors.map(o => spot(o.d, 0))];
+    territoryPlaces = spots.length;
+    Entropy.Buffer.write(territoryBuffer, packTerritories(spots, k, borderWidth(alt)));
+}
+
 // --- Sky markers and the mini map ----------------------------------------------------------------
 
 let skyCache: SkyMarker[] = [];
@@ -2591,6 +2967,20 @@ function screenMarkers(W: number, H: number): ScreenMarker[] {
         const pr = project(basis, p, W, H, 40);
         out.push({ id: s.id, kind: s.kind, label: s.label, distance: distanceLabel(s.km), x: pr.x, y: pr.y, color: s.color, onScreen: pr.onScreen });
     }
+    // Shops nearby: a marker over each (in its awning's color) where it is in view; the nearest few
+    // on foot, more from the air.
+    const f = frame;
+    const flying = !!driving();
+    const shops = shopsHere.map(sh => ({ sh, d: Math.hypot(sh.x - body.x, sh.z - body.z) }))
+        .filter(o => o.d > 6 && o.d < (flying ? 700 : 260)).sort((a, b) => a.d - b.d).slice(0, flying ? 8 : 5);
+    for (const { sh, d } of shops) {
+        const r = sh.rect;
+        const p = toWorld(f, sh.x, Math.max(heightAt(sh.x, sh.z) + 6, r.base + r.height + 4), sh.z);
+        const pr = project(basis, p, W, H, 40);
+        if (!pr.onScreen) continue;
+        const t = SHOP_TINT[sh.kind];
+        out.push({ id: `shop-${r.key}`, kind: "shop", label: SHOP_NAMES[sh.kind].toUpperCase(), distance: distanceLabel(d / 1000), x: pr.x, y: pr.y, color: [t[0] * 1.3, t[1] * 1.3, t[2] * 1.3, 1], onScreen: true });
+    }
     return out;
 }
 
@@ -2611,7 +3001,12 @@ function updateMiniMap(dt: number): void {
         const p = toMapCell(m, body.x, body.z, x, z, clamp);
         if (p) m.dots.push({ ...p, color, size, kind });
     };
-    for (const s of shopsHere) dot(s.x, s.z, [0.96, 0.78, 0.25, 1], 6, "shop");
+    // Shops in their awning's color, ringed in gold.
+    for (const s of shopsHere) {
+        const t = SHOP_TINT[s.kind];
+        dot(s.x, s.z, THEME.gold, 10, "shop-ring");
+        dot(s.x, s.z, [t[0] * 1.3, t[1] * 1.3, t[2] * 1.3, 1], 7, "shop");
+    }
     for (const a of street.actors) {
         if (!alive(a)) continue;
         if (a.kind === "soldier" && (a.alerted || !a.post)) dot(a.x, a.z, [0.95, 0.2, 0.15, 1], 5, "enemy");
@@ -2737,6 +3132,20 @@ function snapshot() {
         shopsNearby: shopsHere.length,
         prompt: nearbyAction()?.label ?? null,
         markers: skyCache.map(m => ({ id: m.id, kind: m.kind, label: m.label, km: Math.round(m.km * 100) / 100 })),
+        territory: { strength: r2(territoryShown), places: territoryPlaces },
+        autopilot: autopilot ? { ...autopilot, on: autopilotOn, km: r2(autopilotKm(autopilot)), warp: r2(flightWarp) } : null,
+        comrades: {
+            engaged: r2(street.engaged),
+            list: street.actors.filter(a => a.kind === "follower" && alive(a)).map(a => ({ id: a.id, name: a.name, aboard: a.aboard ?? null, hold: a.hold ? a.hold.map(r2) : null,
+                distance: r2(Math.hypot(a.x - body.x, a.z - body.z)), state: a.state, target: a.aimAt ?? null })),
+            cars: convoy.map(v => ({ x: r2(v.car.x), y: r2(v.car.y), z: r2(v.car.z), state: v.car.state, calling: !!v.car.call, riders: v.riders.length,
+                altitude: r2(v.car.y - carGround(v.car.x, v.car.z, heightAt)), distance: r2(Math.hypot(v.car.x - body.x, v.car.z - body.z)) })),
+        },
+        covers: street.covers,
+        screenMarkers: ui ? screenMarkers(ui.W, ui.H).reduce((acc, m) => { acc[m.kind] = (acc[m.kind] ?? 0) + 1; return acc; }, {} as Record<string, number>) : {},
+        soldiersDetail: soldiers(street).slice(0, 12).map(a => ({ id: a.id, x: r2(a.x), z: r2(a.z), cover: !!a.cover && (a.coverTime ?? 0) > 0, approach: a.approach == null ? null : r2(a.approach), alerted: a.alerted ?? true })),
+        threats: Object.values(c?.regions ?? {}).filter(rs => rs.threat).map(rs => ({ region: rs.id, ...rs.threat!, army: rs.army })),
+        urban: { points: street.streetPoints?.length ?? null, cap: Number.isFinite(street.urbanCap) ? street.urbanCap : null },
         miniMap: miniMap ? { runs: miniMap.runs.length, dots: miniMap.dots.length, cellMeters: miniMap.cellMeters } : null,
         scatter: { items: scatterItems.length, groundCover: lawnItems.length, groundCoverNear: lawnItems.filter(i => Math.hypot(i.x - body.x, i.z - body.z) < 20).length, lawnAt: lawnAt.map(r2), roadSegments: roadsInScatter, foliageGenerated: foliage?.generated ?? 0, batches: scatterBatches?.lastStats ?? null,
             families: Object.entries(scatterItems.reduce((acc, it) => { acc[it.family] = (acc[it.family] ?? 0) + 1; return acc; }, {} as Record<string, number>)) },
@@ -2813,8 +3222,8 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     },
     {
         name: "allegiance_config",
-        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000). shadows: sun shadows on or off; shadowCascades 1-4 (default 4) and shadowMap (resolution, default 2048) trade their reach and sharpness for speed. weather: { cloudCover 0..1, windSpeed m/s, windHeading radians } holds the weather (null: follow the day again); dayClock sets the time of day (seconds into the day).",
-        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" }, shadows: { type: "boolean" }, shadowCascades: { type: "integer" }, shadowMap: { type: "integer" }, weather: { type: ["object", "null"] }, dayClock: { type: "number" }, profileDisable: { type: "string", enum: ["none", "people", "scatter", "street", "terrainStream", "houses", "sky", "cloudShadows", "skyClouds", "materials", "atmosphere", "stars"], description: "Profiler-only single-subsystem disable; none restores normal play. Houses and terrainStream retain existing draws." }, profileExperiment: { type: "number", description: "Profiler-only experiment ID recorded per frame." }, profileCloudCache: { type: "boolean", description: "Profiler-only switch between cached and reference procedural cloud noise." }, profileFreeze: { type: "boolean", description: "Profiler-only pause of simulation time, retaining production streaming budgets for identical-scene comparisons." } } },
+        description: "fixedStep: seconds per frame (reproducible runs), or null for real time. peopleDetail: scales people's level-of-detail distances (1 default; 0.3-0.5 for slower machines). peopleMaxFull / peopleTriangles: at most this many full-detail people and this many person triangles per frame (defaults 6 and 3,000,000). shadows: sun shadows on or off; shadowCascades 1-4 (default 4) and shadowMap (resolution, default 2048) trade their reach and sharpness for speed. weather: { cloudCover 0..1, windSpeed m/s, windHeading radians } holds the weather (null: follow the day again); dayClock sets the time of day (seconds into the day). houseLod / buildingLod: { lod0Radius, maxLod0, lod1Radius, triangleBudget } on foot for the Mesha houses and city blocks (null: the defaults); in the air both are always exterior-only.",
+        parameters: { type: "object", properties: { fixedStep: { type: ["number", "null"] }, peopleDetail: { type: "number" }, peopleMaxFull: { type: "integer" }, peopleTriangles: { type: "number" }, shadows: { type: "boolean" }, shadowCascades: { type: "integer" }, shadowMap: { type: "integer" }, weather: { type: ["object", "null"] }, dayClock: { type: "number" }, houseLod: { type: ["object", "null"] }, buildingLod: { type: ["object", "null"] }, profileDisable: { type: "string", enum: ["none", "people", "scatter", "street", "terrainStream", "houses", "sky", "cloudShadows", "skyClouds", "materials", "atmosphere", "stars"], description: "Profiler-only single-subsystem disable; none restores normal play. Houses and terrainStream retain existing draws." }, profileExperiment: { type: "number", description: "Profiler-only experiment ID recorded per frame." }, profileCloudCache: { type: "boolean", description: "Profiler-only switch between cached and reference procedural cloud noise." }, profileFreeze: { type: "boolean", description: "Profiler-only pause of simulation time, retaining production streaming budgets for identical-scene comparisons." } } },
         run: a => {
             // Diagnostic switches only: never persisted and only available with the profiler on.
             if ("profileDisable" in a || "profileExperiment" in a || "profileFreeze" in a || "profileCloudCache" in a) {
@@ -2841,6 +3250,9 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
             if (typeof a.peopleDetail === "number" && a.peopleDetail > 0) peopleDetail = Math.min(4, a.peopleDetail);
             if (typeof a.peopleMaxFull === "number" && a.peopleMaxFull >= 0) peopleBudget = { ...peopleBudget, maxFull: Math.floor(a.peopleMaxFull) };
             if (typeof a.peopleTriangles === "number" && a.peopleTriangles >= 0) peopleBudget = { ...peopleBudget, triangleBudget: a.peopleTriangles };
+            const lod = (v: unknown, base: LodLimits): LodLimits | null => v && typeof v === "object" ? { ...base, ...(v as Partial<LodLimits>) } : null;
+            if ("houseLod" in a) houseLod = lod(a.houseLod, HOUSE_LOD);
+            if ("buildingLod" in a) buildingLod = lod(a.buildingLod, BUILDING_LOD);
             return snapshot();
         },
     },
@@ -3304,6 +3716,55 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                         pieces = stepPieces(pieces, 1 / 60, heightAt);
                     }
                 } break;
+                case "altitude": {
+                    // Debug: the vehicle you fly jumps to `meters` over the ground (comrades' cars keep formation).
+                    const v = driving();
+                    if (!v) throw new Error("Not flying.");
+                    v.y = carGround(v.x, v.z, heightAt) + (typeof a.meters === "number" ? a.meters : 300);
+                    v.vx = v.vy = v.vz = 0; v.state = "hovering"; body.y = v.y;
+                    convoy.forEach((cv, i) => { const [sx, sz] = escortSlot(i, v); cv.car.x = sx; cv.car.z = sz; cv.car.y = v.y + 1.5; cv.car.state = "flying"; cv.car.call = null; });
+                    out.altitude = r2(v.y - carGround(v.x, v.z, heightAt));
+                } break;
+                case "over-roof": {
+                    // Debug: hover `above` meters over the nearest flat roof a car can land on (facing it).
+                    const v = driving();
+                    if (!v) throw new Error("Not flying.");
+                    const env = flightEnvironment();
+                    const roofs = (nav?.rects ?? []).filter(r => r.kind === "box" && r.hw > 5 && r.hd > 5 && roofUnder(r.cx, r.cz, env.buildings) !== null)
+                        .sort((p, q) => Math.hypot(p.cx - body.x, p.cz - body.z) - Math.hypot(q.cx - body.x, q.cz - body.z));
+                    const r0 = roofs[0];
+                    if (!r0) throw new Error("No flat roof nearby.");
+                    v.x = r0.cx; v.z = r0.cz; v.y = r0.base + r0.height + (typeof a.above === "number" ? a.above : 30);
+                    v.vx = v.vy = v.vz = 0; v.state = "hovering";
+                    body.x = v.x; body.z = v.z; body.y = v.y;
+                    convoy.forEach((cv, i) => { const [sx, sz] = escortSlot(i, v); cv.car.x = sx; cv.car.z = sz; cv.car.y = v.y + 1.5; cv.car.state = "flying"; cv.car.call = null; });
+                    out.roof = { key: r0.key, fill: r0.fill ?? null, top: r2(r0.base + r0.height), ground: r2(heightAt(r0.cx, r0.cz)), door: r0.door.map(r2) };
+                } break;
+                case "autopilot": {
+                    // A destination: a region or settlement (`region`), or `lat`/`lon`; engaged at once when flying.
+                    if (typeof a.lat === "number" && typeof a.lon === "number") setAutopilot(typeof a.weapon === "string" ? a.weapon : "the waypoint", a.lat, a.lon);
+                    else { const d = regionDefById(where); if (!d) throw new Error("No such place."); setAutopilot(d.name, d.lat, d.lon); }
+                    out.autopilot = autopilot;
+                } break;
+                case "face-shop": {
+                    // Debug: turn to the nearest shop more than 15 m off (its sky marker in view).
+                    const sh = shopsHere.filter(x => Math.hypot(x.x - body.x, x.z - body.z) > 15).sort((p, q) => Math.hypot(p.x - body.x, p.z - body.z) - Math.hypot(q.x - body.x, q.z - body.z))[0];
+                    if (!sh) throw new Error("No shop nearby.");
+                    body.yaw = Math.atan2(sh.x - body.x, sh.z - body.z); body.pitch = 0.05;
+                    out.shop = { kind: sh.kind, distance: r2(Math.hypot(sh.x - body.x, sh.z - body.z)) };
+                } break;
+                case "threaten": if (c) {
+                    // Debug: an invasion marching on a party region (`region`, or the first one held), arriving at dawn.
+                    const id = typeof a.region === "string" ? a.region : Object.values(c.regions).find(rs => rs.governor === PARTY && rs.id !== region)?.id;
+                    if (!id || c.regions[id].governor !== PARTY) throw new Error("No party region to threaten.");
+                    c.regions[id].threat = { attacker: "vanguard", force: typeof a.count === "number" ? a.count : 2000, day: c.day + 1 };
+                    out.threatened = id;
+                } break;
+                case "troops": if (c) {
+                    // Debug: `count` armed members stationed in `region` (or here).
+                    c.regions[where].army = typeof a.count === "number" ? a.count : 1000;
+                    out.troops = { region: where, army: c.regions[where].army };
+                } break;
                 case "cobra-hull": if (cobraState) { cobraState.hull = typeof a.hull === "number" ? a.hull : cobraState.hull; if (cobraState.hull <= 0) wreckCobra(); } break;
                 case "view": if (typeof a.distance === "number") body.camDistance = a.distance; if (typeof a.firstPerson === "boolean") body.firstPerson = a.firstPerson; if (typeof a.pitch === "number") body.pitch = a.pitch; if (typeof a.yaw === "number") body.yaw = a.yaw; break;
                 default: throw new Error(`Unknown action ${action}`);
@@ -3355,13 +3816,17 @@ addon.onInit(() => {
     // its own relief is shaded by its normals, and its vertices would cost the cascades the most.
     terrainPipelineId = createGamePipeline({
         name: "Allegiance Terrain", layout: "mesh", pbr: false, sunShadows: true, shadowCaster: false,
-        vertexShader: ALLEGIANCE_SHADER, fragmentShader: ALLEGIANCE_SHADER,
+        vertexShader: ALLEGIANCE_TERRAIN_SHADER, fragmentShader: ALLEGIANCE_TERRAIN_SHADER,
         extraBindGroups: [{ entries: [
             { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
             { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
             ...MATERIAL_BIND_ENTRIES,
+            // The territory overlay seen from the air (al_territory.ts).
+            ...TERRITORY_BIND_ENTRIES,
         ] }],
     });
+    territoryBuffer = uniform(TERRITORY_FLOATS);
+    Entropy.Buffer.write(territoryBuffer, packTerritories([], 0, 0));
     worldBuffer = uniform(WORLD_FLOATS);
     // Houses: instanced batches of Items, one draw per house mesh (qp_city.ts, qp_instances.ts).
     housePipelineId = createGamePipeline({
@@ -3402,7 +3867,7 @@ addon.onInit(() => {
     writeItem(skyItem, identity4(), [1, 1, 1, 0]);
     terrainId = Entropy.QuadPlanet.create({
         id: "allegiance-earth", planets: WORLD_PLANETS, pipelineId: terrainPipelineId, worldBufferId: worldBuffer,
-        extraBindings: sharedMaterialBindings(),
+        extraBindings: [...sharedMaterialBindings(), ...territoryBindings(territoryBuffer)],
         city: { house: houseRule() },
     });
     setTerrainBackend({
@@ -3425,7 +3890,7 @@ addon.onInit(() => {
         now: () => Date.now(),
     // 1 m size steps: similar footprints share one house mesh (and one instanced draw).
     // Chosen again every 1.5 m (at most every 100 ms in a fast car), not every frame you move.
-    }, { lod0Radius: 40, maxLod0: 4, lod1Radius: 260, minBuildIntervalMs: 250, sizeStep: 1, reselectDistance: 1.5, reselectMs: 100 });
+    }, { ...HOUSE_LOD, minBuildIntervalMs: 250, sizeStep: 1, reselectDistance: 1.5, reselectMs: 100 });
     // Every other building on the map: Mesha city blocks (evaluated here, 5-80 ms each, cached).
     try { Entropy.MeshCache.prune(BUILDING_NAMESPACE, 2e9); } catch (e) { Entropy.println(`[allegiance] building cache: ${(e as Error).message}`); }
     buildings = new CityHouses({
@@ -3436,7 +3901,7 @@ addon.onInit(() => {
         instances: meshCacheInstances(BUILDING_NAMESPACE, () => housePipelineId, () => worldBuffer, sharedMaterialBindings),
         now: () => Date.now(),
     // 2 m size steps (the model stretches to the real footprint): streets of similar blocks share meshes.
-    }, { lod0Radius: 90, maxLod0: 40, lod1Radius: 600, triangleBudget: 4_000_000, minBuildIntervalMs: 120, sizeStep: 2, reselectDistance: 2, reselectMs: 100 }, BUILDING_MODEL);
+    }, { ...BUILDING_LOD, minBuildIntervalMs: 120, sizeStep: 2, reselectDistance: 2, reselectMs: 100 }, BUILDING_MODEL);
     spawnMesh("al-sky", buildSky(), skyItem);
     setupProps();
     setupViewModels();
@@ -3454,6 +3919,10 @@ addon.onInit(() => {
     const flyingCar = buildFlyingCar();
     playerCarItem = uniform(ITEM_FLOATS);
     spawnMesh("al-player-car", flyingCar, playerCarItem); showProp("al-player-car", false);
+    for (let i = 0; i < CONVOY_MAX; i++) {
+        const item = uniform(ITEM_FLOATS); convoyItems.push(item);
+        spawnMesh(`al-comrade-car-${i}`, flyingCar, item); showProp(`al-comrade-car-${i}`, false);
+    }
     for (let i = 0; i < TRAFFIC_LIMIT; i++) {
         const item = uniform(ITEM_FLOATS); trafficItems.push(item);
         spawnMesh(`al-car-${i}`, flyingCar, item); showProp(`al-car-${i}`, false);
@@ -3508,13 +3977,21 @@ addon.onUpdatePlus("Global", () => {
         const flying = driving();
         if (flying) {
             const input = readInput();
-            flying.yaw = body.yaw;
-            stepCar(flying, input, key("Control") || key("c") || controller.held.has("East"), dt, flightEnvironment(), flying === cobra ? COBRA_SPEC : carSpec(campaign?.player.carUpgrades));
+            const descend = key("Control") || key("c") || controller.held.has("East");
+            const spec = flying === cobra ? COBRA_SPEC : carSpec(campaign?.player.carUpgrades);
+            if (autopilotOn && autopilot && manualFlight(input, descend)) { autopilotOn = false; flightWarp = 1; toast("You have the controls. P resumes the autopilot.", "info"); }
+            if (autopilotOn && autopilot && flying.state !== "landing") flyAutopilot(flying, dt, spec);
+            else {
+                flightWarp = 1;
+                flying.yaw = body.yaw;
+                stepCar(flying, input, descend, dt, flightEnvironment(), spec);
+            }
             body.x = flying.x; body.y = flying.y; body.z = flying.z; body.yaw = flying.yaw;
             body.pitch = Math.max(-1.25, Math.min(1.05, body.pitch + ((input.lookY ?? 0) + Number(input.lookUp) - Number(input.lookDown)) * dt * 1.4));
             body.speed = Math.hypot(flying.vx, flying.vz);
             if (flying === cobra) saveCobra(); else saveCar();
         } else if (indoors) {
+            flightWarp = 1;
             // Inside a house: its floor underfoot, its outer walls around you.
             const floor = indoors.floor;
             stepBody(body, footInput(), dt, null, () => floor, adsMove(aim.ads));
@@ -3525,6 +4002,8 @@ addon.onUpdatePlus("Global", () => {
         if (!driving()) stepWeapon(dt);
         else if (inCobra()) stepCobra(dt);
         stepCalledCar(dt);
+        stepConvoy(dt);
+        stepUrban(dt);
         // Out of a fight, wounds slowly heal (faster with Toughness).
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
@@ -3603,6 +4082,7 @@ addon.onUpdatePlus("Global", () => {
     updateSky(dt);
     if (frame) cloudDrift = add(cloudDrift, scale(windVector(weather, frame.east, frame.north), CLOUD_WIND_FACTOR * dt));
     updateMiniMap(dt);
+    updateTerritories(dt);
     const loadingNow = mode === "loading";
     const orbit = mode === "title" || mode === "setup";
     // A fixed-step run streams everything it wants every frame, so it looks the same on any machine.

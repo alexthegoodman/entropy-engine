@@ -554,13 +554,59 @@ function stepWar(c: Campaign, rs: RegionState, r: Rng, playerRegion: string | nu
     }
 }
 
+/** How strongly the troops standing in a party region meet an invasion of `force` (over 1: it is turned back). */
+export function defenseRatio(c: Campaign, rs: RegionState, force: number, playerPresent = false): number {
+    return rs.army * partyQuality(c, rs.id, playerPresent) / Math.max(1, force * enemyQuality(rs) * 1.5);
+}
+
+/**
+ * Invasions due today arrive: turned back at the border if enough troops stand there (see
+ * defenseRatio), otherwise the war begins.
+ */
+function arrivals(c: Campaign, r: Rng, playerRegion: string | null): void {
+    for (const rs of partyRegions(c)) {
+        const t = rs.threat;
+        if (!t || t.day > c.day) continue;
+        rs.threat = null;
+        const def = regionDefById(rs.id)!;
+        const name = factionById(t.attacker).name;
+        if (rs.war) continue;
+        if (defenseRatio(c, rs, t.force, playerRegion === rs.id) >= 1) {
+            const lost = Math.min(rs.army, Math.round(t.force * 0.04 * (0.6 + 0.8 * r.next())));
+            rs.army -= lost;
+            gainXp(c, 60);
+            pushNews(c, `The ${name} column turns back from ${def.name}: ${rs.army.toLocaleString("en-US")} party troops held the line.`, "good");
+            continue;
+        }
+        startInvasion(c, rs, t.attacker, rs.garrison + t.force, false);
+    }
+}
+
+function startInvasion(c: Campaign, rs: RegionState, attacker: string, force: number, insurgency: boolean): void {
+    const def = regionDefById(rs.id)!;
+    rs.garrison = force;
+    // A popular government's people take up arms to defend it; minority rule gets no one.
+    const volunteers = Math.round(Math.min(rs.members * 0.04, partyShare(rs) > 0.4 ? partyShare(rs) * def.pop * 1e6 * 0.0001 : 0));
+    if (volunteers > 0) {
+        rs.army += volunteers;
+        rs.members -= volunteers;
+        pushNews(c, `${volunteers.toLocaleString("en-US")} citizens of ${def.name} volunteer to defend the party's government.`, "good");
+    }
+    rs.war = newWar(attacker, PARTY, rs.army, force);
+    c.stats.wars++;
+    pushNews(c, insurgency
+        ? `INSURGENCY in ${def.name}: ${factionById(attacker).name} loyalists take up arms against party rule!`
+        : `INVASION: ${factionById(attacker).name} forces march on party-held ${def.name}!`, "war");
+}
+
 /** The Concordat and the rivals send their militaries to take party regions back; unrest breeds insurgents. */
-function counterOffensives(c: Campaign, r: Rng): void {
+function counterOffensives(c: Campaign, r: Rng, playerRegion: string | null = null): void {
+    arrivals(c, r, playerRegion);
     const ours = partyRegions(c);
     if (!ours.length) return;
     const share = governedShare(c);
     for (const rs of ours) {
-        if (rs.war || rs.ceasefire > 0) continue;
+        if (rs.war || rs.ceasefire > 0 || rs.threat) continue;
         const def = regionDefById(rs.id)!;
         // Insurgents grow with unrest.
         rs.garrison += Math.round(baseGarrison(def, "democracy") * 0.01 * Math.max(0, rs.unrest - 0.3));
@@ -570,22 +616,13 @@ function counterOffensives(c: Campaign, r: Rng): void {
         const blocRegions = campaignRegions(c).filter(d => d.country === def.country);
         const loyal = blocRegions.filter(d => c.regions[d.id].governor !== PARTY).length / blocRegions.length;
         const invasion = loyal > 0 && r.next() < 0.004 + Math.max(0, share - 0.05) * 0.06;
-        if (insurgency || invasion) {
-            const attacker = strongestRival(rs);
-            const force = insurgency ? rs.garrison : rs.garrison + Math.round(baseGarrison(def, "technocracy") * (0.15 + share * 0.8) * loyal);
-            rs.garrison = force;
-            // A popular government's people take up arms to defend it; minority rule gets no one.
-            const volunteers = Math.round(Math.min(rs.members * 0.04, partyShare(rs) > 0.4 ? partyShare(rs) * def.pop * 1e6 * 0.0001 : 0));
-            if (volunteers > 0) {
-                rs.army += volunteers;
-                rs.members -= volunteers;
-                pushNews(c, `${volunteers.toLocaleString("en-US")} citizens of ${def.name} volunteer to defend the party's government.`, "good");
-            }
-            rs.war = newWar(attacker, PARTY, rs.army, force);
-            c.stats.wars++;
-            pushNews(c, insurgency
-                ? `INSURGENCY in ${def.name}: ${factionById(attacker).name} loyalists take up arms against party rule!`
-                : `INVASION: ${factionById(attacker).name} forces march on party-held ${def.name}!`, "war");
+        const attacker = strongestRival(rs);
+        if (insurgency) startInvasion(c, rs, attacker, rs.garrison, true);
+        else if (invasion) {
+            // An invasion marches for a day first: time to send troops (al_party dispatchTroops).
+            const force = Math.round(baseGarrison(def, "technocracy") * (0.15 + share * 0.8) * loyal);
+            rs.threat = { attacker, force, day: c.day + 1 };
+            pushNews(c, `INCOMING: ${factionById(attacker).name} forces (${force.toLocaleString("en-US")}) march on party-held ${def.name}. They arrive at dawn.`, "war");
         }
     }
 }
@@ -695,7 +732,7 @@ export function advanceDay(c: Campaign, playerRegion: string | null = null): voi
                 }
             }
         }
-        counterOffensives(c, r);
+        counterOffensives(c, r, playerRegion);
         resolveSchemes(c, r);
     });
     dailyMembers(c);

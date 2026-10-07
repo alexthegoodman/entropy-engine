@@ -465,3 +465,71 @@ fn allegiance_destruction_live_feature() {
     assert_eq!(artifacts.len(), 6);
     println!("Allegiance destruction live BDD: {}", root.display());
 }
+
+#[test]
+fn allegiance_secondary_live_feature() {
+    let (result, artifacts, root) = run("secondary", Some("tests/features/allegiance_secondary_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 16, "{result:#}");
+    let comrades = |st: &serde_json::Value| st["comrades"]["list"].as_array().unwrap().clone();
+    // Five comrades walk a few meters back, holding their fire.
+    let column = comrades(&s[0]);
+    assert_eq!(column.len(), 5, "{:#}", s[0]["comrades"]);
+    for a in &column { assert!(f(&a["distance"]) > 4.0 && f(&a["distance"]) < 20.0, "{a:#}"); }
+    assert_eq!(f(&s[0]["comrades"]["engaged"]), 0.0);
+    // Townspeople keep to the streets: London's streets carry the full crowd.
+    assert!(f(&s[0]["urban"]["points"]) > 100.0, "{:#}", s[0]["urban"]);
+    // The previous and the new budgets on the same street.
+    let tris = |st: &serde_json::Value| f(&st["houses"]["triangles"]) + f(&st["buildings"]["triangles"]);
+    println!("house + block triangles, previous budget: {} (houses {} full / {} simplified, blocks {} / {}); new budget: {} (houses {} / {}, blocks {} / {})",
+        tris(&s[1]), s[1]["houses"]["lod0"], s[1]["houses"]["lod1"], s[1]["buildings"]["lod0"], s[1]["buildings"]["lod1"],
+        tris(&s[2]), s[2]["houses"]["lod0"], s[2]["houses"]["lod1"], s[2]["buildings"]["lod0"], s[2]["buildings"]["lod1"]);
+    assert!(tris(&s[2]) < tris(&s[1]), "the new budget draws fewer triangles");
+    // Told to hold: they stay as you walk off; called back, they fall in again.
+    assert!(comrades(&s[3]).iter().all(|a| !a["hold"].is_null()), "{:#}", s[3]["comrades"]);
+    assert!(comrades(&s[4]).iter().filter(|a| f(&a["distance"]) > 15.0).count() >= 4, "{:#}", s[4]["comrades"]);
+    assert!(comrades(&s[5]).iter().all(|a| a["hold"].is_null() && f(&a["distance"]) < 20.0), "{:#}", s[5]["comrades"]);
+    // Airborne: everyone rides in their own cars (two for five), and only exteriors are drawn.
+    let air = &s[6];
+    assert_eq!(air["flyingCar"]["piloting"], true, "{:#}", air["toasts"]);
+    assert_eq!(air["comrades"]["cars"].as_array().unwrap().len(), 2, "{:#}", air["comrades"]);
+    assert!(comrades(air).iter().all(|a| !a["aboard"].is_null()), "{:#}", air["comrades"]);
+    let high = &s[7];
+    assert_eq!(f(&high["houses"]["lod0"]), 0.0, "{:#}", high["houses"]);
+    assert_eq!(f(&high["buildings"]["lod0"]), 0.0, "{:#}", high["buildings"]);
+    assert!(f(&high["territory"]["strength"]) > 0.95 && f(&high["territory"]["places"]) > 4.0, "{:#}", high["territory"]);
+    for car in high["comrades"]["cars"].as_array().unwrap() {
+        assert!(f(&car["altitude"]) > 400.0 && f(&car["distance"]) < 40.0, "escort out of formation: {car:#}");
+    }
+    // From 280 m over a flat roof, L lands on it within 30 s.
+    let roof = &s[8];
+    assert_eq!(roof["flyingCar"]["state"], "parked", "{:#}", roof["flyingCar"]);
+    assert!(f(&roof["flyingCar"]["altitude"]) > 4.0, "parked up on the roof: {:#}", roof["flyingCar"]);
+    // Out by the stairs to the street door, and back up.
+    let street = &s[9];
+    assert_eq!(street["flyingCar"]["piloting"], false, "{:#}", street["toasts"]);
+    assert!(f(&street["flyingCar"]["distance"]) > 3.0);
+    assert!(street["prompt"].as_str().unwrap_or("").contains("STAIRS"), "{:#}", street["prompt"]);
+    assert_eq!(s[10]["flyingCar"]["piloting"], true, "{:#}", s[10]["toasts"]);
+    // A shop's sky marker in view.
+    assert!(f(&s[11]["screenMarkers"]["shop"]) >= 1.0, "{:#}", s[11]["screenMarkers"]);
+    // The invasion alert, and SEND 50% moved half the troops.
+    let alert = &s[12];
+    let threats = alert["threats"].as_array().unwrap();
+    assert_eq!(threats.len(), 1, "{alert:#}");
+    assert!(alert["ui"]["buttons"].as_array().unwrap().iter().any(|b| b == "threat-send-50"), "{:#}", alert["ui"]["buttons"]);
+    let before = f(&threats[0]["army"]);
+    let after = f(&s[13]["threats"][0]["army"]);
+    assert!(after >= before + 1900.0, "dispatch: {before} -> {after}");
+    // The squad broke for cover at least once.
+    println!("soldier covers taken: {}", s[14]["covers"]);
+    assert!(f(&s[14]["covers"]) >= 1.0, "{:#}", s[14]["soldiersDetail"]);
+    // The autopilot: 30 s of game time from the street, climbing then cruising with time running faster.
+    let ap = &s[15]["autopilot"];
+    println!("autopilot after 30 s: {ap:#}");
+    assert_eq!(ap["on"], true, "{:#}", s[15]["toasts"]);
+    assert!(f(&ap["km"]) < 26.0, "{ap:#}");
+    assert!(f(&s[15]["flyingCar"]["altitude"]) > 100.0, "{:#}", s[15]["flyingCar"]);
+    assert_eq!(artifacts.len(), 6);
+    println!("Allegiance secondary live BDD: {}", root.display());
+}

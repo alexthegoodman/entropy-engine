@@ -36,6 +36,7 @@
 import { QUADPLANET_SHADER, instancedShader } from "../../apps/quadplanet/qp_shader";
 import { materialWgsl, GROUND } from "./al_materials";
 import { CLOUD_CACHE_WGSL } from "./al_clouds";
+import { TERRITORY_WGSL } from "./al_territory";
 
 export const MAT_CLOTH_TOP = 12;
 export const MAT_CLOTH_BOTTOM = 13;
@@ -58,8 +59,15 @@ function inject(src: string, anchor: string, replacement: string): string {
     return src.replace(anchor, replacement);
 }
 
-function build(people: boolean, textured = false): string {
+function build(people: boolean, textured = false, territories = false): string {
     let s = QUADPLANET_SHADER;
+    if (territories) {
+        // The terrain's own pipeline (ground, roads, distant building boxes): the territory overlay
+        // seen from the air (al_territory.ts), before the haze.
+        s += TERRITORY_WGSL;
+        s = inject(s, "    // Aerial perspective through every atmosphere between the camera and this point.",
+            "    if (material == 0 || material == 8 || material == 10) { col = territory_overlay(col, in.world_pos); }\n    // Aerial perspective through every atmosphere between the camera and this point.");
+    }
     s = inject(s, "fn cloud_density(p: vec3<f32>, octaves: i32) -> f32 {", "fn cloud_density_procedural(p: vec3<f32>, octaves: i32) -> f32 {");
     s += CLOUD_CACHE_WGSL;
     // Reserved sun_color.w is zero in production. Profiler-only single-feature bypasses
@@ -356,6 +364,8 @@ fn vs_shadow(in: VertexInput) -> @builtin(position) vec4<f32> {
 `;
 
 export const ALLEGIANCE_SHADER = build(false, true);
+/** ALLEGIANCE_SHADER for the terrain pipeline, with the territory overlay (al_territory.ts, group 2 binding 10). */
+export const ALLEGIANCE_TERRAIN_SHADER = build(false, true, true);
 /** ALLEGIANCE_SHADER for instanced batches of Items (houses, city buildings, set dressing), with the material maps. */
 export const ALLEGIANCE_INSTANCED_SHADER = instancedShader(build(false, true));
 export const PEOPLE_SHADER = build(true);
