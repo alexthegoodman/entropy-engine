@@ -21,6 +21,12 @@
 //       stage (uv.y's fraction is how far, in meters, the vertex bends in a full gust; an integer
 //       part of 1 marks a leaf, which also flutters and lets the sun through from behind).
 //
+// - 18/19: fire and smoke (al_fx.ts): see MAT_FIRE / MAT_SMOKE.
+//
+// Broken building pieces (al_destruction.ts) are unit boxes in the house material stretched to
+// size; their record's tex_origin.w is -1, so their procedural surface (brick, render...) is laid
+// out in meters on the piece as drawn rather than on the unit box.
+//
 // Sun shadows (core/addon_sun_shadows.rs): every Allegiance pipeline is created with
 // `sunShadows` (the terrain's receives only). vs_shadow draws what casts into the cascades - not
 // the ground, water, roads, glass, glowing things or sky, and not the first-person weapon at the
@@ -38,6 +44,11 @@ export const MAT_SKIN = 15;
 export const MAT_HAIR = 16;
 
 export const MAT_FOLIAGE = 17;
+/** Fire (al_fx.ts): flames, fireballs and sparks. Self-lit: vertex color x tint.rgb, brightness
+ * tint.w, flickering; fades out by ordered dither below tex_origin.w (opacity). Casts nothing. */
+export const MAT_FIRE = 18;
+/** Smoke and dust (al_fx.ts): lit, colored by tint.rgb, faded by dither like fire. Casts nothing. */
+export const MAT_SMOKE = 19;
 
 export const HIP = 0.92;
 export const SHOULDER = 1.42;
@@ -58,6 +69,24 @@ function build(people: boolean, textured = false): string {
     s = inject(s, "        if (material == 0) {", "        if (world.sun_color.w == 3.0) {\n            // Diagnostic: retain vertex albedo, normal and default surface properties.\n        } else if (material == 0) {");
     s = inject(s, "    out.transmit = 1.0;", "    out.transmit = 1.0;\n    if (world.sun_color.w == 4.0) { return out; }");
     s = inject(s, "fn stars(d: vec3<f32>) -> vec3<f32> {", "fn stars(d: vec3<f32>) -> vec3<f32> {\n    if (world.sun_color.w == 5.0) { return vec3<f32>(0.0); }");
+    s = inject(s, "    if (material == 7) {\n        // See-through window glass", `    if (material == ${MAT_FIRE} || material == ${MAT_SMOKE}) {
+        // Fire and smoke fade by ordered dither (4 x 4), so nothing needs blending.
+        let fc = vec2<u32>(in.clip_position.xy);
+        let fb2 = ((fc.x ^ fc.y) & 1u) * 2u + (fc.y & 1u);
+        let fb4 = fb2 * 4u + (((fc.x >> 1u) ^ (fc.y >> 1u)) & 1u) * 2u + ((fc.y >> 1u) & 1u);
+        if ((f32(fb4) + 0.5) / 16.0 > item.tex_origin.w) { discard; }
+    }
+    if (material == 7) {
+        // See-through window glass`);
+    s = inject(s, "    if (material == 4) {\n        col = base * (1.1 + item.tint.w * 2.2);", `    if (material == ${MAT_FIRE}) {
+        // Flames: hot where the vertex color is bright, licking and flickering over the surface.
+        let ft = world.sun_dir.w;
+        let q = in.tex_pos * 2.3 + vec3<f32>(item.tex_origin.x);
+        let flick = 0.75 + 0.25 * sin(q.x * 3.1 + ft * 17.0) * sin(q.y * 2.7 - ft * 23.0 + q.z * 1.9);
+        let rim = pow(max(dot(n, v), 0.0), 0.6);
+        col = linear(item.tint.rgb) * base * (0.6 + 0.4 * rim) * flick * (1.2 + item.tint.w * 3.0);
+    } else if (material == 4) {
+        col = base * (1.1 + item.tint.w * 2.2);`);
     s = inject(s, "        var pos = in.position;\n", `        var pos = in.position;
         var nrm = in.normal;
         if (material >= 12 && material <= 16) {
@@ -91,6 +120,7 @@ function build(people: boolean, textured = false): string {
     s = inject(s, "        if (material == 3 || material == 6 || material == 11) { base = base * item.tint.rgb; }",
         `        if (material == 3 || material == 6 || material == 11) { base = base * item.tint.rgb; }
         if (material == ${MAT_FOLIAGE}) { base = base * item.tint.rgb; }
+        if (material == ${MAT_SMOKE}) { base = base * item.tint.rgb; }
         if (material == 12) { base = base * linear(item.tint.rgb); }
         if (material == 13) { base = base * linear(item.tex_origin.xyz); }
         ${people ? `if (material == 15) { base = base * linear(person_colors.skin.rgb); }
@@ -98,6 +128,7 @@ function build(people: boolean, textured = false): string {
     s = inject(s, "        if (material == 3) { spec = 0.35; shin = 48.0; }",
         `        if (material == 3) { spec = 0.35; shin = 48.0; }
         if (material >= 12 && material <= 16) { spec = 0.1; shin = 18.0; }
+        if (material == ${MAT_SMOKE}) { spec = 0.0; if (dot(n, v) < 0.0) { n = -n; } }
         if (material == ${MAT_FOLIAGE}) {
             // Leaves: a waxy sheen, lit from either side.
             spec = 0.16; shin = 30.0;
@@ -182,7 +213,9 @@ fn sun_visibility(p: vec3<f32>, n: vec3<f32>, view_w: f32, i: i32) -> f32 {
                 ao = f.ao * mix(0.5, 1.0, smoothstep(0.05, 0.55, tx.height));
                 n = normalize((m * vec4<f32>(tx.n_local, 0.0)).xyz);
             } else {
-                let f = city_surface(kind, base, in.tex_pos, ln, footprint);
+                // Broken pieces (tex_origin.w < 0): the pattern in meters on the piece as drawn.
+                let ftex = select(in.tex_pos, in.tex_pos * mat_scale, item.tex_origin.w < -0.5);
+                let f = city_surface(kind, base, ftex, ln, footprint);
                 base = f.albedo;
                 spec = f.spec;
                 shin = f.shin;
@@ -314,8 +347,8 @@ fn vs_shadow(in: VertexInput) -> @builtin(position) vec4<f32> {
     let o = vertex_common(in);
     let material = i32(floor(in.tex_coords.x + 0.0005));
     let at_eye = length(item.model[3].xyz - camera.view_pos.xyz) < 0.75;
-    // Ground, water, ice, glass, glowing things (lamps, the HQ's light beam), the sky and roads cast nothing.
-    if (material <= 2 || material == 4 || material == 5 || material == 7 || material == 9 || material == 10 || o.view_w < 0.0 || at_eye) {
+    // Ground, water, ice, glass, glowing things (lamps, the HQ's light beam), fire, smoke, the sky and roads cast nothing.
+    if (material <= 2 || material == 4 || material == 5 || material == 7 || material == 9 || material == 10 || material == 18 || material == 19 || o.view_w < 0.0 || at_eye) {
         return vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
     return camera.view_proj * vec4<f32>(o.world_pos, 1.0);

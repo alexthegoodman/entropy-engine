@@ -83,6 +83,7 @@ export type StreetEvent =
     | { kind: "follower-died"; memberId: number | null; name: string }
     | { kind: "civilian-killed"; name: string; byPlayer: boolean }
     | { kind: "player-hit"; damage: number }
+    | { kind: "hull-hit"; damage: number }
     | { kind: "rival-speech"; faction: string; crowd: number; name: string }
     | { kind: "squad"; count: number; raid: boolean }
     | { kind: "squad-defeated" };
@@ -115,7 +116,9 @@ export interface StreetState {
     events: StreetEvent[];
     player: { x: number; z: number; y: number; heading: number; health: number; armor: number; absorb: number; dead: boolean; moving: boolean;
         /** Seconds of protection left after respawning (nothing hurts you). */
-        shield?: number };
+        shield?: number;
+        /** Aboard the Cobra (al_cobra.ts): its hull takes the hits instead of you. */
+        hull?: number };
     alarm: { x: number; z: number; time: number } | null;
     speech: { x: number; z: number; target: number } | null;
     rally: { orator: number; time: number; faction: string } | null;
@@ -370,6 +373,12 @@ function damageActor(st: StreetState, a: Actor, dmg: number, by: Side, byPlayer:
 function damagePlayer(st: StreetState, dmg: number): void {
     const p = st.player;
     if (p.dead || (p.shield ?? 0) > 0) return;
+    if (p.hull !== undefined) {
+        // The Cobra's armor: the addon reads the hull and wrecks it at zero.
+        p.hull = Math.max(0, p.hull - dmg);
+        st.events.push({ kind: "hull-hit", damage: dmg });
+        return;
+    }
     let rest = dmg;
     if (p.armor > 0) {
         const soak = Math.min(p.armor, dmg * p.absorb);
@@ -379,6 +388,45 @@ function damagePlayer(st: StreetState, dmg: number): void {
     p.health -= rest;
     st.events.push({ kind: "player-hit", damage: rest });
     if (p.health <= 0) { p.health = 0; p.dead = true; }
+}
+
+/**
+ * An explosion at (x, y, z) local: soldiers within `radius` take `damage` falling off with
+ * distance (and the guards of their compound are alerted). Civilians, orators and comrades are
+ * never harmed; they run. You are hurt only when `hurtsPlayer` (you were on foot in it).
+ * Returns the soldiers killed.
+ */
+export function blastStreet(st: StreetState, x: number, y: number, z: number, radius: number, damage: number, by: Side, hurtsPlayer: boolean): number {
+    let killed = 0;
+    for (const a of st.actors) {
+        if (!alive(a)) continue;
+        const d = Math.hypot(a.x - x, a.y + 0.9 - y, a.z - z);
+        if (d >= radius) continue;
+        if (!targetable(a)) { if (a.kind === "civilian") alarm(st, x, z); continue; }
+        if (a.compound) for (const g of st.actors) if (g.compound === a.compound) g.alerted = true;
+        damageActor(st, a, damage * (1 - d / radius), by, by === "party");
+        if (!alive(a)) killed++;
+    }
+    if (hurtsPlayer) {
+        const p = st.player;
+        const d = Math.hypot(p.x - x, p.y + 0.9 - y, p.z - z);
+        if (d < radius) damagePlayer(st, damage * 0.6 * (1 - d / radius));
+    }
+    alarm(st, x, z);
+    return killed;
+}
+
+/** Fire: `dps(x, z)` damage per second to soldiers standing there, and to you when `hurtsPlayer`. */
+export function burnStreet(st: StreetState, dps: (x: number, z: number) => number, dt: number, hurtsPlayer: boolean): void {
+    for (const a of st.actors) {
+        if (!alive(a) || !targetable(a)) continue;
+        const h = dps(a.x, a.z);
+        if (h > 0) damageActor(st, a, h * dt, "party", false);
+    }
+    if (hurtsPlayer && !st.player.dead) {
+        const h = dps(st.player.x, st.player.z);
+        if (h > 0) damagePlayer(st, h * dt * 0.5);
+    }
 }
 
 export function alarm(st: StreetState, x: number, z: number): void {

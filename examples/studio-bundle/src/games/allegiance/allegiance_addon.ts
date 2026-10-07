@@ -6,9 +6,13 @@ import { compoundsNear, compoundLayout, compoundToLocal, findClearSite, stepCapt
 import { startFoundingMission, updateMission, missionCompound, completeMission } from "./al_mission";
 import { houseAtDoor, entryPoint, exitPoint, clampInside, atDoorInside, spotInside, doorSide } from "./al_interior";
 import { cameraBasis, calibrate, project, skyMarkers, distanceLabel, miniMapRuns, toMapCell, type CameraBasis, type ScreenMarker, type SkyMarker, type MiniMap } from "./al_markers";
-import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, tileOf, shadowClass, familyOfMesh, SCATTER_NAMESPACE, type ScatterItem, type ShadowClass } from "./al_scatter";
+import { FoliageMeshes, cacheProps, scatterAround, lawnAround, RoadMask, roadSegments, scatterMesh, batchKey, meshOfBatch, tileOf, shadowClass, familyOfMesh, propKey, PROPS, SCATTER_NAMESPACE, type ScatterItem, type ShadowClass } from "./al_scatter";
 import { InstanceBatches } from "../../apps/quadplanet/qp_instances";
 import { housingUnits, trafficCount, trafficPose, TRAFFIC_LIMIT } from "./al_traffic";
+import { COBRA_SPEC, COBRA_HULL, COBRA_CELLS, MISSILE_RADIUS, MISSILE_DAMAGE, MISSILE_BUILDING_DAMAGE, newCobraState, chargeCobra, cobraSpot, fireMissile, stepMissiles,
+    shiftMissiles, aimPoint, restoreCobras, type CobraState, type Missile, type Impact } from "./al_cobra";
+import { newFx, explode, dustCloud, ignite, stepFx, particleOpacity, particleGlow, fireDamageAt, shiftFx, clearFx, missileTrail, type FxState } from "./al_fx";
+import { Damage, shellPieces, breakApart, rubblePile, debris, stepPieces, pieceAxes, buildingLook, addRuin, rebuildRuins, isMilitary, type Piece } from "./al_destruction";
 // ALLEGIANCE - a political conquest game on the full-scale Earth of 2100.
 //
 // Make speeches, hand out pamphlets, recruit party members, build a chain of command, scheme,
@@ -40,7 +44,7 @@ import { shadowCascades, weatherAt, cloudOffset, windVector, CLOUD_WIND_FACTOR, 
 import { meshCacheInstances, INSTANCED_BIND_GROUPS, HOUSE_WORKER_SCRIPT } from "../../apps/quadplanet/qp_instances";
 import { PeopleMeshes, PEOPLE_NAMESPACE, personLod, budgetLods, DEFAULT_PEOPLE_BUDGET, PERSON_TRIANGLES, type PersonLod, type PeopleBudget } from "./al_people";
 import { CrowdBatches, maybeVisible } from "./al_crowd";
-import { buildFlyingCar, buildPodium, buildFlag, buildTracer, buildSky, buildViewWeapon, type ModelMesh, type PersonLook } from "./al_models";
+import { buildFlyingCar, buildCobra, buildPodium, buildFlag, buildTracer, buildSky, buildViewWeapon, type ModelMesh, type PersonLook } from "./al_models";
 import {
     PARTY, PARTY_COLORS, REGIONS, RIVALS, IDEOLOGIES, blocById, regionDefById, weaponById, armorById, pamphletById, factionById,
 } from "./al_data";
@@ -57,9 +61,9 @@ import { startSpeech, stepSpeech, chooseCard, deliver, rebutHeckler, autoplay, b
 import {
     type StreetState, type Actor, type StreetContext, newStreet, stepStreet, startCrowd, setCrowdTarget, endCrowd, convertListeners,
     nearestActor, persuade, tryRecruit, recruitChance, givePamphlet, playerShoot, castShot, shiftStreet, resetStreet, spawnSquad,
-    listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot, spawnOrator, spawnGuards, guardsOf,
+    listeners, soldiers, endRally, actorById, alive, opinionLabel, takeLoot, spawnOrator, spawnGuards, guardsOf, blastStreet, burnStreet, alarm,
 } from "./al_street";
-import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toLocal, toWorld, dirToWorld, buildingToRect, type LocalFrame, type Rect } from "./al_nav";
+import { NavGrid, NAV_SIZE, NAV_CELL, makeLocalFrame, toLocal, toWorld, dirToWorld, dirToLocal, buildingToRect, type LocalFrame, type Rect } from "./al_nav";
 import { type PlayerBody, type PlayerInput, NO_PLAYER_INPUT, newBody, stepBody, bodyCamera, EYE } from "./al_player";
 import { enginePainter, THEME, type DrawApi } from "./al_ui";
 import {
@@ -251,6 +255,9 @@ function surfaceAt(lat: number, lon: number): Vec3 {
 // --- Messages ------------------------------------------------------------------------------------
 
 function toast(text: string, kind: "good" | "bad" | "info" = "info"): void {
+    // The same news again (several buildings falling at once): one toast, kept up longer.
+    const same = toasts.find(t => t.text === text);
+    if (same) { same.age = 0; return; }
     toasts.unshift({ text, age: 0, kind });
     if (toasts.length > 5) toasts.length = 5;
 }
@@ -322,6 +329,8 @@ function startLoading(lat: number, lon: number): void {
     renderOrigin = [Math.round(origin[0]), Math.round(origin[1]), Math.round(origin[2])];
     controller.reset(); trafficSampleTime = -Infinity; trafficUnits = 0; trafficRoof = -Infinity;
     playerCar = null;
+    cobra = null; cobraState = null; missiles = []; pieces = []; ruinRects = []; clearFx(fx); damage.taken.clear();
+    blownProps.clear(); scatterBurnReset();
     indoors = null; shopState = null; placedCompounds = []; compoundSig = ""; captureView = null;
     scatterItems = []; scatterDirty = true; skyCache = []; miniMap = null; skyTimer = 99;
     const firstPerson = body.firstPerson;
@@ -401,6 +410,8 @@ function finishLoading(): void {
         body.x = playerCar.x; body.z = playerCar.z; body.y = playerCar.y; body.yaw = playerCar.yaw;
     }
     if (playerCar) addCarObstacle();
+    restoreCobra();
+    updateExclusions();
     updateCompounds();
     computeScatter();
     if (campaign && !campaign.checkpoint) setCheckpointHere();
@@ -414,6 +425,27 @@ function finishLoading(): void {
     if (def && campaign) toast(`You arrive in ${def.name}. ${partyShare(campaign.regions[def.id]) < 0.02 ? "Nobody knows your name - yet." : "Comrades are waiting."}`, "info");
 }
 
+/** Your Cobra from the save, if it stands near where you arrive (aboard, as you left it). */
+function restoreCobra(): void {
+    const sc = campaign?.player.cobra;
+    if (!sc || !frame) return;
+    const p = toLocal(frame, surfaceAt(sc.lat, sc.lon));
+    if (Math.hypot(p[0] - body.x, p[2] - body.z) > 3000) return;
+    cobra = newCar({ x: p[0], y: carGround(p[0], p[2], heightAt) + Math.max(0, sc.altitude), z: p[2], yaw: sc.yaw });
+    cobraState = newCobraState(sc.home, sc.hull);
+    if (sc.piloting && !playerCar?.piloting) {
+        cobra.piloting = true;
+        cobra.state = sc.altitude > 0.1 ? "hovering" : "parked";
+        body.x = cobra.x; body.z = cobra.z; body.y = cobra.y; body.yaw = cobra.yaw;
+    } else addCobraObstacle();
+}
+
+function scatterBurnReset(): void {
+    scorchedProps.clear();
+    burned = [];
+    propShift = [0, 0];
+}
+
 /** Rasterizes the buildings and water around local (cx, cz) into a fresh nav grid. */
 function buildNav(cx: number, cz: number): void {
     if (!frame) return;
@@ -421,16 +453,24 @@ function buildNav(cx: number, cz: number): void {
     const center = toWorld(frame, cx, 0, cz);
     const list = Entropy.QuadPlanet.buildings(terrainId, center, NAV_SIZE * NAV_CELL * 0.72, { limit: 6000 }) as CityBuilding[];
     buildingByKey = new Map(list.map(b => [b.key, b]));
+    const ruins = campaign?.ruins ?? {};
+    ruinRects = [];
     for (const b of list) {
         const r = buildingToRect(frame, b);
         // Compounds stand on cleared ground: map buildings inside their walls give way.
         if (inCompound(r.cx, r.cz, 2)) continue;
+        if (ruins[r.key] !== undefined) { ruinRects.push(r); continue; }
         g.addRect(r);
     }
-    for (const r of compoundRects()) g.addRect(r, 0.3);
+    for (const r of compoundRects()) {
+        if (ruins[r.key] !== undefined) { ruinRects.push(r); continue; }
+        g.addRect(r, 0.3);
+    }
     g.markWhere((x, z) => isSea(x, z));
     nav = g;
     if (playerCar) addCarObstacle();
+    if (cobra) addCobraObstacle();
+    ensureRubble();
     navBuildings = stats?.city?.buildings ?? 0;
     shopsHere = [];
     for (const r of g.rects) {
@@ -454,11 +494,18 @@ function maintainNav(dt: number): void {
     if (Math.hypot(body.x, body.z) > 2500) {
         const newOrigin = toWorld(frame, body.x, body.y, body.z);
         const carWorld = playerCar ? toWorld(frame, playerCar.x, playerCar.y, playerCar.z) : null;
+        const cobraWorld = cobra ? toWorld(frame, cobra.x, cobra.y, cobra.z) : null;
         const dx = body.x, dz = body.z;
         frame = makeLocalFrame(newOrigin);
         if (playerCar && carWorld) [playerCar.x, playerCar.y, playerCar.z] = toLocal(frame, carWorld);
         if (playerCar?.call) { playerCar.call.x -= dx; playerCar.call.z -= dz; }
+        if (cobra && cobraWorld) [cobra.x, cobra.y, cobra.z] = toLocal(frame, cobraWorld);
         shiftStreet(street, dx, dz);
+        shiftFx(fx, dx, dz);
+        shiftMissiles(missiles, dx, dz);
+        for (const p of pieces) { p.x -= dx; p.z -= dz; }
+        for (const b of burned) { b.x -= dx; b.z -= dz; }
+        propShift = [propShift[0] + dx, propShift[1] + dz];
         if (indoors) {
             const r = indoors.rect;
             indoors.rect = { ...r, cx: r.cx - dx, cz: r.cz - dz, door: [r.door[0] - dx, r.door[1] - dz] };
@@ -568,6 +615,13 @@ function handleStreetEvents(): void {
 function newDay(): void {
     if (!campaign) return;
     advanceDay(campaign, region);
+    // Rebuilding: the regime's compounds two days on, the city's houses and blocks in a week; and
+    // a compound that lost its Cobra gets a new one.
+    if (campaign.ruins && rebuildRuins(campaign.ruins, campaign.day)) {
+        updateExclusions();
+        if (nav) buildNav(nav.cx, nav.cz);
+    }
+    if (campaign.compounds) restoreCobras(campaign.compounds, cobra ? cobraState?.home ?? null : campaign.player.cobra?.home ?? null);
     if (campaign.news[0]?.day === campaign.day) toast(campaign.news[0].text, campaign.news[0].kind === "good" ? "good" : campaign.news[0].kind === "info" ? "info" : "bad");
     if (campaign.outcome) { mode = "outcome"; }
     save();
@@ -578,7 +632,7 @@ function newDay(): void {
 function beginSpeech(rival: Actor | null = null): string | null {
     const c = campaign;
     if (!c || !region) return "No campaign.";
-    if (playerCar?.piloting) return "Leave your car before giving a speech.";
+    if (driving()) return "Leave your car before giving a speech.";
     if (soldiers(street).some(s => Math.hypot(s.x - body.x, s.z - body.z) < 70)) return "Not with soldiers this close!";
     const nearby = street.actors.filter(a => a.kind === "civilian" && alive(a) && Math.hypot(a.x - body.x, a.z - body.z) < 40).length;
     const r = rng;
@@ -733,7 +787,7 @@ function dialogueAction(id: string): void {
 }
 
 function interact(): void {
-    if (playerCar?.piloting || (!indoors && playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6)) { useCar(); return; }
+    if (driving() || (!indoors && playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6) || cobraInReach()) { useCar(); return; }
     const near = nearbyAction();
     if (near) { near.run(); return; }
     if (indoors) { toast("Walk back to the front door to leave.", "info"); return; }
@@ -854,7 +908,8 @@ function controllerButton(button: string, pressed: boolean): void {
     const fresh = controller.button(button, pressed);
     if (!fresh) return;
     if (mode === "play") {
-        if (playerCar?.piloting) {
+        if (driving()) {
+            if (button === "RightTrigger2") triggerFresh = true;
             if (button === "West") onKey("e");
             else if (button === "DPadDown") onKey("l");
             else if (button === "RightThumb") onKey("v");
@@ -910,7 +965,7 @@ function footInput(): PlayerInput {
 
 /** Wants to aim down sights: middle mouse or Z held, or LT / L2, on foot with a gun drawn. */
 function wantsAds(): boolean {
-    return mode === "play" && !playerCar?.piloting && !street.player.dead && weaponNow().id !== "fists"
+    return mode === "play" && !driving() && !street.player.dead && weaponNow().id !== "fists"
         && (adsButton || key("z") || controller.held.has("LeftTrigger2"));
 }
 
@@ -923,7 +978,7 @@ function stepAim(dt: number): void {
     const fov = aim.ads > 0.001 ? adsFov(aim) : 0;
     if (Math.abs(fov - fovSet) > 0.05) { Entropy.Camera.setFov(fov); fovSet = fov; }
     const { aimAssist, lookSensitivity } = controls();
-    const piloting = !!playerCar?.piloting;
+    const piloting = !!driving();
     const turning = mode === "play" || mode === "speech";
     // The car turns with the stick itself (stepCar); the mouse still glides.
     const stickX = turning && !piloting ? controller.right[0] + Number(key("ArrowRight")) - Number(key("ArrowLeft")) : 0;
@@ -990,7 +1045,7 @@ function onKey(k: string): void {
         if (id) useItemNow(id); else toast(street.player.health >= maxHealth(campaign) ? "You are at full health." : "No medkits, stims or rations. Shops sell them; houses hide them.", "info");
         return;
     }
-    if (playerCar?.piloting) {
+    if (driving()) {
         if (lower === "e") useCar();
         else if (lower === "l") landCar();
         return;
@@ -1019,7 +1074,7 @@ function setupInput(): void {
         if (button === 2) { adsButton = true; return; }
         const id = ui ? ui.click(x, y) : null;
         if (id) return;
-        if (button === 0 && mode === "play" && !playerCar?.piloting) { triggerHeld = true; triggerFresh = true; }
+        if (button === 0 && mode === "play" && (!driving() || inCobra())) { triggerHeld = true; triggerFresh = true; }
         else if (mode === "setup") setup.focus = null;
     });
     Entropy.Input.onMouseMove((x: number, y: number) => {
@@ -1146,7 +1201,8 @@ function view(): GameView {
     const near = nearbyAction();
     if (near) prompt = near.label;
     if (playerCar?.call && campaign) prompt = `YOUR CAR IS ON ITS WAY: ${Math.round(Math.hypot(playerCar.x - body.x, playerCar.z - body.z))} M, ${Math.ceil(callEta(playerCar, flightEnvironment(), carSpec(campaign.player.carUpgrades)))} S`;
-    if (playerCar?.piloting) prompt = `${playerCar.state.toUpperCase()}   [L] LAND   [E / X / SQUARE] EXIT AFTER LANDING`;
+    const flying = driving();
+    if (flying) prompt = `${flying === cobra ? "COBRA " : ""}${flying.state.toUpperCase()}   [L] LAND   [E / X / SQUARE] EXIT AFTER LANDING`;
     const rallyActor = street.rally ? actorById(street, street.rally.orator) : undefined;
     return {
         mode, tab, c, setup, loading, speech, dialogue, toasts, region, selectedRegion, selectedMember, memberPage, settlementPage, prompt,
@@ -1162,12 +1218,14 @@ function view(): GameView {
         stamina: Math.round(body.stamina * 50) / 50,
         aim: { ads: Math.round(aim.ads * 10) / 10, locked: !!assistPick, assist: controls().aimAssist },
         armor: c ? Math.round(c.player.armor / Math.max(1, armorById(c.player.armorId).armor || 1) * 50) / 50 : 0,
-        land, hasSave, time, firstPerson: body.firstPerson, piloting: playerCar?.piloting ?? false,
+        land, hasSave, time, firstPerson: body.firstPerson, piloting: !!flying,
         debug: null,
         markers: ui ? screenMarkers(ui.W, ui.H) : [],
         minimap: miniMap,
         capture: captureView,
-        car: playerCar?.piloting && c ? { boost: playerCar.boost ?? 0, speed: Math.hypot(playerCar.vx, playerCar.vz), altitude: playerCar.y - carGround(playerCar.x, playerCar.z, heightAt), ceiling: carSpec(c.player.carUpgrades).ceiling } : null,
+        car: flying && c ? { boost: flying.boost ?? 0, speed: Math.hypot(flying.vx, flying.vz), altitude: flying.y - carGround(flying.x, flying.z, heightAt),
+            ceiling: flying === cobra ? COBRA_SPEC.ceiling : carSpec(c.player.carUpgrades).ceiling,
+            cobra: flying === cobra && cobraState ? { hull: cobraState.hull, maxHull: COBRA_HULL, cells: cobraState.cells, maxCells: COBRA_CELLS } : undefined } : null,
         indoors: indoors?.name ?? null,
         shop: shopState,
         act,
@@ -1255,7 +1313,7 @@ function drawPeople(): void {
         shown.push({ a, distance: actorDistance, lod });
     }
     // You are drawn in full and count against the budget first.
-    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson && !playerCar?.piloting;
+    const playerVisible = (mode === "play" || mode === "speech" || mode === "dialogue") && !body.firstPerson && !driving();
     shown.sort((x, y) => x.distance - y.distance);
     const budget = { maxFull: Math.max(0, peopleBudget.maxFull - (playerVisible ? 1 : 0)), triangleBudget: Math.max(0, peopleBudget.triangleBudget - (playerVisible ? PERSON_TRIANGLES[0] : 0)) };
     const lods = budgetLods(shown.map(s => s.lod), budget);
@@ -1348,20 +1406,30 @@ function saveCar(): void {
         altitude: Math.max(0, playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), piloting: playerCar.piloting };
 }
 function useCar(): void {
-    if (!playerCar || mode !== "play") return;
-    const c = playerCar;
+    if (mode !== "play") return;
+    const flying = driving();
+    if (!flying) {
+        // Board the nearest: your car, or a Cobra (yours or a compound's).
+        const cob = cobraInReach();
+        const carD = playerCar ? Math.hypot(playerCar.x - body.x, playerCar.z - body.z) : Infinity;
+        if (cob && Math.hypot(cob.x - body.x, cob.z - body.z) < carD) { boardCobra(cob); return; }
+    }
+    const c = flying ?? playerCar;
+    if (!c) return;
     if (c.piloting) {
         if (c.state !== "parked" || !landingClear(c, flightEnvironment())) { toast("Land on clear, level ground before exiting. Press L / D-pad down."); return; }
         let exit: [number, number] | null = null;
         for (let i = 0; i < 16; i++) {
             const a = c.yaw + i * Math.PI / 8;
-            const x = c.x + Math.sin(a) * 4.8, z = c.z + Math.cos(a) * 4.8;
+            const reach = c === cobra ? 5.6 : 4.8;
+            const x = c.x + Math.sin(a) * reach, z = c.z + Math.cos(a) * reach;
             if (nav?.walkable(x, z) && !isSea(x, z) && Math.abs(heightAt(x, z) - (c.y - 0.22)) < 1) { exit = [x, z]; break; }
         }
         if (!exit) { toast("No safe space to exit here.", "bad"); return; }
         c.piloting = false; c.vx = c.vy = c.vz = 0;
         [body.x, body.z] = exit; body.y = heightAt(body.x, body.z); body.vy = 0; body.grounded = true;
-        buildNav(body.x, body.z); toast("You leave your car.");
+        buildNav(body.x, body.z); toast(c === cobra ? "You leave the Cobra." : "You leave your car.");
+        if (c === cobra) { saveCobra(); return; }
     } else {
         if (Math.hypot(c.x - body.x, c.z - body.z) >= 6 || Math.abs(body.y - c.y) > 3) { toast(c.call ? "Your car is still on its way." : "Get closer to your car."); return; }
         c.call = null;
@@ -1372,9 +1440,10 @@ function useCar(): void {
     saveCar();
 }
 function landCar(): void {
-    if (!playerCar?.piloting) return;
-    if (!landingClear(playerCar, flightEnvironment())) { toast("Find clear, level ground away from buildings and water.", "bad"); return; }
-    playerCar.state = "landing";
+    const v = driving();
+    if (!v) return;
+    if (!landingClear(v, flightEnvironment())) { toast("Find clear, level ground away from buildings and water.", "bad"); return; }
+    v.state = "landing";
 }
 
 /** Calls your car (G / View-Select): it flies itself over the rooftops and lands beside you. */
@@ -1433,6 +1502,11 @@ function drawTraffic(): void {
         writeItem(playerCarItem, personMatrix(playerCar.x, playerCar.y, playerCar.z, playerCar.yaw, false), [1, 1, 1, 0]);
     }
     showProp("al-player-car", visible && !!playerCar);
+    if (visible && cobra) {
+        if (cobra.state === "parked") cobra.y = carGround(cobra.x, cobra.z, heightAt);
+        writeItem(cobraItem, personMatrix(cobra.x, cobra.y, cobra.z, cobra.yaw, false), [1, 1, 1, 0]);
+    }
+    showProp("al-cobra", visible && !!cobra);
     if (visible && time - trafficSampleTime > 2) {
         // Up to 1,500 buildings: reduced to the two numbers traffic needs here, not every frame.
         trafficSampleTime = time;
@@ -1449,6 +1523,370 @@ function drawTraffic(): void {
         }
         showProp(`al-car-${i}`, i < trafficVisible);
     }
+}
+
+
+// --- The Cobra, explosions and destruction (al_cobra.ts, al_fx.ts, al_destruction.ts) -----------
+
+/** The Cobra you took (null until you take one), its hull, cells and pods. */
+let cobra: FlyingCar | null = null;
+let cobraState: CobraState | null = null;
+let cobraItem = "";
+let missiles: Missile[] = [];
+let nextMissile = 1;
+const fx: FxState = newFx(11);
+/** Broken building pieces and debris (al_destruction.ts), in the street's local frame. */
+let pieces: Piece[] = [];
+const damage = new Damage();
+/** Ruined buildings on the street map: left out of the nav grid, drawn as their rubble. */
+let ruinRects: Rect[] = [];
+/** Street props blown away and plants scorched (keyed by where they stand), ground cover burned off. */
+const blownProps = new Set<string>();
+const scorchedProps = new Set<string>();
+let burned: { x: number; z: number; r: number }[] = [];
+/** Local-frame moves since the street map was laid out (prop keys stay put across rebases). */
+let propShift: [number, number] = [0, 0];
+let fxBatches: InstanceBatches | null = null;
+/** Seconds until the street map is rebuilt after buildings fell (a few fall together). */
+let navRebuild = 0;
+const PIECE_LIMIT = 3000;
+const COBRA_RANGE = 400;
+
+/** The vehicle you are flying, if any. */
+function driving(): FlyingCar | null { return playerCar?.piloting ? playerCar : cobra?.piloting ? cobra : null; }
+const inCobra = (): boolean => !!cobra?.piloting;
+
+function saveCobra(): void {
+    if (!campaign || !frame || !cobra || !cobraState) return;
+    const ll = dirToLatLon(toWorld(frame, cobra.x, cobra.y, cobra.z));
+    campaign.player.cobra = { home: cobraState.home, lat: ll.lat, lon: ll.lon, yaw: cobra.yaw,
+        altitude: Math.max(0, cobra.y - carGround(cobra.x, cobra.z, heightAt)), piloting: cobra.piloting, hull: cobraState.hull };
+}
+
+/** Your Cobra, parked: in the street map like your car. */
+function addCobraObstacle(): void {
+    if (!nav || !cobra || cobra.piloting) return;
+    const p = cobra;
+    nav.addRect({ cx: p.x, cz: p.z, ux: Math.cos(p.yaw), uz: -Math.sin(p.yaw), hw: 2.6, hd: 3.4,
+        height: 2.6, base: p.y - 0.22, key: "al-cobra", door: [p.x, p.z], kind: "vehicle" });
+}
+
+/** Where a compound's own Cobra stands (local), facing its gate. */
+function compoundCobraAt(p: PlacedCompound): [number, number] {
+    const [u, v] = cobraSpot(p.layout);
+    return compoundToLocal(p.cx, p.cz, p.cs.yaw, u, v);
+}
+function compoundCobraRect(p: PlacedCompound): Rect {
+    const [x, z] = compoundCobraAt(p);
+    const h = p.cs.yaw;
+    return { cx: x, cz: z, ux: Math.cos(h), uz: -Math.sin(h), hw: 2.6, hd: 3.4, height: 2.6, base: heightAt(x, z) - 0.1,
+        key: `al-cobra-${p.cs.id}`, door: [x, z], kind: "vehicle" };
+}
+
+/** The parked Cobra within reach: yours, or a compound's. */
+function cobraInReach(reach = 6.5): { own: boolean; p: PlacedCompound | null; x: number; z: number } | null {
+    if (indoors) return null;
+    let best: { own: boolean; p: PlacedCompound | null; x: number; z: number } | null = null, bestD = reach;
+    if (cobra && !cobra.piloting) {
+        const d = Math.hypot(cobra.x - body.x, cobra.z - body.z);
+        if (d < bestD && Math.abs(body.y - cobra.y) < 3) { bestD = d; best = { own: true, p: null, x: cobra.x, z: cobra.z }; }
+    }
+    for (const p of placedCompounds) {
+        if (p.cs.cobraTaken) continue;
+        const [x, z] = compoundCobraAt(p);
+        const d = Math.hypot(x - body.x, z - body.z);
+        if (d < bestD) { bestD = d; best = { own: false, p, x, z }; }
+    }
+    return best;
+}
+
+/** Climbs into a Cobra: yours, or a compound's (the garrison sees you take it). */
+function boardCobra(at: NonNullable<ReturnType<typeof cobraInReach>>): void {
+    if (!campaign) return;
+    if (at.p) {
+        // The one you leave behind goes back to its compound by morning (restoreCobras).
+        const [x, z] = compoundCobraAt(at.p);
+        at.p.cs.cobraTaken = true;
+        cobra = newCar({ x, y: carGround(x, z, heightAt), z, yaw: at.p.cs.yaw });
+        cobraState = newCobraState(at.p.cs.id);
+        if (!at.p.cs.captured) alarm(street, x, z);
+        toast("You take the Cobra! Solar missiles: LMB / RT at the crosshair.", "good");
+    }
+    const c = cobra!;
+    c.piloting = true; body.x = c.x; body.y = c.y; body.z = c.z; body.yaw = c.yaw;
+    triggerHeld = triggerFresh = false; lookDrag = null;
+    buildNav(c.x, c.z);
+    if (!at.p) toast("Space / A / Cross to rise. L / D-pad down to land.");
+    scatterDirty = true;
+    saveCobra();
+}
+
+/** How high the sun stands (its elevation's sine) by the day clock, as updateSun places it. */
+function sunUp(): number {
+    if (!campaign) return 0.5;
+    const t = Math.max(0, Math.min(1, campaign.dayClock / DAY_SECONDS));
+    return Math.sin((18 + 48 * Math.sin(Math.PI * t)) * Math.PI / 180);
+}
+
+/** What the crosshair is on: the point (local), and a soldier near the line, whom the missile tracks. */
+function cobraTarget(): { point: Vec3; id: number | null } {
+    const cam = lastCamera!;
+    const eye = toLocal(frame!, cam.position);
+    const dir = normalize(dirToLocal(frame!, sub(cam.target, cam.position)));
+    const point = aimPoint(eye, dir, COBRA_RANGE, heightAt, nav?.rects ?? []);
+    const reach = Math.hypot(point[0] - eye[0], point[1] - eye[1], point[2] - eye[2]) + 6;
+    let id: number | null = null, best = 0.05;
+    for (const a of soldiers(street)) {
+        const v: Vec3 = [a.x - eye[0], a.y + 1 - eye[1], a.z - eye[2]];
+        const d = Math.hypot(v[0], v[1], v[2]);
+        if (d > reach || d < 1) continue;
+        const ang = Math.acos(Math.max(-1, Math.min(1, dot(v, dir) / d)));
+        if (ang < best) { best = ang; id = a.id; }
+    }
+    return { point, id };
+}
+
+/** Every live frame aboard the Cobra: the cells charge in the sun; the trigger fires missiles. */
+function stepCobra(dt: number): void {
+    if (!cobra || !cobraState || !frame || !campaign) return;
+    chargeCobra(cobraState, dt, sunUp(), weather.cloudCover);
+    const wants = (triggerHeld || controller.held.has("RightTrigger2")) && mode === "play" && !!lastCamera;
+    if (!wants || cobraState.cooldown > 0) return;
+    if (cobraState.cells < 1) {
+        if (triggerFresh) toast("The solar cells are charging.", "info");
+        triggerFresh = false;
+        return;
+    }
+    triggerFresh = false;
+    const t = cobraTarget();
+    launch(t.point, t.id);
+}
+
+function launch(point: Vec3, id: number | null): Missile | null {
+    if (!cobra || !cobraState || !campaign) return null;
+    const m = fireMissile(cobra, cobraState, point, id, nextMissile++);
+    if (!m) return null;
+    missiles.push(m);
+    if (region) {
+        const rs = campaign.regions[region];
+        if (!rs.war && rs.governor !== PARTY) rs.heat = Math.min(1, rs.heat + 0.006);
+    }
+    return m;
+}
+
+/** Missiles fly on (whoever fired them, wherever you are on the street). */
+function stepMissilesNow(dt: number): Impact[] {
+    if (!missiles.length) return [];
+    for (const m of missiles) {
+        const v = Math.hypot(m.vx, m.vy, m.vz) || 1;
+        missileTrail(fx, m.x - m.vx / v * 0.9, m.y - m.vy / v * 0.9, m.z - m.vz / v * 0.9);
+    }
+    const hits = stepMissiles(missiles, dt, { height: heightAt, rects: nav?.rects ?? [],
+        soldiers: soldiers(street).map(a => ({ id: a.id, x: a.x, y: a.y, z: a.z })) });
+    for (const h of hits) detonate(h.x, h.y, h.z, 1, h);
+    return hits;
+}
+
+/**
+ * An explosion of `power` (1: a missile): fire and smoke, debris and a scorch mark; soldiers in the
+ * blast are hurt (you too, on foot); buildings take damage and those that fail break apart; props
+ * nearby are blown away and plants scorched.
+ */
+function detonate(x: number, y: number, z: number, power: number, impact?: Impact): { fell: number; killed: number } {
+    if (!frame) return { fell: 0, killed: 0 };
+    explode(fx, x, y, z, power, heightAt(x, z), [body.x, body.y + 1.6, body.z]);
+    pieces.push(...debris(x, y, z, Math.round(6 + 4 * power), fx.rng));
+    const radius = MISSILE_RADIUS * Math.sqrt(power);
+    const killed = blastStreet(street, x, y, z, radius, MISSILE_DAMAGE * power, "party", !driving());
+    handleStreetEvents();
+    street.events.length = 0;
+    let fell = 0;
+    if (nav) {
+        const res = damage.apply({ x, y, z, radius, damage: MISSILE_BUILDING_DAMAGE * power }, nav.rects);
+        // A building hit hard enough catches fire where it was hit.
+        for (const h of res.hurt) if (h.share > 0.3 && impact?.key === h.rect.key) ignite(fx, x, y, z, 0.6 + h.share, 25 + 40 * h.share, h.rect.key);
+        for (const r of res.fell) collapse(r, x, y, z);
+        fell = res.fell.length;
+    }
+    blowProps(x, z, radius);
+    trimPieces();
+    return { fell, killed };
+}
+
+/** A building breaks apart: its model goes, and a shell of its pieces comes down in its place. */
+function collapse(r: Rect, bx: number, by: number, bz: number): void {
+    const c = campaign;
+    if (c) addRuin((c.ruins ??= {}), r.key, c.day);
+    const look = buildingLook(r, buildingByKey.get(r.key)?.colour ?? null);
+    const shell = shellPieces(r, look, fx.rng);
+    breakApart(shell, bx, Math.max(by, r.base + 1), bz, 16, fx.rng);
+    pieces.push(...shell);
+    dustCloud(fx, r.cx, r.base, r.cz, Math.max(r.hw, r.hd) * 2, r.height);
+    const fires = Math.min(4, 1 + Math.floor(r.hw * r.hd / 60));
+    for (let i = 0; i < fires; i++) {
+        const u = (fx.rng.next() - 0.5) * r.hw * 1.4, v = (fx.rng.next() - 0.5) * r.hd * 1.4;
+        const x = r.cx + r.ux * u - r.uz * v, z = r.cz + r.uz * u + r.ux * v;
+        ignite(fx, x, heightAt(x, z), z, 1.2 + fx.rng.next() * 1.3, 60 + fx.rng.next() * 60, r.key);
+    }
+    fx.shake = Math.min(1, fx.shake + 0.6 * Math.max(0, 1 - Math.hypot(r.cx - body.x, r.cz - body.z) / 160));
+    if (indoors && indoors.rect.key === r.key) leaveHouse();
+    updateExclusions();
+    navRebuild = navRebuild > 0 ? navRebuild : 0.2;
+    scatterDirty = true;
+    if (!c) return;
+    if (isMilitary(r)) toast("A compound building comes down.", "good");
+    else {
+        // The city counts the cost (nobody is inside: the people fled the shooting).
+        addKarma(c, -1);
+        if (region) { const rs = c.regions[region]; rs.support[PARTY] = Math.max(0, rs.support[PARTY] - 0.001); }
+        toast("A building comes down. The city counts the cost.", "bad");
+    }
+}
+
+/** Keeps the pieces in check: spent debris first, then the oldest rubble beyond the limit. */
+function trimPieces(): void {
+    if (pieces.length <= PIECE_LIMIT) return;
+    const excess = pieces.length - PIECE_LIMIT;
+    let debrisLeft = pieces.filter(p => p.life !== undefined).length;
+    let drop = excess;
+    pieces = pieces.filter(p => { if (drop > 0 && p.life !== undefined && debrisLeft-- > 0) { drop--; return false; } return true; });
+    if (drop > 0) pieces.splice(0, drop);
+}
+
+/** Buildings no longer drawn: every ruin's model (their boxes fold away with the rest). */
+function updateExclusions(): void {
+    const keys = new Set(Object.keys(campaign?.ruins ?? {}));
+    houses?.setExcluded(keys);
+    buildings?.setExcluded(keys);
+}
+
+/** Ruins on the street map without pieces (come back to): their settled rubble. */
+function ensureRubble(): void {
+    const ruins = campaign?.ruins ?? {};
+    // Rebuilt ruins' pieces go, and far-off ones.
+    pieces = pieces.filter(p => (p.life !== undefined || ruins[p.key] !== undefined) && Math.hypot(p.x - body.x, p.z - body.z) < 900);
+    const have = new Set(pieces.map(p => p.key));
+    for (const r of ruinRects) {
+        if (have.has(r.key)) continue;
+        pieces.push(...rubblePile(r, buildingLook(r, buildingByKey.get(r.key)?.colour ?? null), heightAt));
+    }
+    trimPieces();
+}
+
+const propSpot = (it: ScatterItem): string => `${it.family}@${(it.x + propShift[0]).toFixed(1)},${(it.z + propShift[1]).toFixed(1)}`;
+/** Props a blast knocks flat: everything planted that isn't a plant or a compound's. */
+const unbreakable = new Set(["beacon", "flag", "cobra", "loot"]);
+const isPlantFamily = (family: string): boolean => !PROPS[family];
+
+function blowProps(x: number, z: number, radius: number): void {
+    let changed = false;
+    for (const it of scatterItems) {
+        const d = Math.hypot(it.x - x, it.z - z);
+        if (d > radius) continue;
+        const k = propSpot(it);
+        if (isPlantFamily(it.family)) {
+            if (d < radius * 0.9 && !scorchedProps.has(k)) { scorchedProps.add(k); changed = true; }
+        } else if (!unbreakable.has(it.family) && !it.family.startsWith("mil-") && !blownProps.has(k)) {
+            blownProps.add(k);
+            pieces.push(...debris(it.x, heightAt(it.x, it.z) + 0.4, it.z, 4, fx.rng, "concrete", [0.5, 0.42, 0.34]));
+            changed = true;
+        }
+    }
+    burned.push({ x, z, r: radius * 0.75 });
+    if (burned.length > 64) burned.shift();
+    lawnAt = [Infinity, Infinity];
+    if (changed) applyPropDamage();
+    scatterDirty = true;
+}
+
+/** Blown props are gone and scorched plants charred (again, after the set dressing is replanted). */
+function applyPropDamage(): void {
+    if (!blownProps.size && !scorchedProps.size) return;
+    scatterItems = scatterItems.filter(it => !blownProps.has(propSpot(it)));
+    for (const it of scatterItems) {
+        if (!scorchedProps.has(propSpot(it)) || it.tint[0] < 0.3) continue;
+        it.tint = [0.22, 0.19, 0.16];
+        scatterPlaced.delete(it);
+    }
+}
+
+/** The Cobra's hull failed: it explodes, its wreck burns, and if you were aboard you are thrown clear. */
+function wreckCobra(): void {
+    if (!cobra || !campaign) return;
+    const { x, y, z } = cobra;
+    const aboard = cobra.piloting;
+    cobra = null; cobraState = null;
+    street.player.hull = undefined;
+    campaign.player.cobra = null;
+    explode(fx, x, y + 1, z, 2.5, heightAt(x, z), [body.x, body.y + 1.6, body.z]);
+    pieces.push(...debris(x, y + 1, z, 18, fx.rng, "metal", [0.3, 0.34, 0.28]));
+    ignite(fx, x, heightAt(x, z), z, 2, 45);
+    blastStreet(street, x, y + 1, z, 10, 120, "party", false);
+    handleStreetEvents();
+    street.events.length = 0;
+    if (aboard) {
+        const spot = nav?.nearestWalkable(x + 4, z + 4, 30) ?? [x + 4, z + 4];
+        body.x = spot[0]; body.z = spot[1]; body.y = heightAt(body.x, body.z); body.vy = 0; body.grounded = true;
+        street.player.x = body.x; street.player.z = body.z; street.player.y = body.y;
+        street.player.health = Math.max(1, street.player.health - 35);
+        campaign.player.health = street.player.health;
+        buildNav(body.x, body.z);
+    }
+    toast(aboard ? "The Cobra is wrecked! You are thrown clear." : "Your Cobra has been destroyed.", "bad");
+    save();
+}
+
+/** Particles, pieces, scorch marks and missiles: one instanced draw per mesh. */
+function drawFx(): void {
+    if (!fxBatches) return;
+    fxBatches.begin();
+    const visible = !!frame && (mode === "play" || mode === "speech" || mode === "dialogue" || mode === "shop");
+    if (visible) {
+        const f = frame!, o = renderOrigin, E = f.east, U = f.up, N = f.north;
+        // A record from local axes (three columns), sizes, tint and tex_origin. The third column is
+        // negated: the local frame (east, up, north) is left-handed in world space.
+        const put = (mesh: string, x: number, y: number, z: number, ax: readonly number[], sx: number, sy: number, sz: number,
+            t0: number, t1: number, t2: number, t3: number, e0: number, e3: number) => {
+            const { data, offset: q } = fxBatches!.add(propKey(mesh));
+            for (let k = 0; k < 3; k++) {
+                data[q + k] = (E[k] * ax[0] + U[k] * ax[1] + N[k] * ax[2]) * sx;
+                data[q + 4 + k] = (E[k] * ax[3] + U[k] * ax[4] + N[k] * ax[5]) * sy;
+                data[q + 8 + k] = -(E[k] * ax[6] + U[k] * ax[7] + N[k] * ax[8]) * sz;
+                data[q + 12 + k] = f.origin[k] + E[k] * x + U[k] * y + N[k] * z - o[k];
+            }
+            data[q + 3] = 0; data[q + 7] = 0; data[q + 11] = 0; data[q + 15] = 1;
+            data[q + 16] = t0; data[q + 17] = t1; data[q + 18] = t2; data[q + 19] = t3;
+            data[q + 20] = e0; data[q + 21] = 0; data[q + 22] = 0; data[q + 23] = e3;
+        };
+        const spin = (a: number) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 1, 0, s, 0, c]; };
+        for (const p of pieces) {
+            if (Math.abs(p.x - body.x) > 700 || Math.abs(p.z - body.z) > 700) continue;
+            const sink = p.life !== undefined ? Math.max(0, p.age - (p.life - 1)) * 0.6 : 0;
+            put(`chunk-${p.surface}`, p.x, p.y - sink, p.z, pieceAxes(p), p.w, p.h, p.d, p.tint[0], p.tint[1], p.tint[2], 0, 0, -1);
+        }
+        for (const p of fx.particles) {
+            const op = particleOpacity(p);
+            if (op <= 0.02) continue;
+            const ax = spin(p.spin);
+            if (p.kind === "smoke") { put("fx-smoke", p.x, p.y, p.z, ax, p.size, p.size, p.size, p.tint[0], p.tint[1], p.tint[2], 0, 0, op); continue; }
+            const g = particleGlow(p);
+            if (p.kind === "spark") put("fx-spark", p.x, p.y, p.z, ax, p.size, p.size, p.size, g.tint[0], g.tint[1], g.tint[2], g.heat, p.spin, op);
+            else if (p.flame) put("fx-flame", p.x, p.y - p.size * 0.3, p.z, ax, p.size, p.size * 2.4, p.size, g.tint[0], g.tint[1], g.tint[2], g.heat, p.spin, op);
+            else put("fx-fire", p.x, p.y, p.z, ax, p.size, p.size, p.size, g.tint[0], g.tint[1], g.tint[2], g.heat, p.spin, op);
+        }
+        for (const sc of fx.scorches) put("fx-scorch", sc.x, heightAt(sc.x, sc.z), sc.z, spin(sc.yaw), sc.radius, 1, sc.radius, 1, 1, 1, 0, 0, 0);
+        for (const m of missiles) {
+            // Model -z along its flight: columns right, up, forward (a right-handed set in local axes).
+            const v = Math.hypot(m.vx, m.vy, m.vz) || 1;
+            const fw: Vec3 = [m.vx / v, m.vy / v, m.vz / v];
+            let rt = cross([0, 1, 0], fw);
+            if (length(rt) < 1e-4) rt = [1, 0, 0];
+            rt = normalize(rt);
+            const up2 = cross(fw, rt);
+            put("fx-missile", m.x, m.y, m.z, [...rt, ...up2, ...fw], 1, 1, 1, 1, 1, 1, 1.2, 0, 0);
+        }
+    }
+    fxBatches.flush();
 }
 
 let podiumAt: { x: number; z: number; yaw: number } | null = null;
@@ -1517,7 +1955,7 @@ function cameraForMode(dt: number): { position: Vec3; target: Vec3; up: Vec3 } {
     }
     // A speech is filmed from the crowd's side, looking back at the speaker and the podium.
     // First person on foot; the flying car and speeches are always filmed from outside.
-    const cam = bodyCamera(playerCar?.piloting ? { ...body, firstPerson: false, camDistance: 12 } : mode === "speech" ? { ...body, firstPerson: false } : body, heightAt, mode === "speech" ? 2.7 : 0);
+    const cam = bodyCamera(driving() ? { ...body, firstPerson: false, camDistance: inCobra() ? 15 : 12 } : mode === "speech" ? { ...body, firstPerson: false } : body, heightAt, mode === "speech" ? 2.7 : 0);
     if (mode === "speech") return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, body.x, body.y + 1.5, body.z), up: frame.up };
     return { position: toWorld(frame, ...cam.eye), target: toWorld(frame, ...cam.target), up: frame.up };
 }
@@ -1655,7 +2093,7 @@ function placeCompound(cs: CompoundState): PlacedCompound {
 }
 
 /** Rectangles of the compounds standing near you (added to the street map). */
-const compoundRects = (): Rect[] => placedCompounds.flatMap(p => p.rects);
+const compoundRects = (): Rect[] => placedCompounds.flatMap(p => p.cs.cobraTaken ? p.rects : [...p.rects, compoundCobraRect(p)]);
 
 /** Inside (or right next to) a compound's walls. */
 function inCompound(x: number, z: number, pad = 6): PlacedCompound | null {
@@ -1721,7 +2159,7 @@ function stepCompounds(dt: number): void {
     const cs = nearest.cs;
     const progress = captureProgress.get(cs.id) ?? { raise: 0 };
     captureProgress.set(cs.id, progress);
-    const atFlag = !playerCar?.piloting && Math.hypot(body.x - nearest.flag[0], body.z - nearest.flag[1]) < FLAG_REACH;
+    const atFlag = !driving() && Math.hypot(body.x - nearest.flag[0], body.z - nearest.flag[1]) < FLAG_REACH;
     const state = stepCapture(cs, progress, atFlag, dt);
     captureView = { name: compoundName(cs), defenders: cs.garrison, raise: progress.raise / 6, state };
     if (state === "captured") compoundCaptured(cs);
@@ -1848,7 +2286,9 @@ function useItemNow(id: string): void {
 /** What E does here, for the prompt and the key: the nearest thing you can use. */
 function nearbyAction(): { label: string; run: () => void } | null {
     if (mode !== "play") return null;
-    if (playerCar?.piloting) return null;
+    if (driving()) return null;
+    const cob = cobraInReach();
+    if (cob) return { label: cob.own ? "[E / X / SQUARE] BOARD YOUR COBRA" : "[E / X / SQUARE] TAKE THE COBRA (FLYING TANK)", run: useCar };
     if (playerCar && Math.hypot(playerCar.x - body.x, playerCar.z - body.z) < 6 && !indoors) return { label: "[E / X / SQUARE] ENTER YOUR FLYING CAR", run: useCar };
     if (indoors) {
         const loot = lootSpot();
@@ -1874,7 +2314,7 @@ let respawnGrace = 0;
 let lastAutosave = -1;
 
 function safeHere(): boolean {
-    if (!campaign || street.player.dead || playerCar?.piloting || !body.grounded || street.player.health < 30) return false;
+    if (!campaign || street.player.dead || driving() || !body.grounded || street.player.health < 30) return false;
     return !soldiers(street).some(s => (s.alerted || !s.post) && Math.hypot(s.x - body.x, s.z - body.z) < 90);
 }
 
@@ -1897,6 +2337,7 @@ function respawn(message: string): void {
     if (!c || !frame) return;
     indoors = null; shopState = null;
     if (playerCar?.piloting) { playerCar.piloting = false; playerCar.vx = playerCar.vy = playerCar.vz = 0; playerCar.y = carGround(playerCar.x, playerCar.z, heightAt); playerCar.state = "parked"; addCarObstacle(); }
+    if (cobra?.piloting) { cobra.piloting = false; cobra.vx = cobra.vy = cobra.vz = 0; cobra.y = carGround(cobra.x, cobra.z, heightAt); cobra.state = "parked"; street.player.hull = undefined; addCobraObstacle(); saveCobra(); }
     let spot: [number, number] | null = null;
     const cp = c.checkpoint;
     if (cp) {
@@ -1965,6 +2406,7 @@ function computeScatter(): void {
         shopOf: r => shopForBuilding(r.key, r.kind ?? "box"),
         origin: ll, area: { x: g.cx, z: g.cz, half },
     });
+    applyPropDamage();
     scatterDirty = true;
 }
 
@@ -1976,9 +2418,14 @@ function compoundItems(): ScatterItem[] {
     for (const p of placedCompounds) {
         p.layout.structures.forEach((st, i) => {
             const r = p.rects[i];
+            if (c?.ruins?.[r.key] !== undefined) return;
             out.push({ family: `mil-${st.kind}`, x: r.cx, z: r.cz, yaw: st.yaw + p.cs.yaw, scale: p.cs.kind === "outpost" && st.kind !== "wall" && st.kind !== "tower" ? 0.7 : 1,
                 sx: st.kind === "wall" ? st.w : undefined, tint: [1, 1, 1] });
         });
+        if (!p.cs.cobraTaken) {
+            const [x, z] = compoundCobraAt(p);
+            out.push({ family: "cobra", x, z, yaw: p.cs.yaw, scale: 1, tint: [1, 1, 1] });
+        }
         const flagColor = p.cs.captured ? party : factionById("concordat").color;
         out.push({ family: "flag", x: p.flag[0], z: p.flag[1], yaw: p.cs.yaw, scale: 1.4, tint: [flagColor[0], flagColor[1], flagColor[2]] });
         // Sandbags and barriers at the gate, crates in the yard.
@@ -2004,7 +2451,7 @@ function compoundItems(): ScatterItem[] {
     return out;
 }
 
-const SCATTER_RADIUS: Record<string, number> = { "mil-hq": 10, "mil-barracks": 11, "mil-depot": 9, "mil-hangar": 11, "mil-tower": 6, "mil-wall": 4, beacon: 160, flag: 6 };
+const SCATTER_RADIUS: Record<string, number> = { cobra: 5, "mil-hq": 10, "mil-barracks": 11, "mil-depot": 9, "mil-hangar": 11, "mil-tower": 6, "mil-wall": 4, beacon: 160, flag: 6 };
 
 /**
  * An item's record as far as it never changes: its rotation and scale, tint, sway phase, where it
@@ -2069,7 +2516,8 @@ function drawScatter(dt: number): void {
         lawnAt = [body.x, body.z];
         lawnItems = lawnAround(body.x, body.z, {
             walkable: (x, z) => g.walkable(x, z), roads: scatterRoads,
-            reserved: (x, z) => !!inCompound(x, z, 4) || (!!playerCar && Math.hypot(x - playerCar.x, z - playerCar.z) < 4),
+            reserved: (x, z) => !!inCompound(x, z, 4) || (!!playerCar && Math.hypot(x - playerCar.x, z - playerCar.z) < 4)
+                || (!!cobra && Math.hypot(x - cobra.x, z - cobra.z) < 5) || burned.some(b => Math.hypot(x - b.x, z - b.z) < b.r),
             origin: frameLatLon(),
         });
     }
@@ -2111,7 +2559,7 @@ function updateSky(dt: number): void {
     if (!c || !frame || skyTimer < 1) return;
     skyTimer = 0;
     const m = c.mission && c.mission.step !== "done" ? c.mission.compound : null;
-    skyCache = skyMarkers(c, c.player.lat, c.player.lon, { rangeKm: playerCar?.piloting ? 90 : 45, max: 10, compoundKm: 5, missionCompound: m });
+    skyCache = skyMarkers(c, c.player.lat, c.player.lon, { rangeKm: driving() ? 90 : 45, max: 10, compoundKm: 5, missionCompound: m });
     for (const s of skyCache) {
         const key = `${s.id}:${s.lat.toFixed(5)},${s.lon.toFixed(5)}`;
         if (!skyPoints.has(key)) {
@@ -2153,7 +2601,7 @@ function updateMiniMap(dt: number): void {
     const c = campaign;
     if (!c || !nav || !frame || !(mode === "play" || mode === "dialogue" || mode === "shop")) { miniMap = null; return; }
     const g = nav;
-    const cells = 44, cellMeters = playerCar?.piloting ? 12 : 6;
+    const cells = 44, cellMeters = driving() ? 12 : 6;
     const what = (x: number, z: number) => {
         const [i, j] = g.cellOf(x, z);
         return g.inBounds(i, j) ? g.blocked[j * g.size + i] : 0;
@@ -2198,7 +2646,7 @@ function setupViewModels(): void {
 }
 
 function drawViewModel(): void {
-    const show = !!frame && !!lastCamera && mode === "play" && body.firstPerson && !playerCar?.piloting;
+    const show = !!frame && !!lastCamera && mode === "play" && body.firstPerson && !driving();
     const kind = weaponClass(campaign?.player.weapon ?? "fists");
     for (const k of VIEW_KINDS) showProp(`al-view-${k}`, show && k === kind);
     if (!show) return;
@@ -2267,6 +2715,12 @@ function snapshot() {
         toasts: toasts.map(t => t.text),
         traffic: { count: trafficVisible, limit: TRAFFIC_LIMIT },
         aim: { ads: r2(aim.ads), fov: r2(fovSet), assist: controls().aimAssist, locked: assistPick ? { id: assistPick.target.id, angle: Math.round(assistPick.angle * 1e4) / 1e4 } : null, yaw: r2(body.yaw), pitch: r2(body.pitch) },
+        cobra: cobra && cobraState ? { x: r2(cobra.x), y: r2(cobra.y), z: r2(cobra.z), state: cobra.state, piloting: cobra.piloting, home: cobraState.home,
+            hull: Math.round(cobraState.hull), cells: r2(cobraState.cells), altitude: r2(cobra.y - carGround(cobra.x, cobra.z, heightAt)), distance: r2(Math.hypot(cobra.x - body.x, cobra.z - body.z)) } : null,
+        parkedCobras: placedCompounds.filter(p => !p.cs.cobraTaken).map(p => { const [x, z] = compoundCobraAt(p); return { compound: p.cs.id, distance: r2(Math.hypot(x - body.x, z - body.z)) }; }),
+        fx: { missiles: missiles.length, particles: fx.particles.length, fires: fx.fires.length, scorches: fx.scorches.length, explosions: fx.explosions,
+            pieces: pieces.length, falling: pieces.filter(q => !q.asleep).length, ruins: Object.keys(c?.ruins ?? {}).length, ruinsHere: ruinRects.length,
+            blownProps: blownProps.size, scorchedPlants: scorchedProps.size, shake: r2(fx.shake), batches: fxBatches?.lastStats ?? null },
         flyingCar: playerCar ? { ...playerCar, altitude: r2(playerCar.y - carGround(playerCar.x, playerCar.z, heightAt)), distance: r2(Math.hypot(playerCar.x - body.x, playerCar.z - body.z)) } : null,
         settlements: c?.settlements?.map(d => ({ id: d.id, name: d.name, country: d.country, parent: d.parent, governor: c.regions[d.id].governor })) ?? [],
         mission: c?.mission ? { ...c.mission, distance: Math.round(missionCompound(c) ? angularDistance(c.player.lat, c.player.lon, missionCompound(c)!.lat, missionCompound(c)!.lon) * EARTH_RADIUS_KM * 1000 : -1) } : null,
@@ -2754,6 +3208,103 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
                     street.player.x = body.x; street.player.z = body.z;
                     if (nav && Math.hypot(body.x - nav.cx, body.z - nav.cz) > 100) buildNav(body.x, body.z);
                 } break;
+                case "to-cobra": {
+                    // Stand beside the nearest parked Cobra (a compound's, or yours), facing it.
+                    if (indoors) leaveHouse();
+                    updateCompounds();
+                    let at: [number, number] | null = cobra && !cobra.piloting ? [cobra.x, cobra.z] : null;
+                    let yaw = cobra?.yaw ?? 0;
+                    if (!at) {
+                        const p = [...placedCompounds].filter(q => !q.cs.cobraTaken).sort((x, y) => Math.hypot(x.cx - body.x, x.cz - body.z) - Math.hypot(y.cx - body.x, y.cz - body.z))[0];
+                        if (!p) throw new Error("No Cobra nearby.");
+                        at = compoundCobraAt(p); yaw = p.cs.yaw;
+                    }
+                    const spot = nav?.nearestWalkable(at[0] + Math.cos(yaw) * 4.4, at[1] - Math.sin(yaw) * 4.4, 6) ?? [at[0] + 4.4, at[1]];
+                    body.x = spot[0]; body.z = spot[1]; body.y = heightAt(body.x, body.z);
+                    body.yaw = Math.atan2(at[0] - body.x, at[1] - body.z);
+                    street.player.x = body.x; street.player.z = body.z;
+                    out.cobraAt = [r2(at[0]), r2(at[1])];
+                } break;
+                case "board-cobra": {
+                    const cob = cobraInReach();
+                    if (!cob) throw new Error("No Cobra within reach.");
+                    boardCobra(cob);
+                } break;
+                case "cobra-fire": {
+                    // Real missiles from the pods (the trigger's path, aimed for the tool): at the nearest
+                    // standing compound building, map building, or soldier ("structure" | "building" | "soldier").
+                    if (!inCobra() || !cobra || !cobraState) throw new Error("Not aboard a Cobra.");
+                    const what = typeof a.at === "string" ? a.at : "structure";
+                    let target: Vec3 | null = null, id: number | null = null;
+                    if (what === "soldier") {
+                        const s0 = soldiers(street).sort((x, y) => Math.hypot(x.x - body.x, x.z - body.z) - Math.hypot(y.x - body.x, y.z - body.z))[0];
+                        if (!s0) throw new Error("No soldier in sight.");
+                        target = [s0.x, s0.y + 1, s0.z]; id = s0.id;
+                    } else {
+                        const rs2 = (nav?.rects ?? []).filter(r => what === "structure" ? r.kind === "military" && r.height > 3 : r.kind === "house" || r.kind === "box")
+                            .sort((x, y) => Math.hypot(x.cx - body.x, x.cz - body.z) - Math.hypot(y.cx - body.x, y.cz - body.z));
+                        const r0 = typeof a.key === "string" ? nav?.rects.find(r => r.key === a.key) : rs2[0];
+                        if (!r0) throw new Error("Nothing to fire at.");
+                        target = [r0.cx, r0.base + Math.min(r0.height * 0.5, 4), r0.cz];
+                        out.targetKey = r0.key;
+                    }
+                    const n = typeof a.count === "number" ? a.count : 1;
+                    let fired = 0;
+                    const before = { fell: Object.keys(c?.ruins ?? {}).length, explosions: fx.explosions };
+                    for (let k = 0; k < n; k++) {
+                        cobraState.cooldown = 0;
+                        if (cobraState.cells < 1) cobraState.cells = 1;
+                        if (launch(target, id)) fired++;
+                        // Let it fly: fixed small steps until it strikes.
+                        for (let t = 0; t < 400 && missiles.length; t++) {
+                            stepMissilesNow(1 / 60);
+                            stepFx(fx, 1 / 60, [0, 0], heightAt);
+                            pieces = stepPieces(pieces, 1 / 60, heightAt);
+                        }
+                    }
+                    if (navRebuild > 0 && nav) { navRebuild = 0; buildNav(nav.cx, nav.cz); }
+                    out.fired = fired;
+                    out.exploded = fx.explosions - before.explosions;
+                    out.collapsed = Object.keys(c?.ruins ?? {}).length - before.fell;
+                } break;
+                case "aim-at": {
+                    // Turn (on foot or flying) to look at the nearest building of a kind or a key, from `pitch`.
+                    const what = typeof a.at === "string" ? a.at : "structure";
+                    const r0 = typeof a.key === "string" ? [...(nav?.rects ?? []), ...ruinRects].find(r => r.key === a.key)
+                        : (nav?.rects ?? []).filter(r => what === "structure" ? r.kind === "military" && r.height > 3 : r.kind === "house" || r.kind === "box")
+                            .sort((x, y) => Math.hypot(x.cx - body.x, x.cz - body.z) - Math.hypot(y.cx - body.x, y.cz - body.z))[0];
+                    if (!r0) throw new Error("Nothing to look at.");
+                    body.yaw = Math.atan2(r0.cx - body.x, r0.cz - body.z);
+                    if (typeof a.pitch === "number") body.pitch = a.pitch;
+                    const fl = driving();
+                    if (fl) fl.yaw = body.yaw;
+                    out.key = r0.key; out.distance = r2(Math.hypot(r0.cx - body.x, r0.cz - body.z));
+                } break;
+                case "detonate": {
+                    // An explosion of `power` at a building (`key`), or `ahead` meters in front of you.
+                    let x = body.x, y = body.y + 1, z = body.z;
+                    if (typeof a.key === "string") {
+                        const r0 = nav?.rects.find(r => r.key === a.key);
+                        if (!r0) throw new Error("No such building on the street map.");
+                        x = r0.cx; y = r0.base + Math.min(3, r0.height / 2); z = r0.cz;
+                    } else {
+                        const ahead = typeof a.ahead === "number" ? a.ahead : 12;
+                        x += Math.sin(body.yaw) * ahead; z += Math.cos(body.yaw) * ahead; y = heightAt(x, z) + 0.5;
+                    }
+                    const res = detonate(x, y, z, typeof a.power === "number" ? a.power : 1);
+                    if (navRebuild > 0 && nav) { navRebuild = 0; buildNav(nav.cx, nav.cz); }
+                    out.fell = res.fell; out.killed = res.killed; out.at = [r2(x), r2(y), r2(z)];
+                } break;
+                case "fx-run": {
+                    // Plays the effects on for `seconds` (fixed steps, nothing else moves): pieces settle, fires burn.
+                    const secs = typeof a.seconds === "number" ? a.seconds : 1;
+                    for (let t = 0; t < secs * 60; t++) {
+                        stepMissilesNow(1 / 60);
+                        stepFx(fx, 1 / 60, [0, 0], heightAt);
+                        pieces = stepPieces(pieces, 1 / 60, heightAt);
+                    }
+                } break;
+                case "cobra-hull": if (cobraState) { cobraState.hull = typeof a.hull === "number" ? a.hull : cobraState.hull; if (cobraState.hull <= 0) wreckCobra(); } break;
                 case "view": if (typeof a.distance === "number") body.camDistance = a.distance; if (typeof a.firstPerson === "boolean") body.firstPerson = a.firstPerson; if (typeof a.pitch === "number") body.pitch = a.pitch; if (typeof a.yaw === "number") body.yaw = a.yaw; break;
                 default: throw new Error(`Unknown action ${action}`);
             }
@@ -2897,6 +3448,9 @@ addon.onInit(() => {
         const mesh = meshOfBatch(key);
         return scatterEngines[shadowClass(familyOfMesh(mesh) ?? "")].createMesh(mesh, meshId, buffer, n);
     } }, ITEM_FLOATS, { prefix: "al-scatter", idleFrames: 120 });
+    fxBatches = new InstanceBatches(scatterEngines.small, ITEM_FLOATS, { prefix: "al-fx", idleFrames: 240 });
+    cobraItem = uniform(ITEM_FLOATS);
+    spawnMesh("al-cobra", buildCobra(), cobraItem); showProp("al-cobra", false);
     const flyingCar = buildFlyingCar();
     playerCarItem = uniform(ITEM_FLOATS);
     spawnMesh("al-player-car", flyingCar, playerCarItem); showProp("al-player-car", false);
@@ -2951,14 +3505,15 @@ addon.onUpdatePlus("Global", () => {
     const live = mode === "play" || mode === "speech" || mode === "dialogue";
     if (live && frame) {
         stepAim(dt);
-        if (playerCar?.piloting) {
+        const flying = driving();
+        if (flying) {
             const input = readInput();
-            playerCar.yaw = body.yaw;
-            stepCar(playerCar, input, key("Control") || key("c") || controller.held.has("East"), dt, flightEnvironment(), carSpec(campaign?.player.carUpgrades));
-            body.x = playerCar.x; body.y = playerCar.y; body.z = playerCar.z; body.yaw = playerCar.yaw;
+            flying.yaw = body.yaw;
+            stepCar(flying, input, key("Control") || key("c") || controller.held.has("East"), dt, flightEnvironment(), flying === cobra ? COBRA_SPEC : carSpec(campaign?.player.carUpgrades));
+            body.x = flying.x; body.y = flying.y; body.z = flying.z; body.yaw = flying.yaw;
             body.pitch = Math.max(-1.25, Math.min(1.05, body.pitch + ((input.lookY ?? 0) + Number(input.lookUp) - Number(input.lookDown)) * dt * 1.4));
-            body.speed = Math.hypot(playerCar.vx, playerCar.vz);
-            saveCar();
+            body.speed = Math.hypot(flying.vx, flying.vz);
+            if (flying === cobra) saveCobra(); else saveCar();
         } else if (indoors) {
             // Inside a house: its floor underfoot, its outer walls around you.
             const floor = indoors.floor;
@@ -2967,14 +3522,29 @@ addon.onUpdatePlus("Global", () => {
         } else stepBody(body, footInput(), dt, nav, heightAt, mode === "speech" ? 0 : adsMove(aim.ads));
         street.player.x = body.x; street.player.z = body.z; street.player.y = body.y; street.player.heading = body.yaw;
         street.player.moving = body.speed > 0.5;
-        if (!playerCar?.piloting) stepWeapon(dt);
+        if (!driving()) stepWeapon(dt);
+        else if (inCobra()) stepCobra(dt);
         stepCalledCar(dt);
         // Out of a fight, wounds slowly heal (faster with Toughness).
         if (campaign && !soldiers(street).length && street.player.health < maxHealth(campaign)) {
             street.player.health = Math.min(maxHealth(campaign), street.player.health + (0.6 + skill(campaign, "toughness") * 0.3) * dt);
         }
+        // Aboard the Cobra its hull takes the hits (al_street.ts damagePlayer).
+        street.player.hull = inCobra() && cobraState ? cobraState.hull : undefined;
         if (profileDisable !== "street") timed("    al street sim", () => stepStreet(street, nav, streetContext(), dt, rng, heightAt));
+        timed("    al fx", () => {
+            stepMissilesNow(dt);
+            const w = windVector(weather, frame!.east, frame!.north);
+            stepFx(fx, dt, [dot(w, frame!.east), dot(w, frame!.north)], heightAt);
+            pieces = stepPieces(pieces, dt, heightAt);
+            if (fx.fires.length) burnStreet(street, (x, z) => fireDamageAt(fx, x, z), dt, !driving());
+        });
         handleStreetEvents();
+        if (inCobra() && cobraState) {
+            cobraState.hull = street.player.hull ?? cobraState.hull;
+            if (cobraState.hull <= 0) wreckCobra();
+        }
+        if (navRebuild > 0 && (navRebuild -= dt) <= 0 && nav) buildNav(nav.cx, nav.cz);
         if (speech) { stepSpeech(speech, dt); setCrowdTarget(street, speech.crowd); }
         if (dialogue) {
             const a = actorById(street, dialogue.actorId);
@@ -3010,6 +3580,11 @@ addon.onUpdatePlus("Global", () => {
     wasWaitingForData = waiting;
 
     const pose = cameraForMode(dt);
+    // Explosions shake the camera.
+    if (fx.shake > 0.01 && frame && (mode === "play" || mode === "dialogue")) {
+        const k = fx.shake * fx.shake * 0.35;
+        pose.position = add(pose.position, add(scale(frame.up, Math.sin(time * 53) * k), scale(frame.east, Math.sin(time * 41 + 1) * k)));
+    }
     const look = normalize(sub(pose.target, pose.position));
     let up = pose.up;
     if (Math.abs(dot(look, up)) > 0.98) up = normalize(cross(cross(look, up), look));
@@ -3023,6 +3598,7 @@ addon.onUpdatePlus("Global", () => {
     drawProps();
     drawTraffic();
     timed("    al scatter", () => drawScatter(dt));
+    timed("    al fx draw", drawFx);
     drawViewModel();
     updateSky(dt);
     if (frame) cloudDrift = add(cloudDrift, scale(windVector(weather, frame.east, frame.north), CLOUD_WIND_FACTOR * dt));

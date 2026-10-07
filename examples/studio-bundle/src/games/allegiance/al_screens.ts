@@ -97,7 +97,9 @@ export interface GameView {
     /** A compound assault underway: what is left, and the flag being raised (0..1). */
     capture?: { name: string; defenders: number; raise: number; state: string } | null;
     /** Flying: boost built up (0..1), speed (m/s), altitude and ceiling (m). */
-    car?: { boost: number; speed: number; altitude: number; ceiling: number } | null;
+    car?: { boost: number; speed: number; altitude: number; ceiling: number;
+        /** Aboard the Cobra (al_cobra.ts): its hull, and the solar cells charged (each one a missile). */
+        cobra?: { hull: number; maxHull: number; cells: number; maxCells: number } } | null;
     /** Inside a house (its name for the HUD). */
     indoors?: string | null;
     /** The shop you walked into. */
@@ -453,7 +455,7 @@ export function drawHud(g: GameView, ui: UiFrame): void {
     }
     // Controls hint and org warnings.
     const report = orgReport(c);
-    const hint = g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  HOLD SHIFT BOOST (BUILDS UP)  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK/ENTER  F PAMPHLET  B SPEECH  H HEAL  I INVENTORY  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
+    const hint = g.car?.cobra ? "WASD FLY  SPACE RISE  C DESCEND  SHIFT BOOST  LMB / RT SOLAR MISSILES (AT THE CROSSHAIR)  L LAND  E EXIT" : g.piloting ? "WASD / LEFT STICK FLY  SPACE / A / CROSS RISE  C / B / CIRCLE DESCEND  HOLD SHIFT BOOST (BUILDS UP)  L / D-PAD DOWN LAND" : `WASD MOVE  SHIFT RUN  RMB LOOK  LMB SHOOT  E TALK/ENTER  F PAMPHLET  B SPEECH  H HEAL  I INVENTORY  TAB COMMAND${report.warnings.length ? `  (${report.warnings.length} ORG ALERTS)` : ""}`;
     p.rect(436, 4, W - 436 - 370, 26, [0.04, 0.035, 0.035, 0.7]);
     p.text(hint, 444, 9, 12, report.warnings.length ? THEME.gold : THEME.cream, FONT.head, W - 440 - 380);
     if (g.debug) p.text(g.debug, 440, 30, 12, THEME.dim, FONT.mono, W - 840);
@@ -1146,6 +1148,20 @@ function drawCaptureAndFlight(g: GameView, ui: UiFrame): void {
         const x = 14, y = ui.H - 160;
         p.text(`BOOST ${Math.round(car.boost * 100)}%   ${Math.round(car.speed * 3.6)} KM/H   ALT ${Math.round(car.altitude)} / ${fmt(car.ceiling)} M`, x, y - 22, 13, THEME.gold, FONT.head);
         p.bar(x, y, 352, 12, car.boost, [0.2, 0.7, 1, 1]);
+        const cb = car.cobra;
+        if (cb) {
+            // The Cobra: hull (red when failing) and the solar cells, one box per missile.
+            const hy = y - 64;
+            p.text(`COBRA HULL ${Math.round(cb.hull)} / ${cb.maxHull}`, x, hy - 20, 13, cb.hull < cb.maxHull * 0.3 ? THEME.red : THEME.cream, FONT.head);
+            p.bar(x, hy, 352, 12, cb.hull / cb.maxHull, cb.hull < cb.maxHull * 0.3 ? THEME.red : [0.55, 0.75, 0.35, 1]);
+            p.text(`SOLAR MISSILES ${Math.floor(cb.cells)}`, x + 372, hy - 20, 13, THEME.gold, FONT.head);
+            const cw = 22;
+            for (let i = 0; i < cb.maxCells; i++) {
+                const fill = Math.max(0, Math.min(1, cb.cells - i));
+                p.rect(x + 372 + i * (cw + 4), hy, cw, 12, [0.08, 0.1, 0.18, 0.9], 1, THEME.gold);
+                if (fill > 0) p.rect(x + 372 + i * (cw + 4), hy + 12 * (1 - fill), cw, 12 * fill, fill >= 1 ? [1, 0.8, 0.25, 1] : [0.35, 0.5, 0.9, 1]);
+            }
+        }
     }
     if (g.indoors) p.text(`INSIDE ${g.indoors.toUpperCase()}  -  E AT THE DOOR TO LEAVE`, 444, 34, 12, THEME.gold, FONT.head);
 }

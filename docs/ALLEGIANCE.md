@@ -92,6 +92,7 @@ objective strip tracks each step, and the normal objectives take over once it is
 | Left mouse | fire at the crosshair (hold for automatic weapons); R reloads; 1-9 switch weapons |
 | Middle mouse or Z (hold) | aim down sights: the view narrows, the gun's iron sights come up to the crosshair, spread tightens, you turn and walk slower |
 | G | call your flying car: it flies itself over the rooftops and lands beside you |
+| Left mouse (in the Cobra) | fire a solar missile at the crosshair |
 | E | the nearest thing: your car, a house's front door, a shop, the HQ quartermaster, supplies in a house; otherwise talk or confront a rival orator |
 | H | use the best healing item you carry |
 | I | the inventory (command console) |
@@ -232,6 +233,43 @@ with you as a **follower** and fights beside you if armed.
 Glorious Tomorrow is bold promises. What They Hide is lies about your rivals, which hurt your
 karma but cut into the strongest rival. Hostile people tear pamphlets up. The Printing Press
 makes them cheaper and stronger.
+
+## The Cobra, fire and destruction
+
+**The Cobra** is the regime's flying tank, and one stands in the courtyard of every military
+compound, the founding outpost included. Walk up to it and press **E** (**X / Square**) to take
+it; the garrison sees you do it. It flies like your car (the same keys and buttons) but heavier:
+16 m/s cruise, boost to 70 m/s, a 350 m ceiling, and an armored hull of 600 that takes the hits
+instead of you. Fire **solar missiles** with the left mouse button or **RT / R2**: they leave the
+pods on its flanks in turn and fly at whatever is under the crosshair, tracking a soldier if one
+is there. Its back is a solar panel that charges eight cells, one missile each, about one a
+second under a high, clear sun and a fifth of that at dawn, dusk or under cloud. When the hull
+fails it explodes and you are thrown clear. It stays where you leave it and is saved with the
+campaign; a compound whose Cobra was lost gets a new one the next morning.
+
+**Explosions** are a flash, swelling fireballs, sparks on arcs, a column of smoke that rises and
+drifts with the wind, flying debris and a scorch mark, often with a fire left burning. They shake
+the camera. Soldiers in the blast are hurt (8 m radius); civilians and your comrades never are,
+they run. On foot you can be caught in one. **Fires** burn on in blast craters, in collapsed
+buildings, on hit walls and on wrecks, with flames licking up and smoke rising, for seconds to a
+couple of minutes; they hurt soldiers, and you, standing in them.
+
+**Every building can be destroyed**: map houses and city blocks as well as the compounds'
+headquarters, barracks, depots, hangars, towers and wall segments. Bullets do nothing to them;
+explosions do. Strength follows size (a wall segment falls to one missile, a cottage to two, a
+compound headquarters to five, a tower block takes a barrage). A building that fails **breaks
+apart into pieces**: in the same frame its model is replaced by a shell of wall panels and roof
+slabs in its exact shape, in its own surface (brick, render, concrete, metal, fieldstone). The
+panels nearest the blast are thrown out first, the rest give way after, the upper storeys come
+down under gravity, and the pieces tumble, bounce and settle into the rubble. A dust cloud rolls
+out and fires burn in the ruin. The ruin leaves the street map: you can walk, drive and shoot
+through a breach. Street props in the blast (benches, lamps, bins, kiosks, cafe furniture,
+crates) are blown away, trees and shrubs scorched black, and the grass burned off. Destroying a
+civilian building costs karma and a little support.
+
+Ruins are kept with the campaign. Come back to one and it is a settled pile of the same pieces.
+The regime rebuilds a compound's structures two days after they fell, and the city rebuilds a
+house or block in a week.
 
 ## Speeches
 
@@ -444,6 +482,9 @@ day (`dayClock`).
 | `al_street.ts` | Everyone around you: civilians, followers, militia, soldiers, rival orators; crowds, pamphlets, recruiting, hitscan combat |
 | `al_player.ts` | You on foot, and the camera |
 | `al_aim.ts` | Turning (mouse smoothing, stick curve and easing), aiming down sights, aim assist |
+| `al_cobra.ts` | The Cobra flying tank: flight spec, courtyard spot, solar cells, missiles (launch, guidance, impacts), the crosshair's aim point |
+| `al_fx.ts` | Explosions, fires, smoke, sparks and scorch marks as particles; fire damage |
+| `al_destruction.ts` | Building strength and blast damage, ruins and rebuilding, breaking a building into pieces, piece physics, rubble |
 | `al_vehicle.ts` | Personal multicopter placement, stabilized flight, boost build-up, garage upgrades, rotor clearance and landing checks, and the autopilot that brings it when called |
 | `al_military.ts` | Military compounds: size by population, layouts, siting on clear ground, garrisons and capture |
 | `al_mission.ts` | The founding mission |
@@ -566,7 +607,9 @@ These tools also drive the live test:
   `storm`, `flag`, `die`, `checkpoint` and `to-car`; and for iteration 2 `call-car`, `shoot-guard`
   (real shots, through the trigger's code path, at the nearest defender from a clear firing
   position), `face-guard`, `ads`, `view-building` (stand before the nearest Mesha city block) and
-  `view-furniture` (inside a house, look at its table). `face` also takes a relative `turn`. `allegiance_new` takes `mission: false` to
+  `view-furniture` (inside a house, look at its table); for destruction `to-cobra`, `board-cobra`,
+  `cobra-fire` (`at`: `structure`, `building` or `soldier`, `count`; real missiles from the pods),
+  `aim-at`, `detonate` (`key` or `ahead`, `power`), `fx-run` (`seconds`) and `cobra-hull`. `face` also takes a relative `turn`. `allegiance_new` takes `mission: false` to
   skip the founding mission. `allegiance_state` also reports the mission, nearby compounds and
   their guards, the capture, inventory, car upgrades, checkpoint, the house you are in, the open
   shop, sky markers, the mini map and set dressing counts.
@@ -609,7 +652,11 @@ These tools also drive the live test:
   without sun shadows (and checks the shadowed frame is darker where the shadows fall), clouds
   over the rooftops, and a garden in the wind. `allegiance_materials_live.feature` looks at a
   compound's fieldstone wall up close and from across the lawn (no checkerboard, textured, mossy);
-  `allegiance_materials.test.ts` is its TypeScript tier. `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
+  `allegiance_materials.test.ts` is its TypeScript tier. `allegiance_destruction_live.feature` takes the outpost's Cobra, fires
+  real missiles at its buildings (they break apart and settle as rubble), brings down a map house,
+  then saves and continues to find the ruins as rubble, with six captured frames;
+  `allegiance_destruction.test.ts` is its TypeScript tier (strength, pieces, settling, fire,
+  blasts, missiles, the hull). `ENTROPY_ALLEGIANCE_BDD_FEATURE=<file>` plays another feature without rebuilding.
   Every live fixture must exit normally within ten seconds of completing its feature; forced
   closure fails the test. Map and elevation downloads use shared process-lifetime HTTP clients
   to avoid joining network threads from Windows thread-local destructors during shutdown.
@@ -635,4 +682,8 @@ These tools also drive the live test:
   local settlement extents use provisional radii, not surveyed municipal boundaries. The street
   layer simulates the few hundred meters around you; distant battles resolve strategically.
 - The sun never sets: the day runs from 07:00 to 19:00.
+- Broken pieces collide with the ground only, not with each other or with standing buildings, so
+  a pile overlaps itself. A destroyed building's distant box (beyond the city-model range, about
+  600 m) still shows until the ruin is rebuilt. Damage short of collapse is not kept between
+  sessions. Fire does not spread between buildings. Soldiers have no Cobras of their own yet.
 - First iteration: balance is tuned by simulation and short play sessions, not long campaigns.

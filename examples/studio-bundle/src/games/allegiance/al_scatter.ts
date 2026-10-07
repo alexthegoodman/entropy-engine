@@ -15,10 +15,11 @@
 import { evaluateObject, type Evaluation } from "../../apps/mesha/mesha_object";
 import { lookupObject } from "../../apps/mesha/library";
 import { resolveParams, defaultValues, type ParamValues } from "../../apps/mesha/mesha_object";
-import { materialSurfaceKind } from "../../apps/quadplanet/qp_shader";
+import { materialSurfaceKind, SURFACE } from "../../apps/quadplanet/qp_shader";
 import { packBuilding } from "../../apps/quadplanet/qp_buildings";
 import { type Rect } from "./al_nav";
-import { type ModelMesh, buildBench, buildStreetLamp, buildTrashBin, buildBarrier, buildCrates, buildSandbags, buildKiosk, buildLootCrate, buildMilitary, buildBeacon, buildFlag } from "./al_models";
+import { type ModelMesh, buildBench, buildStreetLamp, buildTrashBin, buildBarrier, buildCrates, buildSandbags, buildKiosk, buildLootCrate, buildMilitary, buildBeacon, buildFlag,
+    buildCobra, buildMissile, buildFireball, buildFlame, buildSmoke, buildSpark, buildChunk, buildScorch } from "./al_models";
 import { doorSide, fromUV } from "./al_interior";
 import { hashString } from "./al_rng";
 
@@ -230,6 +231,12 @@ export const PROPS: Record<string, () => ModelMesh> = {
     "mil-depot": () => meshaBuilding("Warehouse", { width: 11, depth: 11, floors: 1, groundHeight: 5.2, facadeFinish: "masonry.darkConcrete", trimFinish: "masonry.concrete" }),
     "mil-hangar": () => meshaBuilding("Warehouse", { width: 16, depth: 14, floors: 1, groundHeight: 6.2, facadeFinish: "metal.corrugatedGreen", bayWidth: 5 }),
     "mil-tower": () => buildMilitary("tower"), "mil-wall": () => buildMilitary("wall"),
+    // The Cobra parked in a compound's courtyard (al_cobra.ts), and what destruction draws
+    // (al_fx.ts, al_destruction.ts): missiles, fire, smoke, sparks, broken pieces, scorch marks.
+    cobra: buildCobra, "fx-missile": buildMissile, "fx-fire": buildFireball, "fx-flame": buildFlame, "fx-smoke": buildSmoke,
+    "fx-spark": buildSpark, "fx-scorch": buildScorch,
+    "chunk-brick": () => buildChunk(SURFACE.brick), "chunk-render": () => buildChunk(SURFACE.render), "chunk-concrete": () => buildChunk(SURFACE.concrete),
+    "chunk-metal": () => buildChunk(SURFACE.metal), "chunk-stone": () => buildChunk(SURFACE.fieldstone),
 };
 
 const PROP_KEYS = new Map<string, string>();
@@ -524,7 +531,8 @@ export const GROUND_TILE = 32;
 export const GROUND_COVER = new Set(["lawn", "meadow", "poppies", "daisies", "grass", "flowers"]);
 /** Things too small to throw a shadow worth a texel beyond the two nearest cascades (52 m). */
 const SMALL = new Set(["shrub", "boxwood", "hydrangea", "fern", "rock", "cafe-table", "cafe-chair", "dining-table", "dining-chair",
-    "potted-plant", "table-lamp", "bench", "lamp", "bin", "barrier", "crates", "sandbags", "kiosk", "loot"]);
+    "potted-plant", "table-lamp", "bench", "lamp", "bin", "barrier", "crates", "sandbags", "kiosk", "loot",
+    "cobra", "fx-missile", "fx-fire", "fx-flame", "fx-smoke", "fx-spark", "fx-scorch", "chunk-brick", "chunk-render", "chunk-concrete", "chunk-metal", "chunk-stone"]);
 
 /**
  * Which sun-shadow cascades a family casts into: ground cover only the nearest (12 m: the grass at

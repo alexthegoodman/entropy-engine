@@ -5,7 +5,8 @@
 
 import { MeshBuilder, buildSky, type ModelMesh } from "../../apps/quadplanet/qp_models";
 import { MATERIAL_GLOW, MATERIAL_HOUSE, MATERIAL_PAINT, SURFACE } from "../../apps/quadplanet/qp_shader";
-import { MAT_BODY, MAT_CLOTH_TOP } from "./al_shader";
+import { MAT_BODY, MAT_CLOTH_TOP, MAT_FIRE, MAT_SMOKE } from "./al_shader";
+import { type Vec3 } from "../../apps/quadplanet/qp_math";
 
 type RGB = [number, number, number];
 
@@ -301,5 +302,144 @@ export function buildViewWeapon(kind: string): ModelMesh {
     m.box([x, rail + 0.019, frontZ], [0.0016, 0.0016, 0.0016], [1, 0.75, 0.2], MATERIAL_GLOW);
     m.ellipsoid([x, y - 0.075, -0.64], [0.035, 0.04, 0.045], skin, MATERIAL_PAINT, 8, 6);
     if (kind !== "pistol") m.ellipsoid([x - 0.02, y - 0.03, -0.62 - long * 0.6], [0.035, 0.035, 0.045], skin, MATERIAL_PAINT, 8, 6);
+    return m.build();
+}
+
+// --- The Cobra, missiles, fire and rubble --------------------------------------------------------
+
+/**
+ * The Cobra: an armored flying tank. A wedge-nosed hull on four ducted fans, a turret with a
+ * sensor mast, solar panels along its back (they charge its missiles) and a missile pod on each
+ * flank. Model space as the car: +X right, +Y up, -Z forward, skids on y = 0.
+ */
+export function buildCobra(): ModelMesh {
+    const m = new MeshBuilder();
+    const ARMOR: RGB = [0.27, 0.31, 0.24], DARK: RGB = [0.14, 0.15, 0.14], PANEL: RGB = [0.08, 0.12, 0.26];
+    // Skids.
+    for (const x of [-1.2, 1.2]) {
+        m.box([x, 0.08, 0], [0.08, 0.08, 2.1], DARK, MATERIAL_PAINT);
+        for (const z of [-1.2, 1.2]) m.box([x, 0.38, z], [0.07, 0.3, 0.07], DARK, MATERIAL_PAINT);
+    }
+    // The hull: a sloped wedge, wider at the back.
+    m.hexa([
+        [-1.25, 0.65, -2.6], [1.25, 0.65, -2.6], [1.5, 0.6, 2.2], [-1.5, 0.6, 2.2],
+        [-0.9, 1.25, -2.0], [0.9, 1.25, -2.0], [1.3, 1.65, 2.0], [-1.3, 1.65, 2.0],
+    ], ARMOR, MATERIAL_PAINT);
+    m.hexa([
+        [-0.9, 1.25, -2.0], [0.9, 1.25, -2.0], [0.55, 0.85, -3.3], [-0.55, 0.85, -3.3],
+        [-0.85, 1.32, -1.9], [0.85, 1.32, -1.9], [0.5, 0.95, -3.25], [-0.5, 0.95, -3.25],
+    ], ARMOR, MATERIAL_PAINT);
+    // Canopy slit.
+    m.box([0, 1.36, -1.55], [0.7, 0.07, 0.35], [0.1, 0.35, 0.45], MATERIAL_PAINT);
+    // Turret and its cannon, sensor mast.
+    m.ellipsoid([0, 1.85, 0.3], [0.85, 0.32, 1.0], ARMOR, MATERIAL_PAINT, 12, 6);
+    m.box([0, 1.88, -1.1], [0.09, 0.09, 0.9], DARK, MATERIAL_PAINT);
+    m.box([0.45, 2.35, 0.7], [0.04, 0.35, 0.04], DARK, MATERIAL_PAINT);
+    m.box([0.45, 2.72, 0.7], [0.08, 0.05, 0.08], [1, 0.3, 0.2], MATERIAL_GLOW);
+    // Solar panels along the back, glowing faintly.
+    for (const x of [-0.75, 0.75]) {
+        m.box([x, 1.7, 1.45], [0.5, 0.04, 0.55], DARK, MATERIAL_PAINT);
+        m.box([x, 1.745, 1.45], [0.46, 0.012, 0.5], PANEL, MATERIAL_GLOW);
+    }
+    // Missile pods on the flanks, with the noses of the rounds showing.
+    for (const s of [-1, 1]) {
+        m.box([s * 1.95, 1.05, -0.4], [0.3, 0.32, 0.95], DARK, MATERIAL_PAINT);
+        m.box([s * 1.58, 1.05, -0.4], [0.12, 0.08, 0.3], ARMOR, MATERIAL_PAINT);
+        for (const dy of [-0.13, 0.13]) for (const dx of [-0.12, 0.12])
+            m.box([s * 1.95 + dx, 1.05 + dy, -1.36], [0.06, 0.06, 0.02], [1, 0.75, 0.3], MATERIAL_GLOW);
+    }
+    // Four ducted fans on stub wings.
+    for (const x of [-2.3, 2.3]) for (const z of [-1.7, 1.9]) {
+        m.box([x / 2, 0.9, z], [Math.abs(x) / 2, 0.08, 0.14], DARK, MATERIAL_PAINT);
+        m.ellipsoid([x, 0.95, z], [0.85, 0.16, 0.85], ARMOR, MATERIAL_PAINT, 16, 4);
+        m.ellipsoid([x, 1.08, z], [0.72, 0.02, 0.72], [0.4, 0.45, 0.42], MATERIAL_PAINT, 16, 4);
+        m.box([x, 0.76, z], [0.14, 0.04, 0.14], [1, 0.55, 0.15], MATERIAL_GLOW);
+    }
+    // The regime's pale insignia on the flanks.
+    for (const s of [-1, 1]) m.box([s * 1.42, 1.15, 0.9], [0.02, 0.18, 0.18], [0.85, 0.82, 0.7], MATERIAL_PAINT);
+    return m.build();
+}
+
+/** A solar missile: a pale body along -Z with a glowing nose and exhaust (1.4 m). */
+export function buildMissile(): ModelMesh {
+    const m = new MeshBuilder();
+    m.box([0, 0, 0], [0.09, 0.09, 0.6], [0.8, 0.8, 0.75], MATERIAL_PAINT);
+    m.box([0, 0, -0.66], [0.06, 0.06, 0.08], [1, 0.85, 0.4], MATERIAL_GLOW);
+    for (const [x, y] of [[0.15, 0], [-0.15, 0], [0, 0.15], [0, -0.15]]) m.box([x, y, 0.45], [Math.abs(x) * 0.4 + 0.01, Math.abs(y) * 0.4 + 0.01, 0.12], [0.3, 0.3, 0.3], MATERIAL_PAINT);
+    m.ellipsoid([0, 0, 0.95], [0.12, 0.12, 0.4], [1, 0.7, 0.25], MATERIAL_GLOW, 8, 6);
+    return m.build();
+}
+
+/** Pushes every vertex out along its direction from `center` by a smooth lump (0..amount). */
+function lumpy(m: MeshBuilder, center: Vec3, amount: number, seed: number): void {
+    const v = m.vertexData;
+    for (let i = 0; i < v.length; i += 12) {
+        const x = v[i] - center[0], y = v[i + 1] - center[1], z = v[i + 2] - center[2];
+        const l = Math.hypot(x, y, z) || 1;
+        const k = 1 + amount * (0.5 + 0.5 * Math.sin(x / l * 3.1 + seed) * Math.sin(y / l * 2.7 + seed * 1.3) * Math.sin(z / l * 3.4 + seed * 0.7));
+        v[i] = center[0] + x * k; v[i + 1] = center[1] + y * k; v[i + 2] = center[2] + z * k;
+    }
+}
+
+/** A fireball / flame puff (unit radius): white-hot heart, orange edge (the shader tints it). */
+export function buildFireball(): ModelMesh {
+    const m = new MeshBuilder();
+    m.ellipsoid([0, 0, 0], [1, 1, 1], [1, 0.92, 0.75], MAT_FIRE, 12, 8);
+    // Darker at the bottom rim (cooler, more smoke).
+    const v = m.vertexData;
+    for (let i = 0; i < v.length; i += 12) { const t = 0.75 + 0.25 * v[i + 1]; v[i + 9] *= t; v[i + 10] *= t * t; }
+    lumpy(m, [0, 0, 0], 0.35, 1.7);
+    return m.build();
+}
+
+/** A flame tongue (unit height, rising from y = 0, narrowing to a tip). */
+export function buildFlame(): ModelMesh {
+    const m = new MeshBuilder();
+    m.ellipsoid([0, 0.45, 0], [0.38, 0.6, 0.38], [1, 0.85, 0.55], MAT_FIRE, 10, 8);
+    const v = m.vertexData;
+    for (let i = 0; i < v.length; i += 12) {
+        const t = Math.max(0, Math.min(1, v[i + 1]));
+        v[i] *= 1 - t * 0.75; v[i + 2] *= 1 - t * 0.75;
+        v[i + 10] *= 1 - t * 0.5; v[i + 11] = 1;
+    }
+    return m.build();
+}
+
+/** A puff of smoke or dust (unit radius), colored by the instance tint. */
+export function buildSmoke(): ModelMesh {
+    const m = new MeshBuilder();
+    m.ellipsoid([0, 0, 0], [1, 0.85, 1], [1, 1, 1], MAT_SMOKE, 12, 8);
+    lumpy(m, [0, 0, 0], 0.45, 0.4);
+    return m.build();
+}
+
+/** A spark or burning bit: a small glowing box (scaled per particle). */
+export function buildSpark(): ModelMesh {
+    return new MeshBuilder().box([0, 0, 0], [1, 1, 1], [1, 0.9, 0.6], MAT_FIRE).build();
+}
+
+/**
+ * A broken building piece: a unit box (stretched to the piece's size by its record) in the house
+ * material with the city surface `kind` (brick, render...; al_destruction.ts), plus a raw broken
+ * edge in bare concrete on one side.
+ */
+export function buildChunk(kind: number): ModelMesh {
+    const m = new MeshBuilder();
+    const first = m.vertexData.length / 12;
+    m.box([0, 0, 0], [0.5, 0.5, 0.5], [0.78, 0.76, 0.72], MATERIAL_HOUSE);
+    for (let v = first; v < m.vertexData.length / 12; v++) m.vertexData[v * 12 + 7] = kind + 0.5;
+    return m.build();
+}
+
+/** A scorch mark: a ragged dark disc (unit radius) lying just above the ground. */
+export function buildScorch(): ModelMesh {
+    const m = new MeshBuilder();
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+        const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2;
+        const r0 = 0.75 + 0.25 * Math.sin(i * 2.3), r1 = 0.75 + 0.25 * Math.sin((i + 1) * 2.3);
+        m.hexa([[0, 0.04, 0], [Math.cos(a0) * r0, 0.04, Math.sin(a0) * r0], [Math.cos(a1) * r1, 0.04, Math.sin(a1) * r1], [0, 0.04, 0],
+            [0, 0.07, 0], [Math.cos(a0) * r0, 0.05, Math.sin(a0) * r0], [Math.cos(a1) * r1, 0.05, Math.sin(a1) * r1], [0, 0.07, 0]], [0.05, 0.045, 0.04], MATERIAL_PAINT);
+    }
     return m.build();
 }

@@ -95,6 +95,8 @@ export interface CompoundState {
     captured: boolean;
     /** Moved onto clear ground the first time the street map covered it. */
     sited: boolean;
+    /** Its Cobra (al_cobra.ts) has been flown away from the courtyard. */
+    cobraTaken?: boolean;
 }
 
 export type MissionStep = "assemble" | "approach" | "assault" | "raise" | "done";
@@ -149,6 +151,8 @@ export interface Campaign {
         lat: number;
         lon: number;
         flyingCar?: { lat: number; lon: number; yaw: number; altitude?: number; piloting?: boolean };
+        /** The Cobra you commandeered (al_cobra.ts): where it stands, its hull and the compound it came from. */
+        cobra?: { home: string; lat: number; lon: number; yaw: number; altitude: number; piloting: boolean; hull: number } | null;
         /** Consumables and salvage (al_items.ts). */
         inventory?: Record<string, number>;
         /** Garage upgrade tiers bought for the flying car (al_vehicle.ts CAR_UPGRADES). */
@@ -173,6 +177,8 @@ export interface Campaign {
     looted?: string[];
     /** Military compounds by id (created as settlements come near). */
     compounds?: Record<string, CompoundState>;
+    /** Buildings blown down (al_destruction.ts), by building key, with the day they fell. */
+    ruins?: Record<string, number>;
     /** The guided opening (al_mission.ts); null once done or for old saves. */
     mission?: MissionState | null;
     /** The last safe place you stood (autosaved): where you come back after falling in battle. */
@@ -185,6 +191,8 @@ export function migrateCampaign(c: Campaign): Campaign {
     c.player.carUpgrades ??= {};
     c.looted ??= [];
     c.compounds ??= {};
+    c.ruins ??= {};
+    c.player.cobra ??= null;
     c.mission ??= null;
     c.checkpoint ??= null;
     c.party.hqSite ??= null;

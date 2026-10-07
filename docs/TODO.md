@@ -2,9 +2,9 @@
 
 Priority TODOs:
 
-- [ ] The Flying Tank called The Cobra which shoots solar missiles, you can find one in each military outpost for now
-- [ ] Destructable enviornment
-- [ ] Fire and explosions
+- [x] The Flying Tank called The Cobra which shoots solar missiles, you can find one in each military outpost for now
+- [x] Destructable enviornment
+- [x] Fire and explosions
 
 Secondary TODOs:
 

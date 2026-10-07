@@ -300,6 +300,9 @@ export class CityHouses {
     private foreground = new Set<string>();
     /** The last background failure, for the stats. */
     lastBackgroundError: string | null = null;
+    /** Buildings (by key) that are not drawn at all (destroyed in a game): their boxes fold away
+     * with the others inside the hide radius, since they never count as waiting to be drawn. */
+    private excluded: ReadonlySet<string> = new Set();
 
     constructor(private engine: CityEngine, options: Partial<CityOptions> = {}, readonly model: CityModel = HOUSE_MODEL) {
         this.options = { ...DEFAULT_CITY_OPTIONS, ...options };
@@ -328,6 +331,17 @@ export class CityHouses {
     }
 
     private meshKey(v: Variant, lod: 0 | 1) { return `${v.key}|lod${lod}`; }
+
+    /** Stops drawing the buildings in `keys` (and draws again any no longer in it). */
+    setExcluded(keys: ReadonlySet<string>): void {
+        const changed = keys.size !== this.excluded.size || [...keys].some(k => !this.excluded.has(k));
+        if (!changed) return;
+        this.excluded = new Set(keys);
+        for (const key of [...this.shown.keys()]) if (this.excluded.has(key)) this.remove(key);
+        // Query the placements again on the next update.
+        this.queryCenter = null;
+        this.settled = false;
+    }
 
     /** Refreshes what the cache says about a variant's LOD (cheap once it is ready). */
     private ready(v: Variant, lod: 0 | 1): boolean {
@@ -464,7 +478,7 @@ export class CityHouses {
         if (!this.queryCenter || cityVersion !== this.queryVersion || distance(camera, this.queryCenter) > 30) {
             requeried = true;
             const limit = 4000;
-            this.candidates = this.engine.buildings(camera, queryRadius, limit).filter(b => b.kind === this.model.kind && this.model.values(b, this.options.sizeStep) !== null);
+            this.candidates = this.engine.buildings(camera, queryRadius, limit).filter(b => b.kind === this.model.kind && !this.excluded.has(b.key) && this.model.values(b, this.options.sizeStep) !== null);
             this.queryCenter = camera;
             this.queryVersion = cityVersion;
             // A truncated list only covers out to its farthest building.

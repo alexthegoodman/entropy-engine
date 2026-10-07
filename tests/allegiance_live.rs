@@ -423,3 +423,45 @@ fn allegiance_materials_live_feature() {
     assert_eq!(artifacts.len(), 2);
     println!("Allegiance materials live BDD: {}", root.display());
 }
+
+#[test]
+fn allegiance_destruction_live_feature() {
+    let (result, artifacts, root) = run("destruction", Some("tests/features/allegiance_destruction_live.feature"));
+    let s = states(&result);
+    assert_eq!(s.len(), 7, "{result:#}");
+    // A Cobra in the outpost's courtyard, within reach; then aboard and airborne.
+    assert!(!s[0]["parkedCobras"].as_array().unwrap().is_empty(), "{:#}", s[0]["parkedCobras"]);
+    assert_eq!(s[1]["cobra"]["piloting"], true, "{:#}", s[1]["toasts"]);
+    assert!(f(&s[1]["cobra"]["altitude"]) > 8.0, "{:#}", s[1]["cobra"]);
+    assert!(s[1]["car"].is_null() || s[1]["car"].is_object());
+    // Real missiles from the pods: they exploded, and outpost buildings broke apart into pieces.
+    let fire = result["tools"].as_array().unwrap().iter().map(|t| &t["result"]).filter(|r| !r["fired"].is_null()).cloned().collect::<Vec<_>>();
+    assert_eq!(fire.len(), 2, "{fire:#?}");
+    assert!(fire[0]["fired"].as_i64().unwrap() >= 5 && fire[0]["exploded"].as_i64().unwrap() >= 5, "{:#}", fire[0]);
+    assert!(fire[0]["collapsed"].as_i64().unwrap() >= 1, "an outpost building should fall: {:#}", fire[0]);
+    let blast = &s[2]["fx"];
+    assert!(f(&blast["particles"]) > 20.0 && f(&blast["fires"]) >= 1.0, "{blast:#}");
+    assert!(f(&blast["falling"]) > 20.0, "pieces in the air: {blast:#}");
+    assert!(f(&s[2]["fx"]["ruinsHere"]) >= 1.0, "{blast:#}");
+    // Settled: every piece at rest as rubble.
+    let rubble = &s[4]["fx"];
+    assert_eq!(f(&rubble["falling"]), 0.0, "{rubble:#}");
+    assert!(f(&rubble["pieces"]) > 40.0, "{rubble:#}");
+    // A map house (or block) came down too, and its model is no longer drawn.
+    if s[0]["terrain"]["city"]["buildings"].as_u64().unwrap_or(0) > 0 {
+        assert!(fire[1]["collapsed"].as_i64().unwrap() >= 1, "a map building should fall: {:#}", fire[1]);
+    }
+    // The ruins came back as rubble after save and continue.
+    let back = &s[6];
+    assert_eq!(back["mode"], "play");
+    assert!(f(&back["fx"]["ruins"]) >= f(&rubble["ruins"]), "{:#}", back["fx"]);
+    assert!(f(&back["fx"]["ruinsHere"]) >= 1.0 && f(&back["fx"]["pieces"]) > 40.0, "{:#}", back["fx"]);
+    // The blast reached the screen: hot, bright pixels in the middle of the frame.
+    let shot = find(&artifacts, "cobra-blast");
+    let fiery = |p: Rgb| p[0] > 200 && p[1] > 90 && (p[2] as i32) < (p[1] as i32) - 20;
+    let hot = share(&shot, (0.15, 0.1, 0.85, 0.9), &fiery);
+    println!("fiery share of the blast frame: {hot:.4}");
+    assert!(hot > 0.002, "no fire on screen");
+    assert_eq!(artifacts.len(), 6);
+    println!("Allegiance destruction live BDD: {}", root.display());
+}

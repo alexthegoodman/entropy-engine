@@ -206,6 +206,25 @@ describe("streaming houses", () => {
         expect(f.log.puts.length).toBeGreaterThan(0);
     });
 
+    it("stops drawing excluded (destroyed) houses, without holding back the hide radius", () => {
+        const f = fakeEngine(street);
+        const city = new CityHouses(f.engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300 });
+        for (let frame = 0; frame < 6; frame++) { city.update(camera, [0, 0, 0], 1, Infinity); f.land(); }
+        city.update(camera, [0, 0, 0], 1, Infinity);
+        expect(f.at(20, 15)).toBeDefined();
+        const before = city.hideRadius;
+        city.setExcluded(new Set(["h1"]));
+        const hide = city.update(camera, [0, 0, 0], 1, Infinity);
+        expect(f.at(20, 15)).toBeUndefined();
+        expect(f.drawn().length).toBe(street.filter(b => Math.hypot(b.anchor[0], b.anchor[2]) < 300).length - 1);
+        // Its box folds away with the rest: the destroyed house is not one still waiting to be drawn.
+        expect(hide).toBeCloseTo(before, 1);
+        // Rebuilt: drawn again.
+        city.setExcluded(new Set());
+        city.update(camera, [0, 0, 0], 1, Infinity);
+        expect(f.at(20, 15)).toBeDefined();
+    });
+
     it("swaps LODs as the camera moves and moves houses with the render origin", () => {
         const f = fakeEngine(street);
         const city = new CityHouses(f.engine, { lod0Radius: 45, maxLod0: 3, lod1Radius: 300 });
