@@ -626,9 +626,9 @@ for the procedural/cached comparison and the live 5% budget check.
 **Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md),
 [future model roadmap](docs/MESHA_FUTURE_MODELS.md)) is a
 library of procedural objects: an office chair, table, cabinets and chests of drawers, dining chairs, stools and benches, sofas, beds, bookshelves filled with books, crates and cartons, plates, bowls and trays, fences and gates, stairs and ramps, street lights, bollards and signs, pipework with valves, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted
-interior behind see-through glazing, gear, bolt and rocks, each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
+interior behind see-through glazing, gear, bolt and rocks, and a post-apocalyptic kit (a five-storey Rust Dome, wrecked cars, shipping containers, utility poles, barrels, ruined walls and wasteland ground), each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
 meaningful controls, press **Variation** for another sensible design (lock what you want kept),
-compose several into a scene and export ordinary GLB geometry. `npm run test:mesha` and
+compose several into a scene and export ordinary GLB geometry. **Procedural scenes** are configurable too: *The Road to the Dome* builds a whole wasteland level of editable objects from a few controls (decay, size, mood, how tall the dome is). `npm run test:mesha` and
 `npm run mesha:verify` (the parameter fuzzer and contact sheets) run without a window;
 `cargo test --release --test mesha_live -- --nocapture` drives the real one.
 

@@ -18,6 +18,13 @@ export interface RasterOptions {
     /** Supersampling factor per axis. */
     ss?: number;
     background?: [number, number, number];
+    /** An explicit camera (a scene walk-through) instead of framing the whole mesh from yaw and pitch. */
+    eye?: Vec3;
+    target?: Vec3;
+    /** Aerial haze: sRGB color and density per metre; the sky behind takes the haze color too. */
+    haze?: { color: [number, number, number]; density: number };
+    /** Multiplies lit (not self-lit) surfaces: a mood's light color. */
+    grade?: [number, number, number];
 }
 
 export interface Image { width: number; height: number; data: Uint8Array }
@@ -166,8 +173,8 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
     const yaw = ((options.yaw ?? 35) * Math.PI) / 180, pitch = ((options.pitch ?? 22) * Math.PI) / 180;
     const fov = ((options.fov ?? 32) * Math.PI) / 180;
     const dist = (radius / Math.sin(fov / 2)) * 1.02;
-    const eye: Vec3 = [center[0] + Math.sin(yaw) * Math.cos(pitch) * dist, center[1] + Math.sin(pitch) * dist, center[2] + Math.cos(yaw) * Math.cos(pitch) * dist];
-    const fwd = normalize3(sub3(center, eye));
+    const eye: Vec3 = options.eye ?? [center[0] + Math.sin(yaw) * Math.cos(pitch) * dist, center[1] + Math.sin(pitch) * dist, center[2] + Math.cos(yaw) * Math.cos(pitch) * dist];
+    const fwd = normalize3(sub3(options.target ?? center, eye));
     const right = normalize3(cross3(fwd, [0, 1, 0]));
     const up = cross3(right, fwd);
     const focal = 1 / Math.tan(fov / 2);
@@ -184,6 +191,9 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
     // Background: studio floor and backdrop, with a soft contact shadow from a top-down occupancy map.
     const shadow = contactShadow(mesh, b, 48);
     const bg = options.background;
+    const haze = options.haze;
+    const hazeLin: Vec3 = haze ? [srgbToLinear(haze.color[0]), srgbToLinear(haze.color[1]), srgbToLinear(haze.color[2])] : [0, 0, 0];
+    const grade = options.grade ?? [1, 1, 1];
     for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
             const ndcX = ((x + 0.5) / W - 0.5) * 2 * aspect / focal, ndcY = (0.5 - (y + 0.5) / H) * 2 / focal;
@@ -202,6 +212,7 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                 const g = 0.3 + 0.08 * (1 - Math.min(1, dir[1] * 2));
                 c = [g, g * 1.005, g * 1.02];
             }
+            if (haze) c = hazeLin;
             const o = (y * W + x) * 3;
             color[o] = c[0]; color[o + 1] = c[1]; color[o + 2] = c[2];
         }
@@ -273,6 +284,11 @@ export function render(mesh: Mesh, materials: Record<string, MaterialPreset>, op
                     const wpm = worldPatterned(t.mat, n, wp);
                     col = shade(wpm.mat, wpm.n, view, occ);
                 } else col = shade(t.mat, n, view, occ);
+                if (t.mat.pattern !== "glow") col = [col[0] * grade[0], col[1] * grade[1], col[2] * grade[2]];
+                if (haze) {
+                    const e = Math.exp(-z * haze.density);
+                    col = [col[0] * e + hazeLin[0] * (1 - e), col[1] * e + hazeLin[1] * (1 - e), col[2] * e + hazeLin[2] * (1 - e)];
+                }
                 const o = idx * 3;
                 color[o] = col[0]; color[o + 1] = col[1]; color[o + 2] = col[2];
             }

@@ -80,6 +80,13 @@ export interface ObjectDef {
     component?: boolean;
 }
 
+/**
+ * The parameter half of a definition: what clamping, visibility, rules and Variation need. An
+ * ObjectDef is one; so is a procedural scene (mesha_scene_def.ts), which places objects instead of
+ * building geometry.
+ */
+export type ParamSpace = Pick<ObjectDef, "id" | "groups" | "params" | "derived" | "rules">;
+
 export interface Evaluation {
     mesh: Mesh;
     params: ParamValues;
@@ -95,7 +102,7 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
 
 // --- Parameters ----------------------------------------------------------------------------------
 
-export function defaultValues(def: ObjectDef): ParamValues {
+export function defaultValues(def: ParamSpace): ParamValues {
     return Object.fromEntries(def.params.map(p => [p.id, p.default]));
 }
 
@@ -106,7 +113,7 @@ export function materialChoices(p: ParamDef): string[] {
     return [...new Set(out)];
 }
 
-function paramScope(def: ObjectDef, values: ParamValues): Scope {
+export function paramScope(def: ParamSpace, values: ParamValues): Scope {
     const derivedCache = new Map<string, Value>();
     const busy = new Set<string>();
     const scope: Scope = name => {
@@ -134,7 +141,7 @@ export function paramRange(p: ParamDef, scope: Scope): [number, number] {
 }
 
 /** UI bounds for current resolved values, including the object's derived dimensions. */
-export function objectParamRange(def: ObjectDef, p: ParamDef, values: ParamValues): [number, number] {
+export function objectParamRange(def: ParamSpace, p: ParamDef, values: ParamValues): [number, number] {
     return paramRange(p, paramScope(def, values));
 }
 
@@ -143,7 +150,7 @@ export function objectParamRange(def: ObjectDef, p: ParamDef, values: ParamValue
  * Ranges that depend on other parameters are applied in declaration order, so a later parameter
  * clamps against the already-clamped earlier ones.
  */
-export function resolveParams(def: ObjectDef, values: ParamValues = {}): ParamValues {
+export function resolveParams(def: ParamSpace, values: ParamValues = {}): ParamValues {
     const out: ParamValues = {};
     for (const p of def.params) out[p.id] = values[p.id] ?? p.default;
     // Ranges can depend on other parameters, declared before or after. Clamp everything to its
@@ -158,7 +165,7 @@ export function resolveParams(def: ObjectDef, values: ParamValues = {}): ParamVa
     return out;
 }
 
-function clampPass(def: ObjectDef, out: ParamValues, staticOnly = false): void {
+function clampPass(def: ParamSpace, out: ParamValues, staticOnly = false): void {
     const scope = paramScope(def, out);
     for (const p of def.params) {
         const v = out[p.id];
@@ -190,16 +197,16 @@ function clampPass(def: ObjectDef, out: ParamValues, staticOnly = false): void {
 }
 
 /** An "=expression" of `def`'s parameters and derived values at `values` (clamped first): what a node would see. */
-export function evaluateExpression(def: ObjectDef, values: ParamValues, expression: string): Value {
+export function evaluateExpression(def: ParamSpace, values: ParamValues, expression: string): Value {
     return evaluate(expression, paramScope(def, resolveParams(def, values)));
 }
 
-export function isParamVisible(def: ObjectDef, p: ParamDef, values: ParamValues): boolean {
+export function isParamVisible(def: ParamSpace, p: ParamDef, values: ParamValues): boolean {
     if (!p.visibleIf) return true;
     try { return truthy(evaluate(p.visibleIf, paramScope(def, values))); } catch { return true; }
 }
 
-export function ruleViolations(def: ObjectDef, values: ParamValues): string[] {
+export function ruleViolations(def: ParamSpace, values: ParamValues): string[] {
     const scope = paramScope(def, values);
     const out: string[] = [];
     for (const r of def.rules ?? []) {

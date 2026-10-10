@@ -9,7 +9,9 @@
 
 import { identity4, type Vec3, type Bounds } from "./mesha_mesh";
 import { sphere } from "./mesha_primitives";
-import { type ObjectDef, type ParamDef, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, objectParamRange, materialChoices, ruleViolations } from "./mesha_object";
+import { type ObjectDef, type ParamDef, type ParamSpace, type ParamValues, type Evaluation, defaultValues, resolveParams, isParamVisible, objectParamRange, materialChoices, ruleViolations } from "./mesha_object";
+import { type SceneDef, evaluateScene, mergeScene } from "./mesha_scene_def";
+import { SCENES, lookupScene } from "./scenes";
 import { MATERIAL_BY_ID } from "./mesha_materials";
 import { lookupObject, LIBRARY } from "./library";
 import { type Instance, type BakedInstance, EvaluationCache, bakeInstance, instanceMatrix, instanceRotation, searchLibrary, packVertices, materialTexture } from "./mesha_scene";
@@ -33,8 +35,9 @@ const Icons = Entropy.Icons;
 const ACCENT: [number, number, number, number] = [0.96, 0.66, 0.38, 1];
 const DIM: [number, number, number, number] = [0.66, 0.68, 0.72, 1];
 const WARN: [number, number, number, number] = [0.98, 0.72, 0.42, 1];
+const SCENE_ICON: IconName = "map-trifold";
 const CATEGORY_ICONS: Record<string, IconName> = { People: "person", Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning", Street: "traffic-sign" };
-const OBJECT_ICONS: Record<string, IconName> = { "people.human": "person", "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house", "furniture.cabinet": "archive", "furniture.chair": "chair", "furniture.shelving": "books", "furniture.sofa": "couch", "furniture.bed": "bed", "household.book": "book", "household.crate": "package", "household.dish": "bowl-food", "architecture.fence": "wall", "architecture.stair": "stairs", "street.streetlight": "lamp", "mechanical.pipe": "pipe" };
+const OBJECT_ICONS: Record<string, IconName> = { "people.human": "person", "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house", "furniture.cabinet": "archive", "furniture.chair": "chair", "furniture.shelving": "books", "furniture.sofa": "couch", "furniture.bed": "bed", "household.book": "book", "household.crate": "package", "household.dish": "bowl-food", "architecture.fence": "wall", "architecture.stair": "stairs", "street.streetlight": "lamp", "mechanical.pipe": "pipe", "architecture.rust_dome": "globe", "transport.wreck_car": "car-simple", "transport.container": "shipping-container", "street.utility_pole": "broadcast", "street.barrel": "cylinder", "architecture.ruin": "wall", "street.wasteland_ground": "road-horizon" };
 
 // --- Scene state ---------------------------------------------------------------------------------
 
@@ -43,9 +46,13 @@ interface SceneState {
     selectedId: string | null;
     /** Locked parameter ids / "group:<id>" per instance. */
     locks: Record<string, string[]>;
+    /** The procedural scene that placed (some of) the instances, with its own settings and locks. */
+    generator?: { sceneId: string; values: ParamValues; locks: string[] } | null;
 }
 
-let scene: SceneState = { instances: [], selectedId: null, locks: {} };
+let scene: SceneState = { instances: [], selectedId: null, locks: {}, generator: null };
+/** A scene setting changed during a drag: regenerate once the pointer is released. */
+let sceneDirty = false;
 const cache = new EvaluationCache(lookupObject);
 
 /** A simulated part (hair, cloth) of a placed object, writing its vertices into one GPU mesh. */
@@ -151,7 +158,8 @@ function loadSession(): boolean {
     try {
         const data = JSON.parse(text);
         const instances = (data.scene?.instances ?? []).filter((i: Instance) => lookupObject(i.objectId));
-        scene = { instances, selectedId: data.scene?.selectedId ?? null, locks: data.scene?.locks ?? {} };
+        const generator = data.scene?.generator && lookupScene(data.scene.generator.sceneId) ? data.scene.generator : null;
+        scene = { instances, selectedId: data.scene?.selectedId ?? null, locks: data.scene?.locks ?? {}, generator };
         if (typeof data.variationAmount === "number") variationAmount = data.variationAmount;
         if (typeof data.zoomStrength === "number" && Number.isFinite(data.zoomStrength)) zoomStrength = Math.max(0.1, Math.min(3, data.zoomStrength));
         const s = STUDIO_PRESETS.findIndex(p => p.id === data.studio);
@@ -308,7 +316,8 @@ function refreshHighlights(): void {
 /** The floor: a disc of vertices whose color carries every object's soft contact shadow. */
 function rebuildGround(): void {
     const RES = 140, SIZE = 60;
-    const maps = [...live.values()].filter(l => l.bounds).map(l => {
+    // A procedural level brings its own ground over the floor: no contact shadows to draw.
+    const maps = (scene.generator ? [] : [...live.values()]).filter(l => l.bounds).map(l => {
         const mesh = { parts: l.baked.meshes.map(m => ({ region: m.region, positions: m.positions, normals: m.normals, uvs: m.uvs, indices: m.indices })) };
         return contactShadowMap(mesh, l.bounds!, 64);
     });
@@ -480,6 +489,7 @@ function syncGizmo(): void {
             beginEdit("Move");
             // Objects stand on the floor: drags slide them across it.
             i.position = [i.position[0] + delta[0], Math.max(0, i.position[1] + delta[1]), i.position[2] + delta[2]];
+            if (i.source) i.source.placed = true;
             gizmoWasActive = true;
             updateTransform(i);
             syncGizmo();
@@ -489,6 +499,7 @@ function syncGizmo(): void {
             if (!i) return;
             beginEdit("Rotate");
             i.rotation = rotation;
+            if (i.source) i.source.placed = true;
             gizmoWasActive = true;
             updateTransform(i);
             syncGizmo();
@@ -537,7 +548,7 @@ addon.Input.onKeyDown((key, ctrl, shift) => {
     if (ctrl && k === "z") { if (shift) redo(); else undo(); return; }
     if (ctrl && k === "y") { redo(); return; }
     if (ctrl && k === "d") { duplicateSelected(); return; }
-    if (k === "v") { runVariation(); return; }
+    if (k === "v") { if (!selected() && scene.generator) varyScene(); else runVariation(); return; }
     if (k === "f") { frame(true); return; }
     if (k === "delete" || k === "backspace") { removeSelected(); return; }
 });
@@ -606,6 +617,7 @@ function setParam(inst: Instance, id: string, value: number | boolean | string):
     const def = defOf(inst);
     beginEdit(`Change ${def.params.find(p => p.id === id)?.label ?? id}`);
     inst.values = resolveParams(def, { ...inst.values, [id]: value });
+    markOverride(inst, [id]);
     dirty.add(inst.id);
     groundDirty = true;
     lastVariation = [];
@@ -618,6 +630,7 @@ function runVariation(): void {
     beginEdit("Variation");
     const result = vary(def, inst.values, { amount: variationAmount, locked: locksOf(inst), seed: (variationSeed++ * 7919) ^ inst.id.length });
     inst.values = result.values;
+    markOverride(inst, result.changed);
     lastVariation = result.changed;
     dirty.add(inst.id);
     groundDirty = true;
@@ -639,10 +652,99 @@ function applyPreset(inst: Instance, values: ParamValues, name: string): void {
     const def = defOf(inst);
     beginEdit(`Preset ${name}`);
     inst.values = resolveParams(def, { ...defaultValues(def), ...values, seed: inst.values.seed });
+    markOverride(inst, def.params.map(p => p.id));
     dirty.add(inst.id);
     groundDirty = true;
     commitEdit();
     statusMessage = `Applied "${name}".`;
+}
+
+// --- Procedural scenes ---------------------------------------------------------------------------
+
+const sceneDefOf = (): SceneDef | undefined => (scene.generator ? lookupScene(scene.generator.sceneId) : undefined);
+
+/** A generated instance's changed parameters survive regenerating its scene. */
+function markOverride(inst: Instance, ids: string[]): void {
+    if (!inst.source || !ids.length) return;
+    inst.source.overrides = [...new Set([...(inst.source.overrides ?? []), ...ids])];
+}
+
+/**
+ * Places `sceneId`'s objects for `values`. `fresh` replaces the whole scene; otherwise the scene's
+ * own instances are updated in place by placement key (keeping the user's overrides and moves),
+ * new placements are added, vanished ones removed, and objects the user added themselves stay.
+ */
+function generateScene(sceneId: string, values: ParamValues, fresh: boolean): { placed: number; violations: string[] } {
+    const def = lookupScene(sceneId);
+    if (!def) throw new Error(`No scene "${sceneId}"`);
+    const result = evaluateScene(def, values, lookupObject);
+    if (fresh) {
+        for (const i of scene.instances) removeLive(i.id);
+        scene.instances = [];
+        scene.locks = {};
+        scene.selectedId = null;
+        if (gizmoId) { Entropy.Gizmo.hide(gizmoId); gizmoId = null; }
+    }
+    const previous = scene.generator;
+    scene.generator = { sceneId, values: result.params, locks: previous?.sceneId === sceneId ? previous.locks : [] };
+    const merge = mergeScene(scene.instances, sceneId, result.placements, lookupObject, () => Entropy.generateUUID());
+    for (const id of merge.removed) { delete scene.locks[id]; removeLive(id); if (scene.selectedId === id) select(null); }
+    scene.instances = merge.instances;
+    for (const id of merge.changed) { scene.locks[id] ??= []; dirty.add(id); }
+    if (result.lighting) {
+        const s = STUDIO_PRESETS.findIndex(x => x.id === result.lighting);
+        if (s >= 0 && s !== studioIndex) { studioIndex = s; applyStudio(); }
+    }
+    groundDirty = true;
+    return { placed: result.placements.length, violations: result.violations };
+}
+
+function buildScene(sceneId: string, values: ParamValues = {}): void {
+    const def = lookupScene(sceneId);
+    if (!def) return;
+    beginEdit(`Build ${def.name}`);
+    const r = generateScene(sceneId, values, true);
+    commitEdit();
+    pendingFrame = 3; pendingFrameAll = true;
+    statusMessage = `Built ${def.name}: ${r.placed} objects. Shape the whole scene here, or select any piece to change it alone.`;
+}
+
+function setSceneParam(id: string, value: number | boolean | string): void {
+    const def = sceneDefOf();
+    if (!def || !scene.generator) return;
+    beginEdit(`Scene ${def.params.find(p => p.id === id)?.label ?? id}`);
+    scene.generator.values = resolveParams(def, { ...scene.generator.values, [id]: value });
+    sceneDirty = true;
+    lastVariation = [];
+}
+
+function regenerateScene(): void {
+    sceneDirty = false;
+    if (!scene.generator) return;
+    try {
+        const r = generateScene(scene.generator.sceneId, scene.generator.values, false);
+        statusMessage = r.violations.length ? r.violations[0] : `Scene rebuilt: ${r.placed} objects.`;
+    } catch (e) { statusMessage = (e as Error).message; }
+}
+
+function varyScene(): void {
+    const def = sceneDefOf();
+    if (!def || !scene.generator) return;
+    beginEdit("Scene variation");
+    const result = vary(def, scene.generator.values, { amount: variationAmount, locked: new Set(scene.generator.locks), seed: variationSeed++ * 7919 });
+    scene.generator.values = result.values;
+    lastVariation = result.changed;
+    regenerateScene();
+    commitEdit();
+}
+
+function toggleSceneLock(key: string): void {
+    if (!scene.generator) return;
+    beginEdit("Lock");
+    const locks = new Set(scene.generator.locks);
+    if (locks.has(key)) locks.delete(key); else locks.add(key);
+    scene.generator.locks = [...locks];
+    commitEdit();
 }
 
 function exportScene(path?: string): { success: boolean; path: string | null; error: string | null; meshes: number; triangles: number } {
@@ -697,6 +799,26 @@ function renderToolbar(): void {
 
 function renderLibrary(): void {
     const id = libraryWindow;
+    W.label(id, { text: "Scenes", bold: true, fontSize: 15 });
+    for (const def of SCENES) {
+        const active = scene.generator?.sceneId === def.id;
+        W.card(id, { id: `mesha-scene-card-${def.id}`, padding: 8, radius: 10 }, () => {
+            W.horizontal(id, () => {
+                W.label(id, { text: Icons.get(SCENE_ICON), fontSize: 22, color: ACCENT });
+                W.vertical(id, () => {
+                    W.label(id, { text: def.name, bold: true });
+                    W.label(id, { text: `Scene · ${def.params.length} controls`, color: DIM });
+                });
+            });
+            if (def.description) W.label(id, { text: def.description, color: DIM, wrap: true });
+            W.horizontal(id, () => {
+                W.button(id, { id: `mesha-build-${def.id}`, text: Icons.label("plus", active ? "Rebuild" : "Build"), tooltip: "Replace the scene with this one", onClick: () => buildScene(def.id, active ? scene.generator!.values : {}), minWidth: 80 });
+                if (active) W.button(id, { id: `mesha-scene-settings-${def.id}`, text: Icons.label("sliders", "Settings"), tooltip: "The whole scene's controls", onClick: () => { beginEdit("Select"); select(null); commitEdit(); } });
+            });
+        });
+    }
+    W.spacer(id, 6);
+    W.separator(id);
     W.label(id, { text: "Add object", bold: true, fontSize: 15 });
     W.textInput(id, { id: "mesha-search", label: Icons.get("magnifying-glass"), value: libraryQuery, onChange: v => { libraryQuery = v; } });
     const categories = ["All", ...new Set(searchLibrary("").map(d => d.category))];
@@ -734,54 +856,120 @@ function renderLibrary(): void {
     }
 }
 
-function lockButton(inst: Instance, key: string, label: string): void {
-    const locked = locksOf(inst).has(key);
-    W.button(propsWindow, { id: `mesha-lock-${key}`, text: Icons.get(locked ? "lock-simple" : "lock-simple-open"), frame: false, selected: locked, color: locked ? ACCENT : DIM, tooltip: locked ? `${label} is locked: Variation leaves it alone` : `Lock ${label} so Variation leaves it alone` , onClick: () => toggleLock(inst, key) });
+/** What a parameter control edits: an instance's values, or the procedural scene's settings. */
+interface ControlTarget { values: ParamValues; locks: Set<string>; set: (id: string, v: number | boolean | string) => void; toggleLock: (key: string) => void; prefix: string }
+
+const instanceTarget = (inst: Instance): ControlTarget => ({ values: inst.values, locks: locksOf(inst), set: (k, v) => setParam(inst, k, v), toggleLock: key => toggleLock(inst, key), prefix: "mesha-p-" });
+
+function lockButton(target: ControlTarget, key: string, label: string): void {
+    const locked = target.locks.has(key);
+    W.button(propsWindow, { id: `${target.prefix}lock-${key}`, text: Icons.get(locked ? "lock-simple" : "lock-simple-open"), frame: false, selected: locked, color: locked ? ACCENT : DIM, tooltip: locked ? `${label} is locked: Variation leaves it alone` : `Lock ${label} so Variation leaves it alone` , onClick: () => target.toggleLock(key) });
 }
 
-function paramControl(inst: Instance, def: ObjectDef, p: ParamDef): void {
+function paramControl(target: ControlTarget, def: ParamSpace, p: ParamDef): void {
     const id = propsWindow;
-    const v = inst.values[p.id];
-    const cid = `mesha-p-${p.id}`;
+    const v = target.values[p.id];
+    const cid = `${target.prefix}${p.id}`;
     const changed = lastVariation.includes(p.id);
     W.horizontal(id, () => {
-        lockButton(inst, p.id, p.label);
+        lockButton(target, p.id, p.label);
         const label = changed ? `${p.label} •` : p.label;
         switch (p.type) {
             case "bool":
-                W.checkbox(id, { id: cid, label, value: !!v, onChange: x => setParam(inst, p.id, x) });
+                W.checkbox(id, { id: cid, label, value: !!v, onChange: x => target.set(p.id, x) });
                 break;
             case "enum": {
                 const options = p.optionLabels ?? p.options ?? [];
                 const idx = Math.max(0, (p.options ?? []).indexOf(String(v)));
-                if (options.length <= 3) W.segmented(id, { id: cid, label, options, selectedIndex: idx, compact: true, onChange: x => setParam(inst, p.id, (p.options ?? [])[Number(x)]) });
-                else W.dropdown(id, { id: cid, label, options, selectedIndex: idx, onChange: x => setParam(inst, p.id, (p.options ?? [])[Number(x)]) });
+                if (options.length <= 3) W.segmented(id, { id: cid, label, options, selectedIndex: idx, compact: true, onChange: x => target.set(p.id, (p.options ?? [])[Number(x)]) });
+                else W.dropdown(id, { id: cid, label, options, selectedIndex: idx, onChange: x => target.set(p.id, (p.options ?? [])[Number(x)]) });
                 break;
             }
             case "material": {
                 const choices = materialChoices(p);
-                W.dropdown(id, { id: cid, label, options: choices.map(c => MATERIAL_BY_ID.get(c)?.label ?? c), selectedIndex: Math.max(0, choices.indexOf(String(v))), onChange: x => setParam(inst, p.id, choices[Number(x)]) });
+                W.dropdown(id, { id: cid, label, options: choices.map(c => MATERIAL_BY_ID.get(c)?.label ?? c), selectedIndex: Math.max(0, choices.indexOf(String(v))), onChange: x => target.set(p.id, choices[Number(x)]) });
                 break;
             }
             case "seed":
                 W.label(id, { text: `${label} ${v}`, monospace: true });
-                W.button(id, { id: `${cid}-reroll`, text: Icons.get("dice-five"), tooltip: "New seed: same design, different details", onClick: () => setParam(inst, p.id, Math.floor(Math.random() * 99999)) });
+                W.button(id, { id: `${cid}-reroll`, text: Icons.get("dice-five"), tooltip: "New seed: same design, different details", onClick: () => target.set(p.id, Math.floor(Math.random() * 99999)) });
                 break;
             default: {
-                const [lo, hi] = objectParamRange(def, p, inst.values);
+                const [lo, hi] = objectParamRange(def, p, target.values);
                 W.slider(id, {
                     id: cid, label, value: Number(v), min: lo, max: hi, unit: p.unit, decimals: p.decimals ?? (p.type === "int" ? 0 : hi - lo < 0.2 ? 3 : 2),
                     step: p.type === "int" ? 1 : p.step, defaultValue: Number(p.default), tooltip: p.description,
-                    onChange: x => setParam(inst, p.id, p.type === "int" ? Math.round(Number(x)) : Number(x)),
+                    onChange: x => target.set(p.id, p.type === "int" ? Math.round(Number(x)) : Number(x)),
                 });
             }
         }
     });
 }
 
+/** Featured controls first, then every group, collapsed. */
+function paramControls(target: ControlTarget, def: ParamSpace, featuredIds: string[]): void {
+    const id = propsWindow;
+    const visible = (p: ParamDef) => isParamVisible(def, p, target.values);
+    const featured = featuredIds.map(fid => def.params.find(p => p.id === fid)!).filter(p => p && visible(p));
+    if (featured.length) {
+        W.separator(id);
+        for (const p of featured) paramControl(target, def, p);
+    }
+    for (const g of def.groups) {
+        const params = def.params.filter(p => p.group === g.id && visible(p) && !featured.includes(p));
+        if (!params.length) continue;
+        W.collapsingHeader(id, g.label, () => {
+            W.horizontal(id, () => {
+                lockButton(target, `group:${g.id}`, `every ${g.label.toLowerCase()} control`);
+                W.label(id, { text: isLocked({ group: g.id } as ParamDef, target.locks) ? "Group locked" : "Lock group", color: DIM });
+            });
+            for (const p of params) paramControl(target, def, p);
+        }, `${target.prefix}group-${g.id}`, false);
+    }
+}
+
+/** With nothing selected, a procedural scene's own controls. */
+function renderSceneProperties(def: SceneDef): void {
+    const id = propsWindow;
+    const gen = scene.generator!;
+    const placed = scene.instances.filter(i => i.source?.scene === def.id);
+    const edited = placed.filter(i => i.source?.overrides?.length || i.source?.placed).length;
+    W.horizontal(id, () => {
+        W.label(id, { text: Icons.get(SCENE_ICON), fontSize: 20, color: ACCENT });
+        W.vertical(id, () => {
+            W.label(id, { text: def.name, bold: true, fontSize: 15 });
+            W.label(id, { text: `Scene · ${placed.length} objects${edited ? ` · ${edited} edited by hand` : ""}`, color: DIM });
+        });
+    });
+    if (def.description) W.label(id, { text: def.description, color: DIM, wrap: true });
+    W.card(id, { id: "mesha-scene-variation-card", padding: 10, radius: 10 }, () => {
+        W.horizontal(id, () => {
+            W.button(id, { id: "mesha-scene-vary", text: Icons.label("shuffle", "Variation"), accent: ACCENT, shortcut: "V", tooltip: "Another sensible arrangement, keeping locked settings", onClick: varyScene, minWidth: 120 });
+            W.button(id, { id: "mesha-scene-rebuild", text: Icons.label("arrow-counter-clockwise", "Rebuild"), tooltip: "Start the scene over from these settings, dropping hand edits", onClick: () => buildScene(def.id, gen.values) });
+        });
+        W.slider(id, { id: "mesha-scene-variation-amount", label: "Amount", value: variationAmount, min: 0, max: 1, decimals: 2, onChange: v => { variationAmount = Number(v); } });
+    });
+    for (const v of ruleViolations(def, gen.values)) W.label(id, { text: `${Icons.get("lightning")} ${v}`, color: WARN, wrap: true });
+    const presets = def.presets ?? [];
+    if (presets.length) W.dropdown(id, { id: "mesha-scene-preset", label: "Preset", options: ["Choose...", ...presets.map(p => p.name)], selectedIndex: 0, onChange: x => {
+        const p = presets[Number(x) - 1];
+        if (!p) return;
+        beginEdit(`Scene preset ${p.name}`);
+        scene.generator!.values = resolveParams(def, { ...p.values });
+        regenerateScene(); commitEdit();
+        statusMessage = `Applied "${p.name}".`;
+    } });
+    const target: ControlTarget = { values: gen.values, locks: new Set(gen.locks), set: setSceneParam, toggleLock: toggleSceneLock, prefix: "mesha-s-" };
+    paramControls(target, def, def.featured ?? []);
+    W.spacer(id, 6);
+    W.label(id, { text: sceneDirty ? "Rebuilding when you let go..." : statusMessage, color: DIM, wrap: true });
+}
+
 function renderProperties(): void {
     const id = propsWindow;
     const inst = selected();
+    const sceneDef = sceneDefOf();
+    if (!inst && sceneDef) { renderSceneProperties(sceneDef); return; }
     if (!inst) {
         W.label(id, { text: "Properties", bold: true, fontSize: 15 });
         W.label(id, { text: "Select an object in the viewport or the scene list to shape it.", color: DIM, wrap: true });
@@ -822,23 +1010,7 @@ function renderProperties(): void {
     });
 
     // The most useful controls first, then every group.
-    const visible = (p: ParamDef) => isParamVisible(def, p, inst.values);
-    const featured = (def.featured ?? []).map(fid => def.params.find(p => p.id === fid)!).filter(p => p && visible(p));
-    if (featured.length) {
-        W.separator(id);
-        for (const p of featured) paramControl(inst, def, p);
-    }
-    for (const g of def.groups) {
-        const params = def.params.filter(p => p.group === g.id && visible(p) && !featured.includes(p));
-        if (!params.length) continue;
-        W.collapsingHeader(id, g.label, () => {
-            W.horizontal(id, () => {
-                lockButton(inst, `group:${g.id}`, `every ${g.label.toLowerCase()} control`);
-                W.label(id, { text: isLocked({ group: g.id } as ParamDef, locksOf(inst)) ? "Group locked" : "Lock group", color: DIM });
-            });
-            for (const p of params) paramControl(inst, def, p);
-        }, `mesha-group-${g.id}`, false);
-    }
+    paramControls(instanceTarget(inst), def, def.featured ?? []);
 
     W.collapsingHeader(id, "Placement", () => {
         const set = (f: (i: Instance) => void) => { beginEdit("Move"); f(inst); dirty.add(inst.id); groundDirty = true; syncGizmo(); };
@@ -932,7 +1104,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
             const inst = target(a), def = defOf(inst);
             const unknown = Object.keys(a.values ?? {}).filter(k => !def.params.some(p => p.id === k));
             if (unknown.length) throw new Error(`Unknown parameter(s): ${unknown.join(", ")}`);
-            beginEdit("Set"); inst.values = resolveParams(def, { ...inst.values, ...a.values }); dirty.add(inst.id); groundDirty = true; commitEdit();
+            beginEdit("Set"); inst.values = resolveParams(def, { ...inst.values, ...a.values }); markOverride(inst, Object.keys(a.values ?? {})); dirty.add(inst.id); groundDirty = true; commitEdit();
             return { instance: instanceSummary(inst) };
         },
     },
@@ -967,6 +1139,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
             if (Array.isArray(a.position)) inst.position = [Number(a.position[0]), Math.max(0, Number(a.position[1])), Number(a.position[2])];
             if (typeof a.rotationY === "number") { inst.rotationY = a.rotationY; inst.rotation = undefined; }
             if (typeof a.scale === "number") inst.scale = Math.max(0.01, a.scale);
+            if (inst.source) inst.source.placed = true;
             dirty.add(inst.id); groundDirty = true; commitEdit(); syncGizmo();
             return { instance: instanceSummary(inst) };
         },
@@ -999,7 +1172,7 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
     {
         name: "mesha_state", description: "The scene: instances with their values, locks, triangle counts and rule warnings.",
         parameters: { type: "object", properties: {} },
-        run: () => ({ selected: scene.selectedId, instances: scene.instances.map(instanceSummary), undo: undoStack.length, redo: redoStack.length, lighting: STUDIO_PRESETS[studioIndex].id }),
+        run: () => ({ selected: scene.selectedId, generator: scene.generator ?? null, instances: scene.instances.map(instanceSummary), undo: undoStack.length, redo: redoStack.length, lighting: STUDIO_PRESETS[studioIndex].id }),
     },
     {
         name: "mesha_verify", description: "Fuzz a library object's parameters and report whether it is ready (geometry checks over extremes, options, pairs and random designs).",
@@ -1007,6 +1180,33 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
         run: a => {
             const ids = a.objectId ? [String(a.objectId)] : LIBRARY.map(d => d.id);
             return { reports: ids.map(id => { const d = lookupObject(id); if (!d) throw new Error(`No object ${id}`); const r = fuzz(d, lookupObject, { pairs: 12, random: 20 }); return { id, ready: r.ready, summary: acceptanceText(r), failures: r.failures.map(f => ({ label: f.label, issues: f.issues })) }; }) };
+        },
+    },
+    {
+        name: "mesha_scenes", description: "List Mesha's procedural scenes (configurable levels that place editable library objects) with their parameters and presets.",
+        parameters: { type: "object", properties: {} },
+        run: () => ({ scenes: SCENES.map(d => ({ id: d.id, name: d.name, description: d.description, parameters: d.params.map(p => ({ id: p.id, label: p.label, type: p.type, default: p.default, min: p.min, max: p.max, options: p.options, group: p.group })), presets: (d.presets ?? []).map(p => p.name) })), active: scene.generator ?? null }),
+    },
+    {
+        name: "mesha_scene", description: "Build a procedural scene (replacing the current scene), or with no sceneId change the active scene's settings: its objects update in place, keeping hand edits. Optional preset name; fresh: true rebuilds from scratch.",
+        parameters: { type: "object", properties: { sceneId: { type: "string" }, values: { type: "object" }, preset: { type: "string" }, fresh: { type: "boolean" } } },
+        run: a => {
+            const sceneId = a.sceneId ? String(a.sceneId) : scene.generator?.sceneId;
+            if (!sceneId) throw new Error("No scene is active: pass sceneId (see mesha_scenes)");
+            const def = lookupScene(sceneId);
+            if (!def) throw new Error(`No scene ${sceneId}`);
+            const preset = a.preset ? def.presets?.find(p => p.name === a.preset) : undefined;
+            if (a.preset && !preset) throw new Error(`No preset "${a.preset}"`);
+            const unknown = Object.keys(a.values ?? {}).filter(k => !def.params.some(p => p.id === k));
+            if (unknown.length) throw new Error(`Unknown parameter(s): ${unknown.join(", ")}`);
+            const fresh = !!a.fresh || scene.generator?.sceneId !== sceneId;
+            const base = preset ? preset.values : fresh ? {} : scene.generator!.values;
+            beginEdit(`Scene ${def.name}`);
+            if (scene.selectedId) select(null);
+            const r = generateScene(sceneId, { ...base, ...(a.values ?? {}) }, fresh);
+            commitEdit();
+            if (fresh) { pendingFrame = 3; pendingFrameAll = true; }
+            return { scene: scene.generator, placed: r.placed, violations: r.violations, lighting: STUDIO_PRESETS[studioIndex].id };
         },
     },
     {
@@ -1091,6 +1291,7 @@ addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
     }
     if (groundDirty && !(pointerHeld && (gizmoWasActive || transformed.size))) { rebuildGround(); groundDirty = false; }
     if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll, pendingZoom, pendingFocus); pendingFrameAll = false; pendingZoom = 1; pendingFocus = undefined; }
+    if (sceneDirty && !pointerHeld) regenerateScene();
     if (!pointerHeld) commitEdit();
     // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).
     const [camPos, camTarget] = Entropy.Camera.getTransform();

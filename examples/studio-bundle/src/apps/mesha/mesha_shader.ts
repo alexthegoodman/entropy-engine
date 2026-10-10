@@ -23,6 +23,9 @@ export const STUDIO_PRESETS: StudioLighting[] = [
     { id: "daylight", label: "Daylight", keyDir: [0.35, 0.85, 0.45], keyColor: [1, 0.96, 0.88], keyIntensity: 2.6, fillDir: [-0.5, 0.45, -0.4], fillIntensity: 0.65, skyTop: [0.36, 0.55, 0.85], skyHorizon: [0.82, 0.86, 0.9], ground: [0.56, 0.54, 0.5], exposure: 1.0 },
     { id: "warm", label: "Warm evening", keyDir: [0.8, 0.35, 0.3], keyColor: [1, 0.72, 0.45], keyIntensity: 2.4, fillDir: [-0.5, 0.4, -0.3], fillIntensity: 0.35, skyTop: [0.2, 0.19, 0.28], skyHorizon: [0.78, 0.55, 0.4], ground: [0.38, 0.32, 0.29], exposure: 1.05 },
     { id: "night", label: "Gallery night", keyDir: [0.3, 0.9, 0.2], keyColor: [0.95, 0.95, 1], keyIntensity: 2.2, fillDir: [-0.7, 0.2, -0.4], fillIntensity: 0.25, skyTop: [0.05, 0.055, 0.07], skyHorizon: [0.14, 0.15, 0.17], ground: [0.12, 0.12, 0.13], exposure: 1.1 },
+    // Scene moods: low, dusty light through haze (procedural scenes ask for these).
+    { id: "ashen", label: "Ashen dusk", keyDir: [0.35, 0.32, -0.88], keyColor: [1, 0.66, 0.42], keyIntensity: 2.1, fillDir: [-0.4, 0.45, 0.8], fillIntensity: 0.32, skyTop: [0.2, 0.19, 0.18], skyHorizon: [0.66, 0.54, 0.42], ground: [0.32, 0.28, 0.24], exposure: 1.0 },
+    { id: "toxic", label: "Toxic haze", keyDir: [-0.3, 0.55, -0.78], keyColor: [0.86, 1, 0.62], keyIntensity: 1.9, fillDir: [0.5, 0.4, 0.7], fillIntensity: 0.3, skyTop: [0.15, 0.18, 0.12], skyHorizon: [0.5, 0.57, 0.36], ground: [0.27, 0.3, 0.22], exposure: 1.0 },
 ];
 
 /** Floats in the shared Studio uniform (7 vec4). */
