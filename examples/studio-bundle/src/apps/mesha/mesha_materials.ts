@@ -116,6 +116,7 @@ export const MATERIALS: MaterialPreset[] = [
     m("paper.page", "Book pages", "#f1e8d2", 0.92, 0, "fabric"),
     m("paper.white", "White paper", "#f4f3ee", 0.85, 0),
     m("paper.cardboard", "Corrugated cardboard", "#b48a58", 0.9, 0, "fabric"),
+    m("plastic.tape", "Packing tape", "#c79a55", 0.22, 0),
     m("cloth.red", "Red book cloth", "#7c2424", 0.75, 0, "fabric"),
     m("cloth.green", "Green book cloth", "#2f4d3a", 0.75, 0, "fabric"),
     m("cloth.blue", "Blue book cloth", "#283d61", 0.75, 0, "fabric"),
