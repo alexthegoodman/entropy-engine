@@ -21,6 +21,11 @@ export interface Instance {
     rotation?: [number, number, number, number];
     scale: number;
     name?: string;
+    /**
+     * Placed by a procedural scene (mesha_scene_def.ts): which placement, and what the user changed
+     * since, so regenerating the scene keeps those parameters (and a moved object where it is).
+     */
+    source?: { scene: string; key: string; overrides?: string[]; placed?: boolean };
 }
 
 export interface RegionMesh {

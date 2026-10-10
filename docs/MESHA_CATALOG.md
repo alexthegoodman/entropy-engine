@@ -63,11 +63,18 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Architecture | Hab Lodge | `architecture.hab_lodge` | 41 | 8 | 10 | 18 | 337 | Ready | 32 ms |
 | Architecture | Wasteland Depot | `architecture.wasteland_depot` | 41 | 8 | 11 | 22 | 208 | Ready | 29 ms |
 | Architecture | Arcane Emporium | `architecture.arcane_emporium` | 39 | 7 | 7 | 18 | 222 | Ready | 43 ms |
+| Architecture | Rust Dome | `architecture.rust_dome` | 42 | 8 | 8 | 13 | 194 | Ready | 53 ms |
+| Architecture | Ruined Wall | `architecture.ruin` | 16 | 4 | 2 | 4 | 110 | Ready | 14 ms |
 | Transport | Street Car | `transport.street_car` | 56 | 9 | 8 | 32 | 362 | Ready | 15 ms |
+| Transport | Wrecked Car | `transport.wreck_car` | 19 | 4 | 2 | 12 | 87 | Ready | 3 ms |
+| Transport | Shipping Container | `transport.container` | 11 | 3 | 0 | 5 | 53 | Ready | 1 ms |
 | Architecture | Door | `architecture.door` | 23 | 5 | 4 | 6 | 139 | Ready | 3 ms |
 | Architecture | Fence, Gate & Railing | `architecture.fence` | 20 | 5 | 5 | 4 | 171 | Ready | 8 ms |
 | Architecture | Stair, Ramp & Landing | `architecture.stair` | 19 | 5 | 4 | 5 | 253 | Ready | 11 ms |
 | Street | Streetlight, Bollard & Sign | `street.streetlight` | 18 | 5 | 4 | 7 | 155 | Ready | 1 ms |
+| Street | Utility Pole | `street.utility_pole` | 18 | 4 | 1 | 7 | 66 | Ready | 2 ms |
+| Street | Drum & Barrel | `street.barrel` | 13 | 3 | 0 | 6 | 79 | Ready | 5 ms |
+| Street | Wasteland Ground | `street.wasteland_ground` | 21 | 5 | 3 | 9 | 105 | Ready | 31 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
 | Mechanical | Pipe, Elbow & Valve Kit | `mechanical.pipe` | 22 | 4 | 5 | 7 | 240 | Ready | 4 ms |
@@ -576,6 +583,133 @@ captures them settled. It also restyles and redresses the person, adds a ponytai
 builds a gallery of presets.
 
 ![Face close-up in the viewport](../public/mesha-people-face.png)
+
+## Wasteland kit and procedural scenes
+
+![The Road to the Dome in the Mesha viewport](../public/mesha-road-to-the-dome-live.png)
+
+![The Road to the Dome, rendered headless](../public/mesha-road-to-the-dome.png)
+
+### Procedural scenes
+
+A **scene** is the next step up from an object: plain JSON with its own parameters, groups, rules,
+presets and Variation, but instead of building geometry it *places library objects*
+(`src/apps/mesha/mesha_scene_def.ts`; scenes live in `src/apps/mesha/scenes/`). Each placement
+names an object, its parameter values as `=expressions` of the scene's parameters, and a transform
+(`at`, `turn`, `scale`), optionally repeated (`repeat`, with `index`, `count` and `t`) and thinned
+(`keep`), exactly as nodes are inside an object. `rand()` follows the scene's seed, so a new seed is
+a new arrangement with the same story beats.
+
+```jsonc
+{
+  "id": "scene.road_to_the_dome", "name": "The Road to the Dome",
+  "params": [{ "id": "decay", "type": "number", "default": 0.6, "min": 0, "max": 1, "group": "decay" }, ...],
+  "derived": { "cpZ": "=length / 2 - 20" },
+  "lighting": "=mood",                                     // a studio preset the scene looks best under
+  "placements": [
+    { "id": "wrecks", "object": "transport.wreck_car", "repeat": "=cars",
+      "at": ["=(index % 2 == 0 ? -1 : 1) * 2", 0.14, "=lerp(cpZ - 5, plazaFront - 3, (index + 0.5) / count)"],
+      "turn": "=rand(index, 42) < 0.5 ? 0 : 180",
+      "params": { "missingWheels": "=floor(rand(index, 46) * decay * 4.99)", "burnt": "=rand(index, 31) < decay * 0.28" } }
+  ]
+}
+```
+
+Evaluating a scene gives ordinary scene instances, so every wreck, wall and the dome stays a live,
+editable procedural object. In the app, **Scenes** sits at the top of the Library: **Build** replaces
+the scene; with nothing selected the Properties panel shows the scene's own controls (featured first,
+then groups, with locks, presets and **Variation**, V). Changing a scene setting regenerates it when
+you let go of the slider. Regeneration matches instances by placement key and keeps your hand edits
+to any single piece: parameters you changed stay changed, an object you moved stays where you put it,
+and objects you added yourself are left alone (`mergeScene`). **Rebuild** starts over from the
+settings. Agents use `mesha_scenes` (list, with parameters and presets) and `mesha_scene` (build a
+scene, or change the active one's settings in place). While a scene is active the floor's contact
+shadows are skipped: the level brings its own ground.
+The studio backdrop is 450 m across so a framed level stays inside it. The live BDD feature
+(`tests/features/mesha_scene_live.feature`, `xvfb-run -a cargo test --release --test
+mesha_scene_live`) builds the scene from the Library's button, frames it from two angles, switches
+moods and rebuilds the dome seven storeys tall in place (the same instance, updated), and keeps a
+screenshot of each step.
+
+`tools/mesha_scene_render.ts <scene id> [out.png] [json values]` renders an overview, eye-level
+views down the road and a plan under the scene's mood, headless, with aerial haze.
+
+**The Road to the Dome** (`scene.road_to_the_dome`, 30 controls, 5 presets): a level-sized stretch
+of wasteland for one chapter of a story, 96 x 56 m by default (72-110 x 46-80 m). You start at the
+south edge (+Z) on a cracked highway by a dead warning sign and an overturned wreck. A container
+checkpoint blocks the road except for one gap (a test casts a ray through it, and checks that the
+other lane is blocked). Beyond it, wrecked cars weave lane to lane between ruined walls on one side
+and a scavenger outpost on the other (the Wasteland Depot, door to the road, with salvage crates and
+a store container), while leaning utility poles carry sagging wires down the far verge, some snapped.
+The road opens onto a cracked plaza ringed by rusted lamps (one still lit) and iron railings, flanked
+by gutted facades, before the gate of a five-storey **Rust Dome** whose beacon shows the way from the
+start. Dead trees, dry grass and rocks fill the verges, never the road or the plaza. Burn barrels
+glow at the outpost and in the ruins. One **Decay** control reaches every piece: missing wheels,
+broken glass, burnt hulks, roof damage, ruined walls, potholes and broken paving. Other controls:
+level size, road width, dome storeys, radius, missing panels, gate, beacon colour and lit windows,
+counts of wrecks, ruins, barrels, lamps, trees, grass and rocks, the outpost and its side, and the
+**Mood**, which picks the lighting: *Ashen dusk*, *Toxic haze* (glowing puddles) or *Dead of night*.
+Presets: Ashen approach, Toxic exclusion zone, Night pilgrimage, Fresh collapse and Long road. The
+default places about 74 objects (about 470k triangles), evaluated in under a second. It is a static
+set dressing, not a playable level: there are no colliders, navigation or triggers.
+
+### The wasteland kit
+
+New objects for scenes like this one, all fuzzed (see the table above):
+
+**Rust Dome** (`architecture.rust_dome`): a many-storeyed dome, `storeys` tall (3 to 8, default 5,
+3.6 m each, so 18 m to the top of the shell). A concrete drum of `drumStoreys` storeys carries a
+riveted steel shell over the rest of the height: curved panels between meridian ribs and ring beams.
+**Missing panels** drops panels, mostly around the **breach** and toward the crown, opening the
+lattice to the sky. Each drum storey has a sill band, a window band whose piers stand between real
+window openings (glazed, broken, boarded or lit), and a head band, with ledges at the storey lines
+and buttresses standing on piers, never over a window. The +Z gate has blast doors that slide apart
+between concrete pylons under a lintel with a hazard stripe, plus floodlights and an apron; the
+walls above the gate are filled up to the next band line. Inside, a floor deck at every storey rings
+an open atrium. Decks shrink under the shell and stop where it gets too low, and the low decks leave
+the lobby as tall as the gate. A lift core has a bridge to every deck, doors and lamps. A lantern
+hangs over the core, and a beacon mast stands on a tripod over the oculus. **Show shell** lifts off
+the shell, lattice and beacon. Five presets: Last sanctuary, Irradiated reactor, Sealed vault,
+Collapsed ark and Signal citadel. Tests: its height in storeys; the open gate leads to the lift core
+and closed doors seal it; windows are openings and piers are solid; lifting the shell shows the
+decks, and the atrium is open to the ground floor.
+
+**Wrecked Car** (`transport.wreck_car`): sedan, hatchback, pickup (open bed and tailgate) or van,
+built from two extruded side profiles: a lower body with real wheel arches and an engine bay under a
+hood that springs open, and a narrower greenhouse with window panes (broken ones show the dark
+cabin). Missing wheels go front left first and drop their corner onto the hub, tipping the whole
+hulk. It also has flat tyres, roll, sinking into the dirt, burnt out (rusted shell, no glass or
+tyres), a mismatched salvaged door and junk on the roof. Five presets.
+
+**Utility Pole** (`street.utility_pole`): a timber or concrete pole with one to three crossarms,
+insulators and braces. Its wires sag along +X to the next pole `span` metres away; a lean tips the
+pole about X and the wires leave from where the leaning insulators really are. It can have a snapped
+wire trailing on the ground, a broken lowest arm, a transformer can, a streetlight arm toward +Z
+(lit or dead) and climbing steps. Five presets.
+
+**Drum & Barrel** (`street.barrel`): 200-litre steel drums with rolled hoops and a hazard band, burn
+barrels (open, with coals, flames and glowing air holes) or plastic barrels, alone or in a huddle of
+up to seven, each dented differently and some tipped over. Five presets.
+
+**Ruined Wall** (`architecture.ruin`): block courses in running bond (with toothed ends) broken down
+to a seeded ragged top. It also has shell holes, real window openings with sills and lintels, a
+return wall that crumbles toward its end, a floor-slab stub with rebar, rods out of the broken top,
+and rubble mounds and chunks. Five presets.
+
+**Shipping Container** (`transport.container`): a hollow 20 or 40 ft ISO container (or high cube)
+with corrugated panel walls, a frame with castings, and door leaves that swing out about their hinges
+with locking bars. It can have a cut doorway (a real opening), missing panels, stacking up to three,
+and tipping onto its side. Five presets.
+
+**Wasteland Ground** (`street.wasteland_ground`): the plot a scene stands on, with bumpy ash dirt
+that never dips below the floor either side of a cracked asphalt road. The road has curbs and broken
+sidewalk slabs, faded and missing lane paint, cracks, patches, potholes and puddles (toxic, or
+glowing). An optional cracked concrete plaza has joints, cracks and puddles. The road top is at
+0.14 m. Five presets.
+
+New materials: `asphalt.cracked`, `asphalt.faded`, `ground.ash`, `ground.mud`, `ground.rubble`,
+`masonry.grimy`, `water.toxic`, `paint.faded`, `metal.rustDark` and `glow.toxic`. New studio
+lighting presets: **Ashen dusk** and **Toxic haze**.
 
 ## Writing a procedural object
 

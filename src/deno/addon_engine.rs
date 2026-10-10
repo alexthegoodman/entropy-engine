@@ -2687,6 +2687,13 @@ impl AddonEngine {
             } else {
                 renderer_state.mouse_state.hovered_gizmo = false;
             }
+        } else if renderer_state.gizmo.config().viewport.is_finite() {
+            // Hidden: transform_gizmo keeps drawing the last frame's handles until told otherwise,
+            // and draws nothing for a non-finite viewport. Showing a gizmo sets the real one again.
+            let mut config = renderer_state.gizmo.config().clone();
+            config.viewport = transform_gizmo::Rect { min: (f32::NAN, f32::NAN).into(), max: (f32::NAN, f32::NAN).into() };
+            renderer_state.gizmo.update_config(config);
+            renderer_state.mouse_state.hovered_gizmo = false;
         }
 
         lap!("  pend: gizmo");

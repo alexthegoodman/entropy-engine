@@ -225,6 +225,17 @@ export const MATERIALS: MaterialPreset[] = [
     m("stone.ballast", "Track ballast", "#6e6b67", 0.95, 0, "speckle"),
     m("wood.sleeper", "Creosoted sleepers", "#40332a", 0.9, 0, "wood"),
     m("glow.warmWhite", "Warm white light", "#fff0d4", 0.3, 0, "glow"),
+    // Wasteland ground and decay.
+    m("asphalt.cracked", "Cracked asphalt", "#3b3b3d", 0.9, 0, "speckle"),
+    m("asphalt.faded", "Sun-bleached asphalt", "#5a5853", 0.92, 0, "speckle"),
+    m("ground.ash", "Ash-grey dirt", "#58524a", 0.97, 0, "speckle"),
+    m("ground.mud", "Dark mud", "#3a3029", 0.9, 0, "speckle"),
+    m("ground.rubble", "Rubble and grit", "#7b746b", 0.95, 0, "speckle"),
+    m("masonry.grimy", "Grimy concrete", "#6e6a62", 0.95, 0, "speckle"),
+    m("water.toxic", "Toxic puddle", "#2e3b22", 0.06, 0),
+    m("paint.faded", "Faded road paint", "#b9af8f", 0.85, 0, "speckle"),
+    m("metal.rustDark", "Dark rusted steel", "#4b3529", 0.8, 0, "rust"),
+    m("glow.toxic", "Toxic green light", "#a4ff70", 0.3, 0, "glow"),
 ];
 
 // People: skin tones, lips, hair colors, eyes, and clothing fabrics. Pushed here so they sit

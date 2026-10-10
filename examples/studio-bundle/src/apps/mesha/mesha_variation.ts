@@ -3,7 +3,7 @@
 // dynamic ranges, and retries until the object's rules hold - so a bolt never becomes 14 m long
 // and a chair never loses contact with its legs.
 
-import { type ObjectDef, type ParamDef, type ParamValues, resolveParams, ruleViolations, isParamVisible, paramRange, materialChoices } from "./mesha_object";
+import { type ParamSpace, type ParamDef, type ParamValues, resolveParams, ruleViolations, isParamVisible, paramRange, materialChoices } from "./mesha_object";
 import { rng, gaussian } from "./mesha_noise";
 import { evaluate, type Scope } from "./mesha_expr";
 
@@ -38,7 +38,7 @@ function valueScope(values: ParamValues): Scope {
     return name => values[name];
 }
 
-function varyOnce(def: ObjectDef, base: ParamValues, amount: number, locked: Set<string>, random: () => number): ParamValues {
+function varyOnce(def: ParamSpace, base: ParamValues, amount: number, locked: Set<string>, random: () => number): ParamValues {
     const next: ParamValues = { ...base };
     const a = Math.max(0, Math.min(1, amount));
     for (const p of def.params) {
@@ -81,7 +81,7 @@ function varyOnce(def: ObjectDef, base: ParamValues, amount: number, locked: Set
 }
 
 /** A new configuration near `current` (see VariationOptions). Deterministic for a given seed. */
-export function vary(def: ObjectDef, current: ParamValues, options: VariationOptions): VariationResult {
+export function vary(def: ParamSpace, current: ParamValues, options: VariationOptions): VariationResult {
     const locked = new Set(options.locked ?? []);
     const random = rng(options.seed);
     const base = resolveParams(def, current);
