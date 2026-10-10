@@ -586,6 +586,8 @@ builds a gallery of presets.
 
 ## Wasteland kit and procedural scenes
 
+![The Road to the Dome in the Mesha viewport](../public/mesha-road-to-the-dome-live.png)
+
 ![The Road to the Dome, rendered headless](../public/mesha-road-to-the-dome.png)
 
 ### Procedural scenes
@@ -623,6 +625,11 @@ and objects you added yourself are left alone (`mergeScene`). **Rebuild** starts
 settings. Agents use `mesha_scenes` (list, with parameters and presets) and `mesha_scene` (build a
 scene, or change the active one's settings in place). While a scene is active the floor's contact
 shadows are skipped: the level brings its own ground.
+The studio backdrop is 450 m across so a framed level stays inside it. The live BDD feature
+(`tests/features/mesha_scene_live.feature`, `xvfb-run -a cargo test --release --test
+mesha_scene_live`) builds the scene from the Library's button, frames it from two angles, switches
+moods and rebuilds the dome seven storeys tall in place (the same instance, updated), and keeps a
+screenshot of each step.
 
 `tools/mesha_scene_render.ts <scene id> [out.png] [json values]` renders an overview, eye-level
 views down the road and a plan under the scene's mood, headless, with aerial haze.

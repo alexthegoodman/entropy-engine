@@ -360,7 +360,8 @@ function rebuildGround(): void {
 
 /** A big inverted-looking dome drawn with the backdrop pattern; it hides the engine's own sky. */
 function createBackdrop(): void {
-    const e = sphere(90, 48, 24);
+    // Big enough to stay behind a whole procedural level framed from 150 m (the far plane is 1000 m).
+    const e = sphere(450, 48, 24);
     const part = e.parts[0];
     const vertexData: number[] = [];
     for (let v = 0; v < part.positions.length / 3; v++) {
@@ -1050,7 +1051,7 @@ function setupUI(): void {
     });
     libraryWindow = createMeshaWindow({ title: "Library", width: 300, height: sh - 96, x: 16, y: 80, glass: true, onRender: renderLibrary });
     propsWindow = createMeshaWindow({ title: "Properties", width: 380, height: sh - 96, x: sw - 396, y: 80, glass: true, onRender: renderProperties });
-    toolbarWindow = createMeshaWindow({ title: "Mesha", width: 820, height: 96, x: Math.round((sw - 820) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
+    toolbarWindow = createMeshaWindow({ title: "Mesha", width: 980, height: 96, x: Math.round((sw - 980) / 2), y: 14, decorations: false, glass: true, onRender: renderToolbar });
 }
 
 // --- MCP tools -----------------------------------------------------------------------------------
