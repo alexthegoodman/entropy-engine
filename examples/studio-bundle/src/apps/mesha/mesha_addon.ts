@@ -33,8 +33,8 @@ const Icons = Entropy.Icons;
 const ACCENT: [number, number, number, number] = [0.96, 0.66, 0.38, 1];
 const DIM: [number, number, number, number] = [0.66, 0.68, 0.72, 1];
 const WARN: [number, number, number, number] = [0.98, 0.72, 0.42, 1];
-const CATEGORY_ICONS: Record<string, IconName> = { People: "person", Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning" };
-const OBJECT_ICONS: Record<string, IconName> = { "people.human": "person", "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house" };
+const CATEGORY_ICONS: Record<string, IconName> = { People: "person", Furniture: "armchair", Household: "wine", Mechanical: "gear-six", Nature: "mountains", Architecture: "house", Transport: "tram", Electronics: "lightning", Street: "traffic-sign" };
+const OBJECT_ICONS: Record<string, IconName> = { "people.human": "person", "furniture.office_chair": "chair", "furniture.table": "table", "household.bottle": "wine", "mechanical.gear": "gear-six", "mechanical.bolt": "nut", "nature.rock": "mountains", "household.mug": "coffee", "architecture.window": "house", "architecture.facade": "house", "furniture.cabinet": "archive", "furniture.chair": "chair", "furniture.shelving": "books", "furniture.sofa": "couch", "furniture.bed": "bed", "household.book": "book", "household.crate": "package", "household.dish": "bowl-food", "architecture.fence": "wall", "architecture.stair": "stairs", "street.streetlight": "lamp", "mechanical.pipe": "pipe" };
 
 // --- Scene state ---------------------------------------------------------------------------------
 

@@ -8,7 +8,7 @@ Each entry below describes a **family of models**. A bookshelf should produce a 
 
 ## What we can build on
 
-The source [library registry](../examples/studio-bundle/src/apps/mesha/library/index.ts) currently registers 31 definitions: 28 browsable objects and three internal components. This inventory comes from source inspection, not a fresh runtime verification.
+When this plan was written, the source [library registry](../examples/studio-bundle/src/apps/mesha/library/index.ts) registered 31 definitions: 28 browsable objects and three internal components. The first twelve families below have since added twelve browsable generators and two components (45 definitions in all). This inventory comes from source inspection, not a fresh runtime verification.
 
 | Area | Existing foundation |
 |---|---|
@@ -28,6 +28,12 @@ The current [component catalog](../examples/studio-bundle/src/apps/mesha/mesha_c
 The [product overview](MESHA_APP.md) describes the broader ambition. Do not infer that every capability described there, or every capability needed below, is already implemented. In particular, general mesh booleans, automatic furnishing, semantic attachment sockets, arbitrary animal rigs and exported cloth/hair animation are separate work. Reuse existing geometry and explicit construction before introducing a new system.
 
 ## Suggested first twelve families
+
+**Status:** all twelve are implemented, with handles and hinges as shared components; see
+[Rooms and streets](MESHA_CATALOG.md#rooms-and-streets) in the catalog for what each one does and
+how it is checked. The table below is kept as the original brief. Next steps for these families are
+the "later" items it names: spiral stairs, fences on arbitrary paths and terrain, draped bedding
+and soft upholstery, labels on books and signs, and emitted light from street lamps.
 
 Build a usable room and street before spreading across every category. This order favors visible gaps, frequent reuse and generators that can be composed into later work. Scope each first version to the behavior listed here; expansion can follow.
 

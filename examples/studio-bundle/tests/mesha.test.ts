@@ -212,14 +212,15 @@ describe("Mesha library", () => {
         };
         expect(validateDefinition(def)).toEqual(['node hidden: "t" here is the repeat\'s own t, not the derived value']);
     });
-    it("passes the parameter fuzzer: every object is ready", () => {
-        // A person builds in seconds (cloth and hair are simulated): "Mesha people" fuzzes it below.
-        for (const def of LIBRARY.filter(d => d.id !== "people.human")) {
+    // One test per object, each with its own time budget. A person builds in seconds (cloth and
+    // hair are simulated): "Mesha people" fuzzes it in mesha_human.test.ts.
+    for (const def of LIBRARY.filter(d => d.id !== "people.human")) {
+        it(`passes the parameter fuzzer: ${def.id} is ready`, () => {
             const a = fuzz(def, lookupObject, { pairs: 12, random: 16 });
             if (!a.ready) throw new Error(`${acceptanceText(a)}\n${a.failures.map(f => `${f.label}: ${JSON.stringify(f.issues)}`).join("\n")}`);
             expect(a.configurations).toBeGreaterThan(20);
-        }
-    }, 300_000);
+        }, 120_000);
+    }
     it("clamps dynamic ranges against clamped values, whatever the declaration order", () => {
         const table = lookupObject("furniture.table")!;
         const v = resolveParams(table, { topThickness: 1e9 });
