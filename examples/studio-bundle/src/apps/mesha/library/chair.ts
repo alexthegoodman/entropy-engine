@@ -116,7 +116,8 @@ const chair: ObjectDef = {
         // --- Legs, splayed out at the feet; benches get a middle pair ---------------------------
         {
             id: "legs", type: "object", object: "component.leg", repeat: "=nLegs", region: "frame", rest: true,
-            params: { height: "=legH / cos(sa) + 0.004", thickness: "=lt", style: "=legStyle", taper: 0.62 },
+            // Tilted in both planes, a leg loses cos² of its height: it is cut long so its top meets the seat.
+            params: { height: "=legH / pow(cos(sa), 2) + 0.004", thickness: "=lt", style: "=legStyle", taper: 0.62 },
             at: [
                 "=index < 4 ? (index % 2 * 2 - 1) * (lx + spread) : 0",
                 0,
