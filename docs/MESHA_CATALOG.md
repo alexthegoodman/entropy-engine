@@ -43,11 +43,19 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | People | Human | `people.human` | 64 | 8 | 2 | 16 | 72 (draft) | Ready | ~1.5 s draft, ~8 s final |
 | Furniture | Office Chair | `furniture.office_chair` | 26 | 8 | 6 | 7 | 138 | Ready | 11 ms |
 | Furniture | Table | `furniture.table` | 18 | 5 | 6 | 2 | 128 | Ready | 3 ms |
+| Furniture | Cabinet | `furniture.cabinet` | 25 | 5 | 9 | 6 | 251 | Ready | 7 ms |
+| Furniture | Chair, Stool & Bench | `furniture.chair` | 25 | 4 | 5 | 3 | 200 | Ready | 12 ms |
+| Furniture | Bookshelf & Shelving | `furniture.shelving` | 22 | 4 | 6 | 8 | 243 | Ready | 7 ms |
+| Furniture | Sofa & Armchair | `furniture.sofa` | 20 | 5 | 5 | 4 | 187 | Ready | 6 ms |
+| Furniture | Bed | `furniture.bed` | 24 | 5 | 4 | 6 | 234 | Ready | 10 ms |
 | Household | Bottle | `household.bottle` | 17 | 5 | 4 | 4 | 115 | Ready | 2 ms |
 | Household | Mug | `household.mug` | 11 | 3 | 2 | 2 | 95 | Ready | 2 ms |
 | Household | Table Lamp | `household.table_lamp` | 16 | 5 | 3 | 4 | 127 | Ready | 2 ms |
 | Household | Coffee Maker | `household.coffee_maker` | 24 | 6 | 4 | 8 | 146 | Ready | 4 ms |
 | Household | Potted Plant | `household.potted_plant` | 12 | 3 | 3 | 12 | 124 | Ready | 11 ms |
+| Household | Book | `household.book` | 15 | 4 | 2 | 6 | 145 | Ready | 2 ms |
+| Household | Crate, Carton & Bin | `household.crate` | 17 | 4 | 5 | 4 | 122 | Ready | 5 ms |
+| Household | Plate, Bowl & Tray | `household.dish` | 18 | 3 | 7 | 3 | 151 | Ready | 2 ms |
 | Architecture | Window | `architecture.window` | 15 | 5 | 4 | 4 | 117 | Ready | 2 ms |
 | Architecture | Facade | `architecture.facade` | 18 | 4 | 9 | 6 | 118 | Ready | 10 ms |
 | Architecture | Dome Building | `architecture.dome_building` | 24 | 5 | 7 | 5 | 174 | Ready | 11 ms |
@@ -57,8 +65,12 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Architecture | Arcane Emporium | `architecture.arcane_emporium` | 39 | 7 | 7 | 18 | 222 | Ready | 43 ms |
 | Transport | Street Car | `transport.street_car` | 56 | 9 | 8 | 32 | 362 | Ready | 15 ms |
 | Architecture | Door | `architecture.door` | 23 | 5 | 4 | 6 | 139 | Ready | 3 ms |
+| Architecture | Fence, Gate & Railing | `architecture.fence` | 20 | 5 | 5 | 4 | 171 | Ready | 8 ms |
+| Architecture | Stair, Ramp & Landing | `architecture.stair` | 19 | 5 | 4 | 5 | 253 | Ready | 11 ms |
+| Street | Streetlight, Bollard & Sign | `street.streetlight` | 18 | 5 | 4 | 7 | 155 | Ready | 1 ms |
 | Mechanical | Gear | `mechanical.gear` | 14 | 4 | 3 | 1 | 105 | Ready | 14 ms |
 | Mechanical | Bolt | `mechanical.bolt` | 11 | 5 | 2 | 2 | 88 | Ready | 6 ms |
+| Mechanical | Pipe, Elbow & Valve Kit | `mechanical.pipe` | 22 | 4 | 5 | 7 | 240 | Ready | 4 ms |
 | Nature | Rock | `nature.rock` | 11 | 3 | 0 | 1 | 85 | Ready | 47 ms |
 | Nature | Tree | `nature.tree` | 28 | 5 | 3 | 2 | 143 | Ready | 33 ms |
 | Nature | Conifer | `nature.conifer` | 21 | 4 | 2 | 2 | 115 | Ready | 24 ms |
@@ -70,9 +82,12 @@ Acceptance numbers straight from the fuzzer (`npm run mesha:verify`):
 | Components | Leg | `component.leg` | 6 | 1 | 0 | 1 | 73 | Ready | 0 ms |
 | Components | Rock piece | `component.rockPiece` | 8 | 1 | 0 | 1 | 76 | Ready | 14 ms |
 | Components | Caster | `component.caster` | 2 | 1 | 0 | 2 | 51 | Ready | 1 ms |
+| Components | Handle | `component.handle` | 5 | 1 | 0 | 1 | 70 | Ready | 1 ms |
+| Components | Hinge | `component.hinge` | 6 | 1 | 0 | 1 | 70 | Ready | 1 ms |
 
 Components are building blocks other objects compose (a table's legs are `component.leg`, the
-office chair's casters `component.caster`, a facade's windows `architecture.window`); they don't
+office chair's casters `component.caster`, a facade's windows `architecture.window`, every cabinet,
+drawer and tray pull `component.handle`, and crate lids and gates `component.hinge`); they don't
 appear under Add Object. Ordinary objects compose too: a house's front and interior doors are
 `architecture.door`, its windows `architecture.window`.
 
@@ -209,6 +224,123 @@ sunburst bars. **Exterior** adds a threshold and kick plate and puts the leaf in
 region instead of `leaf`, so a building can paint its front door apart from its interior doors.
 **Open** swings the leaf into -Z about its hinge. Five presets: Six-panel, Georgian fanlight,
 Half-glazed kitchen, Cottage plank and Modern flush.
+
+## Rooms and streets
+
+The first twelve families from the [future model roadmap](MESHA_FUTURE_MODELS.md), with the small
+parts they share. They follow one set of conventions: metres; standing on the floor at the origin;
+fronts, seats and signs face +Z; things that open swing or slide toward +Z (out of a cabinet, out
+of a fence line); a stair climbs toward -Z from its first riser at z = 0; pipe runs lie along X.
+
+![A living room composed from the new generators](../public/mesha-room-scene.png)
+
+![A street corner composed from the new generators](../public/mesha-street-scene.png)
+
+**Handle and Hinge** (`component.handle`, `component.hinge`): the shared hardware. A handle is a
+bar on standoffs, a bow (D) pull, a turned knob, a cup pull with a hood and end cheeks, a ring on a
+rose, or an edge tab, mounted on a face at z = 0 and standing out into +Z; parents rotate it 90°
+for a vertical door pull. A hinge's pin runs along Y: a butt hinge's leaves, or a strap hinge's long
+tapered leaf with nail heads, the second leaf swung by `open` (180 lies flat, 90 points along +Z).
+
+**Cabinet** (`furniture.cabinet`): a rectangular carcass (sides, top, bottom, back, a divider per
+bay) in one to four bays, each with doors, drawers, a drawer over doors, or open shelves. Fronts
+overlay the carcass in slab, Shaker (stiles, rails and a recessed panel) or glazed styles with
+glazing bars and see-through glass. A bay wider than 62 cm gets a pair of doors. Leaves pivot on
+their outer front corner, so an open leaf never sweeps into its neighbour or the carcass; drawers
+are real boxes (front, sides, ends, bottom) that slide out with **Open**, the top drawer furthest,
+and stay three quarters engaged. Plinth (with a toe kick), legs (`component.leg`), bun feet, an
+optional worktop with an overhang (a breakfast bar at 30 cm). Six presets: Bedside table, Kitchen
+base unit, Workshop cabinet, Chest of drawers, Glazed display and Mid-century sideboard. Rules keep
+drawers deep and tall enough to run, door leaves wide enough, shelves usable and tall cabinets
+stable.
+
+**Chair, Stool & Bench** (`furniture.chair`): one to five places on a solid or slatted seat
+(rectangular, rounded or round), splayed legs from `component.leg`, box, H or footrest stretchers
+at the height the legs have splayed to, optional seat rails and cushion. The back is ladder rails,
+vertical slats, spindles, a panel or upholstery; it curves round the sitter (`deform.bend`) with
+its width solved so the bent ends still land on the posts over the rear legs, then reclines. Arms
+run from the posts onto turned supports. A leg tilted in both planes is cut long by 1/cos² so its
+top always meets the seat. Seven presets from a Windsor chair to a cafe bar stool and a park bench.
+
+**Bookshelf & Shelving** (`furniture.shelving`): a panelled bookcase (sides, dividers, back,
+plinth, stepped cornice) or an open-frame rack (posts, side rails, lipped shelves, X braces on the
+back and sides, levelling feet), in one to six bays. **Books** fills the shelves with
+`household.book` children: four bindings in four cover regions, each evaluated once (shelf detail)
+and copied into slots along every shelf, packed from the left to a per-shelf share of **Fill**,
+with heights trimmed to the clearance above. Five presets: Library bookcase, Bedside shelf,
+Industrial rack, Shop shelving and Workshop rack.
+
+**Book** (`household.book`): hard boards proud of the page block round a rounded spine (raised
+bands and a label on leather), or a paperback's soft wrap. Standing (spine toward +Z, as on a
+shelf), lying on its cover, or open with each half's pages swelling up from the gutter and a loose
+leaf lifting. A light shelf detail for rows of books. Five presets: Cloth novel, Paperback,
+Leather tome, Atlas (open) and Journal.
+
+**Crate, Carton & Bin** (`household.crate`): hollow storage. A slatted timber crate on corner
+posts with hand slots built from the pieces either side of them, seeded wear (slats knocked askew
+within their gaps, the odd upper slat missing) and a battened lid on strap hinges that turns about
+the hinge pin. A cardboard carton whose four flaps fold shut (the end flaps under the long ones,
+then taped) or hang open outside the walls, never through the floor. A plastic tote with walls
+leaning out by the taper, ribs, a stacking rim, real hand holes and a hinged snap lid. Six presets.
+
+**Plate, Bowl & Tray** (`household.dish`): a plate, bowl, saucer or platter lathed from one closed
+profile: a foot ring, the wall (part of an ellipse from the flat well to the rim, with the outside
+offset along its normal so a steep bowl wall is as thick as a plate's), a rolled lip and a flat
+rim, with an optional coloured band. Oval stretches a plate into a platter. Trays are a floor and a
+flared wall ring with pierced ear handles or bow handles. Eight presets.
+
+**Sofa & Armchair** (`furniture.sofa`): one to four places on a sprung base, seat cushions per place
+or one bench cushion sized to the seat depth left by the back, loose back cushions that recline, a
+tight back or a button-tufted one, track, rolled (a scroll along the top) or padded arms, throw
+pillows leaning into the corners, and legs, bun feet or a plinth. A rigid upholstered model: soft
+forms, no drape. Six presets from a modern three-seater to a Chesterfield and a club armchair.
+
+**Bed** (`furniture.bed`): a sleeping deck (rails, slats, mattress, topper) on legs, a panelled
+box or a low platform; a panel, spindle or padded (tufted) headboard and a footboard; bedding as a
+rigid duvet over the foot with a turned-down fold, its sides hanging over the mattress, and up to
+four pillows; under-bed drawers that slide out; or a bunk whose second deck sits a metre up on four
+tall posts, with a guard rail and a ladder. Six presets.
+
+**Fence, Gate & Railing** (`architecture.fence`): posts (pyramid caps, ball finials, plain) at even
+spacing along a straight run, with pickets (pointed, round or square tops), close boards with a
+capping rail, ranch rails, ironwork (bars, spears, rings) or a glass balustrade between them. The
+same recipe builds every bay and the gate's leaf, so a gate always matches its fence; the leaf adds
+stiles, a diagonal brace on timber, a latch and two hinges (strap on timber, butt on metal), and
+swings out about the post face, clearing its bay. Six presets. Runs are straight; terrain following
+and arbitrary paths are later work.
+
+**Stair, Ramp & Landing** (`architecture.stair`): the rise is divided into equal risers near the
+target; treads have nosings. Flights are closed (strings and risers), open (treads on stringers),
+on a steel spine, or solid masonry to the ground. Two flights meet at a landing straight on or
+turning left or right (on posts, with a guard round its open edges); a top landing is optional.
+Handrails on either or both sides with spindles, bars or glass and newel posts. Ramps climb at the
+chosen gradient with a level rest after every 0.75 m of rise, curbs and handrails. A rule keeps
+two risers and a tread to a stride (550-700 mm). Six presets. Spiral stairs are a later subtype.
+
+**Streetlight, Bollard & Sign** (`street.streetlight`, the new **Street** category): a street light
+on a tapered, heritage (lathed base, collars, cap) or square pole with zero to four straight, swept
+or scrolled arms (a curved brace and a ring) carrying cobra-head, slim LED, lantern or globe
+fittings, or a lantern on the pole top; lit lamps use `glow.*` (self-lit in the viewport; they do
+not light the scene). Steel dome, heritage cast and lit louvre bollards. Sign posts with
+rectangle, circle, triangle or octagon plates (a border-coloured plate under a sign-coloured face)
+on clamps, and a transit stop flag with a timetable case. Nine presets.
+
+**Pipe, Elbow & Valve Kit** (`mechanical.pipe`): one outside diameter sizes everything (flange
+diameter and thickness, the bolt circle, the bend radius in diameters, valves, supports). Straight,
+90° elbow, tee, riser offset or expansion loop runs; open ends show the dark bore, or are flanged
+(bolt circles) or capped; flanged or threaded joints every 1.5 m along the first leg; an inline gate
+valve (bonnet, rising stem, spoked handwheel), ball valve or butterfly valve whose lever turns with
+**Valve open**; floor stands or ceiling hangers with saddles; optional sheet-clad lagging. A visual
+kit: no flow, pressure rating or engineering certification. Five presets.
+
+Every family passes the fuzzer above; `tests/mesha_furnishings.test.ts` checks what it can't:
+handles stand out from their faces and hinges swing about their pins; drawers slide out and stay
+engaged; doors fill the front shut and show the interior open; every chair leg meets its seat at
+any splay; books never reach the shelf above; crates, cartons and totes are hollow and a tote's
+hand holes go through; plates have a wall one thickness thick; sofa cushions follow the seats; the
+mattress lies on the deck (and a bunk's a metre up); a gate closes its bay and swings clear; every
+tread is where its riser says on straight, open and two-flight stairs and a quarter turn arrives at
+the full rise; a ramp rests level between runs; lamps glow when lit; an open pipe end shows its bore.
 
 ## Transport
 
@@ -529,7 +661,9 @@ Presets in `mesha_materials.ts`: woods (oak, walnut, ash, cherry, ebonized), pai
 (chrome, brushed steel, black steel, brass, copper, aluminum, zinc), plastics, rubber, fabrics,
 leathers, glass (clear, green, amber, frosted), ceramics (with terracotta), stones (granite,
 sandstone, slate, marble), masonry (red, buff and whitewashed brick, stucco, fieldstone), roofing
-(slate, asphalt shingle, clay tile, cedar shake, standing-seam metal), paper, cork, potting soil;
+(slate, asphalt shingle, clay tile, cedar shake, standing-seam metal), paper (labels, book pages,
+white paper, corrugated cardboard), book cloths (red, green, blue, ochre, grey), packing tape, cork,
+potting soil;
 barks (oak, grey, dark, pine, birch, palm), stems, fruit; and foliage: leaves (summer and spring
 green, evergreen, silver olive, tropical, autumn orange and gold, maple red, copper beech, cherry
 blossom, spruce and blue spruce needles, fern, palm, succulent), grasses (lawn, meadow, dry,

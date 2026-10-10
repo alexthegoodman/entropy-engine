@@ -81,7 +81,7 @@ export function buildScene(instances: Instance[], lookup: ObjectLookup, cache = 
 // --- Library search ------------------------------------------------------------------------------
 
 /** How Add Object orders categories; any other category follows, alphabetically. */
-export const CATEGORY_ORDER = ["People", "Furniture", "Household", "Architecture", "Transport", "Mechanical", "Nature"];
+export const CATEGORY_ORDER = ["People", "Furniture", "Household", "Architecture", "Street", "Transport", "Mechanical", "Nature"];
 
 /** Browsable objects ranked for `query` (all of them, by category, for an empty query). */
 export function searchLibrary(query: string, category?: string): ObjectDef[] {
