@@ -388,7 +388,8 @@ function readInput(): GameInput {
         sprint: key("Shift") || controller.held.has("LeftThumb"),
         jump: pressed.has(" ") || controller.held.has("South"),
         mouseX: mouseDX, mouseY: mouseDY,
-        lookX: (key("ArrowRight") ? 1 : 0) - (key("ArrowLeft") ? 1 : 0) + R[0],
+        // Abyss's yaw is mirrored against Allegiance's (see ab_player.ts: right = -cos, sin), so the shared stepLook needs the x axis flipped.
+        lookX: -((key("ArrowRight") ? 1 : 0) - (key("ArrowLeft") ? 1 : 0) + R[0]),
         lookY: (key("ArrowUp") ? 1 : 0) - (key("ArrowDown") ? 1 : 0) + R[1],
         fire: fireHeld || controller.held.has("RightTrigger2") || controller.held.has("RightTrigger"),
         ads: adsHeld || key("z") || controller.held.has("LeftTrigger2") || controller.held.has("LeftTrigger"),
