@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/games/abyss/**/*.ts", "src/games/allegiance/al_aim.ts", "src/games/allegiance/al_ui.ts", "src/games/allegiance/al_controller.ts", "src/games/allegiance/al_fx.ts", "src/apps/mesha/**/*.ts"]
+}

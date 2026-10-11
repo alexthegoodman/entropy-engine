@@ -50,8 +50,15 @@ import barrel from "./barrel";
 import ruin from "./ruin";
 import container from "./container";
 import wastelandGround from "./wasteland_ground";
+import gunship from "./gunship";
+import caveDwelling from "./cave_dwelling";
+import riverShrine from "./river_shrine";
+import combatArmor from "./combat_armor";
+import wardenGarb from "./warden_garb";
+import { coilRifleDef, meleeWeaponDef } from "./weapons";
+import crystalCluster from "./crystal";
 
-export const LIBRARY: ObjectDef[] = [humanDef, officeChair, table, cabinet, chair, sofa, bed, shelving, bottle, mug, dish, book, crate, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, rustDome, houseDef, ruin, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, cityBlockDef, streetCarDef, wreckCar, container, streetlight, utilityPole, barrel, wastelandGround, windowDef, doorDef, facadeDef, fence, stair, gear, bolt, pipe, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, leg, rockPiece, caster, handle, hinge];
+export const LIBRARY: ObjectDef[] = [humanDef, combatArmor, wardenGarb, officeChair, table, cabinet, chair, sofa, bed, shelving, bottle, mug, dish, book, crate, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, rustDome, houseDef, ruin, caveDwelling, riverShrine, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, cityBlockDef, streetCarDef, wreckCar, gunship, container, streetlight, utilityPole, barrel, wastelandGround, windowDef, doorDef, facadeDef, fence, stair, gear, bolt, pipe, coilRifleDef, meleeWeaponDef, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, crystalCluster, leg, rockPiece, caster, handle, hinge];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

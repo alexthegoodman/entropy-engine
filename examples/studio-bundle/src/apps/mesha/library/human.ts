@@ -1,7 +1,7 @@
 import type { ObjectDef } from "../mesha_object";
 
 const HAIR_COLORS = ["hair.black", "hair.darkBrown", "hair.brown", "hair.chestnut", "hair.auburn", "hair.ginger", "hair.darkBlonde", "hair.blonde", "hair.platinum", "hair.grey", "hair.white", "hair.saltPepper", "hair.pink", "hair.blue"];
-const FABRICS = ["fabric", "fabric.denim", "fabric.denimLight", "fabric.denimBlack", "fabric.knitCream", "fabric.knitGrey", "fabric.knitBurgundy"];
+const FABRICS = ["fabric", "fabric.denim", "fabric.denimLight", "fabric.denimBlack", "fabric.knitCream", "fabric.knitGrey", "fabric.knitBurgundy", "cloth"];
 const face = (id: string, label: string, description?: string) =>
     ({ id, label, type: "number" as const, default: 0.5, min: 0, max: 1, group: "face", variation: 0.6, ...(description ? { description } : {}) });
 

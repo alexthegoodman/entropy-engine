@@ -236,6 +236,28 @@ export const MATERIALS: MaterialPreset[] = [
     m("paint.faded", "Faded road paint", "#b9af8f", 0.85, 0, "speckle"),
     m("metal.rustDark", "Dark rusted steel", "#4b3529", 0.8, 0, "rust"),
     m("glow.toxic", "Toxic green light", "#a4ff70", 0.3, 0, "glow"),
+    // Surface military (rotorcraft, armor, weapons) and the kingdoms below (carved stone, bronze,
+    // dyed cloth, and the river's light).
+    m("composite.slate", "Slate military composite", "#4a5259", 0.42, 0, "panels"),
+    m("composite.sand", "Desert composite", "#9a8a6c", 0.45, 0, "panels"),
+    m("composite.olive", "Olive composite", "#55593f", 0.45, 0, "panels"),
+    m("composite.black", "Black composite", "#202326", 0.4, 0, "panels"),
+    m("polymer.black", "Black polymer", "#1c1d1f", 0.55, 0, "speckle"),
+    m("polymer.tan", "Tan polymer", "#8b7a5c", 0.6, 0, "speckle"),
+    m("metal.gunmetal", "Gunmetal", "#3a3d41", 0.34, 1, "brushed"),
+    m("metal.blade", "Blade steel", "#c9cdd2", 0.18, 1, "brushed"),
+    m("metal.bronze", "Bronze", "#8c6236", 0.32, 1, "brushed"),
+    m("metal.verdigris", "Verdigris bronze", "#4f8a78", 0.55, 0.6, "speckle"),
+    m("stone.carved", "Carved cavestone", "#8d7f6c", 0.85, 0, "speckle"),
+    m("stone.dark", "Dark cavestone", "#4a4440", 0.85, 0, "speckle"),
+    m("stone.pale", "Pale cavestone", "#b8ab94", 0.8, 0, "speckle"),
+    m("cloth.indigo", "Indigo-dyed cloth", "#2c3466", 0.95, 0, "fabric"),
+    m("cloth.saffron", "Saffron cloth", "#c0832a", 0.95, 0, "fabric"),
+    m("cloth.ash", "Ash-grey cloth", "#5d5a56", 0.95, 0, "fabric"),
+    m("cloth.wine", "Wine cloth", "#5e1f2c", 0.95, 0, "fabric"),
+    m("glow.river", "River light", "#7fe9ff", 0.3, 0, "glow"),
+    m("glow.riverViolet", "River light (violet)", "#c08bff", 0.3, 0, "glow"),
+    m("glow.riverGold", "River light (gold)", "#ffd27a", 0.3, 0, "glow"),
 ];
 
 // People: skin tones, lips, hair colors, eyes, and clothing fabrics. Pushed here so they sit
