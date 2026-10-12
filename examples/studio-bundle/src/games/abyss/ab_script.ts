@@ -40,9 +40,11 @@ export const SQUAD: SquadMember[] = [
 
 // --- The phases --------------------------------------------------------------------------------------
 
-export type Phase = "title" | "intro" | "ledge" | "descent" | "floor" | "contact" | "ambush" | "fallback" | "evac" | "laststand" | "ending" | "complete";
+export type Phase = "title" | "intro" | "ledge" | "descent" | "floor" | "contact" | "ambush" | "fallback" | "evac" | "laststand" | "ending" | "complete"
+    /** Chapter Two: its opening, then the open floor. */
+    | "aftermath" | "open";
 
-export const PHASES: Phase[] = ["title", "intro", "ledge", "descent", "floor", "contact", "ambush", "fallback", "evac", "laststand", "ending", "complete"];
+export const PHASES: Phase[] = ["title", "intro", "ledge", "descent", "floor", "contact", "ambush", "fallback", "evac", "laststand", "ending", "complete", "aftermath", "open"];
 
 export interface Objective { title: string; text: string; marker: V2 | null }
 

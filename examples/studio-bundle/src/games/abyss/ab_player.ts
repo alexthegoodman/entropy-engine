@@ -101,7 +101,7 @@ export function eye(b: Body): { pos: V3; forward: V3 } {
 
 // --- What Alex carries -------------------------------------------------------------------------
 
-export type WeaponId = "coil-rifle" | "arc-pistol" | "monoblade" | "warden-glaive";
+export type WeaponId = "coil-rifle" | "arc-pistol" | "monoblade" | "warden-glaive" | "okafor-carbine";
 
 export interface WeaponSpec {
     id: WeaponId;
@@ -122,6 +122,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     "coil-rifle": { id: "coil-rifle", name: "VK-9 Coil Rifle", kind: "gun", mag: 32, interval: 0.095, auto: true, damage: 21, spread: 0.007, reload: 2.0, range: 400, object: "equipment.coil_rifle", values: {}, description: "Standard expedition rifle. Magnetic slugs through five accelerator coils.", value: 0 },
     "arc-pistol": { id: "arc-pistol", name: "Arc Sidearm", kind: "gun", mag: 14, interval: 0.22, damage: 32, spread: 0.01, reload: 1.3, range: 160, object: "equipment.coil_rifle", values: { kind: "pistol", coils: 3, sight: false }, description: "Officer's sidearm. Slow, heavy rounds.", value: 0 },
     "monoblade": { id: "monoblade", name: "Monoblade", kind: "melee", interval: 0.55, damage: 75, range: 2.4, reach: 2.4, arc: 0.9, windup: 0.14, object: "equipment.melee_weapon", values: { kind: "monoblade", shaftFinish: "polymer.black", trimFinish: "metal.gunmetal", glowFinish: "glow.cyan" }, description: "A molecular edge. Standard issue, rarely drawn.", value: 0 },
+    "okafor-carbine": { id: "okafor-carbine", name: "Okafor's Carbine", kind: "gun", mag: 24, interval: 0.16, auto: true, damage: 34, spread: 0.005, reload: 1.7, range: 420, object: "equipment.coil_rifle", values: { kind: "carbine" }, description: "Sgt. Okafor's own. Shorter, heavier slugs; her name scratched into the stock.", value: 0 },
     "warden-glaive": { id: "warden-glaive", name: "Warden's Glaive", kind: "melee", interval: 0.8, damage: 120, range: 3.2, reach: 3.2, arc: 1.1, windup: 0.22, object: "equipment.melee_weapon", values: { kind: "glaive" }, description: "Taken from a fallen warden. The crystal at its socket is warm.", value: 900 },
 };
 

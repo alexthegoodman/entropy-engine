@@ -26,7 +26,11 @@ import { alive, living, type Actor } from "./ab_combat";
 import { aircraftFrame } from "./ab_flight";
 import { WEAPONS, ARTIFACTS, artifactValue, eye, type WeaponId } from "./ab_player";
 import { SQUAD, PHASES, type Phase } from "./ab_script";
-import { drawHud, drawCinema, drawLoading, drawTitle, drawDead, drawInventory, drawComplete, safeEnginePainter, type HudView, type HudMarker, type SafePainter } from "./ab_hud";
+import { drawHud, drawCinema, drawLoading, drawTitle, drawDead, drawInventory, drawComplete, drawTrade, safeEnginePainter, type HudView, type HudMarker, type SafePainter } from "./ab_hud";
+import { CH2_STARTS, SHOP, PLACES2, NPCS, type ChapterTwoStart } from "./ab_script2";
+import { type Ch2Save } from "./ab_chapter2";
+import { creatureFrame, seatPosition, altitude, LENGTH as KESH_LENGTH, type Creature } from "./ab_creature";
+import { skywingShoulder } from "../../apps/mesha/library/skywing";
 import { Sound } from "./ab_audio";
 import { type DrawApi } from "../allegiance/al_ui";
 import { Controller } from "../allegiance/al_controller";
@@ -40,7 +44,7 @@ import { lookupObject } from "../../apps/mesha/library";
 const addon = Entropy.AddonAtom.register({
     name: "The Abyss",
     version: "0.1.0",
-    description: "Chapter One: First Blood - the first expedition into the crack",
+    description: "Chapter One: First Blood - the first expedition into the crack. Chapter Two: Retaliation - the open floor, and the skywing Kesh",
     author: ["Entropy Team", "Claude"],
     capabilities: { graphics: true, ui: true },
 });
@@ -60,7 +64,7 @@ let lights: PointLight[] = [];
 const sound = new Sound();
 const controller = new Controller();
 
-type Mode = "loading" | "title" | "play" | "inventory";
+type Mode = "loading" | "title" | "play" | "inventory" | "trade";
 let mode: Mode = "loading";
 let loadStage = "Surveying the fracture";
 let loadProgress = 0;
@@ -211,6 +215,26 @@ function buildAircraftMeshes(role: "gunship" | "dropship"): AircraftMeshes {
     };
 }
 
+/** Kesh's meshes per variant (wounded, healed, saddled): the body by level, and each wing (membrane and bones). */
+type KeshVariant = "wounded" | "healed" | "saddled";
+const keshMeshes: Partial<Record<KeshVariant, { body: string[]; wingL: string; wingR: string; radius: number }>> = {};
+
+function buildKesh(variant: KeshVariant): void {
+    const values = { length: KESH_LENGTH, wounded: variant === "wounded", saddle: variant === "saddled" };
+    const base = `kesh-v${MESH_VERSION}.2-${variant}`;
+    const names = [`${base}-body-lod0`, `${base}-body-lod1`, `${base}-body-lod2`, `${base}-wingL`, `${base}-wingR`];
+    if (allCached(names)) names.forEach(n => cache(n, () => { throw new Error("cached"); }));
+    else {
+        const e = evaluateObject(lookupObject("creature.skywing")!, values, lookupObject);
+        const wing = new Set(["wingL", "wingR", "wingBoneL", "wingBoneR"]);
+        const body = packEvaluation(e, r => !wing.has(r));
+        [body, cluster(body, 0.06), cluster(body, 0.2)].forEach((m, i) => cache(names[i], () => m));
+        cache(names[3], () => packEvaluation(e, r => r === "wingL" || r === "wingBoneL"));
+        cache(names[4], () => packEvaluation(e, r => r === "wingR" || r === "wingBoneR"));
+    }
+    keshMeshes[variant] = { body: names.slice(0, 3), wingL: names[3], wingR: names[4], radius: keyRadius.get(names[3]) ?? 8 };
+}
+
 const FX = {
     fire: "", smoke: "", spark: "", magic: "", tracer: "", beam: "", scorch: "", rotor: "", waterfall: "", sky: "",
 };
@@ -227,6 +251,9 @@ function pickupKey(item: string): string {
         if (item === "warden-mask") return meshaObject("household.dish", {});
         if (item === "warden-glaive") return meshaObject("equipment.melee_weapon", { kind: "glaive" });
         if (item === "medgel") return meshaObject("household.bottle", { height: 0.22, bodyRadius: 0.035, label: true, closure: "cap", glass: "glass.green" });
+        if (item === "recorder") return meshaObject("household.crate", {});
+        if (item === "dogtag") return meshaObject("mechanical.bolt", {});
+        if (item === "relay") return meshaObject("mechanical.gear", {});
         if (item === "vial") return meshaObject("household.bottle", { height: 0.24, bodyRadius: 0.04, shoulder: "round", label: false, closure: "cork", glass: "glass.clear" });
         return meshaObject("nature.crystal_cluster", { count: 1, height: 0.3, base: false });
     };
@@ -307,6 +334,12 @@ function makeLoadSteps(): LoadStep[] {
             label: "Readying the rotorcraft", weight: 1, run: () => {
                 aircraftMeshes.gunship = buildAircraftMeshes("gunship");
                 aircraftMeshes.dropship = buildAircraftMeshes("dropship");
+                return true;
+            },
+        },
+        {
+            label: "Waking the deep", weight: 1, run: () => {
+                buildKesh("wounded"); buildKesh("healed"); buildKesh("saddled");
                 return true;
             },
         },
@@ -397,8 +430,12 @@ function readInput(): GameInput {
         interact: pressed.has("e") || pressed.has("E") || controller.held.has("West"),
         heal: pressed.has("h") || pressed.has("H"),
         scan: pressed.has("q") || pressed.has("Q"),
-        weapon: pressed.has("1") ? 1 : pressed.has("2") ? 2 : pressed.has("3") || pressed.has("f") || pressed.has("F") ? 3 : pressed.has("4") ? 4 : null,
+        weapon: pressed.has("1") ? 1 : pressed.has("2") ? 2 : pressed.has("3") || pressed.has("f") || pressed.has("F") ? 3 : pressed.has("4") ? 4 : pressed.has("5") ? 5 : null,
         skip: skipHeld >= 1,
+        jumpHeld: key(" ") || controller.held.has("South"),
+        call: pressed.has("v") || pressed.has("V") || controller.held.has("North"),
+        track: pressed.has("t") || pressed.has("T"),
+        choice: pressed.has("1") ? 1 : pressed.has("2") ? 2 : null,
     };
     if (scripted) {
         Object.assign(inp, scripted);
@@ -412,6 +449,12 @@ function readInput(): GameInput {
 function setupInput(): void {
     Entropy.Input.onKeyDown((k: string) => {
         held.add(k); pressed.add(k);
+        if (mode === "trade") {
+            if (k === "Tab" || k === "Escape") { mode = "play"; sound.ui(); }
+            else if (k === "s" || k === "S") act("sell-all");
+            else if (/^[1-9]$/.test(k) && SHOP[Number(k) - 1]) act(`buy-${SHOP[Number(k) - 1].id}`);
+            return;
+        }
         if (k === "Tab" || k === "Escape") {
             if (mode === "play" && game && !game.cinema && game.phase !== "complete") { mode = "inventory"; sound.ui(); }
             else if (mode === "inventory") { mode = "play"; sound.ui(); }
@@ -451,7 +494,8 @@ function act(id: string): void {
     const g = game;
     switch (id) {
         case "begin": newGame("intro"); break;
-        case "continue": if (savedCheckpoint) newGame(savedCheckpoint); break;
+        case "begin2": newGame("open"); break;
+        case "continue": if (savedCheckpoint) continueGame(savedCheckpoint); break;
         case "chapters": menuChapters = true; break;
         case "back": menuChapters = false; break;
         case "assist-down": g.aimAssist = Math.max(0, Math.round((g.aimAssist - 0.1) * 10) / 10); saveSettings(); break;
@@ -459,53 +503,78 @@ function act(id: string): void {
         case "look-down": g.sensitivity = Math.max(0.3, Math.round((g.sensitivity - 0.1) * 10) / 10); saveSettings(); break;
         case "look-up": g.sensitivity = Math.min(2.5, Math.round((g.sensitivity + 0.1) * 10) / 10); saveSettings(); break;
         case "resume": mode = "play"; break;
+        case "sell-all": g.ch2?.sellAll(); break;
         case "to-title": mode = "title"; menuChapters = false; resetGame(); break;
         case "replay": newGame("intro"); break;
         default:
-            if (id.startsWith("moment-")) newGame(id.slice(7) as Phase);
+            if (id.startsWith("moment-")) newGame(id.slice(7) as Phase | ChapterTwoStart);
             if (id.startsWith("artifact-")) invSelected = Number(id.slice(9));
+            if (id.startsWith("buy-")) g.ch2?.buy(id.slice(4));
+            if (id.startsWith("quest-")) g.ch2?.track(id.slice(6));
+            if (id.startsWith("choice-")) scripted = { choice: Number(id.slice(7)), frames: 1 };
     }
 }
 
 // --- Saving (the checkpoint phase and the settings) ------------------------------------------------------
 
 let savedCheckpoint: Phase | null = null;
+/** Chapter Two's progress (the quest book, Kesh, the kit). */
+let savedCh2: Ch2Save | null = null;
+let lastCh2Save = 0;
 const SAVE_PATH = "progress.json";
 
 function loadSettings(): void {
     try {
         const text = addon.IO.store.read(SAVE_PATH);
-        const d = (text ? JSON.parse(text) : null) as { checkpoint?: Phase; aimAssist?: number; sensitivity?: number } | null;
+        const d = (text ? JSON.parse(text) : null) as { checkpoint?: Phase; aimAssist?: number; sensitivity?: number; chapter2?: Ch2Save } | null;
         if (d?.checkpoint && PHASES.includes(d.checkpoint)) savedCheckpoint = d.checkpoint;
+        if (d?.chapter2?.v === 1) savedCh2 = d.chapter2;
         if (game && typeof d?.aimAssist === "number") game.aimAssist = d.aimAssist;
         if (game && typeof d?.sensitivity === "number") game.sensitivity = d.sensitivity;
     } catch { /* no save yet */ }
 }
 function saveSettings(): void {
-    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ checkpoint: savedCheckpoint, aimAssist: game?.aimAssist ?? 0.5, sensitivity: game?.sensitivity ?? 1 })); } catch { /* no data folder */ }
+    if (game?.ch2) { savedCh2 = game.ch2.save(); lastCh2Save = realTime; }
+    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ checkpoint: savedCheckpoint, aimAssist: game?.aimAssist ?? 0.5, sensitivity: game?.sensitivity ?? 1, chapter2: savedCh2 })); } catch { /* no data folder */ }
 }
 
-function resetGame(): void {
+function resetGame(chapter: 1 | 2 = 1): void {
     if (!world) return;
     const keep = game ? { a: game.aimAssist, s: game.sensitivity } : null;
-    // Wrecks are solids added during play; start from the props' own.
-    world.solids = solids(props);
+    // Wrecks are solids added during play; start from the props' own (this chapter's).
+    world.solids = solids(props, chapter);
     game = new Game(world);
     if (keep) { game.aimAssist = keep.a; game.sensitivity = keep.s; }
 }
 
-function newGame(phase: Phase): void {
-    resetGame();
+function newGame(phase: Phase | ChapterTwoStart): void {
+    const ch2 = (CH2_STARTS as string[]).includes(phase);
+    resetGame(ch2 ? 2 : 1);
     game!.start(phase);
     mode = "play";
-    hud.bootStart = phase === "intro" ? -1 : game!.time;
+    hud.bootStart = phase === "intro" || phase === "open" ? -1 : game!.time;
     hud.toasts = [];
+    hud.banner = null;
+}
+
+/** Continue: Chapter One from its checkpoint; Chapter Two from its saved progress. */
+function continueGame(phase: Phase): void {
+    if ((phase === "open" || phase === "aftermath") && savedCh2) {
+        newGame("open");
+        const g = game!;
+        g.cinema = null; g.black = false;
+        g.enterPhase("open");
+        g.ch2!.load(savedCh2);
+        hud.bootStart = g.time;
+        return;
+    }
+    newGame(phase === "aftermath" ? "open" : phase);
 }
 
 // --- HUD state ------------------------------------------------------------------------------------------
 
 let painter: SafePainter | null = null;
-const hud = { toasts: [] as { text: string; age: number }[], hit: 0, kill: false, objectiveText: "", objectiveAge: 0, bootStart: -1, timer: 0, lastPhase: "" as string };
+const hud = { toasts: [] as { text: string; age: number }[], hit: 0, kill: false, objectiveText: "", objectiveAge: 0, bootStart: -1, timer: 0, lastPhase: "" as string, banner: null as { title: string; text: string; age: number; state: string } | null };
 
 // --- The frame ----------------------------------------------------------------------------------------------
 
@@ -537,6 +606,12 @@ function frame(dt: number): void {
         handleEvents(game.events);
         if (game.phase === "complete") mode = "play";
         if (game.checkpoint && savedCheckpoint !== game.checkpoint.phase) { savedCheckpoint = game.checkpoint.phase; saveSettings(); }
+        if (game.ch2) {
+            if (game.ch2.wantTrade && !game.cinema) { game.ch2.wantTrade = false; mode = "trade"; sound.ui(); }
+            if (realTime - lastCh2Save > 20 && !game.cinema && game.alive) saveSettings();
+        }
+    } else if (game && (mode === "trade" || mode === "inventory")) {
+        // The world holds still while Alex trades or reads; only time on the screens moves.
     } else if (game && mode === "title") {
         game.step(dt, NO_INPUT);
     }
@@ -562,7 +637,12 @@ function handleEvents(events: GameEvent[]): void {
             case "reload": sound.reload(); break;
             case "scan": sound.scan(); break;
             case "surge": sound.surge(); look.flash = 1; look.flashHue = 1; break;
-            case "phase": if (e.phase === "ledge") hud.bootStart = g.time; break;
+            case "phase": if (e.phase === "ledge" || e.phase === "open") hud.bootStart = g.time; break;
+            case "quest": hud.banner = { title: e.title, text: e.text, age: 0, state: e.state }; sound.quest(e.state); if (e.state !== "started") saveSettings(); break;
+            case "whistle": sound.whistle(); break;
+            case "cry": sound.cry(e.at, ear); break;
+            case "wingbeat": sound.wingbeat(e.at, ear); break;
+            case "trade": break;
             case "shout": hud.toasts.push({ text: `"${e.text}"  -  ${e.translation}`, age: 0 }); break;
             case "death": break;
         }
@@ -586,6 +666,8 @@ function draw(dt: number): void {
             drawAircraft(cam.pos);
             drawFx(cam.pos);
             drawPickups(cam.pos);
+            drawKesh(cam.pos);
+            drawFirebase();
         }
         drawSource();
         solidBatches.flush(); peopleBatches.flush(); fxBatches.flush();
@@ -606,7 +688,9 @@ function draw(dt: number): void {
 function drawProps(cam: V3, target: V3): void {
     const fwd = norm3([target[0] - cam[0], target[1] - cam[1], target[2] - cam[2]]);
     const reach = { near: 160, mid: 1000, far: 1e9 };
+    const chapter = game?.chapter ?? 1;
     for (const p of props) {
+        if (p.chapter && p.chapter !== chapter) continue;
         const keys = propMeshes.get(propKey(p));
         if (!keys) continue;
         const y = grid.height(p.x, p.z) + (p.lift ?? 0);
@@ -629,8 +713,8 @@ function drawPeople(cam: V3): void {
     const g = game!;
     const list: { a: Actor | null; x: number; y: number; z: number; yaw: number; look: string; d: number }[] = [];
     for (const a of g.combat.actors) list.push({ a, x: a.x, y: a.y, z: a.z, yaw: a.yaw, look: a.look, d: Math.hypot(a.x - cam[0], a.y - cam[1], a.z - cam[2]) });
-    // Alex himself, seen from outside in cutscenes.
-    if (g.cinema || g.phase === "complete") list.push({ a: null, x: g.body.x, y: g.body.y, z: g.body.z, yaw: g.body.yaw, look: "trooper-m", d: Math.hypot(g.body.x - cam[0], g.body.y - cam[1], g.body.z - cam[2]) });
+    // Alex himself, seen from outside in cutscenes - and on Kesh's back (drawn with Kesh).
+    if ((g.cinema || g.phase === "complete") && !g.ch2?.mounted) list.push({ a: null, x: g.body.x, y: g.body.y, z: g.body.z, yaw: g.body.yaw, look: "trooper-m", d: Math.hypot(g.body.x - cam[0], g.body.y - cam[1], g.body.z - cam[2]) });
     list.sort((p, q) => p.d - q.d);
     let full = 0, mid = 0;
     for (const it of list) {
@@ -705,6 +789,82 @@ function drawAircraft(cam: V3): void {
     }
 }
 
+/** Rotation about Z (the model's forward axis): +X up for positive angles. */
+const rotZ = (a: number): Mat4 => { const c = Math.cos(a), s = Math.sin(a); return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; };
+
+/**
+ * Kesh: its body by level of detail, each wing turned about its shoulder (swept back and down
+ * when folded, beating in flight), its glow lighting the ground, and Alex in the saddle.
+ */
+function drawKesh(cam: V3): void {
+    const g = game!;
+    const c2 = g.ch2;
+    if (!c2) return;
+    const k: Creature = c2.kesh;
+    const variant: KeshVariant = !k.healed ? "wounded" : g.flags.saddle ? "saddled" : "healed";
+    const m3 = keshMeshes[variant];
+    if (!m3) return;
+    const d = Math.hypot(k.x - cam[0], k.y - cam[1], k.z - cam[2]);
+    if (d > 3000) return;
+    // Lying wounded it sinks onto its belly.
+    const sink = k.mode === "wounded" ? 1.05 : 0;
+    const pos: V3 = [k.x, k.y - sink, k.z];
+    const base = eulerMatrix(pos, k.yaw, k.pitch - (k.mode === "wounded" ? 0.06 : 0), k.roll);
+    const rel = d / 8 / detail;
+    const lod = rel < 25 ? 0 : rel < 90 ? 1 : 2;
+    const sphere = [k.x, k.y + 2, k.z, 18];
+    addInstance(solidBatches, m3.body[lod], base, [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], sphere);
+    const [sx, sy, sz] = skywingShoulder(KESH_LENGTH);
+    const flap = Math.sin(k.flap) * 0.62 * k.beat + 0.12 * k.beat;
+    // Folded, the wings lie back along the body (lifted a little); wounded, they hang.
+    const sweep = k.fold * 1.38, droop = k.mode === "wounded" ? -k.fold * 0.3 : k.fold * 0.12;
+    for (const side of [1, -1] as const) {
+        const pivot: V3 = [sx * side, sy, sz];
+        const turn = multiply(placeMatrix(0, 0, 0, sweep * side), rotZ((flap + droop) * side));
+        const local = multiply(multiply(placeMatrix(pivot[0], pivot[1], pivot[2]), turn), placeMatrix(-pivot[0], -pivot[1], -pivot[2]));
+        addInstance(solidBatches, side === 1 ? m3.wingL : m3.wingR, multiply(base, local), [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], sphere);
+    }
+    // Its spots and eyes light what is around it.
+    if (d < 900) lights.push({ pos: [k.x, k.y + 3, k.z], radius: k.healed ? 22 : 14, color: [0.5, 0.92, 1], intensity: k.healed ? 1.6 : 0.9 });
+    // The wound's red pulse.
+    if (!k.healed && d < 300) lights.push({ pos: [k.x + Math.cos(k.yaw) * 0.6, k.y + 1.6, k.z - Math.sin(k.yaw) * 0.6], radius: 6, color: [1, 0.3, 0.25], intensity: 0.8 + 0.5 * Math.sin(g.time * 2.4) });
+    // Alex in the saddle.
+    if (c2.mounted) {
+        const f = creatureFrame(k);
+        const seat = seatPosition(k);
+        const feet: V3 = [seat[0] - f.up[0] * 0.95, seat[1] - f.up[1] * 0.95, seat[2] - f.up[2] * 0.95];
+        const m = frameMatrix(feet, f.right, f.up, f.forward);
+        const dd = Math.hypot(feet[0] - cam[0], feet[1] - cam[1], feet[2] - cam[2]);
+        addInstance(peopleBatches, lookKey("trooper-m", personLod(dd, detail)), m, [1, 1, 1, 0], [0, 0, 1, 1], [1, 0, 0, 0], [feet[0], feet[1] + 1, feet[2], 1.4]);
+    }
+    // The trail of its light, while it is the way.
+    const trail = c2.trail();
+    for (let i = 0; i + 1 < trail.length; i++) {
+        const [ax, az] = trail[i], [bx, bz] = trail[i + 1];
+        const len = Math.hypot(bx - ax, bz - az);
+        for (let t = 0; t < len; t += 7) {
+            const x = ax + (bx - ax) * t / len + Math.sin(t * 1.7 + i) * 1.4, z = az + (bz - az) * t / len + Math.cos(t * 1.3 + i) * 1.4;
+            if (Math.hypot(x - cam[0], z - cam[2]) > 160) continue;
+            const y = grid.height(x, z) + 0.06;
+            const pulse = 0.7 + 0.3 * Math.sin(g.time * 2 + t * 0.3 + i);
+            addInstance(fxBatches, FX.magic, placeMatrix(x, y, z, t, 0.22 + 0.08 * Math.sin(t)), [0.5, 0.95, 1, 1.6 * pulse], [0, 0, 0, 0], [0.9, 2, 0, 0]);
+        }
+    }
+    void altitude;
+}
+
+/** Firebase Lantern's floodlights (Chapter Two): the one warm place on the floor. */
+function drawFirebase(): void {
+    if (game?.chapter !== 2) return;
+    const [fx, fz] = PLACES2.firebase;
+    const y = grid.height(fx, fz);
+    for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.3;
+        lights.push({ pos: [fx + Math.cos(a) * 46, y + 9, fz + Math.sin(a) * 46], radius: 55, color: [1, 0.9, 0.72], intensity: 1.8 });
+    }
+    lights.push({ pos: [PLACES2.memorial[0], y + 2.2, PLACES2.memorial[1] - 1], radius: 10, color: [1, 0.8, 0.5], intensity: 1.4 });
+}
+
 function cross3(a: V3, b: V3): V3 { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 
 function drawFx(cam: V3): void {
@@ -769,7 +929,7 @@ function drawFx(cam: V3): void {
         lights.push({ pos: at, radius: 80, color: [0.6, 0.95, 1], intensity: 8 * (1 - k) });
     }
     // The shrine's basin still glows (it dims when the battle starts).
-    const shrineGlow = ["ambush", "fallback", "evac", "laststand", "ending", "complete"].includes(g.phase) ? 0.6 : 1.4;
+    const shrineGlow = ["ambush", "fallback", "evac", "laststand", "ending", "complete", "aftermath", "open"].includes(g.phase) ? 0.6 : 1.4;
     lights.push({ pos: [SHRINE[0], grid.height(SHRINE[0], SHRINE[1]) + 2.5, SHRINE[1]], radius: 30, color: [0.45, 0.9, 1], intensity: shrineGlow });
 }
 
@@ -822,7 +982,7 @@ function drawSource(): void {
 
 function drawViewModel(cam: { pos: V3; target: V3; fov: number }): void {
     const g = game;
-    const show = !!g && mode === "play" && !g.cinema && g.alive && g.phase !== "complete" && !freeCam;
+    const show = !!g && mode === "play" && !g.cinema && g.alive && g.phase !== "complete" && !freeCam && !g.ch2?.mounted;
     for (const id of Object.keys(viewItems) as WeaponId[]) renderer.show(viewItems[id]!.mesh, show && g!.inv.current === id);
     if (!show || !g) return;
     const v = viewItems[g.inv.current];
@@ -902,10 +1062,11 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
     const p = painter;
     p.begin();
     for (const t of hud.toasts) t.age += dt;
+    if (hud.banner) { hud.banner.age += dt; if (hud.banner.age > 6.5) hud.banner = null; }
     hud.toasts = hud.toasts.filter(t => t.age < 4.5);
     hud.hit = Math.max(0, hud.hit - dt);
     if (mode === "loading") drawLoading(p, w, h, loadStage, loadProgress, realTime);
-    else if (mode === "title" && game) drawTitle(p, { w, h, time: realTime, hasCheckpoint: !!savedCheckpoint && savedCheckpoint !== "intro", checkpointLabel: (savedCheckpoint ?? "").toUpperCase(), aimAssist: game.aimAssist, sensitivity: game.sensitivity, chapterMenu: menuChapters });
+    else if (mode === "title" && game) drawTitle(p, { w, h, time: realTime, hasCheckpoint: !!savedCheckpoint && savedCheckpoint !== "intro", checkpointLabel: savedCheckpoint === "open" || savedCheckpoint === "aftermath" ? "CHAPTER TWO" : (savedCheckpoint ?? "").toUpperCase(), aimAssist: game.aimAssist, sensitivity: game.sensitivity, chapterMenu: menuChapters });
     else if (game) {
         const g = game;
         if (g.phase === "complete") {
@@ -923,6 +1084,7 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
             drawHud(p, hudView(w, h, cam));
             if (!g.alive) drawDead(p, w, h, g.deadT);
             if (mode === "inventory") drawInventory(p, inventoryView(w, h));
+            if (mode === "trade" && g.ch2) drawTrade(p, { w, h, credits: g.inv.credits, sell: g.ch2.sellable(), artifacts: g.inv.artifacts.filter(a => a !== "river-idol" || !g.flags.idolHeld).length, items: SHOP.map(it => ({ ...it, can: g.ch2!.canBuy(it.id) })) });
         }
     }
     p.flush();
@@ -940,6 +1102,10 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
     for (const a of g.combat.actors) {
         if (!alive(a)) continue;
         const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (g.ch2 && a.faction !== "below") {
+            if (a.tag?.startsWith("npc:")) markers.push({ kind: "npc", pos: [a.x, a.y, a.z], label: `${a.name.toUpperCase()}  -  ${NPCS.find(n => `npc:${n.id}` === a.tag)?.role ?? ""}`, dist: d, visible: true });
+            continue;
+        }
         if (a.faction === "below") {
             if (d > 160) continue;
             const visible = d < 130 && world!.clear(e.pos, [a.x, a.y + 1.3, a.z]);
@@ -950,9 +1116,15 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
     for (const pk of g.pickups) {
         if (pk.taken || pk.kind === "supply") continue;
         const d = Math.hypot(pk.x - b.x, pk.z - b.z);
-        if (d < 22 || (scanning && d < 140)) markers.push({ kind: "pickup", pos: [pk.x, pk.y + 0.4, pk.z], label: pk.label, dist: d, visible: true });
+        if (d < 22 || (pk.kind === "quest" && d < 60) || (scanning && d < (g.flags.scanBoost ? 280 : 140))) markers.push({ kind: "pickup", pos: [pk.x, pk.y + 0.4, pk.z], label: pk.label, dist: d, visible: true });
     }
     for (const a of g.aircraft) if (a.mode !== "parked" && a.mode !== "wreck") markers.push({ kind: "aircraft", pos: a.pos, label: a.callsign, dist: Math.hypot(a.pos[0] - b.x, a.pos[1] - b.y, a.pos[2] - b.z), visible: true });
+    if (g.ch2) {
+        for (const gv of g.ch2.givers()) markers.push({ kind: "giver", pos: gv.pos, label: gv.name.toUpperCase(), dist: Math.hypot(gv.pos[0] - b.x, gv.pos[2] - b.z), visible: true });
+        const k = g.ch2.kesh;
+        if (k.healed && !g.ch2.mounted) markers.push({ kind: "mount", pos: [k.x, k.y + 3, k.z], label: "KESH", dist: Math.hypot(k.x - b.x, k.z - b.z), visible: true });
+        for (const [tx, tz] of g.ch2.trail()) markers.push({ kind: "trail", pos: [tx, grid.height(tx, tz) + 0.5, tz], label: "", dist: Math.hypot(tx - b.x, tz - b.z), visible: true });
+    }
     let dist: number | null = null, bearing: number | null = null;
     if (obj?.marker) {
         const [ox, oz] = obj.marker;
@@ -962,7 +1134,7 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
     }
     const spec = WEAPONS[g.inv.current];
     const it = g.interactable;
-    const prompt = it ? ("id" in it ? (it.kind === "vial" ? "[E]  DRINK" : `[E]  ${it.kind === "artifact" ? "COLLECT" : "TAKE"}  ${it.label}`) : `[E]  ${it.label.toUpperCase()}`) : null;
+    const prompt = it ? (it.kind === "site" ? `[E]  ${it.label.toUpperCase()}` : "id" in it ? (it.kind === "vial" ? "[E]  DRINK" : `[E]  ${it.kind === "artifact" ? "COLLECT" : "TAKE"}  ${it.label}`) : `[E]  ${it.label.toUpperCase()}`) : null;
     const hostiles = living(g.combat, "below").filter(a => a.role !== "leader").length;
     return {
         w, h, time: g.time, cam: { pos: cam.pos, target: cam.target, fov: cam.fov, w, h },
@@ -973,7 +1145,7 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
         depth: depthBelowRim(b.y),
         weapon: {
             name: spec.name, kind: spec.kind, mag: g.inv.mags[g.inv.current] ?? 0, magMax: spec.mag ?? 1, reserve: g.inv.reserve[g.inv.current] ?? 0, reloading: g.ws.reloading,
-            slot: g.inv.weapons.indexOf(g.inv.current), slots: g.inv.weapons.map(id => ({ "coil-rifle": "RIFLE", "arc-pistol": "SIDEARM", "monoblade": "BLADE", "warden-glaive": "GLAIVE" } as Record<WeaponId, string>)[id]),
+            slot: g.inv.weapons.indexOf(g.inv.current), slots: g.inv.weapons.map(id => ({ "coil-rifle": "RIFLE", "arc-pistol": "SIDEARM", "monoblade": "BLADE", "warden-glaive": "GLAIVE", "okafor-carbine": "CARBINE" } as Record<WeaponId, string>)[id]),
         },
         crosshair: { spread: (spec.spread ?? 0.01) * (1 + Math.min(1, b.speed / 6) * 1.5), assist: !!g.assist, hit: hud.hit, kill: hud.kill, ads: g.look.ads },
         markers,
@@ -983,12 +1155,18 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
         toasts: hud.toasts,
         scanAge: g.time - g.scanT,
         bootAge: hud.bootStart >= 0 ? g.time - hud.bootStart : 99,
-        hostiles: ["ambush", "fallback", "evac", "laststand"].includes(g.phase) ? hostiles : 0,
+        hostiles: ["ambush", "fallback", "evac", "laststand"].includes(g.phase) ? hostiles : g.ch2 ? living(g.combat, "below").filter(a => Math.hypot(a.x - b.x, a.z - b.z) < 160).length : 0,
         medgel: g.inv.medgel,
         critical: !!g.flags.critical && !g.flags.drank,
         dead: g.alive ? null : g.deadT,
         phaseTitle: obj?.title ?? null,
         triangles: showTriangles ? lastTriangles : null,
+        chapter: g.chapter,
+        quests: g.ch2?.others() ?? [],
+        choice: g.ch2?.choice ?? null,
+        flight: g.ch2?.mounted ? { speed: g.ch2.kesh.speed, altitude: g.ch2.kesh.y - grid.height(g.ch2.kesh.x, g.ch2.kesh.z), stamina: g.ch2.kesh.stamina, boost: g.ch2.kesh.throttle > 1.5, grounded: g.ch2.kesh.grounded } : null,
+        credits: g.ch2 ? g.inv.credits : null,
+        banner: hud.banner,
     };
 }
 
@@ -1002,6 +1180,8 @@ function inventoryView(w: number, h: number) {
         selected: Math.min(invSelected, Math.max(0, g.inv.artifacts.length - 1)),
         total: artifactValue(g.inv),
         objective: g.currentObjective()?.text ?? null,
+        credits: g.ch2 ? g.inv.credits : undefined,
+        journal: g.ch2?.journal(),
     };
 }
 
@@ -1018,7 +1198,7 @@ addon.onInit(() => {
     fxBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.instancedFx, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-fx", idleFrames: 240 });
     loadSteps = makeLoadSteps();
     lookQueue = LOOKS.map(l => l.id);
-    pickupQueue = [...Object.keys(ARTIFACTS), "warden-glaive", "medgel", "vial"];
+    pickupQueue = [...Object.keys(ARTIFACTS), "warden-glaive", "medgel", "vial", "recorder", "dogtag", "relay"];
     Entropy.setGameMode(false);
     Entropy.Lighting.updateSun({ horizonColor: [0, 0, 0], zenithColor: [0, 0, 0], sunDirection: SUN_DIR, sunColor: [1, 0.9, 0.8], sunIntensity: 0.2 });
     painter = safeEnginePainter(addon.UI as unknown as DrawApi);
@@ -1067,7 +1247,18 @@ function advance(n: number, input: Partial<GameInput> = {}): void {
 
 function registerTools(): void {
     const tools: { name: string; description: string; parameters: object; run: (a: Args) => object }[] = [
-        { name: "abyss_state", description: "The game's state: mode, loading, camera, triangles drawn, and the chapter (phase, objective, Alex, squad, wardens, aircraft, radio).", parameters: { type: "object", properties: {} }, run: () => snapshot() },
+        { name: "abyss_state", description: "The game's state: mode, loading, camera, triangles drawn, and the chapter (phase, objective, Alex, squad, wardens, aircraft, radio; Chapter Two's quests, Kesh, credits).", parameters: { type: "object", properties: {} }, run: () => snapshot() },
+        {
+            name: "abyss_quest", description: "Chapter Two: puts a quest at a stage as if played there (stage null: finished). {quest, stage}.",
+            parameters: { type: "object", properties: { quest: { type: "string" }, stage: { type: "string" } } },
+            run: a => {
+                const c2 = game?.ch2;
+                if (!c2) throw new Error("Not in Chapter Two");
+                c2.jump(String(a.quest), typeof a.stage === "string" ? a.stage : null);
+                advance(1);
+                return snapshot();
+            },
+        },
         {
             name: "abyss_config", description: "Test and graphics settings: fixedStep (seconds per frame, null for real time), debug (1 terrain masks), detail (LOD distance scale), shadows (bool), triangles (show the count), look (world look overrides), aimAssist, sound (bool).",
             parameters: { type: "object", properties: { fixedStep: { type: "number" }, debug: { type: "number" }, detail: { type: "number" }, shadows: { type: "boolean" }, triangles: { type: "boolean" }, aimAssist: { type: "number" }, sound: { type: "boolean" } } },
@@ -1089,10 +1280,10 @@ function registerTools(): void {
             run: () => { const was = fixedStep; fixedStep = 1 / 30; let guard = 0; while (mode === "loading" && guard++ < 100000) loadStep(); fixedStep = was; return snapshot(); },
         },
         {
-            name: "abyss_start", description: "Starts the chapter at a phase: intro, ledge, descent, floor, ambush, fallback, evac, laststand, ending.",
+            name: "abyss_start", description: "Starts a chapter at a phase. Chapter One: intro, ledge, descent, floor, ambush, fallback, evac, laststand, ending. Chapter Two: open (its opening), hollow (the creature's trail), skybound (Kesh healed, ready to ride), roam (the main quest done).",
             parameters: { type: "object", properties: { phase: { type: "string" } } },
             run: a => {
-                const phase = String(a.phase ?? "intro") as Phase;
+                const phase = String(a.phase ?? "intro") as Phase | ChapterTwoStart;
                 if (!START_PHASES.includes(phase)) throw new Error(`No phase ${phase}`);
                 freeCam = null;
                 newGame(phase);
@@ -1125,7 +1316,7 @@ function registerTools(): void {
             },
         },
         {
-            name: "abyss_act", description: "Plays Alex: action move (forward/strafe for frames), look (yaw/pitch radians), fire (frames), interact, teleport (x, z, yaw), heal, scan, weapon (1-4), drink, ads (frames), wait (frames), face (x, z: turn toward a point).",
+            name: "abyss_act", description: "Plays Alex: action move (forward/strafe for frames), look (yaw/pitch radians), fire (frames), interact, teleport (x, z, yaw), heal, scan, weapon (1-5), drink, ads (frames), wait (frames), face (x, z: turn toward a point). Chapter Two: call (whistle for Kesh), choose (slot 1/2), track, fly (forward, flap, boost, pitch, yaw for frames: on Kesh), trade (open the quartermaster).",
             parameters: { type: "object", properties: { action: { type: "string" } } },
             run: a => {
                 const g = game;
@@ -1152,6 +1343,18 @@ function registerTools(): void {
                     case "drink": g.drink(); advance(1); break;
                     case "wait": advance(frames); break;
                     case "inventory": mode = mode === "inventory" ? "play" : "inventory"; advance(1); break;
+                    case "call": advance(1, { call: true }); break;
+                    case "choose": advance(1, { choice: num(a.slot, 1) }); break;
+                    case "track": advance(1, { track: true }); break;
+                    case "trade": mode = mode === "trade" ? "play" : "trade"; advance(1); break;
+                    case "fly": {
+                        const k = g.ch2?.kesh;
+                        if (!k || !g.ch2!.mounted) throw new Error("Not riding Kesh");
+                        if ("yaw" in a) k.yaw = num(a.yaw, k.yaw);
+                        if ("pitch" in a) k.pitch = num(a.pitch, k.pitch);
+                        advance(frames, { moveY: num(a.forward, 1), jumpHeld: !!a.flap, sprint: !!a.boost });
+                        break;
+                    }
                     default: throw new Error(`Unknown action ${String(a.action)}`);
                 }
                 return snapshot();

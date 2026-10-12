@@ -13,8 +13,9 @@
 import { makeRng, type Rng } from "../allegiance/al_rng";
 import type { V3 } from "./ab_world";
 
-export type Faction = "surface" | "below";
-export type Role = "squad" | "trooper" | "blade" | "caster" | "leader";
+/** "neutral": people of below who are no one's enemy (a healer); nobody targets them. */
+export type Faction = "surface" | "below" | "neutral";
+export type Role = "squad" | "trooper" | "blade" | "caster" | "leader" | "civilian";
 export type ActorState = "idle" | "follow" | "move" | "fight" | "windup" | "strike" | "cast" | "dead" | "scripted" | "flee";
 
 export interface Actor {
@@ -55,6 +56,8 @@ export interface Actor {
     scale: number;
     /** Deaths this chapter caused by Alex (for the end card). */
     killedBy?: "player" | "squad" | "other";
+    /** A group the story counts (a quest's hunters, a patrol, an NPC). */
+    tag?: string;
 }
 
 export interface Shot { from: V3; to: V3; age: number; hit: boolean; faction: Faction }
@@ -123,7 +126,7 @@ export function newCombat(seed = 13): CombatState {
     return { actors: [], shots: [], bolts: [], bursts: [], rng: makeRng(seed), nextId: 1, nextBolt: 1, events: [], holdFire: true, wardensPassive: true };
 }
 
-export const ROLE_HP: Record<Role, number> = { squad: 100, trooper: 100, blade: 90, caster: 70, leader: 600 };
+export const ROLE_HP: Record<Role, number> = { squad: 100, trooper: 100, blade: 90, caster: 70, leader: 600, civilian: 100 };
 
 export function spawn(c: CombatState, a: Partial<Actor> & Pick<Actor, "name" | "look" | "faction" | "role" | "x" | "z">, ground: (x: number, z: number) => number): Actor {
     const actor: Actor = {
@@ -183,7 +186,7 @@ function pickTarget(c: CombatState, a: Actor, p: PlayerView, w: CombatWorld, ran
         if (!w.clear(eye, pos)) return;
         bestD = d; best = { id, pos };
     };
-    for (const o of c.actors) if (alive(o) && o.faction !== a.faction) consider(o.id, chest(o), 1 + c.rng.next() * 0.3);
+    for (const o of c.actors) if (alive(o) && o.faction !== a.faction && o.faction !== "neutral") consider(o.id, chest(o), 1 + c.rng.next() * 0.3);
     if (a.faction === "below" && p.alive) consider(-1, [p.x, p.y + 1.3, p.z], 0.75);
     return best;
 }
@@ -284,7 +287,8 @@ export function stepCombat(c: CombatState, dt: number, p: PlayerView, w: CombatW
         if (a.state === "scripted") {
             // The story moves it (goal), nothing else.
             if (a.goal) walk(a, a.goal[0], a.goal[1], 1.8, dt, w);
-        } else if (a.faction === "surface") stepTrooper(c, a, dt, p, w, opts, hostilesVisible);
+        } else if (a.faction === "neutral") { a.vx = 0; a.vz = 0; }
+        else if (a.faction === "surface") stepTrooper(c, a, dt, p, w, opts, hostilesVisible);
         else stepWarden(c, a, dt, p, w, opts);
         a.y += (w.ground(a.x, a.z) - a.y) * Math.min(1, dt * 12);
         // Walk cycle from how far it moved.

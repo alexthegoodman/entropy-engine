@@ -157,7 +157,7 @@ const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60
 
 // --- The view the HUD draws (the addon fills it each frame) --------------------------------------
 
-export interface HudMarker { kind: "hostile" | "squad" | "pickup" | "aircraft" | "objective" | "leader"; pos: V3; label: string; dist: number; visible: boolean; hp?: number; assist?: boolean; hurt?: boolean }
+export interface HudMarker { kind: "hostile" | "squad" | "pickup" | "aircraft" | "objective" | "leader" | "giver" | "npc" | "mount" | "trail"; pos: V3; label: string; dist: number; visible: boolean; hp?: number; assist?: boolean; hurt?: boolean }
 
 export interface HudView {
     w: number; h: number;
@@ -185,6 +185,13 @@ export interface HudView {
     dead: number | null;
     phaseTitle: string | null;
     triangles: number | null;
+    /** Chapter Two: the other active quests, a choice to answer, Kesh in flight, credits, a quest banner. */
+    chapter?: 1 | 2;
+    quests?: { title: string; text: string }[];
+    choice?: { prompt: string; options: string[] } | null;
+    flight?: { speed: number; altitude: number; stamina: number; boost: boolean; grounded: boolean } | null;
+    credits?: number | null;
+    banner?: { title: string; text: string; age: number; state: string } | null;
 }
 
 // --- The AR HUD ----------------------------------------------------------------------------------
@@ -199,9 +206,13 @@ export function drawHud(p: Painter, v: HudView): void {
     drawObjective(p, v, boot);
     drawSquad(p, v, boot);
     drawVitals(p, v, boot);
-    drawWeapon(p, v, boot);
+    if (v.flight) drawFlight(p, v, v.flight, boot); else drawWeapon(p, v, boot);
     drawMarkers(p, v);
-    drawCrosshair(p, v);
+    if (!v.flight) drawCrosshair(p, v);
+    if (v.quests?.length) drawOtherQuests(p, v, boot);
+    if (v.choice) drawChoice(p, v, v.choice);
+    if (v.banner) drawBanner(p, v, v.banner);
+    if (v.credits !== undefined && v.credits !== null) textR(p, `${v.credits} CR`, v.w - 44, 72, 13, alpha(C.amber, boot), F.ui);
     drawRadio(p, v, false);
     drawHurt(p, v);
     if (v.prompt) {
@@ -326,9 +337,9 @@ function drawVitals(p: Painter, v: HudView, boot: number): void {
         p.text("PLATES", x, y + 34, 10, alpha(C.cyanDim, boot), F.ui);
         cells(p, x + 52, y + 38, 208, 6, 10, (v.armor / v.armorMax) * boot, C.white, [1, 1, 1, 0.12]);
     }
-    p.text("AUGMENT", x, y + 50, 10, alpha(C.cyanDim, boot), F.ui);
+    p.text(v.flight ? "KESH" : "AUGMENT", x, y + 50, 10, alpha(C.cyanDim, boot), F.ui);
     p.rect(x + 58, y + 56, 202, 2, alpha(C.cyanFaint, boot));
-    p.rect(x + 58, y + 56, 202 * v.stamina, 2, alpha(C.cyan, boot));
+    p.rect(x + 58, y + 56, 202 * (v.flight ? v.flight.stamina : v.stamina), 2, alpha(v.flight ? C.violet : C.cyan, boot));
     // Depth below the rim, and the link to SAGE.
     p.text(`DEPTH  ${Math.round(v.depth)} M`, x, y + 66, 13, alpha(C.white, boot), F.ui);
     p.rect(x + 150, y + 73, 6, 6, alpha(C.green, boot * (0.6 + 0.4 * Math.sin(v.time * 3))));
@@ -360,6 +371,56 @@ function drawWeapon(p: Painter, v: HudView, boot: number): void {
         if (on) p.rect(x - 4, y + 90, cw - 6, 16, alpha(C.cyanFaint, boot * 2));
         p.text(s, x, y + 91, 10, alpha(on ? C.white : C.cyanDim, boot), F.ui);
     }
+}
+
+/** Kesh in the air: airspeed, height above the ground, breath; and how to fly. */
+function drawFlight(p: Painter, v: HudView, f: NonNullable<HudView["flight"]>, boot: number): void {
+    const rx = v.w - 44, y = v.h - 128;
+    textR(p, "KESH  -  SKYWING", rx, y - 2, 13, alpha(C.violet, boot), F.head);
+    textR(p, String(Math.round(f.speed * 3.6)), rx - 64, y + 12, 44, alpha(f.boost ? C.amber : C.white, boot), F.ui);
+    textR(p, "KM/H", rx, y + 30, 14, alpha(C.cyanDim, boot), F.ui);
+    textR(p, f.grounded ? "LANDED" : `ALT  ${Math.round(f.altitude)} M`, rx, y + 66, 14, alpha(f.altitude < 14 && !f.grounded ? C.amber : C.cyan, boot), F.ui);
+    textR(p, f.grounded ? "W / SPACE  TAKE OFF  -  E  CLIMB DOWN" : "W/S SPEED  -  LOOK STEER  -  SPACE BEAT  -  SHIFT DIVE  -  E SET DOWN", rx, y + 92, 10, alpha(C.cyanDim, boot), F.ui);
+    // A flight-path marker: where the nose points.
+    const cx = v.w / 2, cy = v.h / 2 - 40;
+    p.rect(cx - 16, cy - 1, 10, 2, alpha(C.violet, 0.8));
+    p.rect(cx + 6, cy - 1, 10, 2, alpha(C.violet, 0.8));
+    p.rect(cx - 1, cy - 8, 2, 6, alpha(C.violet, 0.8));
+}
+
+function drawOtherQuests(p: Painter, v: HudView, boot: number): void {
+    const x = 56, y0 = 140;
+    v.quests!.slice(0, 3).forEach((q, i) => {
+        const y = y0 + i * 34;
+        p.text(q.title.toUpperCase(), x, y, 10, alpha(C.cyanDim, boot), F.head);
+        p.text(q.text, x, y + 13, 12, alpha([0.85, 0.9, 0.92, 0.75], boot), F.ui);
+    });
+}
+
+function drawChoice(p: Painter, v: HudView, c: NonNullable<HudView["choice"]>): void {
+    const bw = Math.max(420, tw(c.prompt, 18) + 60), bh = 64 + c.options.length * 32;
+    const x = v.w / 2 - bw / 2, y = v.h * 0.56;
+    p.rect(x, y, bw, bh, C.glassDark);
+    brackets(p, x, y, bw, bh, C.amber, 10);
+    textC(p, c.prompt, v.w / 2, y + 14, 18, C.white, F.ui);
+    c.options.forEach((o, i) => {
+        const s = `[${i + 1}]  ${o.toUpperCase()}`;
+        textC(p, s, v.w / 2, y + 52 + i * 32, 15, i === 0 ? C.amber : C.cyan, F.ui);
+        p.hotspot(`choice-${i + 1}`, x + 20, y + 46 + i * 32, bw - 40, 28);
+    });
+}
+
+function drawBanner(p: Painter, v: HudView, b: NonNullable<HudView["banner"]>): void {
+    const a = Math.max(0, Math.min(1, b.age / 0.4, (6 - b.age) / 0.8));
+    if (a <= 0) return;
+    const y = v.h * 0.18;
+    const head = b.state === "completed" ? "QUEST COMPLETE" : b.state === "started" ? "NEW QUEST" : "";
+    const bw = Math.max(520, tw(b.text, 15, F.body) + 80);
+    p.rect(v.w / 2 - bw / 2, y - 12, bw, 104, alpha(C.glassDark, a));
+    p.rect(v.w / 2 - bw / 2, y - 12, bw, 2, alpha(C.amber, a));
+    if (head) textC(p, head, v.w / 2, y, 12, alpha(C.amber, a), F.head);
+    textC(p, b.title.toUpperCase(), v.w / 2, y + 18, 30, alpha(C.white, a), F.head);
+    textC(p, b.text, v.w / 2, y + 62, 15, alpha([0.85, 0.88, 0.9, 1], a), F.body);
 }
 
 function drawCrosshair(p: Painter, v: HudView): void {
@@ -409,6 +470,24 @@ function drawMarkers(p: Painter, v: HudView): void {
             if (m.dist > 1600) continue;
             p.rect(s.x - 5, s.y - 1, 10, 2, alpha(C.cyanDim, 0.8));
             p.text(m.label.toUpperCase(), s.x + 8, s.y - 6, 9, C.cyanDim, F.ui);
+        } else if (m.kind === "giver") {
+            if (m.dist > 260) continue;
+            const top = project(v.cam, [m.pos[0], m.pos[1] + 2.5, m.pos[2]]);
+            if (!top) continue;
+            p.rect(top.x - 2, top.y - 22, 4, 13, C.gold);
+            p.rect(top.x - 2, top.y - 6, 4, 4, C.gold);
+            textC(p, m.label, top.x, top.y - 40, 11, C.gold, F.ui);
+        } else if (m.kind === "npc") {
+            const top = project(v.cam, [m.pos[0], m.pos[1] + 2.2, m.pos[2]]);
+            if (!top || m.dist > 30) continue;
+            textC(p, m.label, top.x, top.y - 14, 11, alpha(C.green, 0.9), F.ui);
+        } else if (m.kind === "mount") {
+            diamond(p, s.x, s.y - 20, 6, C.violet);
+            textC(p, m.label, s.x, s.y - 44, 11, C.violet, F.ui);
+            textC(p, `${Math.round(m.dist)} m`, s.x, s.y - 10, 9, alpha(C.violet, 0.7), F.ui);
+        } else if (m.kind === "trail") {
+            if (m.dist > 140) continue;
+            diamond(p, s.x, s.y, 3, alpha(C.cyan, 0.8));
         } else if (m.kind === "objective") {
             diamond(p, s.x, s.y, 7, C.amber);
             textC(p, `${Math.round(m.dist)} m`, s.x, s.y + 12, 11, C.amber, F.ui);
@@ -462,10 +541,20 @@ const BOOT = [
     "WELCOME, LIEUTENANT.",
 ];
 
+const BOOT2 = [
+    "AEGIS AUGMENT v7.2 ... OK",
+    "OPTIC OVERLAY ......... OK",
+    "SAGE TACTICAL LINK .... ESTABLISHED",
+    "SQUAD TELEMETRY ....... NO SIGNALS",
+    "CELLULAR REPAIR ....... 300%  (ANOMALOUS)",
+    "FIREBASE LANTERN. THE FLOOR IS YOURS.",
+];
+
 function drawBoot(p: Painter, v: HudView): void {
-    const n = Math.min(BOOT.length, Math.floor(v.bootAge / 0.55) + 1);
+    const lines = v.chapter === 2 ? BOOT2 : BOOT;
+    const n = Math.min(lines.length, Math.floor(v.bootAge / 0.55) + 1);
     const a = Math.min(1, (6 - v.bootAge) / 0.8);
-    for (let i = 0; i < n; i++) p.text(BOOT[i], 44, v.h * 0.5 + i * 22, 15, alpha(i === BOOT.length - 1 ? C.amber : C.cyan, a), F.ui);
+    for (let i = 0; i < n; i++) p.text(lines[i], 44, v.h * 0.5 + i * 22, 15, alpha(i === lines.length - 1 ? C.amber : C.cyan, a), F.ui);
 }
 
 // --- Cutscenes ----------------------------------------------------------------------------------
@@ -518,7 +607,7 @@ export function drawCinema(p: Painter, v: CinemaView): void {
 export function drawLoading(p: Painter, w: number, h: number, stage: string, progress: number, time: number): void {
     p.rect(0, 0, w, h, [0.01, 0.012, 0.016, 1]);
     textC(p, "T H E   A B Y S S", w / 2, h * 0.36, 64, C.white, F.head);
-    textC(p, "CHAPTER ONE  -  FIRST BLOOD", w / 2, h * 0.36 + 86, 16, C.cyanDim, F.head);
+    textC(p, "CHAPTER ONE  -  FIRST BLOOD     CHAPTER TWO  -  RETALIATION", w / 2, h * 0.36 + 86, 16, C.cyanDim, F.head);
     const bw = 420;
     p.rect(w / 2 - bw / 2, h * 0.62, bw, 2, C.cyanFaint);
     p.rect(w / 2 - bw / 2, h * 0.62, bw * progress, 2, C.cyan);
@@ -528,6 +617,12 @@ export function drawLoading(p: Painter, w: number, h: number, stage: string, pro
 
 export interface TitleView { w: number; h: number; time: number; hasCheckpoint: boolean; checkpointLabel: string; aimAssist: number; sensitivity: number; chapterMenu: boolean }
 
+/** The moments the chapter menu can start at, by chapter. */
+export const MOMENTS: [string, string][][] = [
+    [["ledge", "LEDGE KILO"], ["descent", "THE ROCKSLIDE"], ["floor", "THE FLOOR"], ["ambush", "FIRST BLOOD"], ["fallback", "FALL BACK"], ["evac", "EXTRACTION"], ["laststand", "NO EVAC"], ["ending", "THE ENDING"]],
+    [["open", "FIREBASE LANTERN"], ["hollow", "THE HOLLOW"], ["skybound", "SKYBOUND"], ["roam", "THE ABYSS IS OPEN"]],
+];
+
 export function drawTitle(p: Painter, v: TitleView): void {
     const { w, h } = v;
     // A dark band over the moving crack behind.
@@ -535,12 +630,13 @@ export function drawTitle(p: Painter, v: TitleView): void {
     p.rect(0, h * 0.18, w, h * 0.3, [0, 0, 0, 0.35]);
     textC(p, "T H E   A B Y S S", w / 2, h * 0.22, 92, C.white, F.head);
     p.rect(w / 2 - 330, h * 0.22 + 118, 660, 1.5, C.cyanDim);
-    textC(p, "CHAPTER ONE  -  FIRST BLOOD", w / 2, h * 0.22 + 132, 18, C.cyan, F.head);
+    textC(p, "AN FPS-RPG OF TWO WORLDS", w / 2, h * 0.22 + 132, 18, C.cyan, F.head);
     const bx = w / 2 - 170, bw = 340;
     let y = h * 0.56;
     const btn = (id: string, label: string, primary = false) => { arButton(p, id, bx, y, bw, 44, label, primary); y += 54; };
     if (!v.chapterMenu) {
-        btn("begin", "BEGIN CHAPTER ONE", true);
+        btn("begin", "CHAPTER ONE  -  FIRST BLOOD", true);
+        btn("begin2", "CHAPTER TWO  -  RETALIATION", true);
         if (v.hasCheckpoint) btn("continue", `CONTINUE - ${v.checkpointLabel}`);
         btn("chapters", "SELECT A MOMENT");
         p.text(`AIM ASSIST ${Math.round(v.aimAssist * 100)}%`, bx, y + 6, 13, C.cyanDim, F.ui);
@@ -549,12 +645,18 @@ export function drawTitle(p: Painter, v: TitleView): void {
         p.text(`LOOK SPEED ${v.sensitivity.toFixed(1)}`, bx, y + 6, 13, C.cyanDim, F.ui);
         arButton(p, "look-down", bx + 200, y, 60, 30, "-"); arButton(p, "look-up", bx + 270, y, 60, 30, "+");
     } else {
-        const moments: [string, string][] = [["ledge", "LEDGE KILO"], ["descent", "THE ROCKSLIDE"], ["floor", "THE FLOOR"], ["ambush", "FIRST BLOOD"], ["fallback", "FALL BACK"], ["evac", "EXTRACTION"], ["laststand", "NO EVAC"], ["ending", "THE ENDING"]];
-        y = h * 0.5;
-        for (const [id, label] of moments) { arButton(p, `moment-${id}`, bx, y, bw, 34, label); y += 40; }
-        arButton(p, "back", bx, y + 8, bw, 34, "BACK", true);
+        y = h * 0.44;
+        const col = (list: [string, string][], x: number, head: string) => {
+            let yy = y;
+            p.text(head, x, yy - 24, 12, C.cyanDim, F.head);
+            for (const [id, label] of list) { arButton(p, `moment-${id}`, x, yy, bw, 34, label); yy += 40; }
+            return yy;
+        };
+        const end = Math.max(col(MOMENTS[0], w / 2 - bw - 20, "CHAPTER ONE"), col(MOMENTS[1], w / 2 + 20, "CHAPTER TWO"));
+        arButton(p, "back", bx, end + 8, bw, 34, "BACK", true);
     }
-    textC(p, "WASD move  -  right-drag / arrows look  -  left click fire  -  Z aim  -  R reload  -  F/3 blade  -  E interact  -  H medgel  -  Q scan  -  TAB inventory", w / 2, h - 44, 12, [0.7, 0.75, 0.78, 0.9], F.ui);
+    textC(p, "WASD move  -  right-drag / arrows look  -  left click fire  -  Z aim  -  R reload  -  F/3 blade  -  E interact  -  H medgel  -  Q scan  -  TAB journal", w / 2, h - 58, 12, [0.7, 0.75, 0.78, 0.9], F.ui);
+    textC(p, "Chapter Two:  V whistle for Kesh  -  T track quest  -  1/2 answer  -  riding: W/S speed, look to steer, SPACE beat wings, SHIFT dive, E set down", w / 2, h - 38, 12, [0.7, 0.75, 0.78, 0.9], F.ui);
 }
 
 export function drawDead(p: Painter, w: number, h: number, t: number): void {
@@ -579,6 +681,8 @@ export interface InventoryView {
     selected: number;
     total: number;
     objective: string | null;
+    credits?: number;
+    journal?: { id: string; title: string; kind: string; status: string; text: string; hint: string; tracked: boolean }[];
 }
 
 export function drawInventory(p: Painter, v: InventoryView): void {
@@ -617,8 +721,58 @@ export function drawInventory(p: Painter, v: InventoryView): void {
         p.text("SAGE", x2, 228 + v.artifacts.length * 26, 11, C.amber, F.head);
         p.text(a.note, x2, 248 + v.artifacts.length * 26, 13, C.white, F.body, 400, 90);
     }
+    if (v.credits !== undefined) p.text(`CREDITS  ${v.credits} CR`, x1, 290, 16, C.amber, F.ui);
+    if (v.journal) drawJournal(p, v, x0, Math.max(166 + v.weapons.length * 70 + 20, 470));
     arButton(p, "resume", w / 2 - 230, h - 96, 140, 40, "RESUME", true);
     arButton(p, "to-title", w / 2 + 90, h - 96, 140, 40, "TITLE");
+}
+
+/** The quest journal: active, offered, finished; click (or T in play) to track. */
+function drawJournal(p: Painter, v: InventoryView, x: number, y0: number): void {
+    p.text("JOURNAL", x, y0, 13, C.cyanDim, F.head);
+    p.rect(x, y0 + 22, 870, 1, C.cyanFaint);
+    const room = Math.max(1, Math.floor((v.h - 130 - y0 - 30) / 40));
+    v.journal!.slice(0, room).forEach((q, i) => {
+        const y = y0 + 32 + i * 40;
+        const c = q.status === "done" ? C.grey : q.kind === "main" ? C.amber : C.cyan;
+        if (q.tracked) p.rect(x - 8, y - 4, 878, 38, C.cyanFaint);
+        p.hotspot(`quest-${q.id}`, x - 8, y - 4, 878, 38);
+        p.text(`${q.status === "done" ? "DONE" : q.status === "available" ? "OFFER" : q.tracked ? "TRACK" : "    "}`, x, y + 2, 10, c, F.ui);
+        p.text(q.title.toUpperCase(), x + 56, y, 14, q.status === "done" ? C.grey : C.white, F.ui);
+        p.text(q.text, x + 56, y + 18, 12, C.grey, F.body, 800, 16);
+        if (q.hint && q.status === "active") textR(p, "SAGE: " + q.hint.slice(0, 70) + (q.hint.length > 70 ? "..." : ""), x + 870, y, 10, C.amberDim, F.body);
+    });
+}
+
+export interface TradeView {
+    w: number; h: number;
+    credits: number;
+    sell: number;
+    artifacts: number;
+    items: { id: string; label: string; price: number; note: string; can: boolean }[];
+}
+
+/** The quartermaster: artifacts of below for credits, gear for credits. */
+export function drawTrade(p: Painter, v: TradeView): void {
+    const { w, h } = v;
+    p.rect(0, 0, w, h, [0, 0.02, 0.03, 0.78]);
+    textC(p, "FIREBASE LANTERN  -  QUARTERMASTER", w / 2, 60, 20, C.cyan, F.head);
+    textC(p, `CREDITS  ${v.credits} CR`, w / 2, 96, 16, C.amber, F.ui);
+    const x = w / 2 - 300, bw = 600;
+    let y = 150;
+    p.text("SELL", x, y, 13, C.cyanDim, F.head);
+    y += 26;
+    arButton(p, "sell-all", x, y, bw, 46, v.artifacts ? `SELL ${v.artifacts} ARTIFACT${v.artifacts > 1 ? "S" : ""}  +${v.sell} CR` : "NOTHING TO SELL", v.artifacts > 0);
+    y += 80;
+    p.text("BUY", x, y, 13, C.cyanDim, F.head);
+    y += 26;
+    v.items.forEach((it, i) => {
+        arButton(p, `buy-${it.id}`, x, y, bw, 46, `${i + 1}   ${it.label}   ${it.price} CR`, it.can);
+        p.text(it.note, x + bw + 16, y + 15, 12, it.can ? C.grey : [0.5, 0.5, 0.5, 0.6], F.body);
+        y += 56;
+    });
+    textC(p, "[1-4] buy  -  [S] sell artifacts  -  [TAB] leave", w / 2, h - 120, 12, C.cyanDim, F.ui);
+    arButton(p, "resume", w / 2 - 70, h - 90, 140, 40, "LEAVE", true);
 }
 
 export interface CompleteView { w: number; h: number; time: number; seconds: number; kills: number; accuracy: number; artifacts: number; value: number; squadAlive: number; squadTotal: number }
@@ -643,7 +797,8 @@ export function drawComplete(p: Painter, v: CompleteView): void {
         p.rect(w / 2 - 300, y + 28, 600, 1, C.cyanFaint);
     });
     textC(p, "NEXT:  CHAPTER TWO  -  RETALIATION", w / 2, h * 0.78, 16, C.amber, F.head);
-    textC(p, "The surface answers with everything it has. The kingdoms below answer as one.", w / 2, h * 0.78 + 30, 15, [0.75, 0.75, 0.72, 1], F.lore);
-    arButton(p, "replay", w / 2 - 230, h * 0.88, 200, 42, "PLAY AGAIN", true);
-    arButton(p, "to-title", w / 2 + 30, h * 0.88, 200, 42, "TITLE");
+    textC(p, "The surface answers with everything it has. Below, something wounded is still breathing.", w / 2, h * 0.78 + 30, 15, [0.75, 0.75, 0.72, 1], F.lore);
+    arButton(p, "begin2", w / 2 - 340, h * 0.88, 220, 42, "CHAPTER TWO", true);
+    arButton(p, "replay", w / 2 - 100, h * 0.88, 200, 42, "PLAY AGAIN");
+    arButton(p, "to-title", w / 2 + 120, h * 0.88, 200, 42, "TITLE");
 }

@@ -53,6 +53,9 @@ export const LOOKS: Look[] = [
     // The casters who throw the river's light: saffron and gold, staffs.
     { id: "adept", faction: "below", human: wardenBody(false, "skin.brown", "cloth.saffron", "cloth.wine"), gear: { object: "people.warden_garb", values: { height: 1.8, clothFinish: "cloth.saffron", innerFinish: "cloth.wine", trimFinish: "metal.gold", glowFinish: "glow.riverGold" } }, weapon: { object: "equipment.melee_weapon", values: { kind: "staff", glowFinish: "glow.riverGold", trimFinish: "metal.gold" }, hold: "pole" } },
     // The Warden who leads them: taller, the ash mantle long, a golden glaive.
+    // Chapter Two: Major Voss, bareheaded in the officer's dark plates; Maelis, a healer of below - hood down, no mask, vials of river water at her belt.
+    { id: "officer", faction: "surface", human: soldierBody(false, "skin.light", { height: 1.82, muscle: 0.5 }), gear: { object: "people.combat_armor", values: { height: 1.82, helmet: false, plateFinish: "composite.black", accentFinish: "glow.amber" } }, weapon: null },
+    { id: "healer", faction: "below", human: wardenBody(true, "skin.olive", "cloth.ash", "cloth.green"), gear: { object: "people.warden_garb", values: { height: 1.68, hood: "down", mask: false, shoulderGuard: false, vials: 8, clothFinish: "cloth.ash", innerFinish: "cloth.green", trimFinish: "metal.verdigris" } }, weapon: null },
     { id: "the-warden", faction: "below", human: { ...wardenBody(false, "skin.tan", "cloth.indigo", "cloth.ash"), height: 1.9 }, gear: { object: "people.warden_garb", values: { height: 1.9, clothFinish: "cloth.ash", innerFinish: "cloth.indigo", mantleLength: 1.3, vials: 6, trimFinish: "metal.gold" } }, weapon: { object: "equipment.melee_weapon", values: { kind: "glaive", trimFinish: "metal.gold", glowFinish: "glow.riverGold", length: 1.15 } , hold: "pole" } },
 ];
 
