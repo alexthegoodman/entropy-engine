@@ -20,6 +20,8 @@ import {
     kiloTwoFlight, type Phase, type Line, type Objective,
 } from "./ab_script";
 import { newFx, explode, ignite, stepFx, type FxState } from "../allegiance/al_fx";
+import { ChapterTwo } from "./ab_chapter2";
+import { CH2_STARTS, type ChapterTwoStart } from "./ab_script2";
 import { newLook, addMouse, stepLook, stepAds, adsFov, pickAssistTarget, assistFriction, assistPull, bendAngle, adsSpread, adsMove, anglesTo, type LookState, type AimTarget } from "../allegiance/al_aim";
 import { makeRng, type Rng } from "../allegiance/al_rng";
 
@@ -96,21 +98,26 @@ export interface GameInput {
     weapon: number | null;
     /** Skip the cutscene (held). */
     skip: boolean;
+    /** Space held (a skywing's wingbeats), whistle for Kesh (V), cycle the tracked quest (T), answer a choice (1/2). */
+    jumpHeld?: boolean;
+    call?: boolean;
+    track?: boolean;
+    choice?: number | null;
 }
 
-export const NO_INPUT: GameInput = { moveX: 0, moveY: 0, sprint: false, jump: false, mouseX: 0, mouseY: 0, lookX: 0, lookY: 0, fire: false, ads: false, reload: false, interact: false, heal: false, scan: false, weapon: null, skip: false };
+export const NO_INPUT: GameInput = { moveX: 0, moveY: 0, sprint: false, jump: false, mouseX: 0, mouseY: 0, lookX: 0, lookY: 0, fire: false, ads: false, reload: false, interact: false, heal: false, scan: false, weapon: null, skip: false, jumpHeld: false, call: false, track: false, choice: null };
 
 // --- Events for the addon (sound, light, the HUD) ----------------------------------------------------
 
 export type GameEvent =
     | { kind: "music"; cue: string }
-    | { kind: "shot"; from: V3; to: V3; player: boolean; faction: "surface" | "below" }
+    | { kind: "shot"; from: V3; to: V3; player: boolean; faction: "surface" | "below" | "neutral" }
     | { kind: "cast"; at: V3 }
     | { kind: "burst"; at: V3; size: number }
     | { kind: "explosion"; at: V3; power: number }
     | { kind: "hitmarker"; kill: boolean }
     | { kind: "hurt"; amount: number; from: V3 }
-    | { kind: "death"; name: string; faction: "surface" | "below" }
+    | { kind: "death"; name: string; faction: "surface" | "below" | "neutral" }
     | { kind: "pickup"; text: string }
     | { kind: "phase"; phase: Phase }
     | { kind: "toast"; text: string }
@@ -118,11 +125,16 @@ export type GameEvent =
     | { kind: "melee" }
     | { kind: "reload" }
     | { kind: "scan" }
-    | { kind: "shout"; text: string; translation: string; at: V3 };
+    | { kind: "shout"; text: string; translation: string; at: V3 }
+    | { kind: "quest"; state: "started" | "completed" | "chapter"; title: string; text: string }
+    | { kind: "whistle" }
+    | { kind: "cry"; at: V3 }
+    | { kind: "wingbeat"; at: V3 }
+    | { kind: "trade" };
 
 export interface Pickup {
     id: number;
-    kind: "artifact" | "weapon" | "medgel" | "supply" | "vial";
+    kind: "artifact" | "weapon" | "medgel" | "supply" | "vial" | "quest";
     item: string;
     x: number; y: number; z: number;
     taken: boolean;
@@ -134,7 +146,7 @@ export interface RadioLine extends Line { at: number; until: number }
 export interface Checkpoint { phase: Phase; x: number; z: number; yaw: number; inv: Inventory; objective: number }
 
 /** Story phases a test or the chapter menu can start at. */
-export const START_PHASES: Phase[] = ["intro", "ledge", "descent", "floor", "ambush", "fallback", "evac", "laststand", "ending"];
+export const START_PHASES: (Phase | ChapterTwoStart)[] = ["intro", "ledge", "descent", "floor", "ambush", "fallback", "evac", "laststand", "ending", ...CH2_STARTS];
 
 export class Game {
     world: GameWorld;
@@ -178,7 +190,10 @@ export class Game {
     hold: V2 | null = null;
     /** What the camera does this frame (the addon reads it). */
     camera = { pos: [0, 0, 0] as V3, target: [0, 0, 1] as V3, fov: 45, roll: 0 };
-    interactable: Pickup | { kind: "shrine" | "okafor"; label: string } | null = null;
+    interactable: Pickup | { kind: "shrine" | "okafor"; label: string } | { kind: "site"; id: string; label: string } | null = null;
+    /** Chapter Two's open world (null in Chapter One). */
+    ch2: ChapterTwo | null = null;
+    get chapter(): 1 | 2 { return this.ch2 ? 2 : 1; }
     /** The Warden's place (scripted). */
     wardenGoal: V2 | null = null;
     vialPos: V3 | null = null;
@@ -258,13 +273,18 @@ export class Game {
     // --- Story control ---------------------------------------------------------------------------
 
     /** Starts the chapter (or jumps to a phase: tests and the chapter menu). */
-    start(phase: Phase = "intro"): void {
+    start(phase: Phase | ChapterTwoStart = "intro"): void {
         this.stats.started = this.time;
+        if ((CH2_STARTS as string[]).includes(phase)) {
+            this.ch2 = new ChapterTwo(this);
+            this.ch2.begin(phase as ChapterTwoStart);
+            return;
+        }
         if (phase === "intro") { this.setPhase("intro"); this.playScene(OPENING); return; }
         // Bring the world to that point: the opening's flight done, the squad down, earlier phases' outcomes.
         this.finishScene(OPENING);
         this.beginLedge();
-        const order = PHASES.indexOf(phase);
+        const order = PHASES.indexOf(phase as Phase);
         if (order > PHASES.indexOf("ledge")) this.gear();
         if (order >= PHASES.indexOf("floor")) this.teleport(PLACES.rampFoot[0], PLACES.rampFoot[1], Math.atan2(SHRINE[0] - PLACES.rampFoot[0], SHRINE[1] - PLACES.rampFoot[1]));
         if (order === PHASES.indexOf("descent")) this.setPhase("descent");
@@ -282,6 +302,9 @@ export class Game {
         // What was said on the way here was said already.
         this.radio = [];
     }
+
+    /** Chapter Two moves the story phase (aftermath, open). */
+    enterPhase(p: Phase): void { this.setPhase(p); }
 
     private setPhase(p: Phase): void {
         this.phase = p;
@@ -318,12 +341,13 @@ export class Game {
     onAir(): RadioLine[] { return this.radio.filter(r => this.time >= r.at && this.time < r.until); }
 
     currentObjective(): Objective | null {
+        if (this.ch2) return this.ch2.objective();
         const list = OBJECTIVES[this.phase];
         if (!list) return null;
         return list[Math.min(this.objective, list.length - 1)];
     }
 
-    private playScene(scene: Scene): void {
+    playScene(scene: Scene): void {
         this.cinema = { scene, t: 0, frame: null };
     }
 
@@ -332,6 +356,8 @@ export class Game {
         for (const e of eventsUntil(scene, sceneDuration(scene))) this.sceneEvent(e.name, e.args ?? {}, scene, true);
         this.black = false;
     }
+
+    teleportTo(x: number, z: number, yaw: number): void { this.teleport(x, z, yaw); }
 
     private teleport(x: number, z: number, yaw: number): void {
         this.body.x = x; this.body.z = z; this.body.y = this.world.ground(x, z); this.body.vy = 0; this.body.yaw = yaw;
@@ -392,7 +418,7 @@ export class Game {
         this.addPickup("medgel", "medgel", SHRINE[0] - 30, SHRINE[1] - 20, "Medgel");
     }
 
-    private addPickup(kind: Pickup["kind"], item: string, x: number, z: number, label: string, lift = 0.2): Pickup {
+    addPickup(kind: Pickup["kind"], item: string, x: number, z: number, label: string, lift = 0.2): Pickup {
         const p: Pickup = { id: this.nextPickup++, kind, item, x, y: this.world.ground(x, z) + lift, z, taken: false, label };
         this.pickups.push(p);
         return p;
@@ -536,6 +562,7 @@ export class Game {
                 for (const a of this.combat.actors) if (alive(a) && a.faction === "below") { a.state = a.role === "leader" ? "scripted" : "flee"; a.goal = [a.x + 30, a.z + 260]; }
                 break;
             }
+            default: if (this.ch2) this.ch2.sceneEvent(name); break;
             case "rescue": {
                 const nine = this.aircraftById("lantern9")!;
                 const t = this.time;
@@ -549,7 +576,7 @@ export class Game {
     // --- Wounds ----------------------------------------------------------------------------------
 
     hurt(amount: number, from: V3): void {
-        if (!this.alive || this.phase === "ending" || this.phase === "complete" || this.cinema) return;
+        if (!this.alive || this.phase === "ending" || this.phase === "complete" || this.cinema || this.phase === "aftermath") return;
         const taken = absorb(this.inv, amount);
         this.health -= taken;
         this.stats.damageTaken += amount;
@@ -595,6 +622,15 @@ export class Game {
     }
 
     private respawn(): void {
+        if (this.ch2) {
+            this.alive = true;
+            this.health = this.maxHealth;
+            this.ws = newWeaponState();
+            this.ch2.respawn();
+            this.combat.bolts = [];
+            this.events.push({ kind: "toast", text: "Augment restarted. Firebase Lantern." });
+            return;
+        }
         const cp = this.checkpoint;
         if (!cp) return;
         this.alive = true;
@@ -658,6 +694,7 @@ export class Game {
     private endScene(scene: Scene): void {
         this.cinema = null;
         this.black = false;
+        if (this.ch2 && this.ch2.endScene(scene)) return;
         if (scene === OPENING) { this.beginLedge(); return; }
         if (scene === CONTACT) { this.beginAmbush(); return; }
         if (scene === ENDING) { this.stats.finished = this.time; this.setPhase("complete"); }
@@ -665,6 +702,8 @@ export class Game {
 
     /** What a cutscene's follow key means: a thing's frame in the world. */
     follow(name: string): { pos: V3; right: V3; up: V3; forward: V3 } | null {
+        const own = this.ch2?.follow(name);
+        if (own) return own;
         const ac = this.aircraftById(name);
         if (ac) { const f = aircraftFrame(ac); return { pos: ac.pos, ...f }; }
         const frameOf = (x: number, y: number, z: number, yaw: number) => ({
@@ -679,6 +718,12 @@ export class Game {
     }
 
     private stepPlayer(dt: number, input: GameInput): void {
+        if (this.ch2) {
+            this.ch2.stepInput(dt, input);
+            if (this.ch2.mounted) { this.ch2.stepMounted(dt, input); return; }
+            // A choice open: 1 and 2 answer it, not the weapons.
+            if (this.ch2.choice) input = { ...input, weapon: null };
+        }
         const b = this.body;
         // Look: smoothed mouse, eased sticks, slowed over a warden (aim assist).
         stepAds(this.look, input.ads && WEAPONS[this.inv.current].kind === "gun", dt);
@@ -697,7 +742,7 @@ export class Game {
         // Weapons.
         stepWeapon(this.inv, this.ws, dt);
         if (input.weapon !== null) {
-            const id = (["coil-rifle", "arc-pistol", "monoblade", "warden-glaive"] as WeaponId[])[input.weapon - 1];
+            const id = (["coil-rifle", "arc-pistol", "monoblade", "warden-glaive", "okafor-carbine"] as WeaponId[])[input.weapon - 1];
             if (id && switchWeapon(this.inv, this.ws, id)) this.events.push({ kind: "toast", text: WEAPONS[id].name });
         }
         if (input.reload && startReload(this.inv, this.ws)) this.events.push({ kind: "reload" });
@@ -761,6 +806,7 @@ export class Game {
 
     private onWardenKilled(a: Actor): void {
         this.stats.kills++;
+        if (this.ch2) { this.ch2.onDeath(a); return; }
         if (!this.flags.glaiveDropped && a.role === "blade") {
             this.flags.glaiveDropped = true;
             this.addPickup("weapon", "warden-glaive", a.x + 0.8, a.z, WEAPONS["warden-glaive"].name);
@@ -779,11 +825,16 @@ export class Game {
             if (d < bd && Math.abs(p.y - b.y) < 3) { bd = d; best = p; }
         }
         this.interactable = best;
+        if (this.ch2) {
+            const site = this.ch2.sites()[0];
+            if (site && (!best || site.d < bd)) this.interactable = { kind: "site", id: site.id, label: site.label };
+        }
         const ok = this.okafor();
         if (!best && this.phase === "floor" && this.objective === 1 && Math.hypot(SHRINE[0] - b.x, SHRINE[1] - b.z) < 14) this.interactable = { kind: "shrine", label: "Investigate the shrine" };
         if (!this.interactable || !input.interact) return;
         const it = this.interactable;
-        if ("id" in it) this.take(it);
+        if (it.kind === "site") this.ch2?.interact(it.id);
+        else if ("id" in it) this.take(it);
         else if (it.kind === "shrine") this.investigateShrine();
         void ok;
     }
@@ -792,6 +843,8 @@ export class Game {
         if (p.taken) return;
         if (p.kind === "supply") { if (this.phase === "ledge") this.gear(); this.events.push({ kind: "pickup", text: "Aegis Mk.II plates bonded. Medgel x2." }); return; }
         p.taken = true;
+        this.ch2?.onPickup(p);
+        if (p.kind === "quest") return;
         if (p.kind === "artifact") { this.inv.artifacts.push(p.item); this.events.push({ kind: "pickup", text: `${ARTIFACTS[p.item].name}  ~${ARTIFACTS[p.item].value} CR` }); }
         else if (p.kind === "weapon") { const id = p.item as WeaponId; if (!this.inv.weapons.includes(id)) this.inv.weapons.push(id); this.events.push({ kind: "pickup", text: `${WEAPONS[id].name}  [4]` }); }
         else if (p.kind === "medgel") { this.inv.medgel++; this.events.push({ kind: "pickup", text: "Medgel +1" }); }
@@ -856,6 +909,7 @@ export class Game {
             else if (ev.kind === "cast") this.events.push({ kind: "cast", at: [ev.actor.x, ev.actor.y + 2, ev.actor.z] });
             else if (ev.kind === "burst") this.events.push({ kind: "burst", at: ev.pos, size: ev.size });
             else if (ev.kind === "death") {
+                this.ch2?.onDeath(ev.actor);
                 this.events.push({ kind: "death", name: ev.actor.name, faction: ev.actor.faction });
                 if (ev.actor.faction === "surface") {
                     const line = MAN_DOWN[Math.floor(this.rng.next() * MAN_DOWN.length)].replace("{name}", ev.actor.name.split(" ").pop() ?? ev.actor.name);
@@ -905,6 +959,7 @@ export class Game {
     }
 
     private stepStory(dt: number): void {
+        if (this.ch2) { this.ch2.stepStory(dt); return; }
         const b = this.body;
         const near = (p: V2, r: number) => Math.hypot(p[0] - b.x, p[1] - b.z) < r;
         switch (this.phase) {
@@ -984,7 +1039,8 @@ export class Game {
         void dt;
     }
 
-    private updateCamera(_dt: number): void {
+    private updateCamera(dt: number): void {
+        if (this.ch2?.mounted) { this.camera = { ...this.ch2.camera(dt), roll: 0 }; return; }
         const e = eye(this.body);
         const shake = this.fx.shake * this.fx.shake * 0.3;
         const sx = Math.sin(this.time * 53) * shake, sy = Math.sin(this.time * 41 + 1) * shake;
@@ -1012,6 +1068,8 @@ export class Game {
             radio: this.onAir().map(l => `${l.speaker}: ${l.text}`),
             stats: { ...this.stats, squadLost: this.squadLost() },
             flags: this.flags,
+            chapter: this.chapter,
+            ch2: this.ch2 ? this.ch2.summary() : null,
         };
     }
 }

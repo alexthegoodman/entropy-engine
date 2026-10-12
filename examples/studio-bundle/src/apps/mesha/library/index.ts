@@ -57,8 +57,9 @@ import combatArmor from "./combat_armor";
 import wardenGarb from "./warden_garb";
 import { coilRifleDef, meleeWeaponDef } from "./weapons";
 import crystalCluster from "./crystal";
+import skywing from "./skywing";
 
-export const LIBRARY: ObjectDef[] = [humanDef, combatArmor, wardenGarb, officeChair, table, cabinet, chair, sofa, bed, shelving, bottle, mug, dish, book, crate, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, rustDome, houseDef, ruin, caveDwelling, riverShrine, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, cityBlockDef, streetCarDef, wreckCar, gunship, container, streetlight, utilityPole, barrel, wastelandGround, windowDef, doorDef, facadeDef, fence, stair, gear, bolt, pipe, coilRifleDef, meleeWeaponDef, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, crystalCluster, leg, rockPiece, caster, handle, hinge];
+export const LIBRARY: ObjectDef[] = [humanDef, combatArmor, wardenGarb, officeChair, table, cabinet, chair, sofa, bed, shelving, bottle, mug, dish, book, crate, tableLamp, coffeeMaker, pottedPlantDef, domeBuilding, rustDome, houseDef, ruin, caveDwelling, riverShrine, habLodgeDef, wastelandDepotDef, arcaneEmporiumDef, cityBlockDef, streetCarDef, wreckCar, gunship, container, streetlight, utilityPole, barrel, wastelandGround, windowDef, doorDef, facadeDef, fence, stair, gear, bolt, pipe, coilRifleDef, meleeWeaponDef, treeDef, coniferDef, palmDef, fernDef, shrubDef, grassDef, flowersDef, rock, crystalCluster, skywing, leg, rockPiece, caster, handle, hinge];
 
 const BY_ID = new Map(LIBRARY.map(d => [d.id, d]));
 

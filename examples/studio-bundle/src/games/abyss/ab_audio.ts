@@ -86,6 +86,36 @@ export class Sound {
         this.play({ freq: 6000, waveform: "noise", duration: 3, cutoff: 4000, attack: 0.01, decay: 2.5, sustain: 0, release: 0.5, gain: 0.25, reverbMix: 0.8, reverbRoomSize: 30, reverbTime: 6 });
     }
 
+    /** Kesh's cry: a falling, breathy glide with a ringing overtone, from where it is. */
+    cry(at: V3, ear: V3): void {
+        const g = this.at(at, ear, 10, 600);
+        if (g < 0.02) return;
+        this.play({ freq: 520, waveform: "saw", duration: 1.4, cutoff: 1400, resonance: 0.4, attack: 0.08, decay: 0.9, sustain: 0.2, release: 0.6, gain: 0.12 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5 });
+        this.queue(0.12, { freq: 390, waveform: "sine", duration: 1.2, attack: 0.05, decay: 0.8, sustain: 0.2, release: 0.6, gain: 0.14 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5 });
+        this.queue(0.35, { freq: 1560, waveform: "triangle", duration: 0.9, attack: 0.1, decay: 0.6, sustain: 0, release: 0.4, gain: 0.05 * g, reverbMix: 0.7 });
+        this.play({ freq: 900, waveform: "noise", duration: 1, cutoff: 1200, attack: 0.05, decay: 0.8, sustain: 0, release: 0.3, gain: 0.06 * g });
+    }
+
+    /** One beat of its wings: a deep whump of air. */
+    wingbeat(at: V3, ear: V3): void {
+        const g = this.at(at, ear, 12, 250);
+        if (g < 0.02) return;
+        this.play({ freq: 46, waveform: "kick", duration: 0.35, gain: 0.3 * g });
+        this.play({ freq: 300, waveform: "noise", duration: 0.4, cutoff: 420, attack: 0.04, decay: 0.3, sustain: 0, release: 0.1, gain: 0.12 * g });
+    }
+
+    /** Alex whistles for Kesh. */
+    whistle(): void {
+        this.play({ freq: mtof(84), waveform: "sine", duration: 0.25, attack: 0.02, decay: 0.2, sustain: 0.3, release: 0.05, gain: 0.1 });
+        this.queue(0.28, { freq: mtof(91), waveform: "sine", duration: 0.4, attack: 0.02, decay: 0.3, sustain: 0.3, release: 0.1, gain: 0.1 });
+    }
+
+    /** A quest offered, finished, the chapter done. */
+    quest(kind: string): void {
+        const notes = kind === "completed" ? [67, 71, 74, 79] : kind === "chapter" ? [62, 69, 74, 78, 81] : [72, 79];
+        notes.forEach((m, i) => this.queue(i * 0.11, { freq: mtof(m), waveform: "triangle", duration: 0.6, attack: 0.005, decay: 0.4, sustain: 0.2, release: 0.4, gain: 0.12, reverbMix: 0.4 }));
+    }
+
     /** Called every frame: rotor thump of the nearest aircraft, the wind of the deep, queued music. */
     step(dt: number, time: number, ear: V3, nearestRotor: number, depth: number): void {
         for (let i = this.musicQueue.length - 1; i >= 0; i--) if (this.musicQueue[i].at <= time) { this.play(this.musicQueue[i].note); this.musicQueue.splice(i, 1); }
@@ -137,6 +167,23 @@ export class Sound {
             case "battle":
                 for (let i = 0; i < 16; i++) this.queue(i * 0.42, { freq: i % 4 === 0 ? 45 : 60, waveform: i % 4 === 0 ? "kick" : "tom", duration: 0.3, gain: 0.35 });
                 brass(50, 0, 1.6, 0.12); brass(49, 1.7, 1.6, 0.12); brass(46, 3.4, 3, 0.12);
+                break;
+            case "ch2":
+                // Nine days on: a colder pad, a slow horn, the firebase's drums far off.
+                pad([33, 40, 45, 52], 0, 10, 0.06, 1000); pad([36, 43, 48, 55], 10, 10, 0.06, 1000); pad([31, 38, 43, 50], 20, 10, 0.06, 1000); pad([33, 40, 45, 52], 30, 12, 0.06, 1000);
+                brass(57, 11, 4, 0.08); brass(60, 15, 3, 0.08); brass(55, 21, 6, 0.08);
+                [0, 2.4, 4.8, 7.2, 9.6].forEach(t => this.queue(t + 20, { freq: 52, waveform: "tom", duration: 0.5, gain: 0.18 }));
+                break;
+            case "beast":
+                // Something wounded and huge: low strings, a wavering high line.
+                pad([29, 36, 41], 0, 12, 0.07, 700);
+                [76, 77, 76, 72, 71].forEach((m, i) => this.queue(1 + i * 1.8, { freq: mtof(m), waveform: "sine", duration: 2.2, attack: 0.5, decay: 0.8, sustain: 0.5, release: 0.8, gain: 0.07, reverbMix: 0.7, reverbRoomSize: 30, reverbTime: 6 }));
+                break;
+            case "skybound":
+                // Rising: the river's chord opens up and the horns climb with the wings.
+                pad([38, 45, 50, 54], 0, 8, 0.07, 1600); pad([43, 50, 55, 59], 8, 8, 0.07, 2000); pad([45, 52, 57, 61, 64], 16, 10, 0.08, 2600);
+                brass(57, 6, 2.5, 0.1); brass(62, 8.5, 2.5, 0.1); brass(66, 11, 3, 0.1); brass(69, 15, 6, 0.11);
+                [74, 76, 78, 81, 83, 86].forEach((m, i) => piano(m, 16 + i * 0.5, 0.11));
                 break;
             case "ending":
                 // A lament: piano over a cold pad.

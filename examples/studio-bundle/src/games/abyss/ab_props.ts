@@ -10,6 +10,7 @@ import { lookupObject } from "../../apps/mesha/library";
 import type { ParamValues } from "../../apps/mesha/mesha_object";
 import { FOB, SHRINE, SETTLEMENT, EVAC_LZ, CRACK_A, CRACK_B, crackSD, riverDistance, MAP_HALF, riftBend, SOURCE_POOL, type V2 } from "./ab_world";
 import { PLACES } from "./ab_script";
+import { PLACES2 } from "./ab_script2";
 
 export interface Prop {
     object: string;
@@ -23,7 +24,9 @@ export interface Prop {
     /** Solid footprint radius (m) for walking and line of sight; 0 none. */
     solid: number;
     /** Where it belongs (for the debugging and the state tool). */
-    group: "fob" | "rim" | "ledge" | "boulders" | "crystals" | "settlement" | "ruins" | "pickup";
+    group: "fob" | "rim" | "ledge" | "boulders" | "crystals" | "settlement" | "ruins" | "pickup" | "firebase";
+    /** Only in this chapter (absent: every chapter). */
+    chapter?: 1 | 2;
     /** Draw-distance class: "near" props fade out early, "far" ones always draw. */
     reach: "near" | "mid" | "far";
 }
@@ -164,10 +167,50 @@ export function placeProps(seed = 1): Prop[] {
         if (riverDistance(x, z).d < 22 || crackSD(x, z) > -120) continue;
         put({ object: "architecture.ruin", values: { ...ruinV, seed: i * 7 + 3 }, x, z, yaw: rng.next() * 6.28, solid: 0, group: "ruins" });
     }
+    placeFirebase(put, rng);
     return out;
 }
 
+/**
+ * Chapter Two's Firebase Lantern on Kilo-Two's landing zone: a ring of containers for a wall
+ * (open to the north and east), the command dome, floodlights, the quartermaster's stacks and
+ * the crates of recovered artifacts, and a lit memorial.
+ */
+function placeFirebase(put: (p: Omit<Prop, "yaw" | "scale" | "solid" | "reach"> & Partial<Pick<Prop, "yaw" | "scale" | "solid" | "reach">>) => void, rng: { next(): number }): void {
+    const [fx, fz] = PLACES2.firebase;
+    const c2 = { chapter: 2 as const, group: "firebase" as const };
+    const wall = preset("transport.container", "Port blue high cube", { doorsOpen: 0, shellFinish: "metal.corrugatedGreen", doorFinish: "metal.corrugatedGreen" });
+    const wallRed = preset("transport.container", "Port blue high cube", { doorsOpen: 0, size: "20", highCube: false, doorFinish: "metal.corrugatedRed" });
+    for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2;
+        // Gates: north (toward the hollow) and east (toward the shrine).
+        if (Math.abs(Math.sin(a) - 1) < 0.05 || Math.abs(Math.cos(a) - 1) < 0.05) continue;
+        const x = fx + Math.cos(a) * 62, z = fz + Math.sin(a) * 62;
+        put({ object: "transport.container", values: i % 3 ? wall : wallRed, x, z, yaw: -a, solid: 3.6, ...c2 });
+    }
+    const habitat = preset("architecture.dome_building", "Lunar habitat", { roofFinish: "paint.sage", wallFinish: "paint.sage" });
+    put({ object: "architecture.dome_building", values: habitat, x: fx + 30, z: fz + 32, yaw: Math.atan2(-30, -32), solid: 5.5, reach: "far", ...c2 });
+    put({ object: "architecture.dome_building", values: habitat, x: fx - 34, z: fz - 30, yaw: Math.atan2(34, 30), solid: 5.5, reach: "far", ...c2 });
+    const flood = preset("street.streetlight", "Highway cobra head");
+    for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.3;
+        put({ object: "street.streetlight", values: flood, x: fx + Math.cos(a) * 50, z: fz + Math.sin(a) * 50, yaw: Math.atan2(-Math.cos(a), -Math.sin(a)) + Math.PI, solid: 0.4, reach: "far", ...c2 });
+    }
+    // The quartermaster's stacks, and the recovered artifacts crated beside them.
+    const [dx, dz] = PLACES2.dace;
+    const crate = preset("household.crate", "Shipping crate", { woodFinish: "wood.weathered" });
+    for (let i = 0; i < 5; i++) put({ object: "household.crate", values: crate, x: dx - 4 + (i % 3) * 2.8, z: dz + 4 + Math.floor(i / 3) * 2.8, yaw: rng.next() * 0.4, scale: 2.6, solid: 1.1, reach: "near", ...c2 });
+    const [cx, cz] = PLACES2.crate;
+    for (let i = 0; i < 4; i++) put({ object: "household.crate", values: crate, x: cx + (i % 2) * 2.4 - 1.2, z: cz + 2 + Math.floor(i / 2) * 2.4, yaw: 0.2 * i, scale: 2.2, solid: 0.9, reach: "near", ...c2 });
+    put({ object: "street.barrel", values: preset("street.barrel", "Toxic stack", { drumFinish: "paint.navy", bandFinish: "paint.signal" }), x: dx + 6, z: dz - 4, yaw: 0.4, solid: 1.2, reach: "near", ...c2 });
+    // The memorial: a crate of Kilo-Two's kit under a lamp, where the tags will hang.
+    const [mx, mz] = PLACES2.memorial;
+    put({ object: "household.crate", values: preset("household.crate", "Shipping crate", { woodFinish: "wood.charred" }), x: mx, z: mz - 1.6, yaw: 0, scale: 1.6, solid: 0.8, reach: "near", ...c2 });
+    put({ object: "street.streetlight", values: preset("street.streetlight", "Steel bollard", { lit: true }), x: mx + 1.6, z: mz - 1.2, yaw: 0, scale: 1.3, solid: 0.3, reach: "near", ...c2 });
+    put({ object: "street.streetlight", values: preset("street.streetlight", "Steel bollard", { lit: true }), x: mx - 1.6, z: mz - 1.2, yaw: 0, scale: 1.3, solid: 0.3, reach: "near", ...c2 });
+}
+
 /** Solid footprints (x, z, radius) of the props, for walking and line of sight. */
-export function solids(props: readonly Prop[]): { x: number; z: number; r: number }[] {
-    return props.filter(p => p.solid > 0).map(p => ({ x: p.x, z: p.z, r: p.solid * (p.object === "nature.rock" ? 1 : 1) }));
+export function solids(props: readonly Prop[], chapter: 1 | 2 = 1): { x: number; z: number; r: number }[] {
+    return props.filter(p => p.solid > 0 && (!p.chapter || p.chapter === chapter)).map(p => ({ x: p.x, z: p.z, r: p.solid * (p.object === "nature.rock" ? 1 : 1) }));
 }
