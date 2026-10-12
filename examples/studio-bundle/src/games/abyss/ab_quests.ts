@@ -39,7 +39,8 @@ export interface Reward { credits?: number; items?: string[]; text: string }
 export interface QuestDef {
     id: string;
     title: string;
-    kind: "main" | "side";
+    /** The main quest, side quests someone offers, and encounters the world starts when Alex comes near. */
+    kind: "main" | "side" | "encounter";
     /** Who offers it (an NPC id), or null when the world itself starts it (a place, a radio call). */
     giver: string | null;
     /** Where it is offered (for the HUD's quest marker before it starts). */

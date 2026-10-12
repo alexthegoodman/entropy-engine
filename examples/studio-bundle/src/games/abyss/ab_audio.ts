@@ -2,6 +2,11 @@
 // hissing through the air and bursting, explosions, rotor thump that swells as a gunship passes,
 // the low wind of the deep, and a score of pads, brass-like swells and a few piano notes for the
 // cutscenes. Every call is guarded: no audio device just means silence.
+//
+// Sounds in the world are placed: panned by where they are relative to the camera's right, the
+// far ear hearing them a hair later (the engine does that), quieter with distance, and muffled
+// when they are behind you or the ground or cover stands between - so a shot tells you where it
+// came from.
 
 import type { V3 } from "./ab_world";
 
@@ -16,46 +21,90 @@ export class Sound {
     private ambientT = 0;
     private musicQueue: { at: number; note: Note }[] = [];
     played = 0;
+    /** The listener: where the camera is and which way its right points. */
+    private ear: V3 = [0, 0, 0];
+    private right: V3 = [1, 0, 0];
+    private fwd: V3 = [0, 0, 1];
+    /** True when something solid stands between two points (the game's line of sight). */
+    occluded: ((a: V3, b: V3) => boolean) | null = null;
+    /** The last placement (tests and the state tool read it). */
+    lastPlace: { gain: number; pan: number; muffle: number } | null = null;
+
+    /** Where the listener is and looks (every frame, from the camera). */
+    setListener(pos: V3, forward: V3): void {
+        this.ear = pos;
+        const l = Math.hypot(forward[0], forward[2]) || 1;
+        this.fwd = [forward[0] / l, 0, forward[2] / l];
+        // right = forward x up (facing +Z, right is -X: the world's own handedness).
+        this.right = [-this.fwd[2], 0, this.fwd[0]];
+    }
+
+    /**
+     * A sound at `p`: its gain (distance falloff between `near` and `far`), its pan (-1 left .. 1
+     * right), and how muffled it is (behind, far, or with something solid in between).
+     */
+    place(p: V3, near = 8, far = 260): { gain: number; pan: number; muffle: number } {
+        const e = this.ear;
+        const dx = p[0] - e[0], dy = p[1] - e[1], dz = p[2] - e[2];
+        const d = Math.hypot(dx, dy, dz);
+        const gain = d <= near ? 1 : Math.max(0, 1 - (d - near) / (far - near)) ** 1.6;
+        const flat = Math.hypot(dx, dz);
+        if (flat < 1.5) return (this.lastPlace = { gain, pan: 0, muffle: 0 });
+        const side = (dx * this.right[0] + dz * this.right[2]) / flat;
+        const ahead = (dx * this.fwd[0] + dz * this.fwd[2]) / flat;
+        // Close sounds pan less hard (they fill both ears).
+        const pan = side * Math.min(1, 0.55 + flat / 40);
+        const behind = Math.max(0, -ahead);
+        const blocked = d > 4 && this.occluded ? (this.occluded([e[0], e[1], e[2]], [p[0], p[1] + 0.5, p[2]]) ? 1 : 0) : 0;
+        const muffle = Math.min(0.9, behind * 0.3 + blocked * 0.55 + Math.min(1, d / far) * 0.25);
+        return (this.lastPlace = { gain, pan, muffle });
+    }
 
     private play(n: Note): void {
         if (!this.enabled) return;
         try { Entropy.Audio.playNote({ ...n, gain: (n.gain ?? 0.5) * this.master }); this.played++; } catch { this.enabled = false; }
     }
 
-    /** Gain for a sound at `p` heard from `ear` (falls off with distance). */
-    private at(p: V3, ear: V3, near = 8, far = 260): number {
-        const d = Math.hypot(p[0] - ear[0], p[1] - ear[1], p[2] - ear[2]);
-        return d <= near ? 1 : Math.max(0, 1 - (d - near) / (far - near)) ** 1.6;
+    rifle(player: boolean, from: V3, ear: V3): void {
+        void ear;
+        const pl = player ? { gain: 1, pan: 0, muffle: 0 } : this.place(from, 6, 320);
+        const g = player ? 1 : pl.gain * 0.6;
+        if (g < 0.02) return;
+        const sp = { pan: pl.pan, muffle: pl.muffle };
+        this.play({ freq: 110, waveform: "kick", duration: 0.12, gain: 0.55 * g, ...sp });
+        this.play({ freq: 2400, waveform: "noise", duration: 0.06, cutoff: 6000, attack: 0.001, decay: 0.05, sustain: 0, release: 0.04, gain: 0.32 * g, ...sp });
+        // The coils' whine.
+        this.play({ freq: player ? 1650 : 1500, waveform: "saw", duration: 0.07, cutoff: 3500, attack: 0.001, decay: 0.06, sustain: 0, release: 0.03, gain: 0.07 * g, reverbMix: 0.25, reverbRoomSize: 30, reverbTime: 1.6, ...sp });
     }
 
-    rifle(player: boolean, from: V3, ear: V3): void {
-        const g = player ? 1 : this.at(from, ear, 6, 320) * 0.6;
-        if (g < 0.02) return;
-        this.play({ freq: 110, waveform: "kick", duration: 0.12, gain: 0.55 * g });
-        this.play({ freq: 2400, waveform: "noise", duration: 0.06, cutoff: 6000, attack: 0.001, decay: 0.05, sustain: 0, release: 0.04, gain: 0.32 * g });
-        // The coils' whine.
-        this.play({ freq: player ? 1650 : 1500, waveform: "saw", duration: 0.07, cutoff: 3500, attack: 0.001, decay: 0.06, sustain: 0, release: 0.03, gain: 0.07 * g, reverbMix: 0.25, reverbRoomSize: 30, reverbTime: 1.6 });
+    /** Gain for a sound at `p` (and its pan and muffle, kept in `spot` for the notes that follow). */
+    private spot: { pan: number; muffle: number } = { pan: 0, muffle: 0 };
+    private at(p: V3, ear: V3, near = 8, far = 260): number {
+        void ear;
+        const pl = this.place(p, near, far);
+        this.spot = { pan: pl.pan, muffle: pl.muffle };
+        return pl.gain;
     }
 
     cast(at: V3, ear: V3): void {
         const g = this.at(at, ear, 10, 200);
         if (g < 0.02) return;
-        this.play({ freq: 520, waveform: "sine", duration: 0.6, attack: 0.08, decay: 0.3, sustain: 0.3, release: 0.4, gain: 0.25 * g, delayTime: 0.11, delayFeedback: 0.45, delayMix: 0.35, reverbMix: 0.5, reverbRoomSize: 30, reverbTime: 3 });
-        this.play({ freq: 780, waveform: "triangle", duration: 0.5, attack: 0.1, decay: 0.3, sustain: 0.2, release: 0.4, gain: 0.12 * g, reverbMix: 0.5, reverbRoomSize: 30, reverbTime: 3 });
+        this.play({ freq: 520, waveform: "sine", duration: 0.6, attack: 0.08, decay: 0.3, sustain: 0.3, release: 0.4, gain: 0.25 * g, delayTime: 0.11, delayFeedback: 0.45, delayMix: 0.35, reverbMix: 0.5, reverbRoomSize: 30, reverbTime: 3, ...this.spot });
+        this.play({ freq: 780, waveform: "triangle", duration: 0.5, attack: 0.1, decay: 0.3, sustain: 0.2, release: 0.4, gain: 0.12 * g, reverbMix: 0.5, reverbRoomSize: 30, reverbTime: 3, ...this.spot });
     }
 
     burst(at: V3, ear: V3, size: number): void {
         const g = this.at(at, ear, 8, 220);
         if (g < 0.02) return;
-        this.play({ freq: 60, waveform: "tom", duration: 0.4, gain: 0.5 * g * Math.min(1.5, 0.6 + size) });
-        this.play({ freq: 3000, waveform: "noise", duration: 0.5, cutoff: 2600, attack: 0.002, decay: 0.4, sustain: 0, release: 0.2, gain: 0.2 * g, reverbMix: 0.4, reverbRoomSize: 30, reverbTime: 2.5 });
-        this.play({ freq: 1040, waveform: "sine", duration: 0.35, attack: 0.001, decay: 0.3, sustain: 0, release: 0.2, gain: 0.1 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 3.5 });
+        this.play({ freq: 60, waveform: "tom", duration: 0.4, gain: 0.5 * g * Math.min(1.5, 0.6 + size), ...this.spot });
+        this.play({ freq: 3000, waveform: "noise", duration: 0.5, cutoff: 2600, attack: 0.002, decay: 0.4, sustain: 0, release: 0.2, gain: 0.2 * g, reverbMix: 0.4, reverbRoomSize: 30, reverbTime: 2.5, ...this.spot });
+        this.play({ freq: 1040, waveform: "sine", duration: 0.35, attack: 0.001, decay: 0.3, sustain: 0, release: 0.2, gain: 0.1 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 3.5, ...this.spot });
     }
 
     explosion(at: V3, ear: V3, power: number): void {
         const g = this.at(at, ear, 20, 1400);
-        this.play({ freq: 42, waveform: "kick", duration: 1.2, gain: Math.min(1, 0.5 + power * 0.12) * g });
-        this.play({ freq: 1200, waveform: "noise", duration: 2.2, cutoff: 900, attack: 0.005, decay: 1.6, sustain: 0.1, release: 1.2, gain: 0.45 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 4 });
+        this.play({ freq: 42, waveform: "kick", duration: 1.2, gain: Math.min(1, 0.5 + power * 0.12) * g, ...this.spot });
+        this.play({ freq: 1200, waveform: "noise", duration: 2.2, cutoff: 900, attack: 0.005, decay: 1.6, sustain: 0.1, release: 1.2, gain: 0.45 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 4, ...this.spot });
     }
 
     melee(): void {
@@ -90,18 +139,40 @@ export class Sound {
     cry(at: V3, ear: V3): void {
         const g = this.at(at, ear, 10, 600);
         if (g < 0.02) return;
-        this.play({ freq: 520, waveform: "saw", duration: 1.4, cutoff: 1400, resonance: 0.4, attack: 0.08, decay: 0.9, sustain: 0.2, release: 0.6, gain: 0.12 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5 });
-        this.queue(0.12, { freq: 390, waveform: "sine", duration: 1.2, attack: 0.05, decay: 0.8, sustain: 0.2, release: 0.6, gain: 0.14 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5 });
-        this.queue(0.35, { freq: 1560, waveform: "triangle", duration: 0.9, attack: 0.1, decay: 0.6, sustain: 0, release: 0.4, gain: 0.05 * g, reverbMix: 0.7 });
-        this.play({ freq: 900, waveform: "noise", duration: 1, cutoff: 1200, attack: 0.05, decay: 0.8, sustain: 0, release: 0.3, gain: 0.06 * g });
+        this.play({ freq: 520, waveform: "saw", duration: 1.4, cutoff: 1400, resonance: 0.4, attack: 0.08, decay: 0.9, sustain: 0.2, release: 0.6, gain: 0.12 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5, ...this.spot });
+        this.queue(0.12, { freq: 390, waveform: "sine", duration: 1.2, attack: 0.05, decay: 0.8, sustain: 0.2, release: 0.6, gain: 0.14 * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 5, ...this.spot });
+        this.queue(0.35, { freq: 1560, waveform: "triangle", duration: 0.9, attack: 0.1, decay: 0.6, sustain: 0, release: 0.4, gain: 0.05 * g, reverbMix: 0.7, ...this.spot });
+        this.play({ freq: 900, waveform: "noise", duration: 1, cutoff: 1200, attack: 0.05, decay: 0.8, sustain: 0, release: 0.3, gain: 0.06 * g, ...this.spot });
     }
 
     /** One beat of its wings: a deep whump of air. */
     wingbeat(at: V3, ear: V3): void {
         const g = this.at(at, ear, 12, 250);
         if (g < 0.02) return;
-        this.play({ freq: 46, waveform: "kick", duration: 0.35, gain: 0.3 * g });
-        this.play({ freq: 300, waveform: "noise", duration: 0.4, cutoff: 420, attack: 0.04, decay: 0.3, sustain: 0, release: 0.1, gain: 0.12 * g });
+        this.play({ freq: 46, waveform: "kick", duration: 0.35, gain: 0.3 * g, ...this.spot });
+        this.play({ freq: 300, waveform: "noise", duration: 0.4, cutoff: 420, attack: 0.04, decay: 0.3, sustain: 0, release: 0.1, gain: 0.12 * g, ...this.spot });
+    }
+
+    /** A power of the river going off (or a potion drunk). */
+    power(id: string, at: V3, ear: V3): void {
+        const g = id === "lance" ? this.at(at, ear, 10, 260) : 1;
+        if (id !== "lance") this.spot = { pan: 0, muffle: 0 };
+        const tone = (m: number, d: number, wave: string, gain: number, delay = 0) => this.queue(delay, { freq: mtof(m), waveform: wave, duration: d, attack: 0.02, decay: d * 0.6, sustain: 0.3, release: d * 0.5, gain: gain * g, reverbMix: 0.55, reverbRoomSize: 30, reverbTime: 4, ...this.spot });
+        if (id === "lance") { tone(81, 0.35, "saw", 0.06); tone(69, 0.6, "sine", 0.14); this.play({ freq: 5200, waveform: "noise", duration: 0.25, cutoff: 7000, attack: 0.002, decay: 0.2, sustain: 0, release: 0.05, gain: 0.12 * g, ...this.spot }); }
+        else if (id === "ward") [64, 71, 76].forEach((m, i) => tone(m, 1.4, "sine", 0.08, i * 0.06));
+        else if (id === "veil") [76, 75, 71].forEach((m, i) => tone(m, 1.2, "triangle", 0.06, i * 0.12));
+        else if (id === "mend") [67, 71, 74, 79].forEach((m, i) => tone(m, 0.9, "sine", 0.07, i * 0.09));
+        else if (id === "learn") [62, 69, 74, 78, 81, 86].forEach((m, i) => tone(m, 2.2, "saw", 0.05, i * 0.1));
+        // (The surge plays its own chord through `surge`.)
+    }
+
+    /** A behemoth's breath: a roaring, crackling rush, from its mouth. */
+    breath(at: V3, ear: V3): void {
+        const g = this.at(at, ear, 12, 380);
+        if (g < 0.02) return;
+        this.play({ freq: 900, waveform: "noise", duration: 0.6, cutoff: 1400, attack: 0.05, decay: 0.3, sustain: 0.6, release: 0.2, gain: 0.3 * g, ...this.spot });
+        this.play({ freq: 70, waveform: "saw", duration: 0.6, cutoff: 260, attack: 0.05, decay: 0.3, sustain: 0.6, release: 0.2, gain: 0.16 * g, ...this.spot });
+        this.play({ freq: 4000, waveform: "noise", duration: 0.4, cutoff: 6500, attack: 0.01, decay: 0.3, sustain: 0, release: 0.1, gain: 0.05 * g, ...this.spot });
     }
 
     /** Alex whistles for Kesh. */

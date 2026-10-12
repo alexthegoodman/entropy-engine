@@ -19,15 +19,27 @@ import {
     SCENES, OPENING, CONTACT, ENDING, BEATS, SQUAD, OBJECTIVES, PLACES, PHASES, WARDEN_REVEAL, WARDEN_STAND, WAVE_SOURCES, MAN_DOWN, WARDEN_SHOUTS,
     kiloTwoFlight, type Phase, type Line, type Objective,
 } from "./ab_script";
-import { newFx, explode, ignite, stepFx, type FxState } from "../allegiance/al_fx";
+import { newFx, explode, ignite, stepFx, flameJet, fireDamageAt, type FxState } from "../allegiance/al_fx";
 import { ChapterTwo } from "./ab_chapter2";
 import { CH2_STARTS, type ChapterTwoStart } from "./ab_script2";
 import { newLook, addMouse, stepLook, stepAds, adsFov, pickAssistTarget, assistFriction, assistPull, bendAngle, adsSpread, adsMove, anglesTo, type LookState, type AimTarget } from "../allegiance/al_aim";
 import { makeRng, type Rng } from "../allegiance/al_rng";
+import {
+    newProgress, addXp, stats, killXp, rollLoot, rollRank, learnPower, cyclePower, powerCost, installUpgrade, takePerk, kindOfLook,
+    ENEMIES, RANKS, POWERS, UPGRADES, LOOT_ITEMS, RESONANCE_REGEN, XP, type Progress, type EnemyKind, type Rank,
+} from "./ab_rpg";
 
 // --- The world's physical queries -----------------------------------------------------------------
 
-export interface Solid { x: number; z: number; r: number }
+/**
+ * Something solid on the ground: a column of radius r. Most props block sight up to 6 m; cover
+ * (a barricade, a low wall) has its own height `h`, so a crouched body behind it is hidden while
+ * a shot can still pass over it.
+ */
+export interface Solid { x: number; z: number; r: number; h?: number; cover?: boolean }
+
+/** Height a solid blocks to (above the ground at it). */
+const solidTop = (s: Solid): number => s.h ?? 6;
 
 /** Ground, solid props and line of sight over the baked terrain. */
 export class GameWorld implements CombatWorld {
@@ -54,17 +66,63 @@ export class GameWorld implements CombatWorld {
             if (y < this.ground(x, z) - 0.2) return false;
         }
         for (const s of this.solids) {
-            if (s.r < 1.5) continue;
+            if (s.r < 1.5 && !s.cover) continue;
             // Distance from the column's axis to the segment, in plan.
             const h2 = dx * dx + dz * dz;
             const t = h2 > 1e-6 ? Math.max(0, Math.min(1, ((s.x - a[0]) * dx + (s.z - a[2]) * dz) / h2)) : 0;
             const px = a[0] + dx * t - s.x, pz = a[2] + dz * t - s.z;
-            if (px * px + pz * pz < (s.r * 0.8) ** 2 && t > 0.02 && t < 0.98) {
+            const r = s.cover ? s.r : s.r * 0.8;
+            if (px * px + pz * pz < r * r && t > 0.02 && t < 0.98) {
                 const y = a[1] + dy * t;
-                if (y < this.ground(s.x, s.z) + 6) return false;
+                if (y < this.ground(s.x, s.z) + solidTop(s)) return false;
             }
         }
         return true;
+    }
+
+    /** True when p is inside a solid's column (bolts burst on cover). */
+    blocked(p: V3): boolean {
+        for (const s of this.solids) {
+            if (!s.cover && s.r < 1.5) continue;
+            const dx = p[0] - s.x, dz = p[2] - s.z;
+            if (dx * dx + dz * dz < s.r * s.r && p[1] < this.ground(s.x, s.z) + solidTop(s)) return true;
+        }
+        return false;
+    }
+
+    /** Where a ray first enters a solid's column (distance), up to `range`: shots stop at cover. */
+    raySolids(from: V3, dir: V3, range: number): number {
+        let best = Infinity;
+        const h2 = dir[0] * dir[0] + dir[2] * dir[2];
+        if (h2 < 1e-8) return best;
+        for (const s of this.solids) {
+            if (!s.cover && s.r < 1.5) continue;
+            const ox = from[0] - s.x, oz = from[2] - s.z;
+            const b = (ox * dir[0] + oz * dir[2]) / h2, c = (ox * ox + oz * oz - s.r * s.r) / h2;
+            const disc = b * b - c;
+            if (disc < 0) continue;
+            const t = -b - Math.sqrt(disc);
+            if (t < 0.3 || t > range || t > best) continue;
+            const y = from[1] + dir[1] * t;
+            if (y < this.ground(s.x, s.z) + solidTop(s)) best = t;
+        }
+        return best;
+    }
+
+    /** The nearest place within `reach` of (x, z) behind cover, as seen from `threat`. */
+    coverNear(x: number, z: number, threat: V3, reach: number): [number, number] | null {
+        let best: [number, number] | null = null, bd = reach;
+        for (const s of this.solids) {
+            if (!s.cover) continue;
+            const d0 = Math.hypot(s.x - x, s.z - z);
+            if (d0 > reach + s.r) continue;
+            const ax = s.x - threat[0], az = s.z - threat[2];
+            const al = Math.hypot(ax, az) || 1;
+            const px = s.x + ax / al * (s.r + 0.75), pz = s.z + az / al * (s.r + 0.75);
+            const d = Math.hypot(px - x, pz - z);
+            if (d < bd) { bd = d; best = [px, pz]; }
+        }
+        return best;
     }
     /** Where a ray from `from` along `dir` meets the terrain (distance), up to `range`. */
     rayTerrain(from: V3, dir: V3, range: number): number {
@@ -103,9 +161,14 @@ export interface GameInput {
     call?: boolean;
     track?: boolean;
     choice?: number | null;
+    /** Crouch (held, or toggled by the addon), cast the ready power (G), the next power (B), drink a river draught (X). */
+    crouch?: boolean;
+    cast?: boolean;
+    nextPower?: boolean;
+    draught?: boolean;
 }
 
-export const NO_INPUT: GameInput = { moveX: 0, moveY: 0, sprint: false, jump: false, mouseX: 0, mouseY: 0, lookX: 0, lookY: 0, fire: false, ads: false, reload: false, interact: false, heal: false, scan: false, weapon: null, skip: false, jumpHeld: false, call: false, track: false, choice: null };
+export const NO_INPUT: GameInput = { moveX: 0, moveY: 0, sprint: false, jump: false, mouseX: 0, mouseY: 0, lookX: 0, lookY: 0, fire: false, ads: false, reload: false, interact: false, heal: false, scan: false, weapon: null, skip: false, jumpHeld: false, call: false, track: false, choice: null, crouch: false, cast: false, nextPower: false, draught: false };
 
 // --- Events for the addon (sound, light, the HUD) ----------------------------------------------------
 
@@ -126,19 +189,31 @@ export type GameEvent =
     | { kind: "reload" }
     | { kind: "scan" }
     | { kind: "shout"; text: string; translation: string; at: V3 }
-    | { kind: "quest"; state: "started" | "completed" | "chapter"; title: string; text: string }
+    | { kind: "quest"; state: "started" | "completed" | "chapter" | "encounter"; title: string; text: string }
     | { kind: "whistle" }
     | { kind: "cry"; at: V3 }
     | { kind: "wingbeat"; at: V3 }
-    | { kind: "trade" };
+    | { kind: "trade" }
+    | { kind: "xp"; amount: number; reason: string }
+    | { kind: "levelup"; level: number }
+    | { kind: "power"; id: string; at: V3 }
+    | { kind: "loot"; items: string[] }
+    | { kind: "discovery"; name: string; text: string }
+    | { kind: "breath"; from: V3; dir: V3 }
+    | { kind: "stomp"; at: V3 }
+    | { kind: "heal"; at: V3 };
 
 export interface Pickup {
     id: number;
-    kind: "artifact" | "weapon" | "medgel" | "supply" | "vial" | "quest";
+    kind: "artifact" | "weapon" | "medgel" | "supply" | "vial" | "quest" | "loot" | "potion" | "tech";
     item: string;
     x: number; y: number; z: number;
     taken: boolean;
     label: string;
+    /** A fallen enemy's belongings (loot), searched all at once. */
+    items?: string[];
+    /** Whose body it is (loot). */
+    actor?: number;
 }
 
 export interface RadioLine extends Line { at: number; until: number }
@@ -199,6 +274,17 @@ export class Game {
     vialPos: V3 | null = null;
     /** Where Alex has walked (newest first, ~1.5 m apart): the squad follows it down narrow ways. */
     trail: V2[] = [];
+    /** What Alex has become (ab_rpg.ts): experience, perks, powers, upgrades, places found. */
+    rpg: Progress = newProgress();
+    /** Bodies already given their loot. */
+    private looted = new Set<number>();
+    /** Powers: cooldown left, the Still Water ward (hp and seconds), the Veil, Mend's healing still to come. */
+    powerCd = 0;
+    ward = { hp: 0, t: 0 };
+    veilT = 0;
+    mendLeft = 0;
+    /** Crouch held (toggled by the addon). */
+    crouching = false;
 
     constructor(world: GameWorld) {
         this.world = world;
@@ -266,6 +352,7 @@ export class Game {
         const g = this;
         return {
             x: this.body.x, y: this.body.y, z: this.body.z, yaw: this.body.yaw, alive: this.alive && this.phase !== "ending",
+            crouch: this.body.crouch, stealth: stats(this.rpg).stealth, veiled: this.veilT > 0,
             hurt(amount: number, from: V3) { g.hurt(amount, from); },
         };
     }
@@ -500,11 +587,10 @@ export class Game {
         const [sx, sz] = WAVE_SOURCES[source % WAVE_SOURCES.length];
         for (let i = 0; i < n; i++) {
             const look = looks[i % looks.length];
-            const role = look === "warden-m" ? "blade" : "caster";
             const x = sx + (this.rng.next() - 0.5) * 30, z = sz + (this.rng.next() - 0.5) * 30;
-            const a = spawn(this.combat, { name: role === "blade" ? "Warden" : "Adept", look, faction: "below", role, x, z }, g);
+            // First Blood's wardens are mostly initiates; a veteran leads the later waves.
+            const a = this.spawnEnemy(kindOfLook(look), x, z, { danger: Math.min(0.5, PHASES.indexOf(this.phase) * 0.05) });
             a.yaw = Math.atan2(this.body.x - a.x, this.body.z - a.z);
-            [a.x, a.z] = this.world.collide(a.x, a.z, 0.5);
         }
         if (this.rng.next() < 0.7) {
             const [text, translation] = WARDEN_SHOUTS[Math.floor(this.rng.next() * WARDEN_SHOUTS.length)];
@@ -577,6 +663,16 @@ export class Game {
 
     hurt(amount: number, from: V3): void {
         if (!this.alive || this.phase === "ending" || this.phase === "complete" || this.cinema || this.phase === "aftermath") return;
+        // Still Water drinks the blow first.
+        if (this.ward.hp > 0) {
+            const soak = Math.min(this.ward.hp, amount);
+            this.ward.hp -= soak;
+            amount -= soak;
+            if (this.ward.hp <= 0) this.ward.t = 0;
+            if (amount <= 0) return;
+        }
+        // Being hit means being seen: the wardens are on him now.
+        this.combat.alert = Math.max(this.combat.alert, 6);
         const taken = absorb(this.inv, amount);
         this.health -= taken;
         this.stats.damageTaken += amount;
@@ -736,16 +832,24 @@ export class Game {
         const pull = assistPull(pick, this.aimAssist, this.look.ads, input.fire, dt);
         b.yaw += turn.yaw + pull.yaw;
         b.pitch = Math.max(-1.35, Math.min(1.35, b.pitch + turn.pitch + pull.pitch));
-        const fall = stepBody(b, { moveX: input.moveX, moveY: input.moveY, sprint: input.sprint, jump: input.jump }, dt, { ground: (x, z) => this.world.ground(x, z), collide: (x, z, r) => this.world.collide(x, z, r), half: MAP_HALF }, adsMove(this.look.ads));
-        if (fall > 0) this.hurt(fall, [b.x, b.y - 1, b.z]);
+        const st = stats(this.rpg);
+        this.maxHealth = st.maxHealth;
+        const crouch = !!input.crouch || this.crouching;
+        // Perks and upgrades: a quicker crouch walk, a faster sprint, a higher jump.
+        const pace = adsMove(this.look.ads) * (crouch ? st.crouchPace : input.sprint ? st.sprint : 1);
+        const fall = stepBody(b, { moveX: input.moveX, moveY: input.moveY, sprint: input.sprint, jump: input.jump, crouch }, dt, { ground: (x, z) => this.world.ground(x, z), collide: (x, z, r) => this.world.collide(x, z, r), half: MAP_HALF }, pace, st.jump, st.staminaDrain);
+        if (fall > 0) this.hurt(fall * st.fallDamage, [b.x, b.y - 1, b.z]);
         if (b.y < FLOOR_Y - 60) this.hurt(999, [b.x, b.y, b.z]);
+        // Standing in fire burns.
+        const burning = fireDamageAt(this.fx, b.x, b.z);
+        if (burning > 0) this.hurt(burning * dt, [b.x, b.y, b.z]);
         // Weapons.
         stepWeapon(this.inv, this.ws, dt);
         if (input.weapon !== null) {
             const id = (["coil-rifle", "arc-pistol", "monoblade", "warden-glaive", "okafor-carbine"] as WeaponId[])[input.weapon - 1];
             if (id && switchWeapon(this.inv, this.ws, id)) this.events.push({ kind: "toast", text: WEAPONS[id].name });
         }
-        if (input.reload && startReload(this.inv, this.ws)) this.events.push({ kind: "reload" });
+        if (input.reload && startReload(this.inv, this.ws)) { this.ws.reloading *= st.reload; this.events.push({ kind: "reload" }); }
         const spec = WEAPONS[this.inv.current];
         const pressed = input.fire && (spec.auto || !this.flags.triggerHeld);
         this.flags.triggerHeld = input.fire;
@@ -756,21 +860,199 @@ export class Game {
         if (spec.kind === "melee" && this.ws.swing >= (spec.windup ?? 0.15) && !this.ws.swingLanded) {
             this.ws.swingLanded = true;
             for (const a of meleeHits(this.combat, b.x, b.z, b.yaw, spec.reach ?? 2.4, spec.arc ?? 0.9)) {
-                const died = damage(this.combat, a, spec.damage, "player");
+                // From the shadows, a blade lands its full weight (the ambusher's more).
+                const unseen = (a.sawPlayer ?? 99) > 4;
+                const died = damage(this.combat, a, spec.damage * (unseen ? 1.5 * stats(this.rpg).ambush : 1), "player");
                 this.events.push({ kind: "hitmarker", kill: died });
                 if (died) this.onWardenKilled(a);
             }
         }
         if (input.heal) {
-            const h = useMedgel(this.inv, this.health, this.maxHealth);
+            const h = useMedgel(this.inv, this.health, this.maxHealth, st.medgel);
             if (h !== this.health) { this.health = h; this.events.push({ kind: "toast", text: "Medgel applied" }); }
         }
         if (input.scan && this.time - this.scanT > 8) { this.scanT = this.time; this.events.push({ kind: "scan" }); }
         // Out of the fight, the augment knits wounds.
-        if (this.time - this.lastHurt > 7 && this.health < this.maxHealth && this.phase !== "laststand") this.health = Math.min(this.maxHealth, this.health + 3 * dt);
+        if (this.time - this.lastHurt > st.regenDelay && this.health < this.maxHealth && this.phase !== "laststand") this.health = Math.min(this.maxHealth, this.health + st.regenRate * dt);
+        this.stepPowers(dt, input);
         for (const h of this.hurtDir) h.age += dt;
         this.hurtDir = this.hurtDir.filter(h => h.age < 1.6);
         this.updateInteract(input);
+    }
+
+    // --- The RPG layer (ab_rpg.ts) -------------------------------------------------------------------
+
+    /** Plates' full capacity: what the story gave him, and what perks and upgrades added. */
+    armorCap(): number { return this.inv.armorMax > 0 ? this.inv.armorMax + stats(this.rpg).armorBonus : 0; }
+
+    gainXp(amount: number, reason: string): void {
+        if (amount <= 0) return;
+        const levels = addXp(this.rpg, amount);
+        this.events.push({ kind: "xp", amount: Math.round(amount), reason });
+        if (levels > 0) {
+            this.maxHealth = stats(this.rpg).maxHealth;
+            this.health = Math.min(this.maxHealth, this.health + 25 * levels);
+            this.events.push({ kind: "levelup", level: this.rpg.level });
+        }
+    }
+
+    /** Spends a perk point (the inventory screen). */
+    takePerk(id: string): boolean {
+        if (!takePerk(this.rpg, id)) return false;
+        if (id === "plating" && this.inv.armorMax > 0) this.inv.armor += 20;
+        if (id === "deepwell") this.rpg.resonance += 25;
+        return true;
+    }
+
+    /** Installs a cyborg upgrade from a tech cache. */
+    install(id: string): boolean {
+        if (!installUpgrade(this.rpg, id)) return false;
+        if (id === "weave" && this.inv.armorMax > 0) this.inv.armor += 40;
+        this.events.push({ kind: "pickup", text: `UPGRADE INSTALLED: ${UPGRADES[id].name}` });
+        this.events.push({ kind: "toast", text: UPGRADES[id].text });
+        this.gainXp(XP.upgrade, UPGRADES[id].name);
+        return true;
+    }
+
+    /** Drinks a potion of the river: a power learned for good. */
+    learn(id: string): boolean {
+        if (!learnPower(this.rpg, id)) return false;
+        const p = POWERS[id];
+        this.events.push({ kind: "pickup", text: `${p.potion.toUpperCase()}: ${p.name} learned  [G] cast  [B] next` });
+        this.events.push({ kind: "toast", text: p.text });
+        this.events.push({ kind: "power", id: "learn", at: [this.body.x, this.body.y + 1, this.body.z] });
+        this.gainXp(XP.potion, p.potion);
+        return true;
+    }
+
+    /**
+     * An enemy of a kind (ab_rpg.ts ENEMIES) at a rank: rolled from `danger` (0 safe ground .. 1 a
+     * guarded place) and Alex's level when not given.
+     */
+    spawnEnemy(kind: EnemyKind, x: number, z: number, opts: { rank?: Rank; tag?: string; danger?: number; name?: string } = {}): Actor {
+        const def = ENEMIES[kind];
+        const rank = opts.rank ?? rollRank(this.rng, opts.danger ?? 0.2, this.rpg.level);
+        const r = RANKS[rank];
+        const a = spawn(this.combat, {
+            name: opts.name ?? def.name, look: def.look, faction: "below", role: def.role, x, z, tag: opts.tag,
+            kind, rank, power: def.power * r.power, pace: def.pace, scale: def.scale,
+        }, (xx, zz) => this.world.ground(xx, zz));
+        a.maxHp = a.hp = Math.round(def.hp * r.hp);
+        if (kind === "champion") a.ward = 150 * r.hp;
+        [a.x, a.z] = this.world.collide(a.x, a.z, 0.5 * def.scale);
+        return a;
+    }
+
+    /** A hostile has fallen (by anyone's hand): experience if it was Alex's, and its belongings to search. */
+    private onHostileDown(a: Actor): void {
+        if (this.looted.has(a.id) || a.faction !== "below" || a.role === "leader") return;
+        this.looted.add(a.id);
+        const kind = (a.kind as EnemyKind | undefined) ?? kindOfLook(a.look);
+        const rank = (a.rank as Rank | undefined) ?? "initiate";
+        if (a.killedBy === "player") this.gainXp(killXp(kind, rank), ENEMIES[kind].name);
+        if (this.phase === "ending" || this.phase === "complete") return;
+        const items = rollLoot(this.rng, ENEMIES[kind].loot, rank, stats(this.rpg).scavenger);
+        const p = this.addPickup("loot", "loot", a.x, a.z, `Search the fallen ${ENEMIES[kind].name.toLowerCase()}`, 0.3);
+        p.items = items;
+        p.actor = a.id;
+    }
+
+    /** One of a fallen enemy's things, into Alex's kit. Returns its name. */
+    private stow(id: string): string {
+        const inv = this.inv;
+        const extra = LOOT_ITEMS[id];
+        if (extra) {
+            if (extra.kind === "medgel") inv.medgel++;
+            else if (extra.kind === "draught") inv.draughts++;
+            else if (extra.kind === "slugs") inv.reserve["coil-rifle"] = (inv.reserve["coil-rifle"] ?? 0) + 32;
+            else if (extra.kind === "credits") inv.credits += extra.value ?? 0;
+            return extra.name;
+        }
+        if (ARTIFACTS[id]) { inv.artifacts.push(id); return `${ARTIFACTS[id].name} ~${ARTIFACTS[id].value} CR`; }
+        return id;
+    }
+
+    /** Powers: Resonance flows back, timers run, and G / B / X cast, choose and refill. */
+    private stepPowers(dt: number, input: GameInput): void {
+        const r = this.rpg;
+        const st = stats(r);
+        if (st.resonanceMax > 0) r.resonance = Math.min(st.resonanceMax, r.resonance + RESONANCE_REGEN * dt);
+        this.powerCd = Math.max(0, this.powerCd - dt);
+        this.ward.t = Math.max(0, this.ward.t - dt);
+        if (this.ward.t <= 0) this.ward.hp = 0;
+        this.veilT = Math.max(0, this.veilT - dt);
+        if (this.mendLeft > 0) {
+            const h = Math.min(this.mendLeft, 15 * dt);
+            this.mendLeft -= h;
+            this.health = Math.min(this.maxHealth, this.health + h);
+        }
+        if (input.nextPower) { const id = cyclePower(r); if (id) this.events.push({ kind: "toast", text: `Power: ${POWERS[id].name}` }); }
+        if (input.draught && this.inv.draughts > 0 && st.resonanceMax > 0 && r.resonance < st.resonanceMax - 1) {
+            this.inv.draughts--;
+            r.resonance = Math.min(st.resonanceMax, r.resonance + st.resonanceMax * 0.5);
+            this.events.push({ kind: "toast", text: "River draught: Resonance restored" });
+        }
+        if (input.cast) this.castPower();
+    }
+
+    /** Casts the ready power, if it is learned, charged and cool. Returns true when it went off. */
+    castPower(): boolean {
+        const r = this.rpg;
+        const id = r.power;
+        if (!id || !r.powers.includes(id)) return false;
+        const cost = powerCost(r, id);
+        if (this.powerCd > 0) return false;
+        if (r.resonance < cost) { this.events.push({ kind: "toast", text: "Not enough Resonance  [X] drink a draught" }); return false; }
+        r.resonance -= cost;
+        this.powerCd = POWERS[id].cooldown;
+        const b = this.body;
+        const e = eye(b);
+        const at: V3 = [b.x, b.y + 1.1, b.z];
+        if (id === "lance") {
+            const dir = e.forward;
+            const range = 180;
+            const tT = Math.min(this.world.rayTerrain(e.pos, dir, range), this.world.raySolids(e.pos, dir, range));
+            const hit = rayHitActor(this.combat, e.pos, dir, range, "below", tT);
+            const dist = hit ? hit.t : Math.min(tT, range);
+            const to: V3 = [e.pos[0] + dir[0] * dist, e.pos[1] + dir[1] * dist, e.pos[2] + dir[2] * dist];
+            const from: V3 = [e.pos[0] + dir[0] * 0.8, e.pos[1] - 0.25, e.pos[2] + dir[2] * 0.8];
+            this.combat.shots.push({ from, to, age: 0, hit: !!hit, faction: "neutral" });
+            this.combat.bursts.push({ pos: to, age: 0, color: POWERS.lance.color, size: 2.2 });
+            this.combat.alert = Math.max(this.combat.alert, 8);
+            // It burns where it lands: the one it struck, and a little round about.
+            for (const a of living(this.combat, "below")) {
+                const d = Math.hypot(a.x - to[0], a.y + 1 - to[1], a.z - to[2]);
+                const dmg = hit && a === hit.actor ? 62 : d < 2.6 ? 26 * (1 - d / 2.6) : 0;
+                if (dmg > 0 && damage(this.combat, a, dmg, "player", true)) this.onWardenKilled(a);
+            }
+            if (hit) this.events.push({ kind: "hitmarker", kill: !alive(hit.actor) });
+            this.events.push({ kind: "power", id, at: to });
+        } else if (id === "ward") {
+            this.ward = { hp: 90, t: 8 };
+            this.events.push({ kind: "power", id, at });
+        } else if (id === "surge") {
+            for (const a of living(this.combat, "below")) {
+                const d = Math.hypot(a.x - b.x, a.z - b.z);
+                if (d > 12) continue;
+                const k = 1 - d / 12;
+                if (damage(this.combat, a, 30 + 55 * k, "player", true)) { this.onWardenKilled(a); continue; }
+                if (a.role !== "beast") { const push = 7 * k; a.x += (a.x - b.x) / Math.max(d, 1) * push; a.z += (a.z - b.z) / Math.max(d, 1) * push; a.state = "move"; a.stateT = 0; }
+            }
+            this.combat.bolts = this.combat.bolts.filter(bl => Math.hypot(bl.pos[0] - b.x, bl.pos[2] - b.z) > 14);
+            this.combat.alert = Math.max(this.combat.alert, 8);
+            this.flags.surgeT = this.time;
+            this.events.push({ kind: "surge", at });
+            this.events.push({ kind: "power", id, at });
+        } else if (id === "veil") {
+            this.veilT = 12;
+            this.combat.alert = 0;
+            for (const a of this.combat.actors) if (a.target === -1) { a.target = null; a.targetT = 0; }
+            this.events.push({ kind: "power", id, at });
+        } else if (id === "mend") {
+            this.mendLeft = 45;
+            this.events.push({ kind: "power", id, at });
+        }
+        return true;
     }
 
     /** A slug from the muzzle along the crosshair (spread, bent onto a warden a hair off it). */
@@ -779,14 +1061,15 @@ export class Game {
         const spec = WEAPONS[this.inv.current];
         const e = eye(b);
         const moving = Math.min(1, b.speed / 6);
-        const spread = (spec.spread ?? 0.01) * adsSpread(this.look.ads) * (1 + moving * 1.5);
+        const spread = (spec.spread ?? 0.01) * adsSpread(this.look.ads) * (1 + moving * 1.5) * stats(this.rpg).spread * (1 - 0.3 * b.crouch);
         let yaw = b.yaw + (this.rng.next() - 0.5) * 2 * spread, pitch = b.pitch + (this.rng.next() - 0.5) * 2 * spread;
         if (pick && pick.angle < bendAngle(this.aimAssist) + spread) {
             const a = anglesTo(e.pos, [pick.target.x, pick.target.y + 1.25, pick.target.z]);
             yaw = a.yaw; pitch = a.pitch;
         }
         const dir: V3 = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
-        const tT = this.world.rayTerrain(e.pos, dir, spec.range);
+        // The slug stops at the ground or at cover, whichever it meets first.
+        const tT = Math.min(this.world.rayTerrain(e.pos, dir, spec.range), this.world.raySolids(e.pos, dir, spec.range));
         const hit = rayHitActor(this.combat, e.pos, dir, spec.range, "below", tT);
         const dist = hit ? hit.t : Math.min(tT, spec.range);
         const to: V3 = [e.pos[0] + dir[0] * dist, e.pos[1] + dir[1] * dist, e.pos[2] + dir[2] * dist];
@@ -796,9 +1079,12 @@ export class Game {
         this.stats.shots++;
         // The first shot fired breaks any stand-off.
         if (this.combat.holdFire && living(this.combat, "below").length) { this.combat.holdFire = false; this.combat.wardensPassive = false; }
+        // A shot is heard: every warden within earshot is alert now.
+        this.combat.alert = Math.max(this.combat.alert, 8);
         if (hit) {
             this.stats.hits++;
-            const died = damage(this.combat, hit.actor, spec.damage, "player");
+            const unseen = (hit.actor.sawPlayer ?? 99) > 4;
+            const died = damage(this.combat, hit.actor, spec.damage * (unseen ? stats(this.rpg).ambush : 1), "player");
             this.events.push({ kind: "hitmarker", kill: died });
             if (died) this.onWardenKilled(hit.actor);
         }
@@ -806,6 +1092,7 @@ export class Game {
 
     private onWardenKilled(a: Actor): void {
         this.stats.kills++;
+        this.onHostileDown(a);
         if (this.ch2) { this.ch2.onDeath(a); return; }
         if (!this.flags.glaiveDropped && a.role === "blade") {
             this.flags.glaiveDropped = true;
@@ -845,6 +1132,14 @@ export class Game {
         p.taken = true;
         this.ch2?.onPickup(p);
         if (p.kind === "quest") return;
+        if (p.kind === "loot") {
+            const names = (p.items ?? []).map(id => this.stow(id));
+            this.events.push({ kind: "loot", items: names });
+            this.events.push({ kind: "pickup", text: names.length ? names.join("  -  ") : "Nothing of use" });
+            return;
+        }
+        if (p.kind === "potion") { this.learn(p.item); return; }
+        if (p.kind === "tech") { this.install(p.item); return; }
         if (p.kind === "artifact") { this.inv.artifacts.push(p.item); this.events.push({ kind: "pickup", text: `${ARTIFACTS[p.item].name}  ~${ARTIFACTS[p.item].value} CR` }); }
         else if (p.kind === "weapon") { const id = p.item as WeaponId; if (!this.inv.weapons.includes(id)) this.inv.weapons.push(id); this.events.push({ kind: "pickup", text: `${WEAPONS[id].name}  [4]` }); }
         else if (p.kind === "medgel") { this.inv.medgel++; this.events.push({ kind: "pickup", text: "Medgel +1" }); }
@@ -908,6 +1203,19 @@ export class Game {
             if (ev.kind === "shot") this.events.push({ kind: "shot", from: ev.from, to: ev.to, player: false, faction: ev.faction });
             else if (ev.kind === "cast") this.events.push({ kind: "cast", at: [ev.actor.x, ev.actor.y + 2, ev.actor.z] });
             else if (ev.kind === "burst") this.events.push({ kind: "burst", at: ev.pos, size: ev.size });
+            else if (ev.kind === "breath") {
+                // The behemoth's fire: flames down the cone, and the ground it reaches catches.
+                flameJet(this.fx, ev.from, ev.dir, dt, 18);
+                if (this.rng.next() < dt * 1.5) {
+                    const d = 9 + this.rng.next() * 8;
+                    const x = ev.from[0] + ev.dir[0] * d, z = ev.from[2] + ev.dir[2] * d;
+                    ignite(this.fx, x, this.world.ground(x, z), z, 1 + this.rng.next(), 6 + this.rng.next() * 6);
+                }
+                this.events.push({ kind: "breath", from: ev.from, dir: ev.dir });
+            } else if (ev.kind === "stomp") {
+                this.fx.shake = Math.min(1, this.fx.shake + Math.max(0, 1 - Math.hypot(ev.actor.x - this.body.x, ev.actor.z - this.body.z) / 60));
+                this.events.push({ kind: "stomp", at: [ev.actor.x, ev.actor.y, ev.actor.z] });
+            } else if (ev.kind === "heal") this.events.push({ kind: "heal", at: [ev.target.x, ev.target.y + 1.2, ev.target.z] });
             else if (ev.kind === "death") {
                 this.ch2?.onDeath(ev.actor);
                 this.events.push({ kind: "death", name: ev.actor.name, faction: ev.actor.faction });
@@ -918,6 +1226,7 @@ export class Game {
             }
         }
         void before;
+        for (const a of this.combat.actors) if (a.faction === "below" && !alive(a) && !this.looted.has(a.id)) this.onHostileDown(a);
         // Bolts meant for aircraft.
         for (const [boltId, acId] of this.boltTargets) {
             const bolt = this.combat.bolts.find(b => b.id === boltId);

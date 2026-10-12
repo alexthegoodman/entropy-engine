@@ -1271,6 +1271,9 @@ impl ApplicationHandler<UserEvent> for Application {
                                 winit::keyboard::NamedKey::Escape => Some("Escape"),
                                 winit::keyboard::NamedKey::Tab => Some("Tab"),
                                 winit::keyboard::NamedKey::Backspace => Some("Backspace"),
+                                // Held modifiers as keys of their own (sprinting, crouching).
+                                winit::keyboard::NamedKey::Shift => Some("Shift"),
+                                winit::keyboard::NamedKey::Control => Some("Control"),
                                 _ => None,
                             }
                         },

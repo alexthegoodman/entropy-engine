@@ -1354,6 +1354,11 @@ export interface NoteConfig {
   reverbDamping?: number;
   /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. */
   reverbMix?: number;
+  /** Stereo position, -1 (left) .. 1 (right), default 0. The far ear also hears it a fraction of
+   *  a millisecond late, as a real head would - games use this for positional sound. */
+  pan?: number;
+  /** 0 (clear, default) .. 1: low-passed, as a sound far away, behind you or through a wall. */
+  muffle?: number;
 }
 
 /** The last argument of `Audio.renderPatternToWav`. */

@@ -1364,6 +1364,12 @@ pub struct NoteConfig {
     pub reverb_damping: f64,
     #[serde(default)]
     pub reverb_mix: f64,
+    /// -1 (left) .. 1 (right): where the note sits in the stereo field.
+    #[serde(default)]
+    pub pan: f64,
+    /// 0 (clear) .. 1 (muffled: far away, behind, through a wall).
+    #[serde(default)]
+    pub muffle: f64,
 }
 
 fn default_reverb_room_size() -> f64 { 10.0 }
@@ -3062,7 +3068,7 @@ pub fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
 #[op2]
 pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        ctx.audio_engine.play_note(&config.waveform, crate::audio::NoteParams {
+        ctx.audio_engine.play_note_spatial(&config.waveform, crate::audio::NoteParams {
             freq: config.freq,
             duration: config.duration,
             cutoff: config.cutoff,
@@ -3080,7 +3086,7 @@ pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
             reverb_damping: config.reverb_damping,
             reverb_mix: config.reverb_mix,
             ..Default::default()
-        });
+        }, config.pan as f32, config.muffle as f32);
     }
 }
 

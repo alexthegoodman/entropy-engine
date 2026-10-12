@@ -67,6 +67,80 @@ impl Source for FundspSource {
     }
 }
 
+/// A stereo source placed in space: constant-power panning, the far ear hearing it a fraction of
+/// a millisecond later (the interaural delay that makes a direction easy to hear), and an optional
+/// low-pass for a sound muffled by distance, a wall, or being behind the listener.
+struct SpatialSource<S: Source<Item = f32>> {
+    inner: S,
+    gains: [f32; 2],
+    /// Samples the far ear lags (0..~28 at 44.1 kHz) and which ear is far (0 left, 1 right).
+    delay: usize,
+    far: usize,
+    history: std::collections::VecDeque<f32>,
+    lowpass: f32,
+    state: [f32; 2],
+    frame: [f32; 2],
+    idx: u8,
+}
+
+impl<S: Source<Item = f32>> SpatialSource<S> {
+    fn new(inner: S, pan: f32, muffle: f32) -> Self {
+        let pan = pan.clamp(-1.0, 1.0);
+        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+        let sr = inner.sample_rate() as f32;
+        let delay = (pan.abs() * 0.00063 * sr).round() as usize;
+        // One-pole low-pass from ~18 kHz (clear) down to ~900 Hz (fully muffled).
+        let cutoff = 18_000.0 * (1.0 - muffle.clamp(0.0, 1.0)) + 900.0 * muffle.clamp(0.0, 1.0);
+        let lowpass = 1.0 - (-std::f32::consts::TAU * cutoff / sr).exp();
+        SpatialSource {
+            inner,
+            // Equal power, normalized so a centered sound keeps its old level.
+            gains: [angle.cos() * std::f32::consts::SQRT_2, angle.sin() * std::f32::consts::SQRT_2],
+            delay,
+            far: if pan >= 0.0 { 0 } else { 1 },
+            history: std::collections::VecDeque::from(vec![0.0; delay + 1]),
+            lowpass,
+            state: [0.0; 2],
+            frame: [0.0; 2],
+            idx: 0,
+        }
+    }
+}
+
+impl<S: Source<Item = f32>> Iterator for SpatialSource<S> {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if self.idx == 0 {
+            let l = self.inner.next()?;
+            let r = self.inner.next().unwrap_or(l);
+            let mono = 0.5 * (l + r);
+            let side = 0.5 * (l - r);
+            // The far ear hears the mono part late; the stereo width (reverb) passes as it was.
+            self.history.push_back(mono);
+            let late = self.history.pop_front().unwrap_or(0.0);
+            let mut out = [mono, mono];
+            out[self.far] = late;
+            out[0] += side;
+            out[1] -= side;
+            for c in 0..2 {
+                self.state[c] += self.lowpass * (out[c] - self.state[c]);
+                self.frame[c] = self.state[c] * self.gains[c];
+            }
+        }
+        let v = self.frame[self.idx as usize];
+        self.idx = (self.idx + 1) % 2;
+        Some(v)
+    }
+}
+
+impl<S: Source<Item = f32>> Source for SpatialSource<S> {
+    fn current_span_len(&self) -> Option<usize> { None }
+    fn channels(&self) -> u16 { 2 }
+    fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
+    fn total_duration(&self) -> Option<std::time::Duration> { self.inner.total_duration() }
+}
+
 /// Amplitude curve for a simple 4-stage envelope, evaluated at time `t` (seconds)
 /// for a note of total length `dur` seconds (release tail included in `dur`).
 fn adsr_amp(t: f32, attack: f32, decay: f32, sustain: f32, release: f32, dur: f32) -> f32 {
@@ -2052,6 +2126,12 @@ impl AudioEngine {
     /// on the same track never share reverb/delay state, each just gets its own independent
     /// tail. See `build_note_node`'s doc comment for why that's the deliberate tradeoff here.
     pub fn play_note(&self, voice: &str, params: NoteParams) {
+        self.play_note_spatial(voice, params, 0.0, 0.0);
+    }
+
+    /// `play_note` placed in space: `pan` -1 (left) .. 1 (right), `muffle` 0 (clear) .. 1 (heard
+    /// through a wall). A centered, clear note is played exactly as `play_note` always did.
+    pub fn play_note_spatial(&self, voice: &str, params: NoteParams, pan: f32, muffle: f32) {
         let sample_rate = 44100.0f32;
         let node = build_note_node(voice, &params, sample_rate);
         let total_dur = note_total_duration(&params) as f32;
@@ -2060,7 +2140,11 @@ impl AudioEngine {
         let finite_source = source.take_duration(std::time::Duration::from_secs_f32(total_dur));
 
         let sink = Sink::connect_new(&self.output_mixer);
-        sink.append(finite_source);
+        if pan.abs() < 1e-4 && muffle <= 1e-4 {
+            sink.append(finite_source);
+        } else {
+            sink.append(SpatialSource::new(finite_source, pan, muffle));
+        }
         sink.detach();
     }
 }
@@ -2231,5 +2315,41 @@ mod preload_tests {
         engine.ensure_track_bus("t", 1.0, false, false, &[]);
         until_ready("brass player", || engine.brass_prepare("t", "t", BrassParams::default()).unwrap());
         assert!(!Arc::ptr_eq(&first, engine.brass_players.lock().unwrap().values().next().unwrap()));
+    }
+}
+
+#[cfg(test)]
+mod spatial_tests {
+    use super::*;
+
+    fn render(pan: f32, muffle: f32) -> (Vec<f32>, Vec<f32>) {
+        let params = NoteParams { freq: 440.0, duration: 0.2, gain: 0.5, attack: 0.001, sustain: 1.0, ..Default::default() };
+        let node = build_note_node("sine", &params, 44_100.0);
+        let src = FundspSource { node, sample_rate: 44_100.0, buf: [0.0; 2], buf_idx: 0 }.take_duration(std::time::Duration::from_secs_f32(0.2));
+        let out: Vec<f32> = SpatialSource::new(src, pan, muffle).collect();
+        (out.iter().step_by(2).copied().collect(), out.iter().skip(1).step_by(2).copied().collect())
+    }
+
+    fn rms(x: &[f32]) -> f32 { (x.iter().map(|v| v * v).sum::<f32>() / (x.len() as f32).max(1.0)).sqrt() }
+
+    #[test]
+    fn a_sound_to_the_right_is_louder_and_earlier_in_the_right_ear() {
+        let (l, r) = render(0.8, 0.0);
+        assert!(rms(&r) > rms(&l) * 2.0, "right {} left {}", rms(&r), rms(&l));
+        let first = |x: &[f32]| x.iter().position(|v| v.abs() > 1e-4).unwrap();
+        assert!(first(&l) > first(&r), "the far ear hears it later");
+        let (cl, cr) = render(0.0, 0.0);
+        assert!((rms(&cl) - rms(&cr)).abs() < 1e-3, "centered stays centered");
+    }
+
+    #[test]
+    fn muffling_takes_the_top_off() {
+        let params = NoteParams { freq: 6000.0, duration: 0.2, gain: 0.5, attack: 0.001, sustain: 1.0, ..Default::default() };
+        let make = |m: f32| {
+            let node = build_note_node("sine", &params, 44_100.0);
+            let src = FundspSource { node, sample_rate: 44_100.0, buf: [0.0; 2], buf_idx: 0 }.take_duration(std::time::Duration::from_secs_f32(0.2));
+            SpatialSource::new(src, 0.01, m).collect::<Vec<f32>>()
+        };
+        assert!(rms(&make(1.0)) < rms(&make(0.0)) * 0.4);
     }
 }

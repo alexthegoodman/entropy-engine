@@ -17,6 +17,7 @@ import type { V2, V3 } from "./ab_world";
 import { EVAC_LZ, FOB, SHRINE, SETTLEMENT } from "./ab_world";
 import type { QuestDef } from "./ab_quests";
 import type { Line } from "./ab_script";
+import type { EnemyKind } from "./ab_rpg";
 
 export const CAST2 = {
     voss: "Maj. Voss",
@@ -47,10 +48,10 @@ export const PLACES2 = {
     wreck4: [296, -520] as V2,
     wreck7: [205, -640] as V2,
     pellWreck: [199, -634] as V2,
-    /** The hollow north of the floor where the skywing came down, and the glowing trail to it. */
-    hollow: [120, 200] as V2,
-    kesh: [126, 206] as V2,
-    trail: [[288, -500], [272, -440], [262, -380], [250, -300], [232, -230], [208, -150], [190, -60], [170, 30], [150, 110], [134, 170]] as V2[],
+    /** The hollow north of the firebase (about 500 m out) where the skywing came down, and the glowing trail to it from Lantern Four's wreck. */
+    hollow: [70, -62] as V2,
+    kesh: [76, -56] as V2,
+    trail: [[288, -500], [270, -446], [248, -392], [222, -338], [194, -282], [164, -226], [134, -170], [108, -120], [88, -86]] as V2[],
     /** The healer's hiding place among the settlement's northern ruins. */
     maelis: [250, -300] as V2,
     /** The dying Source's pool, where river water can still be drawn. */
@@ -63,6 +64,87 @@ export const PLACES2 = {
     settlement: SETTLEMENT,
 };
 
+// --- Places of note and the encounters at them ---------------------------------------------------------
+
+/**
+ * Places to find on the open floor and the surface above it. Coming within `radius` discovers
+ * one (experience, SAGE's note, the journal's list). Some are guarded: an encounter (below)
+ * waits there.
+ */
+export interface PlaceOfNote { id: string; name: string; at: V2; radius: number; text: string; surface?: boolean }
+
+export const PLACES_OF_NOTE: PlaceOfNote[] = [
+    { id: "vigil", name: "The Champion's Vigil", at: [-420, -262], radius: 70, text: "A gate of carved stone with nothing behind it. Someone stands watch anyway." },
+    { id: "stair", name: "The Drowned Stair", at: [960, -118], radius: 70, text: "Steps cut down into the riverbed, worn by feet. The water used to cover all of them." },
+    { id: "circle", name: "The Seer's Circle", at: [640, 160], radius: 70, text: "Crystals set in a ring, humming. SAGE logs the hum as speech." },
+    { id: "bonefield", name: "The Bone Field", at: [-760, 320], radius: 90, text: "Ribs as tall as a gunship. The kingdoms bring their war beasts here to die." },
+    { id: "gardens", name: "The Hanging Gardens", at: [-180, 640], radius: 70, text: "Moss and pale vines down the north wall's foot, lit from inside." },
+    { id: "source", name: "The Source", at: [1240, 70], radius: 120, text: "The sacred waterfall. Dying - you can hear it stammer." },
+    { id: "shrine", name: "Shrine of the River", at: SHRINE, radius: 40, text: "Where First Blood began. Someone has laid fresh vials at the basin." },
+    { id: "westdark", name: "The Western Dark", at: [-1450, 0], radius: 160, text: "The rift runs on into the west - three hundred kilometers of it, SAGE says, unmapped. The air past here would kill you." },
+    { id: "station9", name: "Bore Station Nine", at: [900, -1250], radius: 90, text: "A Deep Bore survey station, its fences down. Its sentinels never got the order to stand down.", surface: true },
+    { id: "lifter", name: "The Fallen Lifter", at: [-1250, 1150], radius: 90, text: "A heavy lifter, broken across a crater. The Bore's crates are still strapped in.", surface: true },
+    { id: "kappa", name: "Relay Mast Kappa", at: [420, 1300], radius: 90, text: "A relay mast, still blinking. Something is still guarding it.", surface: true },
+    { id: "convoy", name: "The Scorched Convoy", at: [-1250, -1260], radius: 90, text: "Eleven trucks of the first relief convoy, burned where the blast caught them.", surface: true },
+];
+
+export type GuardSpec = { kind: EnemyKind; dx: number; dz: number; rank?: "initiate" | "veteran" | "elite" };
+
+/**
+ * Encounters: what waits at a place, and what is there to take. They begin when Alex comes near
+ * (a quest of their own, never offered by anyone) and end when the prize is taken - by fighting
+ * through the guard, or by creeping past it.
+ */
+export interface EncounterDef {
+    id: string;
+    place: string;
+    /** How near Alex comes before it begins (m). */
+    begins: number;
+    guards: GuardSpec[];
+    /** The prize: a potion of the river (a power id) or a tech cache (an upgrade id). */
+    prize: { kind: "potion" | "tech"; id: string; label: string; at?: [number, number] }[];
+    /** A behemoth leads it (its rider is an adept in the howdah). */
+    behemoth?: boolean;
+    lines: Line[];
+}
+
+export const ENCOUNTERS: EncounterDef[] = [
+    { id: "vigil", place: "vigil", begins: 170, guards: [{ kind: "champion", dx: 0, dz: 8, rank: "veteran" }, { kind: "skirmisher", dx: -12, dz: -4 }, { kind: "skirmisher", dx: 12, dz: -2 }],
+        prize: [{ kind: "potion", id: "lance", label: "Draught of the Lance" }],
+        lines: [{ speaker: "SAGE", text: "A champion of the wardens, Lieutenant. It is guarding a vessel - the light in it is the same as the shards'.", channel: "sage" }] },
+    { id: "stair", place: "stair", begins: 170, guards: [{ kind: "champion", dx: 6, dz: 10 }, { kind: "adept", dx: -14, dz: 12, rank: "veteran" }, { kind: "staff", dx: 16, dz: -6 }, { kind: "warden", dx: -6, dz: -14 }],
+        prize: [{ kind: "potion", id: "ward", label: "Draught of Still Water" }],
+        lines: [{ speaker: "SAGE", text: "Wardens on the stair, and something on the lowest step that drinks the light.", channel: "sage" }] },
+    { id: "circle", place: "circle", begins: 170, guards: [{ kind: "seer", dx: 0, dz: 0, rank: "veteran" }, { kind: "adept", dx: 14, dz: 6 }, { kind: "adept", dx: -12, dz: 8 }, { kind: "skirmisher", dx: 4, dz: -16 }],
+        prize: [{ kind: "potion", id: "mend", label: "Draught of Mending" }],
+        lines: [{ speaker: "SAGE", text: "A seer and its circle. Take the seer first - it mends the others.", channel: "sage" }] },
+    { id: "gardens", place: "gardens", begins: 160, guards: [{ kind: "skirmisher", dx: -10, dz: 6, rank: "elite" }, { kind: "skirmisher", dx: 12, dz: 4, rank: "veteran" }, { kind: "seer", dx: 0, dz: 16 }, { kind: "staff", dx: 6, dz: -12 }],
+        prize: [{ kind: "potion", id: "veil", label: "Draught of the Veil" }],
+        lines: [{ speaker: "SAGE", text: "They move like the light does here. I lose them between frames.", channel: "sage" }] },
+    { id: "bonefield", place: "bonefield", begins: 260, behemoth: true, guards: [{ kind: "behemoth", dx: 0, dz: 0, rank: "elite" }, { kind: "warden", dx: -18, dz: 10 }, { kind: "warden", dx: 18, dz: 12 }, { kind: "adept", dx: 0, dz: -22, rank: "veteran" }],
+        prize: [{ kind: "potion", id: "surge", label: "Draught of the Surge", at: [20, 30] }],
+        lines: [
+            { speaker: "SAGE", text: "Lieutenant. Something very large is moving in the bone field.", channel: "sage" },
+            { speaker: "SAGE", text: "It breathes fire. Keep stone between you and its head.", channel: "sage", delay: 2.5 },
+        ] },
+    { id: "station9", place: "station9", begins: 220, guards: [{ kind: "synthetic", dx: -12, dz: 0 }, { kind: "synthetic", dx: 10, dz: 8 }, { kind: "synthetic", dx: 2, dz: -14, rank: "veteran" }, { kind: "synthetic", dx: 18, dz: -10 }],
+        prize: [{ kind: "tech", id: "weave", label: "Dermal Weave", at: [-4, 4] }, { kind: "tech", id: "reflex", label: "Reflex Booster", at: [6, -6] }],
+        lines: [{ speaker: "SAGE", text: "Bore security sentinels. They are not answering my codes. They are not answering anyone's.", channel: "sage" }] },
+    { id: "lifter", place: "lifter", begins: 220, guards: [{ kind: "synthetic", dx: -10, dz: 6, rank: "veteran" }, { kind: "synthetic", dx: 12, dz: -4 }, { kind: "synthetic", dx: 0, dz: 16 }],
+        prize: [{ kind: "tech", id: "dampers", label: "Kinetic Dampers" }],
+        lines: [{ speaker: "SAGE", text: "The lifter's cargo manifest lists augment hardware. Its guards have not noticed it crashed.", channel: "sage" }] },
+    { id: "kappa", place: "kappa", begins: 220, guards: [{ kind: "synthetic", dx: -8, dz: -8 }, { kind: "synthetic", dx: 10, dz: 10, rank: "veteran" }, { kind: "synthetic", dx: -14, dz: 12 }],
+        prize: [{ kind: "tech", id: "optics", label: "Optic Overlay II" }],
+        lines: [{ speaker: "SAGE", text: "The mast's maintenance cache holds an optics package. Three sentinels between us and it.", channel: "sage" }] },
+    { id: "convoy", place: "convoy", begins: 220, guards: [{ kind: "synthetic", dx: -10, dz: 0, rank: "elite" }, { kind: "synthetic", dx: 12, dz: 6 }, { kind: "synthetic", dx: 2, dz: 16 }, { kind: "synthetic", dx: -4, dz: -16 }],
+        prize: [{ kind: "tech", id: "medpump", label: "Subdermal Medpump" }],
+        lines: [{ speaker: "SAGE", text: "The convoy's field hospital. Its medpumps survived. Its sentinels did too.", channel: "sage" }] },
+];
+
+/** Missions that find Alex: they start when he comes near, by a call on the radio or what he sees. */
+export const ELEVEN: V2 = [-560, -118];
+export const PROCESSION: V2 = [560, 300];
+
 /** The tags of Kilo-Two's dead, where they fell in Chapter One. */
 export const DOG_TAGS: { name: string; at: V2 }[] = [
     { name: "Pvt. Holt", at: [SHRINE[0] + 22, SHRINE[1] + 18] },
@@ -73,13 +155,18 @@ export const DOG_TAGS: { name: string; at: V2 }[] = [
     { name: "Pvt. Ashby", at: [fx - 46, fz + 36] },
 ];
 
-/** Warden patrols that roam the wild parts of the floor: where they gather, and how many. */
-export const PATROLS: { id: string; at: V2; n: number; looks: string[] }[] = [
-    { id: "riverbank", at: [520, -160], n: 3, looks: ["warden-m", "adept", "warden-f"] },
-    { id: "eastfloor", at: [760, -60], n: 4, looks: ["warden-m", "warden-m", "adept", "warden-f"] },
-    { id: "westhollow", at: [-320, 280], n: 3, looks: ["warden-f", "warden-m", "adept"] },
-    { id: "sourceway", at: [880, 320], n: 4, looks: ["adept", "warden-m", "warden-f", "warden-m"] },
-    { id: "settlement", at: [420, -260], n: 3, looks: ["warden-m", "warden-f", "adept"] },
+/**
+ * Warden patrols that roam the wild parts of the floor: where they gather, how many, and who. The
+ * further from the firebase, the more of them are veterans and elites (ab_chapter2.ts danger).
+ */
+export const PATROLS: { id: string; at: V2; n: number; kinds: EnemyKind[] }[] = [
+    { id: "riverbank", at: [520, -160], n: 3, kinds: ["warden", "adept", "staff"] },
+    { id: "eastfloor", at: [760, -60], n: 4, kinds: ["warden", "skirmisher", "adept", "seer"] },
+    { id: "westhollow", at: [-320, 280], n: 3, kinds: ["staff", "warden", "skirmisher"] },
+    { id: "sourceway", at: [880, 320], n: 5, kinds: ["adept", "warden", "seer", "skirmisher", "warden"] },
+    { id: "settlement", at: [420, -260], n: 3, kinds: ["warden", "staff", "adept"] },
+    { id: "northfloor", at: [200, 520], n: 4, kinds: ["skirmisher", "skirmisher", "adept", "warden"] },
+    { id: "deepwest", at: [-900, 120], n: 5, kinds: ["warden", "seer", "adept", "skirmisher", "warden"] },
 ];
 
 // --- The people of the chapter -----------------------------------------------------------------------
@@ -93,6 +180,9 @@ export const NPCS: Npc[] = [
     { id: "maelis", name: CAST2.maelis, look: "healer", at: PLACES2.maelis, faceTo: SHRINE, faction: "neutral", role: "A healer of below" },
     // Pell appears when her wreck is found.
     { id: "pell", name: CAST2.pell, look: "trooper-f", at: null, faction: "surface", role: "Lantern Seven" },
+    // Met out on the floor (the missions that find you).
+    { id: "hale", name: "Chief Hale", look: "trooper-m", at: null, faction: "surface", role: "Lantern Eleven" },
+    { id: "elder", name: "The Elder", look: "citizen-old", at: null, faction: "neutral", role: "A pilgrim of below" },
 ];
 
 /** The firebase's sentries: where they stand and which way they look. */
@@ -172,6 +262,35 @@ export const QUESTS: QuestDef[] = [
         ],
         reward: { credits: 400, text: "BRASK-7 patches the relay into your augment: scans reach twice as far." },
     },
+    // --- Missions that find you (no giver: they begin when Alex comes near) ---
+    {
+        id: "eleven", title: "Eleven Is Down", kind: "encounter", giver: null, offeredAt: null,
+        summary: "Lantern Eleven's crew put down by the river and the wardens found them first. Their call is on every channel.",
+        stages: [
+            { id: "reach", text: "Reach Lantern Eleven's crew", marker: ELEVEN, trigger: { kind: "reach", at: ELEVEN, radius: 40 }, enter: ["elevenCall"] },
+            { id: "defend", text: "Drive the wardens off the crew", marker: null, trigger: { kind: "kill", tag: "eleven", count: 5 }, enter: ["spawnEleven"] },
+            { id: "talk", text: "Speak to the crew chief", marker: "npc:hale", trigger: { kind: "talk", npc: "hale" } },
+        ],
+        reward: { credits: 250, items: ["medgel", "medgel", "draught"], text: "Chief Hale presses medgel and a captured river draught on you." },
+    },
+    {
+        id: "procession", title: "The Last Procession", kind: "encounter", giver: null, offeredAt: null,
+        summary: "Pilgrims of below carry vials of the river toward the Source. The Bore's sentinels have come down into the crack, and they shoot whatever moves.",
+        stages: [
+            { id: "defend", text: "Protect the pilgrims from the sentinels", marker: PROCESSION, trigger: { kind: "kill", tag: "procession", count: 4 }, enter: ["spawnProcession"] },
+            { id: "talk", text: "Speak to the elder", marker: "npc:elder", trigger: { kind: "talk", npc: "elder" } },
+        ],
+        reward: { items: ["draught", "draught", "draught"], text: "The elder gives you three vials of the river. The translator learns the word for 'thank you'." },
+    },
+    ...ENCOUNTERS.map((e): QuestDef => {
+        const place = PLACES_OF_NOTE.find(p => p.id === e.place)!;
+        return {
+            id: `enc-${e.id}`, title: place.name, kind: "encounter", giver: null, offeredAt: null,
+            summary: e.prize.map(p => p.label).join(" and ") + " - guarded.",
+            stages: [{ id: "take", text: `Take the ${e.prize.map(p => p.label).join(" and the ")}${e.prize.length > 1 ? "" : ""} (guarded)`, marker: place.at, trigger: { kind: "collect", counter: `got:${e.id}`, count: e.prize.length }, enter: [`encounter:${e.id}`] }],
+            reward: { text: `${place.name}: cleared.` },
+        };
+    }),
 ];
 
 // --- Lines ---------------------------------------------------------------------------------------------
@@ -214,6 +333,11 @@ export const STAGE_LINES: Record<string, Line[]> = {
     "idol/decide": [],
     "shards/deliver": [],
     "relay/return": [],
+    "eleven/reach": [r("Lantern Eleven", "Any element, any element, Lantern Eleven - we're down by the river bend, west of you - they're on us!"), s("Their beacon is four hundred meters west, Lieutenant.", 2)],
+    "eleven/defend": [r("Lantern Eleven", "Is that - surface! Surface on our left! Keep them off the wreck!")],
+    "eleven/talk": [],
+    "procession/defend": [s("Pilgrims, Lieutenant. Carrying vials toward the Source. And Bore sentinels - they are shooting them."), v("The Elder", "Ilm'ae! Ilm'ae tharu!", 2), tr("\"LIGHT ... HELP US\" (52%)", 2.2)],
+    "procession/talk": [],
 };
 
 /** Lines when a talk finishes a stage (keyed quest/stage of the stage that was finished). */
@@ -222,6 +346,8 @@ export const TALK_LINES: Record<string, Line[]> = {
     "seven/check": [v(CAST2.pell, "...Thank you. I'll make for the firebase. Don't follow me - I want to walk it. I need to walk it.")],
     "seven/home": [v(CAST2.pell, "Chief says I've got you to thank for the ride home. I didn't ride. I walked."), v(CAST2.pell, "Take the plates. They were meant for my gunner.", 0.4)],
     "shards/deliver": [v(CAST2.dace, "Look at that glow. The labs will lose their minds. Here's your cut.")],
+    "eleven/talk": [v("Chief Hale", "Chief Hale, Lantern Eleven. Two of mine aren't getting up, Lieutenant. The rest of us are, because of you."), v("Chief Hale", "Take these. And tell Voss the river bend isn't ours, whatever the boards say.", 0.4)],
+    "procession/talk": [v("The Elder", "Kesh oth vael... ashen-kin, vael i'sha."), tr("\"YOU WHO CAME DOWN WITH THE FIRE ... THE RIVER REMEMBERS YOU\" (49%)", 0.2), s("They are giving you their vials, Lieutenant. All of them.", 0.5)],
     "relay/return": [v(CAST2.brask, "Playing."), r("Sgt. Okafor", "...Kilo-Two, hold this ground. Nobody dies in the last minute.", 1.2), v(CAST2.brask, "Thank you, Lieutenant. I will send it home.", 4.5)],
 };
 
@@ -232,6 +358,8 @@ export const IDLE: Record<string, Line[][]> = {
     brask: [[v(CAST2.brask, "I keep the watch, Lieutenant. Someone of Kilo-Two should.")], [v(CAST2.brask, "Sgt. Okafor taught me to say 'saints'. I do not know what they are. I say it anyway.")]],
     maelis: [[v(CAST2.maelis, "Vael i'sha."), tr("\"THE RIVER ... REMEMBERS\" (41%)", 0.2)]],
     pell: [[v(CAST2.pell, "Still walking, Lieutenant.")]],
+    hale: [[v("Chief Hale", "Eleven owes you one, Lieutenant. When the bird flies again, you ride free.")]],
+    elder: [[v("The Elder", "Vael i'sha, ashen-kin."), tr("\"THE RIVER REMEMBERS ... SURFACE-FRIEND\" (47%)", 0.2)]],
 };
 
 /** Barks when a quest is finished. */

@@ -16,6 +16,8 @@ export interface Body {
     stride: number;
     /** Fall speed at the last landing (for damage and the camera's dip). */
     landed: number;
+    /** 0 standing .. 1 crouched (eased, so the eye sinks smoothly). */
+    crouch: number;
 }
 
 export interface MoveInput {
@@ -23,14 +25,18 @@ export interface MoveInput {
     moveY: number;  // forward +
     sprint: boolean;
     jump: boolean;
+    /** Crouched: lower, slower, quieter - and hidden behind waist-high cover. */
+    crouch?: boolean;
 }
 
 export const WALK = 4.4, SPRINT = 7.6, JUMP = 5.0, GRAVITY = 9.81, EYE = 1.66, RADIUS = 0.4;
+/** Crouched: walking pace, and how far the eye sinks (to 1.0 m: below a barricade's top). */
+export const CROUCH_WALK = 2.3, CROUCH_DROP = 0.66;
 /** Slopes steeper than this (rise over run) cannot be climbed; on steeper ground you slide. */
 export const MAX_CLIMB = 1.15, SLIDE = 1.6;
 
 export function newBody(x: number, z: number, y: number, yaw = 0): Body {
-    return { x, y, z, vy: 0, grounded: true, yaw, pitch: -0.05, stamina: 1, speed: 0, stride: 0, landed: 0 };
+    return { x, y, z, vy: 0, grounded: true, yaw, pitch: -0.05, stamina: 1, speed: 0, stride: 0, landed: 0, crouch: 0 };
 }
 
 export interface BodyWorld {
@@ -41,7 +47,7 @@ export interface BodyWorld {
 }
 
 /** One step. Returns the fall damage taken on landing (0 most steps). */
-export function stepBody(b: Body, input: MoveInput, dt: number, w: BodyWorld, slow = 1): number {
+export function stepBody(b: Body, input: MoveInput, dt: number, w: BodyWorld, slow = 1, jump = 1, drain = 1): number {
     const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw);
     // Strafe right is the body's right: facing +Z, right is -X.
     const rx = -Math.cos(b.yaw), rz = Math.sin(b.yaw);
@@ -50,8 +56,13 @@ export function stepBody(b: Body, input: MoveInput, dt: number, w: BodyWorld, sl
     if (len > 1) { mx /= len; mz /= len; }
     const moving = len > 0.05;
     const sprinting = moving && input.sprint && input.moveY > 0.3 && b.stamina > 0.05;
-    b.stamina = Math.max(0, Math.min(1, b.stamina + (sprinting ? -0.16 : 0.12) * dt));
-    const speed = (sprinting ? SPRINT : WALK) * slow * (input.moveY < -0.2 ? 0.75 : 1);
+    b.stamina = Math.max(0, Math.min(1, b.stamina + (sprinting ? -0.16 * drain : 0.12) * dt));
+    // Sprinting or jumping stands Alex up; otherwise he sinks to a crouch or rises over a third of a second.
+    const wantCrouch = !!input.crouch && !sprinting && !input.jump && b.grounded ? 1 : 0;
+    b.crouch += (wantCrouch - b.crouch) * Math.min(1, dt * 9);
+    if (Math.abs(wantCrouch - b.crouch) < 0.01) b.crouch = wantCrouch;
+    const pace = sprinting ? SPRINT : WALK + (CROUCH_WALK - WALK) * b.crouch;
+    const speed = pace * slow * (input.moveY < -0.2 ? 0.75 : 1);
     let nx = b.x + mx * speed * dt * (b.grounded ? 1 : 0.85), nz = b.z + mz * speed * dt * (b.grounded ? 1 : 0.85);
     [nx, nz] = w.collide(nx, nz, RADIUS);
     nx = Math.max(-w.half + 5, Math.min(w.half - 5, nx));
@@ -71,7 +82,7 @@ export function stepBody(b: Body, input: MoveInput, dt: number, w: BodyWorld, sl
         const s = Math.min(8, (steep - SLIDE) * 6) * dt;
         [b.x, b.z] = w.collide(b.x - gx / steep * s, b.z - gz / steep * s, RADIUS);
     }
-    if (input.jump && b.grounded) { b.vy = JUMP; b.grounded = false; }
+    if (input.jump && b.grounded) { b.vy = JUMP * jump; b.grounded = false; }
     b.vy -= GRAVITY * dt;
     b.y += b.vy * dt;
     const ground = w.ground(b.x, b.z);
@@ -92,9 +103,9 @@ export function stepBody(b: Body, input: MoveInput, dt: number, w: BodyWorld, sl
 /** The camera at the eyes: position and forward. */
 export function eye(b: Body): { pos: V3; forward: V3 } {
     const cp = Math.cos(b.pitch);
-    const bob = Math.sin(b.stride * 1.9) * 0.035 * Math.min(1, b.speed / 4);
+    const bob = Math.sin(b.stride * 1.9) * 0.035 * Math.min(1, b.speed / 4) * (1 - b.crouch * 0.5);
     return {
-        pos: [b.x, b.y + EYE + bob, b.z],
+        pos: [b.x, b.y + EYE - CROUCH_DROP * (b.crouch ?? 0) + bob, b.z],
         forward: [Math.sin(b.yaw) * cp, Math.sin(b.pitch), Math.cos(b.yaw) * cp],
     };
 }
@@ -142,6 +153,12 @@ export const ARTIFACTS: Record<string, ArtifactSpec> = {
     "bronze-cup": { id: "bronze-cup", name: "Engraved Cup", value: 220, object: "household.mug", values: {}, note: "Bronze, worn smooth at the rim. The engraving shows a waterfall of light and figures kneeling beneath it." },
     "prayer-tablet": { id: "prayer-tablet", name: "Prayer Tablet", value: 310, object: "household.book", values: {}, note: "A stone leaf cut with script SAGE cannot read. One glyph repeats: a ring with a drop at its heart. It is on the wardens' tabards too." },
     "warden-mask": { id: "warden-mask", name: "Warden's Mask", value: 650, object: "household.dish", values: {}, note: "Bronze, the eye slits lined with crystal. Whoever made it expected to see by the river's light, not by ours." },
+    // What the fallen carry.
+    "lumen-bead": { id: "lumen-bead", name: "Lumen Beads", value: 45, object: "nature.crystal_cluster", values: { count: 4, height: 0.08, base: false, spread: 60 }, note: "A string of polished crystal beads. Every warden seems to carry one; they count them when they pray." },
+    "warden-sigil": { id: "warden-sigil", name: "Warden's Sigil", value: 130, object: "household.dish", values: {}, note: "A bronze disc: the ring with a drop at its heart. Worn over the breastbone, warm to the touch." },
+    "power-cell": { id: "power-cell", name: "Bore Power Cell", value: 90, object: "mechanical.gear", values: {}, note: "A Deep Bore security cell, still charged. Surface property, technically. The quartermaster won't ask." },
+    "bore-core": { id: "bore-core", name: "Sentinel Logic Core", value: 520, object: "mechanical.gear", values: {}, note: "The mind of a Bore sentinel. SAGE wants to read it. The labs want it more." },
+    "behemoth-tusk": { id: "behemoth-tusk", name: "Behemoth Tusk", value: 1200, object: "nature.rock", values: { size: 0.4 }, note: "Ivory as long as your arm, scorched at the root. The kingdoms raise these beasts for war, and for nothing else." },
 };
 
 export interface Inventory {
@@ -153,6 +170,8 @@ export interface Inventory {
     armorMax: number;
     armorName: string | null;
     medgel: number;
+    /** River draughts: each fills half the Resonance that powers the river's gifts. */
+    draughts: number;
     artifacts: string[];
     vial: boolean;
     credits: number;
@@ -162,7 +181,7 @@ export function newInventory(): Inventory {
     return {
         weapons: ["coil-rifle", "arc-pistol", "monoblade"], current: "coil-rifle",
         mags: { "coil-rifle": 32, "arc-pistol": 14 }, reserve: { "coil-rifle": 160, "arc-pistol": 42 },
-        armor: 0, armorMax: 0, armorName: null, medgel: 1, artifacts: [], vial: false, credits: 0,
+        armor: 0, armorMax: 0, armorName: null, medgel: 1, draughts: 0, artifacts: [], vial: false, credits: 0,
     };
 }
 
@@ -242,9 +261,9 @@ export function switchWeapon(inv: Inventory, ws: WeaponState, id: WeaponId): boo
     return true;
 }
 
-/** Medgel: 55 health back, up to the maximum. */
-export function useMedgel(inv: Inventory, health: number, max: number): number {
+/** Medgel: 55 health back (more with the Field Medic perk), up to the maximum. */
+export function useMedgel(inv: Inventory, health: number, max: number, heal = 55): number {
     if (inv.medgel <= 0 || health >= max) return health;
     inv.medgel--;
-    return Math.min(max, health + 55);
+    return Math.min(max, health + heal);
 }
