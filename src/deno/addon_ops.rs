@@ -179,6 +179,11 @@ pub struct PipelineConfig {
     /// people leave no visible mark in the wide ones). Default: all.
     pub shadow_cascades: Option<u32>,
 
+    /// Blended see-through surfaces (smoke, glass, water): the pipeline tests depth but never
+    /// writes it, and its meshes draw after every opaque mesh of the pass, in the order they
+    /// were created (a batch's own instances in the order the addon wrote them - far to near).
+    pub transparent: Option<bool>,
+
 }
 
 
@@ -1364,6 +1369,12 @@ pub struct NoteConfig {
     pub reverb_damping: f64,
     #[serde(default)]
     pub reverb_mix: f64,
+    /// -1 (left) .. 1 (right): where the note sits in the stereo field.
+    #[serde(default)]
+    pub pan: f64,
+    /// 0 (clear) .. 1 (muffled: far away, behind, through a wall).
+    #[serde(default)]
+    pub muffle: f64,
 }
 
 fn default_reverb_room_size() -> f64 { 10.0 }
@@ -3062,7 +3073,7 @@ pub fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
 #[op2]
 pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        ctx.audio_engine.play_note(&config.waveform, crate::audio::NoteParams {
+        ctx.audio_engine.play_note_spatial(&config.waveform, crate::audio::NoteParams {
             freq: config.freq,
             duration: config.duration,
             cutoff: config.cutoff,
@@ -3080,7 +3091,7 @@ pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
             reverb_damping: config.reverb_damping,
             reverb_mix: config.reverb_mix,
             ..Default::default()
-        });
+        }, config.pan as f32, config.muffle as f32);
     }
 }
 

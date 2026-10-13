@@ -3,7 +3,7 @@
 // or "Brushed steel" rather than tweaking shader numbers. Colors are sRGB.
 
 export type Pattern = "none" | "wood" | "fabric" | "brushed" | "speckle" | "foliage" | "bark" | "birch"
-    | "glow" | "corrugated" | "rust" | "rustyCorrugated" | "panels" | "skin" | "hair" | "iris" | "denim" | "knit";
+    | "glow" | "corrugated" | "rust" | "rustyCorrugated" | "panels" | "skin" | "hair" | "iris" | "denim" | "knit" | "scales";
 
 export interface MaterialPreset {
     id: string;
@@ -251,6 +251,11 @@ export const MATERIALS: MaterialPreset[] = [
     m("stone.carved", "Carved cavestone", "#8d7f6c", 0.85, 0, "speckle"),
     m("stone.dark", "Dark cavestone", "#4a4440", 0.85, 0, "speckle"),
     m("stone.pale", "Pale cavestone", "#b8ab94", 0.8, 0, "speckle"),
+    // Scaled hides (creatures): overlapping plates, glossy crowns.
+    m("scale.violet", "Violet scales", "#4f4466", 0.45, 0, "scales"),
+    m("scale.pale", "Pale belly scales", "#a99d8c", 0.55, 0, "scales"),
+    m("scale.dark", "Dark scales", "#2a2a33", 0.4, 0, "scales"),
+    m("scale.teal", "Teal scales", "#2e5457", 0.45, 0, "scales"),
     m("cloth.indigo", "Indigo-dyed cloth", "#2c3466", 0.95, 0, "fabric"),
     m("cloth.saffron", "Saffron cloth", "#c0832a", 0.95, 0, "fabric"),
     m("cloth.ash", "Ash-grey cloth", "#5d5a56", 0.95, 0, "fabric"),

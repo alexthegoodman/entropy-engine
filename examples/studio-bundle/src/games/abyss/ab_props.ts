@@ -11,6 +11,7 @@ import type { ParamValues } from "../../apps/mesha/mesha_object";
 import { FOB, SHRINE, SETTLEMENT, EVAC_LZ, CRACK_A, CRACK_B, crackSD, riverDistance, MAP_HALF, riftBend, SOURCE_POOL, type V2 } from "./ab_world";
 import { PLACES } from "./ab_script";
 import { PLACES2 } from "./ab_script2";
+import { CAVES, caveSolids } from "./ab_atmos";
 
 export interface Prop {
     object: string;
@@ -24,11 +25,13 @@ export interface Prop {
     /** Solid footprint radius (m) for walking and line of sight; 0 none. */
     solid: number;
     /** Where it belongs (for the debugging and the state tool). */
-    group: "fob" | "rim" | "ledge" | "boulders" | "crystals" | "settlement" | "ruins" | "pickup" | "firebase";
+    group: "fob" | "rim" | "ledge" | "boulders" | "crystals" | "settlement" | "ruins" | "pickup" | "firebase" | "cover";
     /** Only in this chapter (absent: every chapter). */
     chapter?: 1 | 2;
     /** Draw-distance class: "near" props fade out early, "far" ones always draw. */
     reach: "near" | "mid" | "far";
+    /** Cover (barricades, low walls): solid along its length (local +Z) up to this height. */
+    cover?: number;
 }
 
 /** A preset's values by name (falls back to the defaults). */
@@ -168,7 +171,90 @@ export function placeProps(seed = 1): Prop[] {
         put({ object: "architecture.ruin", values: { ...ruinV, seed: i * 7 + 3 }, x, z, yaw: rng.next() * 6.28, solid: 0, group: "ruins" });
     }
     placeFirebase(put, rng);
+    placeCover(put, rng, out);
+    // The caves: crystals glowing in their chambers and along their tunnels; boulders heaped round their shells.
+    for (const c of CAVES) {
+        const [cx, cz] = c.chamber.at;
+        for (let i = 0; i < 9; i++) {
+            const a = (i / 9) * Math.PI * 2 + 0.3, d = c.chamber.r * (0.55 + 0.3 * rng.next());
+            put({ object: "nature.crystal_cluster", values: crystal(i % 3 === 0 ? "Violet spire" : "River crystals"), x: cx + Math.cos(a) * d, z: cz + Math.sin(a) * d, yaw: rng.next() * 6.28, scale: 0.7 + rng.next() * 0.9, solid: 0, group: "crystals", reach: "mid" });
+        }
+        for (let i = 1; i < c.path.length; i++) {
+            const [px, pz] = c.path[i];
+            put({ object: "nature.crystal_cluster", values: crystal("River crystals"), x: px + (i % 2 ? 2.8 : -2.8), z: pz, yaw: i, scale: 0.6, solid: 0, group: "crystals", reach: "mid" });
+        }
+        for (let i = 0; i < 10; i++) {
+            const a = rng.next() * Math.PI * 2, d = c.chamber.r + 4 + rng.next() * 8;
+            const scale = 2.5 + rng.next() * 2.5;
+            put({ object: "nature.rock", values: boulder(2.5, Math.floor(rng.next() * 6)), x: cx + Math.cos(a) * d, z: cz + Math.sin(a) * d, yaw: rng.next() * 6.28, scale, solid: 1.1 * scale, group: "boulders", reach: "mid" });
+        }
+    }
     return out;
+}
+
+type Put = (p: Omit<Prop, "yaw" | "scale" | "solid" | "reach"> & Partial<Pick<Prop, "yaw" | "scale" | "solid" | "reach">>) => void;
+
+/** A barricade prop (ab street.barricade): `yaw` turns its length (local +Z). */
+function barricade(put: Put, kind: "jersey" | "sandbags" | "stone", x: number, z: number, yaw: number, length: number, extra: Partial<Prop> = {}, values: ParamValues = {}): void {
+    const height = kind === "stone" ? 0.95 : kind === "sandbags" ? 1.05 : 1;
+    // Lengths come in a few sizes so walls share meshes.
+    const L = kind === "jersey" ? Math.max(3, Math.round(length / 3) * 3) : Math.max(2, Math.round(length / 2) * 2);
+    put({ object: "street.barricade", values: { kind, length: L, height, ...values }, x, z, yaw, cover: height, group: "cover", reach: "mid", ...extra });
+}
+
+/**
+ * Cover across the world: the settlement's dry-stone field walls, the expedition's barriers at the
+ * forward base and the rim, the firebase's checkpoints, and positions scattered over the open
+ * floor - places to crouch behind, for Alex and for the wardens.
+ */
+function placeCover(put: Put, rng: { next(): number }, placed: readonly Prop[]): void {
+    const clearOf = (x: number, z: number, r: number) => !placed.some(p => p.solid > 0 && Math.hypot(p.x - x, p.z - z) < p.solid + r);
+    // The settlement's fields: dry-stone walls in arcs round the town, off the streets and the riverbed.
+    let n = 0;
+    for (let i = 0; i < 80 && n < 18; i++) {
+        const ang = rng.next() * Math.PI * 2, d = 70 + rng.next() * 170;
+        const x = SHRINE[0] + Math.cos(ang) * d, z = SHRINE[1] + Math.sin(ang) * d;
+        if (riverDistance(x, z).d < 24 || crackSD(x, z) > -90 || !clearOf(x, z, 6)) continue;
+        // Along the ring (tangent), as field walls run.
+        barricade(put, "stone", x, z, ang + (rng.next() - 0.5) * 0.5, 5 + rng.next() * 6, {}, { damage: 0.3 + rng.next() * 0.5, seed: Math.floor(rng.next() * 4) });
+        n++;
+    }
+    // By the landing zone: old walls where the battle of First Blood was fought.
+    for (const [dx, dz, yaw] of [[34, 22, 0.4], [-30, 38, 1.9], [48, -18, 2.6], [-44, -24, 1.1], [12, 52, 0.1], [-58, 6, 1.6]] as const) {
+        barricade(put, "stone", EVAC_LZ[0] + dx, EVAC_LZ[1] + dz, yaw, 6, {}, { damage: 0.6, seed: 2 });
+    }
+    // The forward base on the rim: jersey barriers round its pad and along the lip.
+    const [bx, bz] = FOB;
+    for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 + 0.2;
+        barricade(put, "jersey", bx + Math.cos(a) * 150, bz + Math.sin(a) * 150, -a, 9, { chapter: undefined });
+    }
+    for (let x = -1000; x <= 1000; x += 250) {
+        let z = -CRACK_B * 0.98 + riftBend(x);
+        while (crackSD(x, z) < 26 && z > -MAP_HALF + 50) z -= 6;
+        barricade(put, "jersey", x + 40, z, Math.PI / 2, 9);
+    }
+    // Firebase Lantern (Chapter Two): checkpoints at its two gates, sandbag nests by the sentries.
+    const [fx, fz] = PLACES2.firebase;
+    const c2 = { chapter: 2 as const };
+    barricade(put, "jersey", fx, fz + 80, Math.PI / 2, 12, c2, { stripeFinish: "paint.white", damage: 0.1 });
+    barricade(put, "jersey", fx + 80, fz, 0, 12, c2, { stripeFinish: "paint.white", damage: 0.1 });
+    for (const [dx, dz] of [[46, 44], [-50, 48], [62, -20], [-64, -28], [4, 58]] as const) {
+        const a = Math.atan2(dx, dz);
+        barricade(put, "sandbags", fx + dx * 1.08, fz + dz * 1.08, a + Math.PI / 2, 4, c2);
+    }
+    // The open floor: positions the surface dug and abandoned, the kingdoms' old field walls.
+    const spots: V2[] = [[520, -160], [760, -60], [-320, 280], [880, 320], [420, -260], [200, 520], [-900, 120], [70, -62], [205, -640], [1240, 70], [-560, -120], [620, 420]];
+    for (const [sx, sz] of spots) {
+        const k = 3 + Math.floor(rng.next() * 3);
+        for (let i = 0; i < k; i++) {
+            const a = rng.next() * Math.PI * 2, d = 18 + rng.next() * 45;
+            const x = sx + Math.cos(a) * d, z = sz + Math.sin(a) * d;
+            if (crackSD(x, z) > -60 || riverDistance(x, z).d < 14 || !clearOf(x, z, 5)) continue;
+            const stone = rng.next() < 0.55;
+            barricade(put, stone ? "stone" : "sandbags", x, z, rng.next() * Math.PI, stone ? 6 : 4, c2, stone ? { damage: 0.5, seed: Math.floor(rng.next() * 4) } : {});
+        }
+    }
 }
 
 /**
@@ -210,7 +296,33 @@ function placeFirebase(put: (p: Omit<Prop, "yaw" | "scale" | "solid" | "reach"> 
     put({ object: "street.streetlight", values: preset("street.streetlight", "Steel bollard", { lit: true }), x: mx - 1.6, z: mz - 1.2, yaw: 0, scale: 1.3, solid: 0.3, reach: "near", ...c2 });
 }
 
-/** Solid footprints (x, z, radius) of the props, for walking and line of sight. */
-export function solids(props: readonly Prop[], chapter: 1 | 2 = 1): { x: number; z: number; r: number }[] {
-    return props.filter(p => p.solid > 0 && (!p.chapter || p.chapter === chapter)).map(p => ({ x: p.x, z: p.z, r: p.solid * (p.object === "nature.rock" ? 1 : 1) }));
+/**
+ * Solid footprints of the props, for walking and line of sight: a column per prop, and for cover
+ * a row of short columns along its length (with its height, so it hides a crouched body but not
+ * a standing one).
+ */
+export function solids(props: readonly Prop[], chapter: 1 | 2 = 1): { x: number; z: number; r: number; h?: number; cover?: boolean }[] {
+    const out: { x: number; z: number; r: number; h?: number; cover?: boolean }[] = [];
+    for (const p of props) {
+        if (p.chapter && p.chapter !== chapter) continue;
+        if (p.cover) {
+            const L = Number(p.values.length ?? 4);
+            const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+            const n = Math.max(2, Math.round(L / 0.6));
+            for (let i = 0; i <= n; i++) {
+                const t = -L / 2 + 0.3 + (L - 0.6) * (i / n);
+                out.push({ x: p.x + fx * t, z: p.z + fz * t, r: 0.42, h: p.cover, cover: true });
+            }
+        } else if (p.solid > 0) out.push({ x: p.x, z: p.z, r: p.solid });
+    }
+    for (const c of CAVES) out.push(...caveSolids(c));
+    return out;
+}
+
+/** The doors of the settlement's houses (where its people run when the expedition comes): each on the side facing the shrine. */
+export function settlementDoors(props: readonly Prop[]): [number, number][] {
+    return props.filter(p => p.object === "architecture.cave_dwelling").map(p => {
+        const r = Number(p.values.radius ?? 3.2) + 0.4;
+        return [p.x + Math.sin(p.yaw) * r, p.z + Math.cos(p.yaw) * r] as [number, number];
+    });
 }

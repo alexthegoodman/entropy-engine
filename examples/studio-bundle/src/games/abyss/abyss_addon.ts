@@ -15,23 +15,27 @@
 // drives.
 
 import { HeightGrid, LightMap, SUN_DIR, MAP_HALF, FLOOR_Y, SOURCE, SOURCE_POOL, SHRINE, depthBelowRim, type V3 } from "./ab_world";
-import { MaskGrid, CHUNKS, LODS, buildChunk, chooseLods, buildOuterRing, chunkTriangles } from "./ab_terrain";
+import { MaskGrid, CHUNKS, LODS, buildChunk, chooseLods, buildOuterRing, buildCanyon, chunkTriangles } from "./ab_terrain";
 import { Renderer, DEFAULT_LOOK, placeMatrix, identity, eulerMatrix, frameMatrix, multiply, CACHE_NAMESPACE, type WorldLook, type PointLight, type Mat4 } from "./ab_render";
 import { ITEM_FLOATS, PATTERN } from "./ab_shader";
 import { skyDome, puff, beam, ribbon, disc, decal, tracer, meshaObject, packEvaluation, cluster, type PackedMesh } from "./ab_models";
+import { plumeSites, plumePuffs, buildWater, buildCave, caveRoofs, CAVES, type Plume } from "./ab_atmos";
 import { LOOKS, buildLook, personLods, personLod, lookKey } from "./ab_people";
-import { placeProps, solids, propKey, type Prop } from "./ab_props";
+import { placeProps, solids, propKey, settlementDoors, type Prop } from "./ab_props";
 import { Game, GameWorld, NO_INPUT, START_PHASES, type GameInput, type GameEvent } from "./ab_game";
 import { alive, living, type Actor } from "./ab_combat";
 import { aircraftFrame } from "./ab_flight";
 import { WEAPONS, ARTIFACTS, artifactValue, eye, type WeaponId } from "./ab_player";
 import { SQUAD, PHASES, type Phase } from "./ab_script";
-import { drawHud, drawCinema, drawLoading, drawTitle, drawDead, drawInventory, drawComplete, drawTrade, safeEnginePainter, type HudView, type HudMarker, type SafePainter } from "./ab_hud";
+import { drawHud, drawCinema, drawLoading, drawTitle, drawDead, drawInventory, drawCharacter, drawComplete, drawTrade, safeEnginePainter, type HudView, type HudMarker, type SafePainter, type PackView } from "./ab_hud";
+import { stats, xpToNext, powerCost, PERKS, POWERS, UPGRADES, ENEMIES, RANKS, type EnemyKind, type Rank } from "./ab_rpg";
+import { beastSeat } from "./ab_combat";
+import { behemothHip } from "../../apps/mesha/library/behemoth";
 import { CH2_STARTS, SHOP, PLACES2, NPCS, type ChapterTwoStart } from "./ab_script2";
 import { type Ch2Save } from "./ab_chapter2";
 import { creatureFrame, seatPosition, altitude, LENGTH as KESH_LENGTH, type Creature } from "./ab_creature";
 import { skywingShoulder } from "../../apps/mesha/library/skywing";
-import { Sound } from "./ab_audio";
+import { Sound, type Mood } from "./ab_audio";
 import { type DrawApi } from "../allegiance/al_ui";
 import { Controller } from "../allegiance/al_controller";
 import { shadowCascades } from "../allegiance/al_sky";
@@ -50,7 +54,7 @@ const addon = Entropy.AddonAtom.register({
 });
 
 /** Bumped whenever the world's shape or a generated mesh changes, so caches rebuild. */
-const WORLD_VERSION = 3;
+const WORLD_VERSION = 6;
 const MESH_VERSION = 2;
 
 const renderer = new Renderer();
@@ -219,9 +223,26 @@ function buildAircraftMeshes(role: "gunship" | "dropship"): AircraftMeshes {
 type KeshVariant = "wounded" | "healed" | "saddled";
 const keshMeshes: Partial<Record<KeshVariant, { body: string[]; wingL: string; wingR: string; radius: number }>> = {};
 
+/** The behemoth: its body by level, and each leg (they swing about the hip). */
+let behemothMeshes: { body: string[]; legs: string[] } | null = null;
+function buildBehemoth(): void {
+    const base = `behemoth-v${MESH_VERSION}`;
+    const legIds = ["legFL", "legFR", "legBL", "legBR"];
+    const names = [`${base}-body-lod0`, `${base}-body-lod1`, `${base}-body-lod2`, ...legIds.map(l => `${base}-${l}`)];
+    if (allCached(names)) names.forEach(n => cache(n, () => { throw new Error("cached"); }));
+    else {
+        const e = evaluateObject(lookupObject("creature.behemoth")!, {}, lookupObject);
+        const legs = new Set(legIds);
+        const body = packEvaluation(e, r => !legs.has(r));
+        [body, cluster(body, 0.08), cluster(body, 0.25)].forEach((m, i) => cache(names[i], () => m));
+        legIds.forEach((l, i) => cache(names[3 + i], () => packEvaluation(e, r => r === l)));
+    }
+    behemothMeshes = { body: names.slice(0, 3), legs: names.slice(3) };
+}
+
 function buildKesh(variant: KeshVariant): void {
     const values = { length: KESH_LENGTH, wounded: variant === "wounded", saddle: variant === "saddled" };
-    const base = `kesh-v${MESH_VERSION}.2-${variant}`;
+    const base = `kesh-v${MESH_VERSION}.3-${variant}`;
     const names = [`${base}-body-lod0`, `${base}-body-lod1`, `${base}-body-lod2`, `${base}-wingL`, `${base}-wingR`];
     if (allCached(names)) names.forEach(n => cache(n, () => { throw new Error("cached"); }));
     else {
@@ -254,6 +275,12 @@ function pickupKey(item: string): string {
         if (item === "recorder") return meshaObject("household.crate", {});
         if (item === "dogtag") return meshaObject("mechanical.bolt", {});
         if (item === "relay") return meshaObject("mechanical.gear", {});
+        // A fallen enemy's belongings: a little gleam of beads on the ground.
+        if (item === "loot") return meshaObject("nature.crystal_cluster", { count: 3, height: 0.12, base: false, spread: 60, crystalFinish: "glow.riverGold" });
+        // A potion of the river: a stoppered flask full of light.
+        if (item === "potion") return meshaObject("household.bottle", { height: 0.3, bodyRadius: 0.07, shoulder: "round", label: false, closure: "cork", glass: "glass.violet" });
+        // A tech cache: a sealed Bore case.
+        if (item === "tech") return meshaObject("household.crate", { woodFinish: "wood.charred" });
         if (item === "vial") return meshaObject("household.bottle", { height: 0.24, bodyRadius: 0.04, shoulder: "round", label: false, closure: "cork", glass: "glass.clear" });
         return meshaObject("nature.crystal_cluster", { count: 1, height: 0.3, base: false });
     };
@@ -270,6 +297,17 @@ const viewItems: Partial<Record<WeaponId, { mesh: string; item: string }>> = {};
 let solidBatches: InstanceBatches;
 let peopleBatches: InstanceBatches;
 let fxBatches: InstanceBatches;
+/** Soft smoke (a transparent pipeline): every puff of the frame, written far to near. */
+let smokeBatches: InstanceBatches;
+const smokeQueue: { x: number; y: number; z: number; spin: number; size: number; tint: number[]; opacity: number; d: number }[] = [];
+function queueSmoke(cam: V3, x: number, y: number, z: number, spin: number, size: number, tint: number[], opacity: number): void {
+    smokeQueue.push({ x, y, z, spin, size, tint, opacity, d: Math.hypot(x - cam[0], y - cam[1], z - cam[2]) });
+}
+function flushSmoke(): void {
+    smokeQueue.sort((a, b) => b.d - a.d);
+    for (const p of smokeQueue) addInstance(smokeBatches, FX.smoke, placeMatrix(p.x, p.y, p.z, p.spin, p.size), p.tint, [0, 0, 0, 0], [p.opacity, 0, 0, p.spin], [p.x, p.y, p.z, p.size]);
+    smokeQueue.length = 0;
+}
 const lightBinding = () => [{ group: 2, binding: 2, resource: { type: "Texture" as const, value: { id: renderer.lightTexture } } }];
 let frameTriangles = 0;
 
@@ -296,7 +334,11 @@ function makeLoadSteps(): LoadStep[] {
         { label: "Mapping the riverbed", weight: 1, run: () => masks.bake(fixedStep ? Infinity : 160) },
         {
             label: "Measuring the light", weight: 2, run: () => {
-                if (!light) light = new LightMap(grid, SUN_DIR);
+                if (!light) {
+                    light = new LightMap(grid, SUN_DIR);
+                    // Under the caves' roofs it is dark.
+                    light.roofs = CAVES.flatMap(c => caveRoofs(c, (x, z) => grid.height(x, z)));
+                }
                 const done = light.bake(fixedStep ? Infinity : 64);
                 if (done) renderer.setLightMap(light.data);
                 return done;
@@ -311,6 +353,17 @@ function makeLoadSteps(): LoadStep[] {
                     const outer = () => buildOuterRing();
                     renderer.spawnCached("ab-outer", `outer-v${WORLD_VERSION}`, outer, terrainItem, "ground", [0, 0, 0, 20000]);
                 }
+                if (!renderer.has("ab-canyon")) renderer.spawnCached("ab-canyon", `canyon-v${WORLD_VERSION}`, () => buildCanyon(), terrainItem, "ground", [-4300, -300, 0, 4000]);
+                for (const c of CAVES) if (!renderer.has(`ab-cave-${c.id}`)) {
+                    const mesh = buildCave(c, (x, z) => grid.height(x, z));
+                    renderer.spawnCached(`ab-cave-${c.id}`, `cave-v${WORLD_VERSION}-${c.id}`, mesh, terrainItem, "solid", mesh.bounds);
+                }
+                if (!renderer.has("ab-water")) {
+                    const water = buildWater((x, z) => grid.height(x, z));
+                    renderer.spawnCached("ab-water", `water-v${WORLD_VERSION}`, water, terrainItem, "ground", water.bounds);
+                }
+                plumes = plumeSites();
+                for (const pl of plumes) pl.y = grid.height(pl.x, pl.z);
                 return true;
             },
         },
@@ -320,6 +373,8 @@ function makeLoadSteps(): LoadStep[] {
                 propQueue = [...props];
                 world = new GameWorld(grid);
                 world.solids = solids(props);
+                // A shot heard through rock or behind a wall comes muffled.
+                sound.occluded = (a, b) => !!world && !world.clear(a, b);
                 return true;
             },
         },
@@ -340,6 +395,7 @@ function makeLoadSteps(): LoadStep[] {
         {
             label: "Waking the deep", weight: 1, run: () => {
                 buildKesh("wounded"); buildKesh("healed"); buildKesh("saddled");
+                buildBehemoth();
                 return true;
             },
         },
@@ -353,7 +409,7 @@ function makeLoadSteps(): LoadStep[] {
         {
             label: "Last checks", weight: 1, run: () => {
                 FX.fire = cache(`fx-v${MESH_VERSION}-fire`, () => puff(PATTERN.fire, [1, 1, 1]));
-                FX.smoke = cache(`fx-v${MESH_VERSION}-smoke`, () => puff(PATTERN.smoke, [1, 1, 1]));
+                FX.smoke = cache(`fx-v${MESH_VERSION}-smoke2`, () => puff(PATTERN.smoke, [1, 1, 1], 2));
                 FX.spark = FX.fire;
                 FX.magic = cache(`fx-v${MESH_VERSION}-magic`, () => puff(PATTERN.magic, [1, 1, 1]));
                 FX.tracer = cache(`fx-v${MESH_VERSION}-tracer`, () => tracer());
@@ -372,6 +428,7 @@ function makeLoadSteps(): LoadStep[] {
                     viewItems[id] = { mesh: `ab-view-${id}`, item };
                 }
                 game = new Game(world!);
+                game.doors = settlementDoors(props);
                 loadSettings();
                 mode = "title";
                 Entropy.println(`[abyss] loaded in ${(realTime).toFixed(1)} s`);
@@ -403,12 +460,18 @@ function loadStep(): void {
 
 const held = new Set<string>();
 const pressed = new Set<string>();
+/** Gamepad buttons pressed since the last frame (edges, like `pressed`). */
+const padPressed = new Set<string>();
 let mouseDX = 0, mouseDY = 0;
 let lookDrag: [number, number] | null = null;
 let fireHeld = false, adsHeld = false;
 let skipHeld = 0;
 let menuChapters = false;
 let invSelected = 0;
+/** The inventory's page: the kit, or what Alex has become (perks, powers, tech). */
+let invPage: "inv" | "char" = "inv";
+/** Crouch toggled with C (Control crouches while held). */
+let crouchToggle = false;
 let scripted: Partial<GameInput> & { frames?: number } | null = null;
 
 const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(k.toUpperCase());
@@ -426,17 +489,23 @@ function readInput(): GameInput {
         lookY: (key("ArrowUp") ? 1 : 0) - (key("ArrowDown") ? 1 : 0) + R[1],
         fire: fireHeld || controller.held.has("RightTrigger2") || controller.held.has("RightTrigger"),
         ads: adsHeld || key("z") || controller.held.has("LeftTrigger2") || controller.held.has("LeftTrigger"),
-        reload: pressed.has("r") || pressed.has("R") || controller.held.has("East"),
-        interact: pressed.has("e") || pressed.has("E") || controller.held.has("West"),
+        reload: pressed.has("r") || pressed.has("R") || padPressed.has("East"),
+        interact: pressed.has("e") || pressed.has("E") || padPressed.has("West"),
         heal: pressed.has("h") || pressed.has("H"),
         scan: pressed.has("q") || pressed.has("Q"),
         weapon: pressed.has("1") ? 1 : pressed.has("2") ? 2 : pressed.has("3") || pressed.has("f") || pressed.has("F") ? 3 : pressed.has("4") ? 4 : pressed.has("5") ? 5 : null,
         skip: skipHeld >= 1,
         jumpHeld: key(" ") || controller.held.has("South"),
-        call: pressed.has("v") || pressed.has("V") || controller.held.has("North"),
+        call: pressed.has("v") || pressed.has("V") || padPressed.has("North"),
         track: pressed.has("t") || pressed.has("T"),
         choice: pressed.has("1") ? 1 : pressed.has("2") ? 2 : null,
+        crouch: crouchToggle || key("Control"),
+        cast: pressed.has("g") || pressed.has("G") || padPressed.has("RightShoulder"),
+        nextPower: pressed.has("b") || pressed.has("B") || padPressed.has("DPadRight"),
+        draught: pressed.has("x") || pressed.has("X") || padPressed.has("DPadDown"),
     };
+    // Breaking into a sprint stands Alex up.
+    if (inp.sprint && inp.moveY > 0.3) crouchToggle = false;
     if (scripted) {
         Object.assign(inp, scripted);
         if (scripted.frames !== undefined && --scripted.frames <= 0) scripted = null;
@@ -448,7 +517,12 @@ function readInput(): GameInput {
 
 function setupInput(): void {
     Entropy.Input.onKeyDown((k: string) => {
-        held.add(k); pressed.add(k);
+        // The window re-sends a held key (the OS's key repeat): only the first press counts, or
+        // holding E a moment too long would climb onto Kesh and straight back off again.
+        const repeat = held.has(k);
+        held.add(k);
+        if (repeat) return;
+        pressed.add(k);
         if (mode === "trade") {
             if (k === "Tab" || k === "Escape") { mode = "play"; sound.ui(); }
             else if (k === "s" || k === "S") act("sell-all");
@@ -461,6 +535,8 @@ function setupInput(): void {
             else if (mode === "title" && menuChapters) menuChapters = false;
         }
         if (k === "F3") showTriangles = !showTriangles;
+        if ((k === "c" || k === "C") && mode === "play") crouchToggle = !crouchToggle;
+        if ((k === "p" || k === "P") && mode === "inventory") invPage = invPage === "inv" ? "char" : "inv";
         if (mode === "inventory" && (k === "ArrowDown" || k === "ArrowUp")) invSelected = Math.max(0, invSelected + (k === "ArrowDown" ? 1 : -1));
         if (mode === "title" && (k === "Enter" || k === " ") && !menuChapters) act("begin");
     });
@@ -484,6 +560,8 @@ function setupInput(): void {
     Entropy.Input.onGamepadAxis((l, r) => controller.axis(l, r, realTime));
     Entropy.Input.onGamepadButton((b, down) => {
         const fresh = controller.button(b, down);
+        if (fresh) padPressed.add(b);
+        if (fresh && b === "RightThumb" && mode === "play") crouchToggle = !crouchToggle;
         if (fresh && b === "Start") { if (mode === "play") mode = "inventory"; else if (mode === "inventory") mode = "play"; else if (mode === "title") act("begin"); }
     });
 }
@@ -503,12 +581,15 @@ function act(id: string): void {
         case "look-down": g.sensitivity = Math.max(0.3, Math.round((g.sensitivity - 0.1) * 10) / 10); saveSettings(); break;
         case "look-up": g.sensitivity = Math.min(2.5, Math.round((g.sensitivity + 0.1) * 10) / 10); saveSettings(); break;
         case "resume": mode = "play"; break;
+        case "page-char": invPage = "char"; break;
+        case "page-inv": invPage = "inv"; break;
         case "sell-all": g.ch2?.sellAll(); break;
         case "to-title": mode = "title"; menuChapters = false; resetGame(); break;
         case "replay": newGame("intro"); break;
         default:
             if (id.startsWith("moment-")) newGame(id.slice(7) as Phase | ChapterTwoStart);
             if (id.startsWith("artifact-")) invSelected = Number(id.slice(9));
+            if (id.startsWith("perk-") && g.takePerk(id.slice(5))) sound.quest("started");
             if (id.startsWith("buy-")) g.ch2?.buy(id.slice(4));
             if (id.startsWith("quest-")) g.ch2?.track(id.slice(6));
             if (id.startsWith("choice-")) scripted = { choice: Number(id.slice(7)), frames: 1 };
@@ -544,6 +625,7 @@ function resetGame(chapter: 1 | 2 = 1): void {
     // Wrecks are solids added during play; start from the props' own (this chapter's).
     world.solids = solids(props, chapter);
     game = new Game(world);
+    game.doors = settlementDoors(props);
     if (keep) { game.aimAssist = keep.a; game.sensitivity = keep.s; }
 }
 
@@ -574,7 +656,7 @@ function continueGame(phase: Phase): void {
 // --- HUD state ------------------------------------------------------------------------------------------
 
 let painter: SafePainter | null = null;
-const hud = { toasts: [] as { text: string; age: number }[], hit: 0, kill: false, objectiveText: "", objectiveAge: 0, bootStart: -1, timer: 0, lastPhase: "" as string, banner: null as { title: string; text: string; age: number; state: string } | null };
+const hud = { xpGain: { amount: 0, age: 99 }, toasts: [] as { text: string; age: number }[], hit: 0, kill: false, objectiveText: "", objectiveAge: 0, bootStart: -1, timer: 0, lastPhase: "" as string, banner: null as { title: string; text: string; age: number; state: string } | null };
 
 // --- The frame ----------------------------------------------------------------------------------------------
 
@@ -616,7 +698,23 @@ function frame(dt: number): void {
         game.step(dt, NO_INPUT);
     }
     pressed.clear();
+    padPressed.clear();
     draw(dt);
+}
+
+let lastBreathSound = -10;
+
+/** What the score should play under the game right now. */
+function musicMood(): Mood {
+    const g = game;
+    if (mode === "title") return "surface";
+    if (!g || mode === "loading" || g.cinema || g.phase === "complete" || !g.alive) return "none";
+    const b = g.body;
+    const fighting = g.combat.actors.some(a => alive(a) && a.faction === "below" && (a.target === -1 || g.combat.alert > 0) && Math.hypot(a.x - b.x, a.z - b.z) < 140);
+    if (fighting) return "combat";
+    if (g.ch2?.mounted && !g.ch2.kesh.grounded) return "flight";
+    if (g.ch2 && Math.hypot(b.x - PLACES2.firebase[0], b.z - PLACES2.firebase[1]) < 130) return "firebase";
+    return b.y > -80 ? "surface" : "floor";
 }
 
 function handleEvents(events: GameEvent[]): void {
@@ -645,6 +743,14 @@ function handleEvents(events: GameEvent[]): void {
             case "trade": break;
             case "shout": hud.toasts.push({ text: `"${e.text}"  -  ${e.translation}`, age: 0 }); break;
             case "death": break;
+            case "xp": hud.xpGain = { amount: (hud.xpGain.age < 2.5 ? hud.xpGain.amount : 0) + e.amount, age: 0 }; break;
+            case "levelup": hud.banner = { title: `LEVEL ${e.level}`, text: "A perk point to spend  -  [TAB] then CHARACTER", age: 0, state: "level" }; sound.quest("completed"); break;
+            case "power": sound.power(e.id, e.at, ear); if (e.id === "lance" || e.id === "learn") { look.flash = Math.max(look.flash, 0.18); look.flashHue = 1; } break;
+            case "loot": break;
+            case "discovery": hud.banner = { title: e.name, text: e.text, age: 0, state: "discovered" }; sound.quest("started"); break;
+            case "breath": if (realTime - lastBreathSound > 0.45) { lastBreathSound = realTime; sound.breath(e.from, ear); } break;
+            case "stomp": sound.explosion(e.at, ear, 1.5); break;
+            case "heal": sound.cast(e.at, ear); break;
         }
     }
 }
@@ -659,7 +765,7 @@ function draw(dt: number): void {
     frameTriangles = 0;
     lights = [];
     if (solidBatches && mode !== "loading") {
-        solidBatches.begin(); peopleBatches.begin(); fxBatches.begin();
+        solidBatches.begin(); peopleBatches.begin(); fxBatches.begin(); smokeBatches.begin();
         drawProps(cam.pos, cam.target);
         if (game) {
             drawPeople(cam.pos);
@@ -667,19 +773,24 @@ function draw(dt: number): void {
             drawFx(cam.pos);
             drawPickups(cam.pos);
             drawKesh(cam.pos);
+            drawBeasts(cam.pos);
             drawFirebase();
         }
-        drawSource();
-        solidBatches.flush(); peopleBatches.flush(); fxBatches.flush();
+        drawSource(cam.pos);
+        drawAtmosphere(cam.pos);
+        flushSmoke();
+        solidBatches.flush(); peopleBatches.flush(); fxBatches.flush(); smokeBatches.flush();
     }
     drawViewModel(cam);
     updateLook(dt, cam);
     updateShadows(cam);
     renderer.writeWorld(look, game?.time ?? realTime, [w, h], pickLights(cam.pos));
-    lastTriangles = frameTriangles + terrainTriangles + renderer.trianglesOf("ab-outer");
+    lastTriangles = frameTriangles + terrainTriangles + renderer.trianglesOf("ab-outer") + renderer.trianglesOf("ab-canyon");
     hud.timer += dt;
     const interval = mode === "loading" ? 0.1 : game?.cinema ? 1 / 30 : 1 / 30;
     if (hud.timer >= interval || fixedStep) { drawUi(hud.timer, w, h, cam); hud.timer = 0; }
+    sound.setListener(cam.pos, norm3([cam.target[0] - cam.pos[0], cam.target[1] - cam.pos[1], cam.target[2] - cam.pos[2]]));
+    sound.setMood(musicMood());
     if (game) sound.step(dt, realTime, cam.pos, nearestRotor(cam.pos), depthBelowRim(cam.pos[1]));
 }
 
@@ -712,7 +823,11 @@ function norm3(v: V3): V3 { const l = Math.hypot(...v) || 1; return [v[0] / l, v
 function drawPeople(cam: V3): void {
     const g = game!;
     const list: { a: Actor | null; x: number; y: number; z: number; yaw: number; look: string; d: number }[] = [];
-    for (const a of g.combat.actors) list.push({ a, x: a.x, y: a.y, z: a.z, yaw: a.yaw, look: a.look, d: Math.hypot(a.x - cam[0], a.y - cam[1], a.z - cam[2]) });
+    for (const a of g.combat.actors) {
+        // Beasts are drawn by drawBeasts; a citizen who reached their door is inside.
+        if (a.role === "beast" || a.inside) continue;
+        list.push({ a, x: a.x, y: a.y, z: a.z, yaw: a.yaw, look: a.look, d: Math.hypot(a.x - cam[0], a.y - cam[1], a.z - cam[2]) });
+    }
     // Alex himself, seen from outside in cutscenes - and on Kesh's back (drawn with Kesh).
     if ((g.cinema || g.phase === "complete") && !g.ch2?.mounted) list.push({ a: null, x: g.body.x, y: g.body.y, z: g.body.z, yaw: g.body.yaw, look: "trooper-m", d: Math.hypot(g.body.x - cam[0], g.body.y - cam[1], g.body.z - cam[2]) });
     list.sort((p, q) => p.d - q.d);
@@ -853,6 +968,44 @@ function drawKesh(cam: V3): void {
     void altitude;
 }
 
+/**
+ * Behemoths: the body by level of detail, each leg swung about its hip by the walk cycle
+ * (diagonal pairs together), the fire glowing in its throat; fallen, it rolls onto its side.
+ */
+function drawBeasts(cam: V3): void {
+    const g = game!;
+    const m3 = behemothMeshes;
+    if (!m3) return;
+    for (const a of g.combat.actors) {
+        if (a.role !== "beast") continue;
+        const d = Math.hypot(a.x - cam[0], a.y - cam[1], a.z - cam[2]);
+        if (d > 1500 * detail) continue;
+        const dead = !alive(a);
+        const k = dead ? Math.min(1, a.deadT / 1.4) : 0;
+        const breathing = a.state === "cast";
+        const base = eulerMatrix([a.x, a.y - k * 0.6, a.z], a.yaw, breathing ? -0.05 : 0, k * k * 1.35);
+        const rel = d / 6 / detail;
+        const lod = rel < 25 ? 0 : rel < 90 ? 1 : 2;
+        const sphere = [a.x, a.y + 3, a.z, 8];
+        const tint = a.hurtT > 0 ? [1, 0.55, 0.45, 0] : [1, 1, 1, 0];
+        addInstance(solidBatches, m3.body[lod], base, tint, [0, 0, 0, 0], [1, 0, 0, 0], sphere);
+        const [hx, hy, hz] = behemothHip();
+        const legs: [string, number, number, number][] = [[m3.legs[0], hx, hz, 0], [m3.legs[1], -hx, hz, Math.PI], [m3.legs[2], hx, -hz, Math.PI], [m3.legs[3], -hx, -hz, 0]];
+        for (const [key, px, pz, ph] of legs) {
+            const swing = dead ? 0.3 : Math.sin(a.phase * 0.45 + ph) * Math.min(0.35, a.swing * 0.9);
+            const c = Math.cos(swing), sn = Math.sin(swing);
+            const rx: Mat4 = [1, 0, 0, 0, 0, c, sn, 0, 0, -sn, c, 0, 0, 0, 0, 1];
+            const local = multiply(multiply(placeMatrix(px, hy, pz), rx), placeMatrix(-px, -hy, -pz));
+            addInstance(solidBatches, key, multiply(base, local), tint, [0, 0, 0, 0], [1, 0, 0, 0], sphere);
+        }
+        if (!dead && d < 600) {
+            const glow = breathing ? 3.5 : 1.2 + 0.4 * Math.sin(g.time * 3);
+            lights.push({ pos: [a.x + Math.sin(a.yaw) * 4.3, a.y + 3, a.z + Math.cos(a.yaw) * 4.3], radius: breathing ? 26 : 9, color: [1, 0.55, 0.2], intensity: glow });
+        }
+    }
+    void beastSeat;
+}
+
 /** Firebase Lantern's floodlights (Chapter Two): the one warm place on the floor. */
 function drawFirebase(): void {
     if (game?.chapter !== 2) return;
@@ -877,7 +1030,7 @@ function drawFx(cam: V3): void {
         if (d > 1800) continue;
         const s = p.size;
         if (p.kind === "smoke") {
-            addInstance(fxBatches, FX.smoke, placeMatrix(p.x, p.y, p.z, p.spin, s), [p.tint[0], p.tint[1], p.tint[2], 0], [0, 0, 0, 0], [op, 0, 0, 0]);
+            queueSmoke(cam, p.x, p.y, p.z, p.spin, s, [p.tint[0], p.tint[1], p.tint[2], 0], op * 0.8);
         } else {
             const gl = particleGlow(p);
             const m = p.flame ? multiply(placeMatrix(p.x, p.y - s * 0.3, p.z, p.spin), [s, 0, 0, 0, 0, s * 2.4, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]) : placeMatrix(p.x, p.y, p.z, p.spin, s);
@@ -937,7 +1090,7 @@ function drawPickups(cam: V3): void {
     const g = game!;
     for (const p of g.pickups) {
         if (p.taken || p.kind === "supply") continue;
-        const k = pickupMeshes.get(p.item);
+        const k = pickupMeshes.get(p.kind === "loot" || p.kind === "potion" || p.kind === "tech" ? p.kind : p.item);
         if (!k) continue;
         const d = Math.hypot(p.x - cam[0], p.y - cam[1], p.z - cam[2]);
         if (d > 120) continue;
@@ -963,21 +1116,80 @@ function sourceState(t: number): { color: [number, number, number]; intensity: n
     // A dying heartbeat: mostly dim, a pulse now and then, a flicker.
     const beat = Math.pow(Math.max(0, Math.sin(t * 0.9)), 8);
     const flicker = 0.85 + 0.15 * Math.sin(t * 13.1) * Math.sin(t * 7.7);
-    return { color: c, intensity: (0.35 + 0.65 * beat) * flicker };
+    return { color: c, intensity: (0.55 + 0.45 * beat) * flicker };
 }
 
-function drawSource(): void {
+let fallX: number | null = null;
+function drawSource(cam: V3): void {
     const t = game?.time ?? realTime;
     const s = sourceState(t);
     look.sourceColor = s.color;
     look.sourceIntensity = 0.55 * s.intensity;
     look.sourcePos = [SOURCE[0] - 40, FLOOR_Y + 60, SOURCE[2]];
     look.sourceReach = 520;
-    // The fall: a ribbon from the gash in the wall down to the pool.
+    // The fall: a ribbon from the gash in the wall down to the pool, just off the cliff's face
+    // (found once: where the ground at the fall's foot first drops away below its top).
     const top = SOURCE[1], bottom = grid.height(SOURCE_POOL[0], SOURCE_POOL[1]);
-    const m = frameMatrix([SOURCE[0] - 12, top, SOURCE[2]], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 46, top - bottom, 30);
-    addInstance(fxBatches, FX.waterfall, m, [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], [SOURCE[0], (top + bottom) / 2, SOURCE[2], (top - bottom) * 0.6]);
-    lights.push({ pos: [SOURCE_POOL[0], bottom + 6, SOURCE_POOL[1]], radius: 140, color: s.color, intensity: 2.5 * s.intensity });
+    if (fallX === null) {
+        let x = SOURCE[0];
+        while (x > SOURCE_POOL[0] && grid.height(x, SOURCE[2]) > (top + bottom) / 2) x -= 1;
+        fallX = x - 4;
+    }
+    const m = frameMatrix([fallX, top, SOURCE[2]], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 46, top - bottom, 30);
+    addInstance(fxBatches, FX.waterfall, m, [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], [fallX, (top + bottom) / 2, SOURCE[2], (top - bottom) * 0.6]);
+    // Spray where it lands: a pale, glowing mist rising off the pool.
+    for (let k = 0; k < 7; k++) {
+        const u = (t * 0.05 + k / 7) % 1;
+        const a = k * 2.4 + t * 0.03;
+        const size = 9 + u * 26;
+        queueSmoke(cam, fallX - 8 - u * 22 + Math.cos(a) * 6, bottom + 4 + u * 40, SOURCE[2] + Math.sin(a) * 14, k + u, size, [0.45 + s.color[0] * 0.25, 0.5 + s.color[1] * 0.25, 0.55 + s.color[2] * 0.25, 0], Math.sin(Math.PI * u) * 0.32);
+    }
+    lights.push({ pos: [SOURCE_POOL[0], bottom + 8, SOURCE_POOL[1]], radius: 160, color: s.color, intensity: 3.2 * s.intensity });
+    lights.push({ pos: [fallX - 6, bottom + 60, SOURCE[2]], radius: 120, color: s.color, intensity: 1.8 * s.intensity });
+}
+
+/** Smoke billowing out of the crack, and the fires too far off to be real ones. */
+let plumes: Plume[] = [];
+function drawAtmosphere(cam: V3): void {
+    const t = game?.time ?? realTime;
+    for (const pl of plumes) {
+        const d = Math.hypot(pl.x - cam[0], pl.z - cam[2]);
+        // Far plumes draw fewer, bigger puffs.
+        const count = d > 2500 ? 6 : d > 1200 ? 9 : 12;
+        for (const pf of plumePuffs(pl, t, [3.2, 1.1], count)) {
+            if (pf.opacity < 0.04) continue;
+            const g = pf.shade;
+            queueSmoke(cam, pf.x, pf.y, pf.z, pf.spin, pf.size, [g, g * 0.95, g * 0.92, 0], pf.opacity * 0.7);
+        }
+        // A vent's ember glow at the foot of the near ones.
+        if (d < 700 && !pl.far) lights.push({ pos: [pl.x, pl.y + 6, pl.z], radius: 60, color: [1, 0.45, 0.18], intensity: 0.9 });
+    }
+    // The caves' own light: their crystals, glowing in the dark.
+    for (const c of CAVES) {
+        const [cx, cz] = c.chamber.at;
+        if (Math.hypot(cx - cam[0], cz - cam[2]) > 220) continue;
+        const y = grid.height(cx, cz);
+        const pulse = 0.85 + 0.15 * Math.sin(t * 1.3);
+        lights.push({ pos: [cx + 6, y + 3, cz + 4], radius: 22, color: [0.45, 0.9, 1], intensity: 2.2 * pulse });
+        lights.push({ pos: [cx - 7, y + 2.5, cz - 2], radius: 18, color: [0.75, 0.55, 1], intensity: 1.8 * pulse });
+        const mid = c.path[2];
+        lights.push({ pos: [mid[0], grid.height(mid[0], mid[1]) + 2, mid[1]], radius: 14, color: [0.5, 0.95, 0.85], intensity: 1.2 * pulse });
+    }
+    // Fires beyond the real ones' reach: tongues of flame at their sites, flickering.
+    if (!game) return;
+    for (let i = 0; i < game.fireSites.length; i++) {
+        const f = game.fireSites[i];
+        const d = Math.hypot(f.x - cam[0], f.z - cam[2]);
+        if (d < 400 || d > 3200) continue;
+        const y = grid.height(f.x, f.z);
+        for (let k = 0; k < 3; k++) {
+            const flick = 0.75 + 0.25 * Math.sin(t * (7 + k * 3) + i * 1.7);
+            const s = f.radius * (1.1 - k * 0.25) * flick;
+            const m = multiply(placeMatrix(f.x + (k - 1) * f.radius * 0.5, y + s * 1.1, f.z + Math.sin(i + k) * f.radius * 0.4, t * 0.5 + k), [s, 0, 0, 0, 0, s * 2.6, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]);
+            addInstance(fxBatches, FX.fire, m, [1, 0.6 - k * 0.1, 0.25, 1.4], [0, 0, 0, 0], [1, 0, 0, i * 0.3]);
+        }
+        if (d < 900) lights.push({ pos: [f.x, y + 3, f.z], radius: 30 + f.radius * 10, color: [1, 0.5, 0.2], intensity: 1.6 });
+    }
 }
 
 function drawViewModel(cam: { pos: V3; target: V3; fov: number }): void {
@@ -1062,6 +1274,7 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
     const p = painter;
     p.begin();
     for (const t of hud.toasts) t.age += dt;
+    hud.xpGain.age += dt;
     if (hud.banner) { hud.banner.age += dt; if (hud.banner.age > 6.5) hud.banner = null; }
     hud.toasts = hud.toasts.filter(t => t.age < 4.5);
     hud.hit = Math.max(0, hud.hit - dt);
@@ -1083,7 +1296,7 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
         } else {
             drawHud(p, hudView(w, h, cam));
             if (!g.alive) drawDead(p, w, h, g.deadT);
-            if (mode === "inventory") drawInventory(p, inventoryView(w, h));
+            if (mode === "inventory") { if (invPage === "char") drawCharacter(p, characterView(w, h)); else drawInventory(p, inventoryView(w, h)); }
             if (mode === "trade" && g.ch2) drawTrade(p, { w, h, credits: g.inv.credits, sell: g.ch2.sellable(), artifacts: g.inv.artifacts.filter(a => a !== "river-idol" || !g.flags.idolHeld).length, items: SHOP.map(it => ({ ...it, can: g.ch2!.canBuy(it.id) })) });
         }
     }
@@ -1110,13 +1323,20 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
             if (d > 160) continue;
             const visible = d < 130 && world!.clear(e.pos, [a.x, a.y + 1.3, a.z]);
             if (!visible && !scanning && a.role !== "leader") continue;
-            markers.push({ kind: a.role === "leader" ? "leader" : "hostile", pos: [a.x, a.y, a.z], label: a.role === "leader" ? "THE WARDEN" : a.role === "caster" ? "ADEPT" : "WARDEN", dist: d, visible, hp: a.hp / a.maxHp, assist: g.assist?.id === a.id });
+            const def = a.kind ? ENEMIES[a.kind as EnemyKind] : null;
+            const rank = RANKS[(a.rank as Rank) ?? "initiate"];
+            const name = a.role === "leader" ? "THE WARDEN" : (def?.name ?? (a.role === "caster" ? "Adept" : "Warden")).toUpperCase();
+            markers.push({
+                kind: a.role === "leader" ? "leader" : "hostile", pos: [a.x, a.y, a.z], label: rank.label ? `${rank.label} ${name}` : name, dist: d, visible, hp: a.hp / a.maxHp,
+                assist: g.assist?.id === a.id, color: rank.color, height: a.role === "beast" ? 6.5 : 1.9 * a.scale, ward: a.ward ? a.ward / (150 * rank.hp) : 0,
+            });
         } else markers.push({ kind: "squad", pos: [a.x, a.y, a.z], label: (SQUAD.find(s => s.name === a.name)?.callsign ?? a.name).toUpperCase(), dist: d, visible: true, hurt: a.hp < a.maxHp * 0.5 });
     }
     for (const pk of g.pickups) {
         if (pk.taken || pk.kind === "supply") continue;
         const d = Math.hypot(pk.x - b.x, pk.z - b.z);
-        if (d < 22 || (pk.kind === "quest" && d < 60) || (scanning && d < (g.flags.scanBoost ? 280 : 140))) markers.push({ kind: "pickup", pos: [pk.x, pk.y + 0.4, pk.z], label: pk.label, dist: d, visible: true });
+        const reach = (g.flags.scanBoost ? 280 : 140) * stats(g.rpg).scanRange;
+        if (d < 22 || ((pk.kind === "quest" || pk.kind === "potion" || pk.kind === "tech") && d < 60) || (scanning && d < reach)) markers.push({ kind: "pickup", pos: [pk.x, pk.y + 0.4, pk.z], label: pk.kind === "loot" ? "SEARCH" : pk.label, dist: d, visible: true });
     }
     for (const a of g.aircraft) if (a.mode !== "parked" && a.mode !== "wreck") markers.push({ kind: "aircraft", pos: a.pos, label: a.callsign, dist: Math.hypot(a.pos[0] - b.x, a.pos[1] - b.y, a.pos[2] - b.z), visible: true });
     if (g.ch2) {
@@ -1134,7 +1354,8 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
     }
     const spec = WEAPONS[g.inv.current];
     const it = g.interactable;
-    const prompt = it ? (it.kind === "site" ? `[E]  ${it.label.toUpperCase()}` : "id" in it ? (it.kind === "vial" ? "[E]  DRINK" : `[E]  ${it.kind === "artifact" ? "COLLECT" : "TAKE"}  ${it.label}`) : `[E]  ${it.label.toUpperCase()}`) : null;
+    const pickPrompt = (pk: { kind: string; label: string }): string => pk.kind === "vial" ? "[E]  DRINK" : pk.kind === "loot" ? `[E]  ${pk.label.toUpperCase()}` : pk.kind === "potion" ? `[E]  DRINK THE ${pk.label.toUpperCase()}` : pk.kind === "tech" ? `[E]  INSTALL  ${pk.label.toUpperCase()}` : `[E]  ${pk.kind === "artifact" ? "COLLECT" : "TAKE"}  ${pk.label}`;
+    const prompt = it ? (it.kind === "site" ? `[E]  ${it.label.toUpperCase()}` : "id" in it ? pickPrompt(it) : `[E]  ${it.label.toUpperCase()}`) : null;
     const hostiles = living(g.combat, "below").filter(a => a.role !== "leader").length;
     return {
         w, h, time: g.time, cam: { pos: cam.pos, target: cam.target, fov: cam.fov, w, h },
@@ -1167,6 +1388,50 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
         flight: g.ch2?.mounted ? { speed: g.ch2.kesh.speed, altitude: g.ch2.kesh.y - grid.height(g.ch2.kesh.x, g.ch2.kesh.z), stamina: g.ch2.kesh.stamina, boost: g.ch2.kesh.throttle > 1.5, grounded: g.ch2.kesh.grounded } : null,
         credits: g.ch2 ? g.inv.credits : null,
         banner: hud.banner,
+        pack: packView(),
+        level: { level: g.rpg.level, xp: g.rpg.xp, next: xpToNext(g.rpg.level), points: g.rpg.points, gain: hud.xpGain.age < 2.5 ? hud.xpGain.amount : 0 },
+        resonance: g.rpg.powers.length ? { value: g.rpg.resonance, max: stats(g.rpg).resonanceMax, power: g.rpg.power ? POWERS[g.rpg.power].name : null, cost: g.rpg.power ? powerCost(g.rpg, g.rpg.power) : 0, cooldown: g.powerCd } : null,
+        crouch: b.crouch,
+        hidden: b.crouch > 0.5 && !g.combat.actors.some(a => alive(a) && a.target === -1),
+        ward: g.ward.hp,
+        veil: g.veilT,
+    };
+}
+
+/** The right-hand pack panel. */
+function packView(): PackView {
+    const g = game!;
+    const short: Record<WeaponId, string> = { "coil-rifle": "Rifle", "arc-pistol": "Sidearm", "monoblade": "Blade", "warden-glaive": "Glaive", "okafor-carbine": "Carbine" };
+    const items: string[] = [];
+    if (g.ch2) {
+        const tags = g.ch2.counters.dogtag ?? 0;
+        if (tags && g.ch2.quests.status("tags") === "active") items.push(`TAGS ${tags}/6`);
+        if (g.flags.riverWater) items.push("RIVER WATER");
+        if (g.flags.idolHeld) items.push("RIVER IDOL");
+    }
+    return {
+        credits: g.ch2 ? g.inv.credits : null,
+        medgel: g.inv.medgel,
+        draughts: g.inv.draughts ?? 0,
+        weapons: g.inv.weapons.map(id => ({ name: short[id], current: g.inv.current === id, ammo: WEAPONS[id].kind === "gun" ? `${g.inv.mags[id] ?? 0} / ${g.inv.reserve[id] ?? 0}` : "EDGE" })),
+        artifacts: g.inv.artifacts.length,
+        artifactValue: artifactValue(g.inv),
+        items,
+        powers: g.rpg.powers.map(id => ({ name: POWERS[id].name, current: g.rpg.power === id, ready: g.rpg.resonance >= powerCost(g.rpg, id) })),
+        upgrades: g.rpg.upgrades.map(id => UPGRADES[id].name.split(" ").pop() ?? id),
+    };
+}
+
+function characterView(w: number, h: number) {
+    const g = game!;
+    const st = stats(g.rpg);
+    return {
+        w, h, level: g.rpg.level, xp: g.rpg.xp, next: xpToNext(g.rpg.level), points: g.rpg.points,
+        health: st.maxHealth, armor: g.armorCap(),
+        perks: PERKS.map(k => ({ id: k.id, name: k.name, path: k.path, rank: g.rpg.perks[k.id] ?? 0, max: k.max, text: k.text, can: g.rpg.points > 0 && (g.rpg.perks[k.id] ?? 0) < k.max })),
+        powers: g.rpg.powers.map(id => ({ name: POWERS[id].name, potion: POWERS[id].potion, cost: powerCost(g.rpg, id), text: POWERS[id].text, current: g.rpg.power === id })),
+        upgrades: Object.values(UPGRADES).map(u => ({ name: u.name, text: u.text, installed: g.rpg.upgrades.includes(u.id) })),
+        places: g.ch2 ? g.ch2.places().map(pl => ({ name: pl.name, found: g.rpg.discovered.includes(pl.id) })) : [],
     };
 }
 
@@ -1182,6 +1447,10 @@ function inventoryView(w: number, h: number) {
         objective: g.currentObjective()?.text ?? null,
         credits: g.ch2 ? g.inv.credits : undefined,
         journal: g.ch2?.journal(),
+        armorMax: g.armorCap(),
+        medgelHeal: stats(g.rpg).medgel,
+        draughts: g.inv.draughts ?? 0,
+        points: g.rpg.points,
     };
 }
 
@@ -1196,9 +1465,10 @@ addon.onInit(() => {
     solidBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.instanced, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-solid", idleFrames: 240 });
     peopleBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.people, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-people", idleFrames: 240 });
     fxBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.instancedFx, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-fx", idleFrames: 240 });
+    smokeBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.smoke, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-smoke", idleFrames: 240 });
     loadSteps = makeLoadSteps();
     lookQueue = LOOKS.map(l => l.id);
-    pickupQueue = [...Object.keys(ARTIFACTS), "warden-glaive", "medgel", "vial", "recorder", "dogtag", "relay"];
+    pickupQueue = [...Object.keys(ARTIFACTS), "warden-glaive", "medgel", "vial", "recorder", "dogtag", "relay", "loot", "potion", "tech"];
     Entropy.setGameMode(false);
     Entropy.Lighting.updateSun({ horizonColor: [0, 0, 0], zenithColor: [0, 0, 0], sunDirection: SUN_DIR, sunColor: [1, 0.9, 0.8], sunIntensity: 0.2 });
     painter = safeEnginePainter(addon.UI as unknown as DrawApi);

@@ -1354,6 +1354,11 @@ export interface NoteConfig {
   reverbDamping?: number;
   /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. */
   reverbMix?: number;
+  /** Stereo position, -1 (left) .. 1 (right), default 0. The far ear also hears it a fraction of
+   *  a millisecond late, as a real head would - games use this for positional sound. */
+  pan?: number;
+  /** 0 (clear, default) .. 1: low-passed, as a sound far away, behind you or through a wall. */
+  muffle?: number;
 }
 
 /** The last argument of `Audio.renderPatternToWav`. */
@@ -3600,6 +3605,10 @@ export interface PipelineConfig {
   shadowCaster?: boolean;
   /** With `sunShadows`: cast into only the first this-many cascades (default all). */
   shadowCascades?: number;
+  /** Blended see-through surfaces (smoke, glass): alpha-blended, depth tested but never written,
+   *  and drawn after every opaque mesh (in creation order; a batch's instances in the order they
+   *  were written, so write them far to near). */
+  transparent?: boolean;
   // [key: string]: unknown;
 }
 

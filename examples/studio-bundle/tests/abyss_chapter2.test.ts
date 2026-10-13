@@ -170,6 +170,39 @@ describe("Kesh, the skywing", () => {
     });
 });
 
+describe("climbing on and off Kesh", () => {
+    it("lies about 500 m from the firebase", () => {
+        const d = Math.hypot(PLACES2.hollow[0] - PLACES2.firebase[0], PLACES2.hollow[1] - PLACES2.firebase[1]);
+        expect(d).toBeGreaterThan(420);
+        expect(d).toBeLessThan(560);
+    });
+
+    it("can be mounted from its head, flank or tail, and a press held or repeated never climbs straight back off", () => {
+        const g = newGame();
+        g.start("skybound");
+        skipScene(g);
+        const k = g.ch2!.kesh;
+        expect(k.healed).toBe(true);
+        // The chapter's skybound start leaves the player within reach.
+        step(g, 1);
+        expect(g.interactable && "id" in g.interactable ? g.interactable.id : null).toBe("creature-ride");
+        const fx = Math.sin(k.yaw), fz = Math.cos(k.yaw), rx = Math.cos(k.yaw), rz = -Math.sin(k.yaw);
+        for (const [along, side] of [[6.5, 0], [0, 3.5], [-5.5, 0.5]]) {
+            if (g.ch2!.mounted) { g.ch2!.dismount(); step(g, 20); }
+            g.teleportTo(k.x + fx * along + rx * side, k.z + fz * along + rz * side, 0);
+            step(g, 1);
+            expect(g.interactable && "id" in g.interactable ? g.interactable.id : null, `at ${along},${side}`).toBe("creature-ride");
+            // Twelve frames of interact in a row (a held key, a held button, a key repeat).
+            step(g, 12, { interact: true });
+            expect(g.ch2!.mounted).toBe(true);
+        }
+        // Once settled, a fresh press does climb down.
+        step(g, 20);
+        interact(g);
+        expect(g.ch2!.mounted).toBe(false);
+    });
+});
+
 describe("Chapter One, unchanged", () => {
     it("still opens, lands on Ledge Kilo with its squad, and knows nothing of Chapter Two", () => {
         const g = newGame();

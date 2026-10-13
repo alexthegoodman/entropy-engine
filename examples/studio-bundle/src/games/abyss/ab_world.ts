@@ -2,7 +2,10 @@
 //
 // The map is 3.2 km square (x east, z north, y up, meters; the rim of the crack is near y = 0).
 // The crack the Deep Bore tore open covers about half of it: a jagged superellipse 2.9 km long
-// and 1.8 km wide, nearly straight down to a cavern floor 540 m below. The walls fall in terraces
+// and 1.8 km wide, nearly straight down to a cavern floor 540 m below - and it does not end at
+// the map: west of x = -900 it runs on as a canyon a kilometer and a half wide, off the map and
+// out to the horizon (the Western Dark; three hundred kilometers of it, unmapped). Nobody can
+// walk or fly all of it: the air past the map's edge is the Bore's fallout. The walls fall in terraces
 // (vertical faces between narrow ledges, the strata of the planet's crust); scree banks against
 // their feet. On the floor run the dry bed of the sacred river from the Source - a waterfall in
 // the east wall - and the ruins of the first settlement the expedition finds.
@@ -28,6 +31,8 @@ export const LEDGE_Y = -238;
 export const CRACK_A = 1340;
 export const CRACK_B = 900;
 export const CRACK_P = 2.4;
+/** West of this x the crack stops closing and runs on as a canyon of the width it has here. */
+export const CANYON_X = -900;
 
 export type V2 = [number, number];
 export type V3 = [number, number, number];
@@ -135,11 +140,18 @@ export const riftBend = (x: number): number => 70 * Math.sin(x / 470 + 0.6) + 28
  */
 export function crackSD(x: number, z0: number): number {
     const z = z0 - riftBend(x);
-    const nx = Math.abs(x) / CRACK_A, nz = Math.abs(z) / CRACK_B;
+    // West of CANYON_X the outline is held at its width there: the walls run on west.
+    const xs = Math.max(x, CANYON_X);
+    const nx = Math.abs(xs) / CRACK_A, nz = Math.abs(z) / CRACK_B;
     const rho = Math.pow(Math.pow(nx, CRACK_P) + Math.pow(nz, CRACK_P), 1 / CRACK_P);
-    const len = Math.hypot(x / CRACK_A, z / CRACK_B) || 1;
-    const cx = x / CRACK_A / len, cz = z / CRACK_B / len;
-    const edge = 1 + jag(cx, cz);
+    const len = Math.hypot(xs / CRACK_A, z / CRACK_B) || 1;
+    const cx = xs / CRACK_A / len, cz = z / CRACK_B / len;
+    let edge = 1 + jag(cx, cz);
+    if (x < CANYON_X) {
+        // Each wall of the canyon wanders on its own, in bays and buttresses.
+        const k = smoothstep(CANYON_X, CANYON_X - 240, x), side = z > 0 ? 3.7 : 9.1;
+        edge += k * (fbm(x / 300, side, 3, 505) * 0.13 + fbm(x / 70, side + 2, 2, 506) * 0.035);
+    }
     // Meters per unit of rho along this direction (the radius there).
     const radius = Math.hypot(CRACK_A * cx, CRACK_B * cz);
     return (rho - edge) * radius;
@@ -162,9 +174,17 @@ function polylineDistance(x: number, z: number, line: readonly V2[]): { d: numbe
     return { d: best, t: bestT };
 }
 
+/** The dry river runs on west down the canyon, beyond the map (its bed as at the river's end). */
+export const RIVER_WEST: readonly V2[] = [
+    [-1380, -10], [-1700, 60], [-2100, -40], [-2600, 90], [-3200, 0], [-3900, 120], [-4700, -30], [-5600, 80], [-6800, -20], [-9000, 40],
+];
+
 /** Distance to the riverbed's center line (m) and how far along it from the Source (0..1). */
 export function riverDistance(x: number, z: number): { d: number; t: number } {
-    return polylineDistance(x, z, RIVER);
+    const main = polylineDistance(x, z, RIVER);
+    if (x > -1300) return main;
+    const west = polylineDistance(x, z, RIVER_WEST);
+    return west.d < main.d ? { d: west.d, t: 1 } : main;
 }
 
 /** The scorched surface plain: gentle relief, the blast lip around the rim, craters, the base pad. */
@@ -202,8 +222,9 @@ export function floorHeight(x: number, z: number, inside: number): number {
     // The Source's pool.
     const pool = Math.hypot(x - SOURCE_POOL[0], z - SOURCE_POOL[1]);
     h -= 9 * (1 - smoothstep(30, 95, pool));
-    // Scree banked against the walls (talus), steepest where it meets them.
-    const talus = Math.max(0, 1 - inside / 300);
+    // Scree banked against the walls (talus), steepest where it meets them - but not round the
+    // Source's pool: the falling water has scoured a basin at the foot of the wall.
+    const talus = Math.max(0, 1 - inside / 300) * smoothstep(70, 210, pool);
     h += talus * talus * (70 + 45 * fbm(x / 140, z / 140, 2, 24)) * (0.8 + 0.4 * ridged(x / 60, z / 60, 2, 25));
     return h;
 }
@@ -245,6 +266,10 @@ export function heightRaw(x: number, z: number): number {
         const zone = smoothstep(LEDGE[0] - 300, LEDGE[0] - 220, x) * (1 - smoothstep(RAMP_FOOT_X + 60, RAMP_FOOT_X + 160, x));
         wallW = lerp(wallW, Math.min(wallW, 85), zone);
     }
+    // At the Source the wall falls sheer too: the water has cut it back to a cliff, with its pool
+    // and the floor right at its foot.
+    const src = Math.hypot(x - SOURCE[0], z - SOURCE[2]);
+    wallW = lerp(wallW, Math.min(wallW, 34), 1 - smoothstep(120, 230, src));
     const steps = 5 + Math.round(4 * vnoise(ca * 6 + 9, sa * 6 + 2, 33));
     const jitter = 0.045 * fbm(x / 38, z / 38, 2, 35);
     const t = clamp(inside / Math.max(30, wallW) + jitter, 0, 1);
@@ -278,11 +303,19 @@ export function heightRaw(x: number, z: number): number {
     return h;
 }
 
-/** Ground beyond the map (to the horizon): plains rising into ridges. */
+/**
+ * Ground beyond the map (to the horizon): plains rising into ridges - and the canyon running on
+ * west through them, the same ground the map's own crack is made of.
+ */
 export function outerHeight(x: number, z: number): number {
     const edge = Math.max(Math.abs(x), Math.abs(z));
-    const base = 7 * fbm(x / 420, z / 420, 4, 11) + smoothstep(1250, 1650, edge) * (30 + 25 * fbm(x / 300, z / 300, 2, 14));
     const ridges = smoothstep(1800, 6000, edge) * (260 * ridged(x / 2200, z / 2200, 4, 51) + 120 * fbm(x / 900, z / 900, 3, 52));
+    if (x < CANYON_X + 200 && Math.abs(z) < 1500) {
+        // Near the canyon: the crack's own ground, the ridges kept back from its rim.
+        const d = crackSD(x, z);
+        return heightRaw(x, z) + ridges * smoothstep(0, 600, d);
+    }
+    const base = 7 * fbm(x / 420, z / 420, 4, 11) + smoothstep(1250, 1650, edge) * (30 + 25 * fbm(x / 300, z / 300, 2, 14));
     return base + ridges;
 }
 
@@ -393,6 +426,8 @@ export const LIGHT_RANGE_Y = 1024;
  */
 export class LightMap {
     readonly data = new Uint8Array(LIGHT_RES * LIGHT_RES * 4);
+    /** Roofs over the ground (caves): under each circle, up to `top`, no sun and almost no sky. */
+    roofs: { x: number; z: number; r: number; top: number }[] = [];
     readonly shadowTop = new Float32Array(LIGHT_RES * LIGHT_RES);
     readonly sky = new Float32Array(LIGHT_RES * LIGHT_RES);
     private row = 0;
@@ -456,7 +491,14 @@ export class LightMap {
                     const hy = g.height(x + dx * s, z + dz * s) - s * tanEl;
                     if (hy > top) top = hy;
                 }
-                const skyShare = this.skyLerp(x, z);
+                let skyShare = this.skyLerp(x, z);
+                for (const rf of this.roofs) {
+                    const d = Math.hypot(x - rf.x, z - rf.z);
+                    if (d > rf.r + 3) continue;
+                    const k = Math.min(1, Math.max(0, (rf.r + 3 - d) / 3));
+                    top = Math.max(top, rf.top * k + top * (1 - k));
+                    skyShare = Math.min(skyShare, skyShare * (1 - k) + 0.03 * k);
+                }
                 const t = j * LIGHT_RES + i;
                 this.shadowTop[t] = top;
                 this.sky[t] = skyShare;

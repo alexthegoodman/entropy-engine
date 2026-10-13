@@ -63,3 +63,5 @@ Headless tests: `examples/studio-bundle/tests/abyss_chapter2.test.ts` plays the 
 ## Where this goes next
 
 Kesh is the key to the open world the story wants: in later chapters it can carry Alex between the Abyss and the surface's successor states, reach the kingdoms' cities across the floor, and serve as the hub's courier. The quest engine is chapter-agnostic, so later chapters add quests as data.
+
+The open-world layer that came next (exploration, encounters, RPG, cover and stealth, caves, the prologue) and what is still left to do: [THE_ABYSS_OPEN_WORLD.md](THE_ABYSS_OPEN_WORLD.md).

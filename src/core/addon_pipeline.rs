@@ -191,7 +191,8 @@ pub fn create_addon_pipeline(
         },
         depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
             format,
-            depth_write_enabled: true,
+            // A transparent pipeline is seen through: it never hides what draws after it.
+            depth_write_enabled: config.transparent != Some(true),
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),

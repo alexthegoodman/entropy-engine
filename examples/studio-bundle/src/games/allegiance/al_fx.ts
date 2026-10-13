@@ -148,6 +148,30 @@ export function missileTrail(fx: FxState, x: number, y: number, z: number): void
     emit(fx, { kind: "fire", x, y, z, vx: 0, vy: 0, vz: 0, size: 0.32, grow: -0.6, life: 0.18, age: 0, spin: 0, spinRate: 0, tint: FIRE_HOT, heat: 2, buoyancy: 0 });
 }
 
+/**
+ * One step of a jet of flame (a beast's breath, a flamethrower) from `from` along unit `dir`:
+ * tongues of fire that rush out, swell and slow, a little smoke at the far end. `dt` paces it.
+ */
+export function flameJet(fx: FxState, from: [number, number, number], dir: [number, number, number], dt: number, reach = 18): void {
+    const r = fx.rng;
+    const n = Math.max(1, Math.round(dt * 70));
+    const speed = reach * 1.15;
+    for (let i = 0; i < n; i++) {
+        const j = 0.16;
+        const dx = dir[0] + (r.next() - 0.5) * j, dy = dir[1] + (r.next() - 0.5) * j, dz = dir[2] + (r.next() - 0.5) * j;
+        const s = speed * (0.75 + r.next() * 0.4);
+        emit(fx, { kind: "fire", x: from[0], y: from[1], z: from[2], vx: dx * s, vy: dy * s, vz: dz * s,
+            size: 0.25 + r.next() * 0.2, grow: 2.6 + r.next() * 1.4, life: 0.75 + r.next() * 0.3, age: 0, spin: r.next() * 6.28, spinRate: (r.next() - 0.5) * 5,
+            tint: r.next() < 0.6 ? FIRE_HOT : FIRE_COOL, heat: 1.8, buoyancy: 2.5, flame: r.next() < 0.3 });
+    }
+    if (r.next() < dt * 6) {
+        const g = 0.12 + r.next() * 0.08;
+        emit(fx, { kind: "smoke", x: from[0] + dir[0] * reach * 0.8, y: from[1] + dir[1] * reach * 0.8 + 1, z: from[2] + dir[2] * reach * 0.8,
+            vx: dir[0] * 3, vy: 2, vz: dir[2] * 3, size: 1.2, grow: 1.4, life: 3 + r.next() * 2, age: 0, spin: r.next() * 6.28, spinRate: 0.2,
+            tint: [g, g, g * 0.97], heat: 0, buoyancy: 0.8 });
+    }
+}
+
 /** Starts a fire (or feeds one already burning on that spot). */
 export function ignite(fx: FxState, x: number, y: number, z: number, radius: number, seconds: number, key?: string): Fire {
     for (const f of fx.fires) if (Math.hypot(f.x - x, f.z - z) < Math.max(f.radius, radius) * 0.8) {

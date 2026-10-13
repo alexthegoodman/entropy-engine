@@ -108,6 +108,11 @@ export const BEATS: Record<string, Line[]> = {
         s("Radiation spike ahead. The shrine. Same signature as the Bore.", 8),
     ],
     shrinePrompt: [s("It is strongest here. Lieutenant - something under the water is still warm.")],
+    citizens: [
+        r("Pvt. Holt", "Movement! In the street - people! Sarge, there's people!"),
+        r(CAST.okafor, "HOLD FIRE. Hold your fire! They're running - they're civilians.", 2.2),
+        s("They are running from us, Lieutenant. Into their houses. They are afraid of us.", 4.5),
+    ],
     ambushStart: [r(CAST.okafor, "Find cover! Pair up! They're on the roofs!"), r("Pvt. Saarinen", "What is that light?!", 3)],
     manDown: [r(CAST.okafor, "Man down!")],
     fallbackStart: [r(CAST.voss, "Kilo-Two, fall back to the landing zone west of the structures. Lantern Six is inbound for extraction."), r(CAST.okafor, "You heard him. Move! Move!", 5)],
@@ -152,9 +157,49 @@ export function kiloTwoFlight(t0: number, landY: number): { t: number; pos: V3 }
 
 const SOURCE_POS: V3 = SOURCE;
 
+/** The prologue's length: the world before the Bore (the opening's own timings start after it). */
+export const PROLOGUE = 30;
+
 export const OPENING: Scene = {
     id: "opening",
     shots: [
+        // --- Prologue: the two worlds, before the Bore ---
+        {
+            id: "union", duration: 10, letterbox: true, fadeIn: 2, ease: "inOut",
+            keys: [
+                { t: 0, pos: [-1300, 60, -1560], target: [-600, 10, -1150], fov: 42 },
+                { t: 10, pos: [-1180, 80, -1500], target: [-450, -20, -1000], fov: 44 },
+            ],
+            cards: [
+                { t: 1, dur: 4.2, style: "lore", lines: ["The surface was one nation: the Meridian Union,", "eleven billion souls, human and machine."] },
+                { t: 5.6, dur: 4, style: "lore", lines: ["A Parliament governed it - and SAGE,", "the mind that counsels it, and never sleeps."] },
+            ],
+            events: [{ t: 0, name: "music", args: { cue: "prologue" } }],
+        },
+        {
+            id: "bore", duration: 10, ease: "inOut",
+            keys: [
+                { t: 0, pos: [400, 950, -1100], target: [0, -300, 0], fov: 50 },
+                { t: 10, pos: [150, 640, -650], target: [-80, -540, 120], fov: 54 },
+            ],
+            cards: [
+                { t: 0.8, dur: 4.4, style: "lore", lines: ["Three years ago its instruments heard something", "beneath the Meridian Plain: a vibration no one could name."] },
+                { t: 5.6, dur: 4, style: "lore", lines: ["The Union built the Deep Bore to reach it.", "It drilled four hundred kilometers down."] },
+            ],
+            subtitles: [{ t: 8.6, speaker: CAST.sage, text: "Signal strength rising. The source is... singing.", channel: "sage" }],
+        },
+        {
+            id: "below", duration: 10, ease: "inOut", fadeOut: 1.5,
+            keys: [
+                { t: 0, pos: [560, -455, -760], target: [318, -522, -476], fov: 40 },
+                { t: 10, pos: [470, -490, -650], target: [300, -526, -430], fov: 44 },
+            ],
+            cards: [
+                { t: 0.8, dur: 4.4, style: "lore", lines: ["No survey had found what lived below the crust:", "kingdoms older than the Union, in a world without sky."] },
+                { t: 5.6, dur: 4, style: "lore", lines: ["They lived by a river of light, and the Source", "it fell from - which they worshipped as a mother."] },
+            ],
+        },
+        // --- The opening as it was: the blast, the expedition, the descent ---
         {
             id: "black", duration: 10, letterbox: true, fadeIn: 0, keys: [{ t: 0, pos: [-1060, 34, -1640], target: [-620, 18, -980] }],
             cards: [
@@ -171,7 +216,7 @@ export const OPENING: Scene = {
             ],
             cards: [{ t: 2.5, dur: 5.5, style: "title", lines: ["THE ABYSS"] }],
             subtitles: [{ t: 3, speaker: CAST.voss, text: "All Lantern elements, this is Lantern Actual. Survey window opens in five.", channel: "radio" }],
-            events: [{ t: 0, name: "flyover" }],
+            events: [{ t: 0, name: "flyover", args: { offset: PROLOGUE } }],
         },
         {
             id: "swarm", duration: 10, ease: "linear",
@@ -224,7 +269,8 @@ export const OPENING: Scene = {
             ],
             subtitles: [
                 { t: 1.2, speaker: CAST.okafor, text: "...Saints.", channel: "radio" },
-                { t: 4.5, speaker: CAST.voss, text: "All elements: hold your lights. Nobody touches anything.", channel: "radio" },
+                { t: 3.0, speaker: CAST.sage, text: "Lit windows. Cultivated ground. Lieutenant, these people did not know we were above them.", channel: "sage" },
+                { t: 6.4, speaker: CAST.voss, text: "All elements: hold your lights. Nobody touches anything.", channel: "radio" },
             ],
             events: [{ t: 0.5, name: "music", args: { cue: "city" } }],
         },

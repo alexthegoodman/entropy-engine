@@ -122,6 +122,38 @@ fn fbm(p: vec3<f32>) -> f32 {
     return vnoise(p) * 0.55 + vnoise(p * 2.03) * 0.28 + vnoise(p * 4.1) * 0.17;
 }
 
+// Scales: overlapping plates on a 3D cell grid (size meters). x: how lit the plate is (each
+// overlaps the next toward -z: bright at its free edge, shadowed where the one before covers it,
+// dark in the grooves); yzw: a nudge for the normal (each plate a shallow dome). A plate's tint
+// varies a little from its neighbors'.
+fn scale_pattern(q_in: vec3<f32>, size: f32) -> vec4<f32> {
+    let q = q_in / size;
+    let cell = floor(q);
+    var f1 = 9.0;
+    var f2 = 9.0;
+    var off = vec3<f32>(0.0);
+    var id = vec3<f32>(0.0);
+    for (var k = -1; k <= 1; k = k + 1) {
+        for (var j = -1; j <= 1; j = j + 1) {
+            for (var i = -1; i <= 1; i = i + 1) {
+                let c = cell + vec3<f32>(f32(i), f32(j), f32(k));
+                // Rows staggered along z, as scales lie.
+                let jitter = vec3<f32>(hash3(c), hash3(c + vec3<f32>(7.1, 3.3, 1.7)), hash3(c + vec3<f32>(2.9, 8.1, 5.3))) * 0.55 + vec3<f32>(0.225);
+                let d = c + jitter - q;
+                let l = dot(d, d);
+                if (l < f1) { f2 = f1; f1 = l; off = d; id = c; } else if (l < f2) { f2 = l; }
+            }
+        }
+    }
+    let edge = sqrt(f2) - sqrt(f1);
+    let groove = smoothstep(0.02, 0.16, edge);
+    // The overlap: lit toward the plate's free edge (+z side of its center), covered on the other.
+    let lap = clamp(0.5 - off.z * 1.1, 0.0, 1.0);
+    let tint = 0.88 + 0.24 * hash3(id + vec3<f32>(4.4, 0.0, 9.9));
+    let shade = tint * (0.55 + 0.45 * groove) * (0.78 + 0.32 * lap);
+    return vec4<f32>(shade, -off * 0.55 * groove);
+}
+
 // The studio environment: what glossy and metal surfaces reflect, with a softbox up and to the side.
 fn sky(d: vec3<f32>) -> vec3<f32> {
     if (d.y < 0.0) {
@@ -304,6 +336,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         base = mix(base, vec3<f32>(0.55, 0.6, 0.68) * base * 2.2, smoothstep(0.7, 0.9, vnoise(p * 420.0)) * 0.25);
         sheen = 0.2;
         spec_scale = 0.25;
+    } else if (pattern == 22) {
+        // Scales (scale_pattern above): plates a few centimeters across, glossy on their crowns.
+        let sc = scale_pattern(p, 0.075);
+        base = base * sc.x;
+        n = normalize(n + sc.yzw * (1.0 - abs(dot(sc.yzw, n))));
+        rough = clamp(rough * (0.65 + 0.5 * (1.0 - sc.x)), 0.03, 1.0);
+        spec_scale = 0.85;
     } else if (pattern == 21) {
         // Knit: rows of V-shaped stitches round the garment.
         var u = p.x;

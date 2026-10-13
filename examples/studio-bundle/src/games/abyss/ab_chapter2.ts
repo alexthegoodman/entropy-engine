@@ -15,11 +15,12 @@ import { spawn, alive, kill, type Actor } from "./ab_combat";
 import { QuestBook, type QuestEvent, type QuestState, type QuestContext, type QuestDef } from "./ab_quests";
 import {
     QUESTS, NPCS, SENTRIES, PLACES2, DOG_TAGS, PATROLS, HUNTERS, OFFERS, STAGE_LINES, TALK_LINES, IDLE, DONE_LINES, IDOL_LINES, SAGE_LINES, SHOP,
-    AFTERMATH, HOLLOW, SKYBOUND, FIRSTLIGHT, CAST2, type ChapterTwoStart,
+    AFTERMATH, HOLLOW, SKYBOUND, FIRSTLIGHT, CAST2, PLACES_OF_NOTE, ENCOUNTERS, ELEVEN, PROCESSION, type ChapterTwoStart, type PlaceOfNote,
 } from "./ab_script2";
 import { newCreature, stepCreature, stepRidden, seatPosition, chaseCamera, altitude, type Creature, NO_FLIGHT } from "./ab_creature";
 import { addMouse, stepLook } from "../allegiance/al_aim";
 import { WEAPONS, ARTIFACTS, artifactValue, type WeaponId } from "./ab_player";
+import { kindOfLook, newProgress, XP, type EnemyKind, type Rank, type Progress } from "./ab_rpg";
 import { shootDown, type Aircraft } from "./ab_flight";
 import type { Scene } from "./ab_cinema";
 import type { Line } from "./ab_script";
@@ -35,9 +36,21 @@ export interface Ch2Save {
     inv: Game["inv"];
     pos: [number, number, number];
     kesh: { x: number; z: number; yaw: number; healed: boolean; trust: number; resting: boolean };
+    /** Experience, perks, powers, upgrades and places found (absent in saves from before them). */
+    rpg?: Progress;
 }
 
 const NEAR_TALK = 3.4;
+
+/**
+ * How far (m) Alex stands from Kesh's body: from the line nose to tail, not its center, so it can
+ * be reached from its head, its flank or its tail alike.
+ */
+export function keshReach(k: Creature, x: number, z: number): number {
+    const fx = Math.sin(k.yaw), fz = Math.cos(k.yaw);
+    const t = Math.max(-4.5, Math.min(5.5, (x - k.x) * fx + (z - k.z) * fz));
+    return Math.max(0, Math.hypot(x - (k.x + fx * t), z - (k.z + fz * t)) - 1.2);
+}
 
 export class ChapterTwo {
     readonly quests = new QuestBook(QUESTS);
@@ -61,6 +74,8 @@ export class ChapterTwo {
     private sageAt = -100;
     private cam: { pos: V3; target: V3 } | null = null;
     private landing = false;
+    /** Game time of the last mount or dismount: a press can't undo it for a moment. */
+    private toggledAt = -100;
     private counted = new Set<number>();
     private sentryIds: number[] = [];
 
@@ -101,7 +116,11 @@ export class ChapterTwo {
                 g.flags.chapterDone = true;
                 const [fx, fz] = PLACES2.firebase;
                 this.kesh.x = fx + 40; this.kesh.z = fz - 50; this.kesh.y = g.world.ground(this.kesh.x, this.kesh.z);
-            } else g.teleportTo(this.kesh.x + 4, this.kesh.z - 6, Math.atan2(-4, 6));
+            } else {
+                // Beside its flank, within reach whichever way it came to rest, facing it.
+                const k = this.kesh, rx = Math.cos(k.yaw) * 3.2, rz = -Math.sin(k.yaw) * 3.2;
+                g.teleportTo(k.x + rx, k.z + rz, Math.atan2(-rx, -rz));
+            }
         }
         g.radio = [];
     }
@@ -197,7 +216,7 @@ export class ChapterTwo {
         const g = this.g;
         for (const e of evs) {
             if (e.kind === "started") {
-                if (!quiet && e.quest.kind === "side") g.events.push({ kind: "quest", state: "started", title: e.quest.title, text: e.quest.summary });
+                if (!quiet && e.quest.kind !== "main") g.events.push({ kind: "quest", state: e.quest.kind === "encounter" ? "encounter" : "started", title: e.quest.title, text: e.quest.summary });
             } else if (e.kind === "stage") {
                 if (!quiet) {
                     const lines = STAGE_LINES[`${e.quest.id}/${e.stage.id}`];
@@ -212,6 +231,7 @@ export class ChapterTwo {
     private reward(q: QuestDef, quiet: boolean): void {
         const g = this.g;
         const r = q.reward;
+        if (!quiet) g.gainXp(q.kind === "main" ? XP.mainQuest : q.kind === "encounter" ? XP.encounter : XP.sideQuest, q.title);
         if (r.credits) g.inv.credits += r.credits;
         for (const it of r.items ?? []) this.give(it);
         if (quiet) return;
@@ -225,6 +245,7 @@ export class ChapterTwo {
         const inv = this.g.inv;
         if (item === "plates-mk3") { inv.armorMax = 150; inv.armor = 150; inv.armorName = "Aegis Mk.III plates"; }
         else if (item === "medgel") inv.medgel++;
+        else if (item === "draught") inv.draughts++;
         else if (item in WEAPONS) {
             const id = item as WeaponId;
             if (!inv.weapons.includes(id)) inv.weapons.push(id);
@@ -256,6 +277,39 @@ export class ChapterTwo {
             }
             case "placeRelay": this.place("relay", "quest", "relay", PLACES2.relay, "Relay drone core", 0.3); break;
             case "relayHeard": g.flags.scanBoost = true; if (!quiet) g.say([SAGE_LINES.scanBoost]); break;
+            case "elevenCall": break;
+            case "spawnEleven": {
+                // The crew holds by their wreck; the wardens come at them from the river.
+                const [ex, ez] = ELEVEN;
+                const crew = [[4, 2], [-3, 5], [6, -4]];
+                crew.forEach(([dx, dz], i) => {
+                    const a = spawn(g.combat, { name: ["Spc. Okoro", "Pvt. Lind", "Pvt. Ruiz"][i], look: i === 1 ? "trooper-f" : "trooper-m", faction: "surface", role: "trooper", x: ex + dx, z: ez + dz, mortal: i === 2, tag: "crew" }, (x, z) => g.world.ground(x, z));
+                    a.post = [ex + dx, ez + dz];
+                });
+                if (!this.npc("hale")) { const h = this.spawnNpc("hale", [ex - 2, ez - 3], [ex + 20, ez + 30]); h.pose = 1; }
+                this.spawnGroup("eleven", [ex, ez], [
+                    { dx: 30, dz: 40, look: "warden-m", kind: "warden" }, { dx: -26, dz: 44, look: "adept", kind: "adept" }, { dx: 44, dz: 10, look: "warden-f", kind: "skirmisher" },
+                    { dx: 8, dz: 52, look: "warden-m", kind: "warden" }, { dx: -40, dz: 20, look: "warden-f", kind: "staff" },
+                ], ELEVEN);
+                if (!quiet) g.world.solids.push({ x: ex - 8, z: ez - 6, r: 4 });
+                break;
+            }
+            case "spawnProcession": {
+                const [px, pz] = PROCESSION;
+                if (!this.npc("elder")) this.spawnNpc("elder", [px, pz], [px + 40, pz]);
+                ["citizen-m", "citizen-f", "citizen-m", "citizen-f"].forEach((look, i) => {
+                    const a = spawn(g.combat, { name: "Pilgrim", look, faction: "neutral", role: "civilian", x: px - 4 + i * 3, z: pz + 3 - (i % 2) * 6, tag: "pilgrims", mortal: true }, (x, z) => g.world.ground(x, z));
+                    a.yaw = Math.PI / 2;
+                });
+                this.spawnGroup("procession", [px, pz], [
+                    { dx: -60, dz: 30, look: "rogue", kind: "synthetic" }, { dx: -50, dz: -30, look: "rogue", kind: "synthetic" },
+                    { dx: -75, dz: 0, look: "rogue", kind: "synthetic", rank: "veteran" }, { dx: -40, dz: 50, look: "rogue", kind: "synthetic" },
+                ], PROCESSION);
+                break;
+            }
+            default:
+                if (name.startsWith("encounter:")) this.beginEncounter(name.slice(10), quiet);
+                break;
             case "idolOutcome": {
                 const out = this.quests.state("idol").outcome;
                 g.inv.artifacts = g.inv.artifacts.filter((a, i, all) => !(a === "river-idol" && all.indexOf("river-idol") === i && g.flags.idolHeld));
@@ -275,6 +329,55 @@ export class ChapterTwo {
         }
     }
 
+    /** The places of note (the journal lists them, found or not). */
+    places(): PlaceOfNote[] { return PLACES_OF_NOTE; }
+
+    /** An encounter begins: its guard comes out, its prize lies where it is kept. */
+    private beginEncounter(id: string, quiet: boolean): void {
+        const g = this.g;
+        const e = ENCOUNTERS.find(x => x.id === id);
+        if (!e) return;
+        const place = PLACES_OF_NOTE.find(p => p.id === e.place)!;
+        const [cx, cz] = place.at;
+        let beast: Actor | null = null;
+        for (const gd of e.guards) {
+            const a = g.spawnEnemy(gd.kind, cx + gd.dx, cz + gd.dz, { tag: `enc:${id}`, rank: gd.rank, danger: 0.8 });
+            a.goal = [cx + gd.dx * 0.6, cz + gd.dz * 0.6];
+            if (gd.kind === "behemoth") beast = a;
+        }
+        if (beast) {
+            // Its rider: an adept in the howdah who throws the river's light from up there.
+            const rider = g.spawnEnemy("adept", beast.x, beast.z, { tag: `enc:${id}`, rank: "veteran", name: "Behemoth Rider" });
+            rider.mount = beast.id;
+        }
+        e.prize.forEach((pz, i) => {
+            const at: V2 = pz.at ? [cx + pz.at[0], cz + pz.at[1]] : [cx, cz];
+            this.place(`enc:${id}:${i}`, pz.kind, pz.id, at, pz.label, 0.35);
+        });
+        if (!quiet) g.say(e.lines);
+    }
+
+    /** Places come into view as Alex reaches them; encounters and the missions that find him begin as he nears. */
+    private stepDiscovery(): void {
+        const g = this.g;
+        const b = g.body;
+        for (const pl of PLACES_OF_NOTE) {
+            if (g.rpg.discovered.includes(pl.id)) continue;
+            if (Math.hypot(pl.at[0] - b.x, pl.at[1] - b.z) > pl.radius) continue;
+            g.rpg.discovered.push(pl.id);
+            g.events.push({ kind: "discovery", name: pl.name.toUpperCase(), text: pl.text });
+            g.gainXp(XP.discovery, pl.name);
+        }
+        const near = (at: V2, r: number) => Math.hypot(at[0] - b.x, at[1] - b.z) < r;
+        const begin = (qid: string) => { if (this.quests.status(qid) === "available") this.events(this.quests.start(qid, this)); };
+        for (const e of ENCOUNTERS) {
+            const pl = PLACES_OF_NOTE.find(p => p.id === e.place)!;
+            if (near(pl.at, e.begins)) begin(`enc-${e.id}`);
+        }
+        if (near(ELEVEN, 420)) begin("eleven");
+        if (near(PROCESSION, 200)) begin("procession");
+    }
+
     /** SKYBOUND with its naming line: the healer's word if Alex has her trust, the wardens' otherwise. */
     private namingScene(): Scene {
         const text = this.g.flags.maelisFriend
@@ -283,15 +386,19 @@ export class ChapterTwo {
         return { ...SKYBOUND, shots: SKYBOUND.shots.map(s => ({ ...s, subtitles: s.subtitles?.map(t => (t.text === "{naming}" ? { ...t, text } : t)) })) };
     }
 
-    private spawnGroup(tag: string, at: V2, who: { dx: number; dz: number; look: string }[], goal: V2): void {
+    private spawnGroup(tag: string, at: V2, who: { dx: number; dz: number; look: string; kind?: EnemyKind; rank?: Rank }[], goal: V2): void {
         const g = this.g;
         for (const w of who) {
-            const role = w.look === "warden-m" ? "blade" : "caster";
-            const a = spawn(g.combat, { name: role === "blade" ? "Warden" : "Adept", look: w.look, faction: "below", role, x: at[0] + w.dx, z: at[1] + w.dz, tag }, (x, z) => g.world.ground(x, z));
+            const a = g.spawnEnemy(w.kind ?? kindOfLook(w.look), at[0] + w.dx, at[1] + w.dz, { tag, rank: w.rank, danger: this.danger(at) });
             a.goal = [goal[0] + (g.rng.next() - 0.5) * 8, goal[1] + (g.rng.next() - 0.5) * 8];
             a.yaw = Math.atan2(goal[0] - a.x, goal[1] - a.z);
-            [a.x, a.z] = g.world.collide(a.x, a.z, 0.5);
         }
+    }
+
+    /** How dangerous a place on the floor is (0 by the firebase .. 1 far out): ranks are rolled from it. */
+    danger(at: V2): number {
+        const [fx, fz] = PLACES2.firebase;
+        return Math.max(0, Math.min(1, (Math.hypot(at[0] - fx, at[1] - fz) - 250) / 1100));
     }
 
     healKesh(): void {
@@ -341,7 +448,7 @@ export class ChapterTwo {
         const k = this.kesh;
         addMouse(g.look, input.mouseX, input.mouseY, g.sensitivity);
         const turn = stepLook(g.look, input.lookX, input.lookY, dt, 0, g.sensitivity);
-        if (input.interact) {
+        if (input.interact && g.time - this.toggledAt > 0.5) {
             if (k.grounded) { this.dismount(); return; }
             if (altitude(k, this.air()) < 14) this.landing = true;
             else this.sage(SAGE_LINES.noLand, 6);
@@ -361,6 +468,8 @@ export class ChapterTwo {
 
     mount(): void {
         const g = this.g;
+        if (g.time - this.toggledAt < 0.5) return;
+        this.toggledAt = g.time;
         this.mounted = true;
         this.kesh.mode = "ridden";
         this.kesh.goal = null;
@@ -375,6 +484,7 @@ export class ChapterTwo {
         const g = this.g;
         const k = this.kesh;
         this.mounted = false;
+        this.toggledAt = g.time;
         k.mode = "rest";
         k.grounded = true;
         k.y = g.world.ground(k.x, k.z);
@@ -393,6 +503,7 @@ export class ChapterTwo {
         // Deaths the combat step did not report (a story kill, a crash): counted all the same.
         for (const a of g.combat.actors) if (a.tag && !alive(a) && !this.counted.has(a.id)) this.onDeath(a);
         this.stepPatrols();
+        if (!g.cinema) this.stepDiscovery();
         // Groups heading for a goal (hunters, the wave at Seven) keep coming until they find a target.
         this.stepQuests();
     }
@@ -475,11 +586,9 @@ export class ChapterTwo {
             }
             if (d < 250 && (!p || (p.ids.length === 0 && p.until < g.time)) && active < 2 && Math.hypot(z.at[0] - fx, z.at[1] - fz) > 260 && !this.mounted && !g.cinema) {
                 const ids: number[] = [];
-                z.looks.slice(0, z.n).forEach((look, i) => {
+                z.kinds.slice(0, z.n).forEach((kind, i) => {
                     const ang = (i / z.n) * Math.PI * 2;
-                    const role = look === "warden-m" ? "blade" : "caster";
-                    const a = spawn(g.combat, { name: role === "blade" ? "Warden" : "Adept", look, faction: "below", role, x: z.at[0] + Math.cos(ang) * 12, z: z.at[1] + Math.sin(ang) * 12, tag: `patrol` }, (x, zz) => g.world.ground(x, zz));
-                    [a.x, a.z] = g.world.collide(a.x, a.z, 0.5);
+                    const a = g.spawnEnemy(kind, z.at[0] + Math.cos(ang) * 12, z.at[1] + Math.sin(ang) * 12, { tag: "patrol", danger: this.danger(z.at) });
                     ids.push(a.id);
                 });
                 p = { ids, until: 0 };
@@ -509,9 +618,9 @@ export class ChapterTwo {
             if (d < NEAR_TALK) out.push({ kind: "site", id: `talk:${n.id}`, label: n.id === "dace" ? `Talk to ${n.name}  (trade)` : `Talk to ${n.name}`, d });
         }
         const k = this.kesh;
-        const dk = Math.hypot(k.x - b.x, k.z - b.z);
+        const dk = keshReach(k, b.x, b.z);
         const stage = this.quests.stage("beast")?.id;
-        if (dk < 7.5 && k.grounded) {
+        if (dk < 4.5 && k.grounded) {
             if (stage === "calm") out.push({ kind: "site", id: "creature-calm", label: "Reach out to it", d: dk });
             else if (stage === "heal" && g.flags.riverWater) out.push({ kind: "site", id: "creature-heal", label: "Pour the river's water", d: dk });
             else if (k.healed && k.mode === "rest") out.push({ kind: "site", id: "creature-ride", label: "Ride Kesh", d: dk });
@@ -584,6 +693,8 @@ export class ChapterTwo {
             this.g.events.push({ kind: "pickup", text: label });
         }
         if (p.item === "lumen-shard") this.counters.lumen = (this.counters.lumen ?? 0) + 1;
+        // An encounter's prize (its key is enc:<id>:<n>).
+        if (key?.startsWith("enc:")) { const id = key.split(":")[1]; this.counters[`got:${id}`] = (this.counters[`got:${id}`] ?? 0) + 1; }
         if (p.item === "river-idol" && p.kind === "artifact") this.g.flags.idolFound = true;
     }
 
@@ -718,7 +829,7 @@ export class ChapterTwo {
         const item = SHOP.find(s => s.id === id);
         if (!item || g.inv.credits < item.price) return false;
         if (id === "saddle") return this.kesh.healed && !g.flags.saddle;
-        if (id === "refit") return g.inv.armor < g.inv.armorMax;
+        if (id === "refit") return g.inv.armor < g.armorCap();
         return true;
     }
 
@@ -729,7 +840,7 @@ export class ChapterTwo {
         g.inv.credits -= item.price;
         if (id === "medgel") g.inv.medgel++;
         else if (id === "ammo") { g.inv.reserve["coil-rifle"] = (g.inv.reserve["coil-rifle"] ?? 0) + 96; if (g.inv.weapons.includes("okafor-carbine")) g.inv.reserve["okafor-carbine"] = (g.inv.reserve["okafor-carbine"] ?? 0) + 48; }
-        else if (id === "refit") g.inv.armor = g.inv.armorMax;
+        else if (id === "refit") g.inv.armor = g.armorCap();
         else if (id === "saddle") g.flags.saddle = true;
         g.events.push({ kind: "pickup", text: `${item.label}  -${item.price} CR` });
         return true;
@@ -762,6 +873,7 @@ export class ChapterTwo {
             inv: JSON.parse(JSON.stringify(g.inv)),
             pos: this.mounted ? [k.x + 4, k.z, k.yaw] : [g.body.x, g.body.z, g.body.yaw],
             kesh: { x: k.x, z: k.z, yaw: k.yaw, healed: k.healed, trust: k.trust, resting: k.mode !== "wounded" },
+            rpg: JSON.parse(JSON.stringify(g.rpg)),
         };
     }
 
@@ -774,7 +886,9 @@ export class ChapterTwo {
         this.taken = new Set(d.taken);
         this.counters = { ...d.counters };
         Object.assign(g.flags, d.flags);
-        g.inv = JSON.parse(JSON.stringify(d.inv));
+        g.inv = { ...JSON.parse(JSON.stringify(d.inv)) };
+        g.inv.draughts ??= 0;
+        g.rpg = d.rpg ? { ...newProgress(), ...JSON.parse(JSON.stringify(d.rpg)) } : newProgress();
         this.quests.load(d.quests);
         this.placeLoot();
         // Each active stage's setup, and what finished stages left behind.

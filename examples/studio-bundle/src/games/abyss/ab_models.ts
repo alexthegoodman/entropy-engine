@@ -92,8 +92,8 @@ export function skyDome(): PackedMesh {
 }
 
 /** A unit puff (smoke, fireballs, magic): a lumpy icosphere. */
-export function puff(pattern: number, color: [number, number, number] = [1, 1, 1]): PackedMesh {
-    const m = icosphere(1, 1);
+export function puff(pattern: number, color: [number, number, number] = [1, 1, 1], subdivisions = 1): PackedMesh {
+    const m = icosphere(1, subdivisions);
     for (const p of m.parts) for (let i = 0; i < p.positions.length; i += 3) {
         const k = 0.85 + 0.3 * Math.abs(Math.sin(p.positions[i] * 7.1 + p.positions[i + 1] * 3.3) * Math.cos(p.positions[i + 2] * 5.7));
         p.positions[i] *= k; p.positions[i + 1] *= k; p.positions[i + 2] *= k;

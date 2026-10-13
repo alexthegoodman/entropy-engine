@@ -59,7 +59,9 @@ const audioAPI = {
             reverbRoomSize: config.reverbRoomSize ?? 10.0,
             reverbTime: config.reverbTime ?? 1.0,
             reverbDamping: config.reverbDamping ?? 0.5,
-            reverbMix: config.reverbMix ?? 0.0
+            reverbMix: config.reverbMix ?? 0.0,
+            pan: config.pan ?? 0.0,
+            muffle: config.muffle ?? 0.0
         });
     },
     playTestTone: () => {

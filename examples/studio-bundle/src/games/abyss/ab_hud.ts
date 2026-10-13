@@ -157,7 +157,21 @@ const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60
 
 // --- The view the HUD draws (the addon fills it each frame) --------------------------------------
 
-export interface HudMarker { kind: "hostile" | "squad" | "pickup" | "aircraft" | "objective" | "leader" | "giver" | "npc" | "mount" | "trail"; pos: V3; label: string; dist: number; visible: boolean; hp?: number; assist?: boolean; hurt?: boolean }
+export interface HudMarker { kind: "hostile" | "squad" | "pickup" | "aircraft" | "objective" | "leader" | "giver" | "npc" | "mount" | "trail" | "place"; pos: V3; label: string; dist: number; visible: boolean; hp?: number; assist?: boolean; hurt?: boolean; /** Hostiles: the rank's color; how tall it stands (a behemoth). */ color?: Color; height?: number; ward?: number }
+
+/** The right-hand pack panel: what Alex carries, at a glance. */
+export interface PackView {
+    credits: number | null;
+    medgel: number;
+    draughts: number;
+    weapons: { name: string; ammo: string; current: boolean }[];
+    artifacts: number;
+    artifactValue: number;
+    /** Quest items and the like ("TAGS 3/6", "RIVER WATER"). */
+    items: string[];
+    powers: { name: string; ready: boolean; current: boolean }[];
+    upgrades: string[];
+}
 
 export interface HudView {
     w: number; h: number;
@@ -192,6 +206,14 @@ export interface HudView {
     flight?: { speed: number; altitude: number; stamina: number; boost: boolean; grounded: boolean } | null;
     credits?: number | null;
     banner?: { title: string; text: string; age: number; state: string } | null;
+    /** The RPG layer: level and experience, Resonance and the ready power, crouch, wards. */
+    pack?: PackView;
+    level?: { level: number; xp: number; next: number; points: number; gain: number };
+    resonance?: { value: number; max: number; power: string | null; cost: number; cooldown: number } | null;
+    crouch?: number;
+    hidden?: boolean;
+    ward?: number;
+    veil?: number;
 }
 
 // --- The AR HUD ----------------------------------------------------------------------------------
@@ -206,13 +228,15 @@ export function drawHud(p: Painter, v: HudView): void {
     drawObjective(p, v, boot);
     drawSquad(p, v, boot);
     drawVitals(p, v, boot);
+    if (v.pack) drawPack(p, v, v.pack, boot);
+    drawStatus(p, v, boot);
     if (v.flight) drawFlight(p, v, v.flight, boot); else drawWeapon(p, v, boot);
     drawMarkers(p, v);
     if (!v.flight) drawCrosshair(p, v);
     if (v.quests?.length) drawOtherQuests(p, v, boot);
     if (v.choice) drawChoice(p, v, v.choice);
     if (v.banner) drawBanner(p, v, v.banner);
-    if (v.credits !== undefined && v.credits !== null) textR(p, `${v.credits} CR`, v.w - 44, 72, 13, alpha(C.amber, boot), F.ui);
+    if (!v.pack && v.credits !== undefined && v.credits !== null) textR(p, `${v.credits} CR`, v.w - 44, 72, 13, alpha(C.amber, boot), F.ui);
     drawRadio(p, v, false);
     drawHurt(p, v);
     if (v.prompt) {
@@ -222,12 +246,14 @@ export function drawHud(p: Painter, v: HudView): void {
         brackets(p, w / 2 - bw / 2, h * 0.64, bw, 34, C.cyan, 8);
         textC(p, s, w / 2, h * 0.64 + 6, size, C.white);
     }
+    // Toasts stack under the pack panel (or a third of the way down, without one).
+    const toastY = v.pack ? Math.max(h * 0.34, packHeight(v.pack) + 104) : h * 0.34;
     v.toasts.slice(-4).forEach((t, i) => {
         const a = Math.max(0, Math.min(1, (4 - t.age) / 0.6));
         const size = 15, bw = tw(t.text, size) + 26;
-        p.rect(w - 40 - bw, h * 0.34 + i * 34, bw, 28, alpha(C.glass, a));
-        p.rect(w - 40 - bw, h * 0.34 + i * 34, 3, 28, alpha(C.cyan, a));
-        p.text(t.text, w - 40 - bw + 14, h * 0.34 + i * 34 + 5, size, alpha(C.white, a), F.ui);
+        p.rect(w - 40 - bw, toastY + i * 34, bw, 28, alpha(C.glass, a));
+        p.rect(w - 40 - bw, toastY + i * 34, 3, 28, alpha(C.cyan, a));
+        p.text(t.text, w - 40 - bw + 14, toastY + i * 34 + 5, size, alpha(C.white, a), F.ui);
     });
     if (v.scanAge < 1.6) {
         // The scan pulse: a ring sweeping out from the center.
@@ -257,6 +283,77 @@ export function drawHud(p: Painter, v: HudView): void {
         }
     }
     if (v.triangles !== null) p.text(`${(v.triangles / 1000).toFixed(0)}k tris`, w - 140, h - 40, 11, C.cyanDim, F.ui);
+}
+
+/** Rows the pack panel takes (for laying out what goes under it). */
+function packHeight(k: PackView): number {
+    return 22 + 18 * (2 + k.weapons.length + (k.items.length ? 1 : 0) + (k.powers.length ? 1 : 0) + (k.upgrades.length ? 1 : 0) + (k.artifacts ? 1 : 0)) + 10;
+}
+
+/** What Alex carries, down the right side, as the squad runs down the left. */
+function drawPack(p: Painter, v: HudView, k: PackView, boot: number): void {
+    const rx = v.w - 44;
+    let y = 88;
+    const row = (label: string, value: string, c: Color = C.white, vc: Color = C.cyan) => {
+        p.text(label, rx - 230, y, 11, alpha(c, boot * 0.9), F.ui);
+        textR(p, value, rx, y, 11, alpha(vc, boot), F.ui);
+        y += 18;
+    };
+    p.rect(rx - 242, y - 28, 250, packHeight(k) + 4, alpha(C.glass, boot * 0.7));
+    p.text("PACK", rx - 230, y - 20, 11, alpha(C.cyanDim, boot), F.head);
+    if (k.credits !== null) textR(p, `${k.credits} CR`, rx, y - 20, 13, alpha(C.amber, boot), F.ui);
+    p.rect(rx - 230, y - 4, 230, 1, alpha(C.cyanFaint, boot));
+    for (const wp of k.weapons) row((wp.current ? "> " : "  ") + wp.name.toUpperCase(), wp.ammo, wp.current ? C.white : [0.75, 0.82, 0.85, 0.85], wp.current ? C.white : C.cyan);
+    row(`  MEDGEL  [H]`, `x${k.medgel}`, k.medgel ? C.white : C.grey, k.medgel ? C.green : C.grey);
+    row(`  RIVER DRAUGHTS  [X]`, `x${k.draughts}`, k.draughts ? C.white : C.grey, k.draughts ? C.violet : C.grey);
+    if (k.artifacts) row(`  ARTIFACTS  x${k.artifacts}`, `~${k.artifactValue} CR`, C.white, C.amber);
+    if (k.items.length) row("  " + k.items.join("  -  "), "", C.cyan);
+    if (k.powers.length) {
+        let x = rx;
+        for (let i = k.powers.length - 1; i >= 0; i--) {
+            const pw = k.powers[i];
+            const s = pw.name.toUpperCase();
+            const cw = tw(s, 10) + 12;
+            x -= cw;
+            if (pw.current) p.rect(x - 4, y - 2, cw - 4, 15, alpha([0.6, 0.45, 1, 0.25], boot));
+            p.text(s, x, y, 10, alpha(pw.current ? C.white : pw.ready ? C.violet : C.grey, boot), F.ui);
+        }
+        y += 18;
+    }
+    if (k.upgrades.length) row("  TECH", k.upgrades.join(" / ").toUpperCase(), C.cyanDim, C.cyanDim);
+}
+
+/** Level and experience, Resonance and the ready power, crouch and the river's guards. */
+function drawStatus(p: Painter, v: HudView, boot: number): void {
+    const x = 44, y = v.h - 128;
+    if (v.level) {
+        const L = v.level;
+        const yy = y - 30;
+        p.text(`LV ${L.level}`, x, yy, 12, alpha(C.white, boot), F.head);
+        p.rect(x + 44, yy + 6, 216, 3, alpha(C.cyanFaint, boot));
+        p.rect(x + 44, yy + 6, 216 * Math.min(1, L.xp / Math.max(1, L.next)), 3, alpha(C.amber, boot));
+        if (L.points > 0) p.text(`PERK POINT${L.points > 1 ? "S" : ""} ${L.points}  [TAB]`, x + 270, yy - 1, 11, alpha(C.amber, boot * (0.6 + 0.4 * Math.sin(v.time * 4))), F.ui);
+        else if (L.gain > 0) p.text(`+${L.gain} XP`, x + 270, yy - 1, 11, alpha(C.amber, boot), F.ui);
+    }
+    if (v.resonance) {
+        const r = v.resonance;
+        const yy = y + 86;
+        p.text("RESONANCE", x, yy, 10, alpha(C.violet, boot), F.ui);
+        p.rect(x + 78, yy + 5, 182, 3, alpha([0.6, 0.45, 1, 0.18], boot));
+        p.rect(x + 78, yy + 5, 182 * Math.min(1, r.value / Math.max(1, r.max)), 3, alpha(C.violet, boot));
+        if (r.power) {
+            const ready = r.value >= r.cost && r.cooldown <= 0;
+            p.text(`${r.power.toUpperCase()}  ${r.cost}  [G]`, x + 270, yy - 1, 11, alpha(ready ? C.violet : C.grey, boot), F.ui);
+        }
+    }
+    const tags: [string, Color][] = [];
+    if ((v.crouch ?? 0) > 0.5) tags.push([v.hidden ? "HIDDEN" : "CROUCHED", v.hidden ? C.green : C.cyan]);
+    if ((v.ward ?? 0) > 0) tags.push([`STILL WATER ${Math.round(v.ward!)}`, [0.5, 0.8, 1, 1]]);
+    if ((v.veil ?? 0) > 0) tags.push([`VEIL ${Math.ceil(v.veil!)}s`, C.violet]);
+    tags.forEach(([t, c], i) => p.text(t, x + 160 + i * 130, y - 2, 11, alpha(c, boot), F.ui));
+    // The ward and the veil tint the edges of the view.
+    if ((v.ward ?? 0) > 0) for (let i = 0; i < 3; i++) { const k = 0.06 * (3 - i) / 3; const e = i * 14; p.rect(0, e, v.w, 14, [0.4, 0.75, 1, k]); p.rect(0, v.h - e - 14, v.w, 14, [0.4, 0.75, 1, k]); }
+    if ((v.veil ?? 0) > 0) for (let i = 0; i < 3; i++) { const k = 0.07 * (3 - i) / 3; const e = i * 18; p.rect(e, 0, 18, v.h, [0.55, 0.4, 1, k]); p.rect(v.w - e - 18, 0, 18, v.h, [0.55, 0.4, 1, k]); }
 }
 
 function drawCompass(p: Painter, v: HudView, boot: number): void {
@@ -414,7 +511,7 @@ function drawBanner(p: Painter, v: HudView, b: NonNullable<HudView["banner"]>): 
     const a = Math.max(0, Math.min(1, b.age / 0.4, (6 - b.age) / 0.8));
     if (a <= 0) return;
     const y = v.h * 0.18;
-    const head = b.state === "completed" ? "QUEST COMPLETE" : b.state === "started" ? "NEW QUEST" : "";
+    const head = b.state === "completed" ? "QUEST COMPLETE" : b.state === "started" ? "NEW QUEST" : b.state === "encounter" ? "ENCOUNTER" : b.state === "level" ? "LEVEL UP" : b.state === "discovered" ? "DISCOVERED" : "";
     const bw = Math.max(520, tw(b.text, 15, F.body) + 80);
     p.rect(v.w / 2 - bw / 2, y - 12, bw, 104, alpha(C.glassDark, a));
     p.rect(v.w / 2 - bw / 2, y - 12, bw, 2, alpha(C.amber, a));
@@ -447,10 +544,11 @@ function drawMarkers(p: Painter, v: HudView): void {
         if (!s) continue;
         if (s.x < -40 || s.x > v.w + 40 || s.y < -40 || s.y > v.h + 40) continue;
         if (m.kind === "hostile" || m.kind === "leader") {
-            const top = project(v.cam, [m.pos[0], m.pos[1] + 1.9, m.pos[2]]);
+            const top = project(v.cam, [m.pos[0], m.pos[1] + (m.height ?? 1.9), m.pos[2]]);
             const hgt = top ? Math.max(14, s.y - top.y) : 20;
-            const wdt = hgt * 0.5;
-            const c = m.kind === "leader" ? C.violet : m.visible ? (m.assist ? C.gold : C.red) : C.redDim;
+            const wdt = hgt * (m.height && m.height > 3 ? 1 : 0.5);
+            const c = m.kind === "leader" ? C.violet : m.visible ? (m.assist ? C.gold : m.color ?? C.red) : C.redDim;
+            if (m.ward && m.ward > 0 && m.visible) p.rect(s.x - wdt / 2, s.y + 10, wdt * Math.min(1, m.ward), 2, [0.5, 0.8, 1, 0.9]);
             brackets(p, s.x - wdt / 2 - 4, s.y - hgt - 4, wdt + 8, hgt + 8, c, 7, m.visible ? 1.5 : 1);
             if (m.visible || m.kind === "leader") {
                 p.text(`${m.label}  ${Math.round(m.dist)}M`, s.x + wdt / 2 + 8, s.y - hgt - 4, 10, c, F.ui);
@@ -485,6 +583,10 @@ function drawMarkers(p: Painter, v: HudView): void {
             diamond(p, s.x, s.y - 20, 6, C.violet);
             textC(p, m.label, s.x, s.y - 44, 11, C.violet, F.ui);
             textC(p, `${Math.round(m.dist)} m`, s.x, s.y - 10, 9, alpha(C.violet, 0.7), F.ui);
+        } else if (m.kind === "place") {
+            if (m.dist > 900) continue;
+            diamond(p, s.x, s.y, 4, alpha(C.amberDim, 0.8));
+            textC(p, m.label, s.x, s.y - 20, 10, alpha(C.amberDim, 0.9), F.ui);
         } else if (m.kind === "trail") {
             if (m.dist > 140) continue;
             diamond(p, s.x, s.y, 3, alpha(C.cyan, 0.8));
@@ -683,6 +785,11 @@ export interface InventoryView {
     objective: string | null;
     credits?: number;
     journal?: { id: string; title: string; kind: string; status: string; text: string; hint: string; tracked: boolean }[];
+    armorMax?: number;
+    medgelHeal?: number;
+    draughts?: number;
+    /** Unspent perk points (the CHARACTER button shows them). */
+    points?: number;
 }
 
 export function drawInventory(p: Painter, v: InventoryView): void {
@@ -701,9 +808,10 @@ export function drawInventory(p: Painter, v: InventoryView): void {
     });
     col(x1, "KIT");
     p.text(v.armor ? v.armor.toUpperCase() : "NO PLATES", x1, 166, 16, v.armor ? C.white : C.grey, F.ui);
-    if (v.armor) p.text(`${Math.round(v.armorValue)} / 100`, x1, 190, 12, C.cyanDim, F.ui);
+    if (v.armor) p.text(`${Math.round(v.armorValue)} / ${Math.round(v.armorMax ?? 100)}`, x1, 190, 12, C.cyanDim, F.ui);
     p.text(`MEDGEL  x${v.medgel}`, x1, 226, 16, C.white, F.ui);
-    p.text("55 vitals. [H] to apply.", x1, 250, 12, C.grey, F.body);
+    p.text(`${v.medgelHeal ?? 55} vitals. [H] to apply.`, x1, 250, 12, C.grey, F.body);
+    if (v.draughts !== undefined) p.text(`RIVER DRAUGHTS  x${v.draughts}   [X]`, x1, 330, 14, C.violet, F.ui);
     col(x2, "ARTIFACTS OF BELOW");
     if (!v.artifacts.length) p.text("Nothing yet. [Q] scans for what the eye misses.", x2, 166, 13, C.grey, F.body);
     v.artifacts.forEach((a, i) => {
@@ -723,8 +831,68 @@ export function drawInventory(p: Painter, v: InventoryView): void {
     }
     if (v.credits !== undefined) p.text(`CREDITS  ${v.credits} CR`, x1, 290, 16, C.amber, F.ui);
     if (v.journal) drawJournal(p, v, x0, Math.max(166 + v.weapons.length * 70 + 20, 470));
-    arButton(p, "resume", w / 2 - 230, h - 96, 140, 40, "RESUME", true);
-    arButton(p, "to-title", w / 2 + 90, h - 96, 140, 40, "TITLE");
+    arButton(p, "page-char", w / 2 - 300, h - 96, 160, 40, v.points ? `CHARACTER (${v.points})` : "CHARACTER");
+    arButton(p, "resume", w / 2 - 80, h - 96, 160, 40, "RESUME", true);
+    arButton(p, "to-title", w / 2 + 140, h - 96, 160, 40, "TITLE");
+}
+
+export interface CharacterView {
+    w: number; h: number;
+    level: number; xp: number; next: number; points: number;
+    health: number; armor: number;
+    perks: { id: string; name: string; path: string; rank: number; max: number; text: string; can: boolean }[];
+    powers: { name: string; potion: string; cost: number; text: string; current: boolean }[];
+    upgrades: { name: string; text: string; installed: boolean }[];
+    places: { name: string; found: boolean }[];
+}
+
+/** The second page of the inventory: what Alex has become, and the perks to spend points on. */
+export function drawCharacter(p: Painter, v: CharacterView): void {
+    const { w, h } = v;
+    p.rect(0, 0, w, h, [0, 0.02, 0.03, 0.78]);
+    textC(p, "AUGMENT  -  LIEUTENANT ALEX", w / 2, 50, 20, C.cyan, F.head);
+    textC(p, `LEVEL ${v.level}   -   ${v.xp} / ${v.next} XP   -   VITALS ${v.health}   -   PLATES ${v.armor}`, w / 2, 84, 13, C.amber, F.ui);
+    const bw = 520;
+    p.rect(w / 2 - bw / 2, 104, bw, 3, C.cyanFaint);
+    p.rect(w / 2 - bw / 2, 104, bw * Math.min(1, v.xp / Math.max(1, v.next)), 3, C.amber);
+    if (v.points > 0) textC(p, `${v.points} PERK POINT${v.points > 1 ? "S" : ""} TO SPEND  -  CLICK A PERK`, w / 2, 116, 13, C.amber, F.ui);
+    const paths: [string, string, Color][] = [["soldier", "SOLDIER", C.cyan], ["ghost", "GHOST", C.green], ["river", "RIVER", C.violet]];
+    const colW = 360, x0 = w / 2 - colW * 1.5 - 20;
+    paths.forEach(([id, title, c], i) => {
+        const x = x0 + i * (colW + 20);
+        p.text(title, x, 150, 13, c, F.head);
+        p.rect(x, 172, colW - 20, 1, C.cyanFaint);
+        v.perks.filter(k => k.path === id).forEach((k, j) => {
+            const y = 184 + j * 64;
+            if (k.can) { p.rect(x - 6, y - 4, colW - 8, 58, [c[0], c[1], c[2], 0.08]); p.hotspot(`perk-${k.id}`, x - 6, y - 4, colW - 8, 58); }
+            p.text(k.name.toUpperCase(), x, y, 14, k.rank ? C.white : k.can ? c : C.grey, F.ui);
+            for (let r = 0; r < k.max; r++) p.rect(x + colW - 40 - (k.max - r) * 14, y + 4, 10, 6, r < k.rank ? c : C.cyanFaint);
+            p.text(k.text, x, y + 22, 12, C.grey, F.body, colW - 30, 32);
+        });
+    });
+    const y1 = 184 + 4 * 64 + 20;
+    const xa = x0, xb = x0 + colW + 20, xc = x0 + 2 * (colW + 20);
+    p.text("POWERS OF THE RIVER  [G] CAST  [B] NEXT  [X] DRAUGHT", xa, y1, 12, C.violet, F.head);
+    if (!v.powers.length) p.text("None yet. Potions of the river are found out in the world - usually behind something that guards them.", xa, y1 + 24, 12, C.grey, F.body, colW - 20, 60);
+    v.powers.forEach((pw, i) => {
+        const y = y1 + 24 + i * 44;
+        p.text(`${pw.current ? "> " : ""}${pw.name.toUpperCase()}  (${pw.cost})`, xa, y, 13, pw.current ? C.white : C.violet, F.ui);
+        p.text(pw.text, xa, y + 17, 11, C.grey, F.body, colW - 20, 26);
+    });
+    p.text("CYBORG TECH", xb, y1, 12, C.cyan, F.head);
+    v.upgrades.forEach((u, i) => {
+        const y = y1 + 24 + i * 40;
+        p.text(u.installed ? u.name.toUpperCase() : "??? - a cache on the surface", xb, y, 13, u.installed ? C.white : C.grey, F.ui);
+        if (u.installed) p.text(u.text, xb, y + 17, 11, C.grey, F.body, colW - 20, 22);
+    });
+    p.text(`PLACES  ${v.places.filter(x => x.found).length} / ${v.places.length}`, xc, y1, 12, C.amber, F.head);
+    v.places.forEach((pl, i) => {
+        if (y1 + 24 + i * 20 > h - 120) return;
+        p.text(pl.found ? pl.name.toUpperCase() : "- undiscovered -", xc, y1 + 24 + i * 20, 12, pl.found ? C.white : C.grey, F.ui);
+    });
+    arButton(p, "page-inv", w / 2 - 300, h - 96, 160, 40, "INVENTORY");
+    arButton(p, "resume", w / 2 - 80, h - 96, 160, 40, "RESUME", true);
+    arButton(p, "to-title", w / 2 + 140, h - 96, 160, 40, "TITLE");
 }
 
 /** The quest journal: active, offered, finished; click (or T in play) to track. */
