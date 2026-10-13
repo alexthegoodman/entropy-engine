@@ -116,7 +116,11 @@ export class ChapterTwo {
                 g.flags.chapterDone = true;
                 const [fx, fz] = PLACES2.firebase;
                 this.kesh.x = fx + 40; this.kesh.z = fz - 50; this.kesh.y = g.world.ground(this.kesh.x, this.kesh.z);
-            } else g.teleportTo(this.kesh.x + 4, this.kesh.z - 6, Math.atan2(-4, 6));
+            } else {
+                // Beside its flank, within reach whichever way it came to rest, facing it.
+                const k = this.kesh, rx = Math.cos(k.yaw) * 3.2, rz = -Math.sin(k.yaw) * 3.2;
+                g.teleportTo(k.x + rx, k.z + rz, Math.atan2(-rx, -rz));
+            }
         }
         g.radio = [];
     }

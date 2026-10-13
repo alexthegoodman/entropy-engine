@@ -423,6 +423,17 @@ export class Sound {
         // The score under the game rests while a cue plays.
         this.cueUntil = this.now + (CUE_LENGTH[name] ?? 20);
         if (name === "opening" && this.openingWithOrchestra()) return;
+        if (name === "prologue") {
+            // The world before: a slow string chord swelling under the cards (synth until the orchestra is ready).
+            const o = this.orchestra;
+            if (o.allReady) {
+                const S = (sec: Section, m: number, t: number, d: number, v: number) => this.after(t, () => { o.play(sec, m, d, v); });
+                S("bass", 33, 0.5, 9.5, 0.35); S("cello1", 45, 1, 9, 0.35); S("viola", 52, 3, 7, 0.3); S("violin", 61, 5, 5, 0.25);
+                S("bass", 31, 10, 10, 0.4); S("cello1", 43, 10, 10, 0.4); S("viola", 50, 11, 9, 0.32); S("violin", 59, 12, 8, 0.28);
+                S("bass", 36, 20, 10, 0.4); S("cello2", 48, 20, 10, 0.38); S("viola", 55, 20.5, 9.5, 0.34); S("violin", 64, 21, 9, 0.3); S("horn2", 60, 24, 5, 0.35);
+                return;
+            }
+        }
         const pad = (m: number[], at: number, dur: number, gain = 0.08, cutoff = 1400) =>
             m.forEach(n => this.queue(at, { freq: mtof(n), waveform: "saw", duration: dur, cutoff, attack: dur * 0.35, decay: dur * 0.2, sustain: 0.7, release: dur * 0.4, gain, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 6 }));
         const piano = (m: number, at: number, gain = 0.16) => this.queue(at, { freq: mtof(m), waveform: "triangle", duration: 2.4, attack: 0.004, decay: 1.6, sustain: 0.1, release: 1.2, gain, reverbMix: 0.55, reverbRoomSize: 30, reverbTime: 5 });
@@ -434,6 +445,10 @@ export class Sound {
                 brass(57, 4, 3.5); brass(62, 8, 2.5); brass(60, 11, 5); brass(57, 22, 3); brass(65, 25.5, 2.5); brass(64, 28, 6);
                 [74, 72, 69, 67, 69].forEach((m, i) => piano(m, 36 + i * 1.6, 0.1));
                 pad([38, 45, 50, 57], 38, 12, 0.06, 1100); pad([41, 48, 53, 60], 50, 12, 0.06, 1100);
+                break;
+            case "prologue":
+                pad([33, 40, 45, 49], 0.5, 10, 0.05, 900); pad([31, 38, 43, 47], 10, 10, 0.05, 900); pad([36, 43, 48, 52], 20, 10, 0.05, 1100);
+                [69, 67, 64].forEach((m, i) => piano(m, 22 + i * 1.8, 0.08));
                 break;
             case "city":
                 // Something old and beautiful: a raised fourth over the drone.
@@ -476,4 +491,4 @@ export class Sound {
 }
 
 /** How long each cutscene cue holds the in-game score off (seconds). */
-const CUE_LENGTH: Record<string, number> = { opening: 86, city: 12, contact: 10, battle: 8, ch2: 42, beast: 14, skybound: 28, ending: 60 };
+const CUE_LENGTH: Record<string, number> = { prologue: 30, opening: 86, city: 12, contact: 10, battle: 8, ch2: 42, beast: 14, skybound: 28, ending: 60 };

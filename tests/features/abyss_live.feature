@@ -30,14 +30,14 @@ Feature: The Abyss - Chapter One: First Blood, Chapter Two: Retaliation
     When I call the tool "abyss_start" with {"phase": "hollow"}
     And I advance 40 frames
     Then I capture "ch2-04-trail"
-    When I call the tool "abyss_act" with {"action": "teleport", "x": 120, "z": 165}
+    When I call the tool "abyss_act" with {"action": "teleport", "x": 88, "z": -86}
     And I advance 5 frames
     And I call the tool "abyss_cinema" with {"t": 5}
     And I advance 2 frames
     Then I capture "ch2-05-hollow"
     When I call the tool "abyss_start" with {"phase": "skybound"}
     And I advance 10 frames
-    And I call the tool "abyss_act" with {"action": "face", "x": 126, "z": 206, "pitch": 0.1}
+    And I call the tool "abyss_act" with {"action": "face", "x": 76, "z": -56, "pitch": -0.05}
     And I advance 2 frames
     Then I capture "ch2-06-kesh"
     When I call the tool "abyss_act" with {"action": "interact"}
@@ -66,3 +66,30 @@ Feature: The Abyss - Chapter One: First Blood, Chapter Two: Retaliation
     And I advance 2 frames
     Then I call the tool "abyss_state"
     And I capture "ch2-08-rim"
+
+  Scenario: The opening, the fleeing city, and the Whispering Vein
+    Given the real Abyss game is running in test mode
+    When I call the tool "abyss_config" with {"fixedStep": 0.033, "sound": false}
+    And I call the tool "abyss_settle"
+    And I call the tool "abyss_start" with {"phase": "intro"}
+    And I call the tool "abyss_cinema" with {"t": 6}
+    And I advance 2 frames
+    Then I capture "ex-01-union"
+    When I call the tool "abyss_cinema" with {"t": 26}
+    And I advance 2 frames
+    Then I capture "ex-02-below"
+    When I call the tool "abyss_start" with {"phase": "floor"}
+    And I call the tool "abyss_act" with {"action": "teleport", "x": 120, "z": -560}
+    And I advance 20 frames
+    And I call the tool "abyss_act" with {"action": "face", "x": 318, "z": -476}
+    And I advance 40 frames
+    Then I call the tool "abyss_state"
+    And I capture "ex-03-citizens"
+    When I call the tool "abyss_start" with {"phase": "roam"}
+    And I advance 10 frames
+    And I call the tool "abyss_act" with {"action": "teleport", "x": -199, "z": 440}
+    And I advance 3 frames
+    And I call the tool "abyss_act" with {"action": "face", "x": -205, "z": 466}
+    And I advance 3 frames
+    Then I call the tool "abyss_state"
+    And I capture "ex-04-vein"

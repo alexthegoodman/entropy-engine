@@ -78,7 +78,7 @@ export const PLACES_OF_NOTE: PlaceOfNote[] = [
     { id: "stair", name: "The Drowned Stair", at: [960, -118], radius: 70, text: "Steps cut down into the riverbed, worn by feet. The water used to cover all of them." },
     { id: "circle", name: "The Seer's Circle", at: [640, 160], radius: 70, text: "Crystals set in a ring, humming. SAGE logs the hum as speech." },
     { id: "bonefield", name: "The Bone Field", at: [-760, 320], radius: 90, text: "Ribs as tall as a gunship. The kingdoms bring their war beasts here to die." },
-    { id: "gardens", name: "The Hanging Gardens", at: [-180, 640], radius: 70, text: "Moss and pale vines down the north wall's foot, lit from inside." },
+    { id: "gardens", name: "The Whispering Vein", at: [-200, 445], radius: 60, text: "A slab of the north wall, fallen in the blast - and already hollow. The kingdoms had carved a temple into it before it fell." },
     { id: "source", name: "The Source", at: [1240, 70], radius: 120, text: "The sacred waterfall. Dying - you can hear it stammer." },
     { id: "shrine", name: "Shrine of the River", at: SHRINE, radius: 40, text: "Where First Blood began. Someone has laid fresh vials at the basin." },
     { id: "westdark", name: "The Western Dark", at: [-1450, 0], radius: 160, text: "The rift runs on into the west - three hundred kilometers of it, SAGE says, unmapped. The air past here would kill you." },
@@ -118,9 +118,14 @@ export const ENCOUNTERS: EncounterDef[] = [
     { id: "circle", place: "circle", begins: 170, guards: [{ kind: "seer", dx: 0, dz: 0, rank: "veteran" }, { kind: "adept", dx: 14, dz: 6 }, { kind: "adept", dx: -12, dz: 8 }, { kind: "skirmisher", dx: 4, dz: -16 }],
         prize: [{ kind: "potion", id: "mend", label: "Draught of Mending" }],
         lines: [{ speaker: "SAGE", text: "A seer and its circle. Take the seer first - it mends the others.", channel: "sage" }] },
-    { id: "gardens", place: "gardens", begins: 160, guards: [{ kind: "skirmisher", dx: -10, dz: 6, rank: "elite" }, { kind: "skirmisher", dx: 12, dz: 4, rank: "veteran" }, { kind: "seer", dx: 0, dz: 16 }, { kind: "staff", dx: 6, dz: -12 }],
-        prize: [{ kind: "potion", id: "veil", label: "Draught of the Veil" }],
-        lines: [{ speaker: "SAGE", text: "They move like the light does here. I lose them between frames.", channel: "sage" }] },
+    { id: "gardens", place: "gardens", begins: 140,
+        // In the dark of the cave: two at the mouth, the rest in the chamber with the prize.
+        guards: [{ kind: "skirmisher", dx: 3, dz: 12, rank: "veteran" }, { kind: "staff", dx: -4, dz: 24 }, { kind: "skirmisher", dx: -14, dz: 58, rank: "elite" }, { kind: "seer", dx: -18, dz: 64 }, { kind: "warden", dx: -10, dz: 66 }],
+        prize: [{ kind: "potion", id: "veil", label: "Draught of the Veil", at: [-16, 61] }],
+        lines: [
+            { speaker: "SAGE", text: "A cave, Lieutenant. My sensors stop at its mouth.", channel: "sage" },
+            { speaker: "SAGE", text: "Something in there moves like the light does. I lose it between frames.", channel: "sage", delay: 2.5 },
+        ] },
     { id: "bonefield", place: "bonefield", begins: 260, behemoth: true, guards: [{ kind: "behemoth", dx: 0, dz: 0, rank: "elite" }, { kind: "warden", dx: -18, dz: 10 }, { kind: "warden", dx: 18, dz: 12 }, { kind: "adept", dx: 0, dz: -22, rank: "veteran" }],
         prize: [{ kind: "potion", id: "surge", label: "Draught of the Surge", at: [20, 30] }],
         lines: [
@@ -412,6 +417,19 @@ export const AFTERMATH: Scene = {
                 { t: 5.4, dur: 4.2, style: "lore", lines: ["Four hundred aircraft. Eleven thousand soldiers.", "A fortress raised where Kilo-Two fell."] },
             ],
             events: [{ t: 0, name: "black", args: { on: true } }, { t: 9.9, name: "black", args: { on: false } }, { t: 0.5, name: "music", args: { cue: "ch2" } }],
+        },
+        {
+            // What the surface decided, and what the kingdoms answered.
+            id: "parliament", duration: 10, fadeIn: 1.2, ease: "inOut", letterbox: true,
+            keys: [
+                { t: 0, pos: [-760, 60, -1420], target: [-640, 5, -1180], fov: 40 },
+                { t: 10, pos: [-700, 45, -1330], target: [-600, 0, -1120], fov: 38 },
+            ],
+            cards: [
+                { t: 0.6, dur: 4.4, style: "lore", lines: ["The Meridian Parliament voted for retaliation,", "two hundred and twelve to one hundred and ninety. SAGE abstained."] },
+                { t: 5.4, dur: 4.2, style: "lore", lines: ["Below, the kingdoms that had never needed a war council", "convened one for the first time in nine hundred years."] },
+            ],
+            subtitles: [{ t: 7.6, speaker: CAST2.sage, text: "I counted every death of First Blood, Lieutenant. Theirs and ours. The numbers were the same.", channel: "sage" }],
         },
         {
             id: "fleet", duration: 9, fadeIn: 1.5, ease: "inOut",

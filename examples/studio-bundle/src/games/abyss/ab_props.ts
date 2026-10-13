@@ -11,6 +11,7 @@ import type { ParamValues } from "../../apps/mesha/mesha_object";
 import { FOB, SHRINE, SETTLEMENT, EVAC_LZ, CRACK_A, CRACK_B, crackSD, riverDistance, MAP_HALF, riftBend, SOURCE_POOL, type V2 } from "./ab_world";
 import { PLACES } from "./ab_script";
 import { PLACES2 } from "./ab_script2";
+import { CAVES, caveSolids } from "./ab_atmos";
 
 export interface Prop {
     object: string;
@@ -171,6 +172,23 @@ export function placeProps(seed = 1): Prop[] {
     }
     placeFirebase(put, rng);
     placeCover(put, rng, out);
+    // The caves: crystals glowing in their chambers and along their tunnels; boulders heaped round their shells.
+    for (const c of CAVES) {
+        const [cx, cz] = c.chamber.at;
+        for (let i = 0; i < 9; i++) {
+            const a = (i / 9) * Math.PI * 2 + 0.3, d = c.chamber.r * (0.55 + 0.3 * rng.next());
+            put({ object: "nature.crystal_cluster", values: crystal(i % 3 === 0 ? "Violet spire" : "River crystals"), x: cx + Math.cos(a) * d, z: cz + Math.sin(a) * d, yaw: rng.next() * 6.28, scale: 0.7 + rng.next() * 0.9, solid: 0, group: "crystals", reach: "mid" });
+        }
+        for (let i = 1; i < c.path.length; i++) {
+            const [px, pz] = c.path[i];
+            put({ object: "nature.crystal_cluster", values: crystal("River crystals"), x: px + (i % 2 ? 2.8 : -2.8), z: pz, yaw: i, scale: 0.6, solid: 0, group: "crystals", reach: "mid" });
+        }
+        for (let i = 0; i < 10; i++) {
+            const a = rng.next() * Math.PI * 2, d = c.chamber.r + 4 + rng.next() * 8;
+            const scale = 2.5 + rng.next() * 2.5;
+            put({ object: "nature.rock", values: boulder(2.5, Math.floor(rng.next() * 6)), x: cx + Math.cos(a) * d, z: cz + Math.sin(a) * d, yaw: rng.next() * 6.28, scale, solid: 1.1 * scale, group: "boulders", reach: "mid" });
+        }
+    }
     return out;
 }
 
@@ -297,6 +315,7 @@ export function solids(props: readonly Prop[], chapter: 1 | 2 = 1): { x: number;
             }
         } else if (p.solid > 0) out.push({ x: p.x, z: p.z, r: p.solid });
     }
+    for (const c of CAVES) out.push(...caveSolids(c));
     return out;
 }
 

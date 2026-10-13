@@ -620,7 +620,8 @@ export class Game {
                 // Kilo-Two's flight down to the ledge, timed to the opening.
                 const kilo = this.aircraftById("kilo2")!;
                 const [lx, lz] = PLACES.landing;
-                fly(kilo, kiloTwoFlight(t0, this.world.ground(lx, lz)), "parked");
+                // The flight is timed from the opening's own start (after the prologue, if any).
+                fly(kilo, kiloTwoFlight(t0 + Number(args.offset ?? 0), this.world.ground(lx, lz)), "parked");
                 // Two gunships thunder low over the camera toward the crack, then take up their orbits.
                 const now = this.time;
                 for (const [id, dx, dt0] of [["lantern1", -14, 0.5], ["lantern2", 22, 2.2]] as const) {

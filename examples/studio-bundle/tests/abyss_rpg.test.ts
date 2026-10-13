@@ -10,6 +10,11 @@ import { alive, kill, noticeRange, type Actor } from "../src/games/abyss/ab_comb
 import { eye } from "../src/games/abyss/ab_player";
 import { addXp, newProgress, xpToNext, rollLoot, stats, ENEMIES, POWERS, UPGRADES, killXp } from "../src/games/abyss/ab_rpg";
 import { PLACES_OF_NOTE, ENCOUNTERS, ELEVEN, PROCESSION, PLACES2 } from "../src/games/abyss/ab_script2";
+import { OPENING, PROLOGUE, PLACES } from "../src/games/abyss/ab_script";
+import { sceneDuration } from "../src/games/abyss/ab_cinema";
+import { settlementDoors } from "../src/games/abyss/ab_props";
+import { CAVES, buildCave, caveRoofs } from "../src/games/abyss/ab_atmos";
+import { LightMap, SUN_DIR } from "../src/games/abyss/ab_world";
 import { placeProps, solids } from "../src/games/abyss/ab_props";
 import { makeRng } from "../src/games/allegiance/al_rng";
 import { lookupObject } from "../src/apps/mesha/library";
@@ -391,5 +396,88 @@ describe("places and encounters of the open floor", () => {
         expect(h.rpg.discovered).toContain("source");
         void PLACES2;
         void ({} as Actor);
+    });
+});
+
+describe("Chapter One, retold", () => {
+    it("the opening's prologue comes first, and Kilo-Two still sets down on Ledge Kilo as the touchdown shot plays", () => {
+        const g = newGame(1);
+        g.start("intro");
+        expect(OPENING.shots.slice(0, 3).map(sh => sh.id)).toEqual(["union", "bore", "below"]);
+        expect(OPENING.shots.slice(0, 3).reduce((a, sh) => a + sh.duration, 0)).toBe(PROLOGUE);
+        const total = sceneDuration(OPENING);
+        let touchdown = -1;
+        for (let t = 0; t < total + 1 && g.cinema; t += DT) {
+            step(g, 1);
+            if (g.cinema?.frame?.shot.shot.id === "touchdown" && touchdown < 0) touchdown = g.cinema.t;
+        }
+        expect(touchdown).toBeGreaterThan(PROLOGUE);
+        expect(g.cinema).toBeNull();
+        const kilo = g.aircraftById("kilo2")!;
+        expect(Math.hypot(kilo.pos[0] - PLACES.landing[0], kilo.pos[2] - PLACES.landing[1])).toBeLessThan(15);
+        expect(g.phase).toBe("ledge");
+    }, 120_000);
+
+    it("the settlement's people run for their doors when the expedition comes, and go inside", () => {
+        const g = newGame(1);
+        g.doors = settlementDoors(placeProps(1));
+        g.start("floor");
+        expect(g.doors.length).toBeGreaterThan(10);
+        g.teleportTo(120, -600, 0);
+        step(g, 2);
+        const people = g.combat.actors.filter(a => a.tag === "citizens");
+        expect(people.length).toBe(14);
+        expect(people.every(a => a.faction === "neutral")).toBe(true);
+        // Nobody shoots at them: the squad and the wardens both leave them be.
+        step(g, 30 * 40);
+        expect(people.filter(a => a.inside).length).toBeGreaterThan(10);
+        expect(people.every(a => alive(a))).toBe(true);
+    }, 120_000);
+});
+
+describe("the Whispering Vein (a cave)", () => {
+    const cave = CAVES[0];
+
+    it("is a shell of rock over the floor: walked into by its mouth, closed at its sides", () => {
+        const g = openFloor();
+        g.combat.actors = g.combat.actors.filter(a => a.faction !== "below");
+        // Walk the tunnel from the mouth to the chamber, steering along its path.
+        const [mx, mz] = cave.path[0];
+        g.teleportTo(mx, mz - 6, 0);
+        step(g, 1);
+        for (const [px, pz] of [...cave.path.slice(1), cave.chamber.at]) {
+            for (let i = 0; i < 30 * 12 && Math.hypot(px - g.body.x, pz - g.body.z) > 1.5; i++) {
+                g.body.yaw = Math.atan2(px - g.body.x, pz - g.body.z);
+                step(g, 1, { moveY: 1 });
+            }
+        }
+        expect(Math.hypot(g.body.x - cave.chamber.at[0], g.body.z - cave.chamber.at[1])).toBeLessThan(3);
+        // From outside the chamber's far side, walking straight at it, the wall stops him.
+        const [cx, cz] = cave.chamber.at;
+        g.teleportTo(cx, cz + cave.chamber.r + 8, Math.PI);
+        step(g, 30 * 6, { moveY: 1 });
+        expect(Math.hypot(g.body.x - cx, g.body.z - cz)).toBeGreaterThan(cave.chamber.r);
+    });
+
+    it("is dark under its roof and builds as a mesh", () => {
+        const lm = new LightMap(grid, SUN_DIR);
+        lm.roofs = caveRoofs(cave, (x, z) => grid.height(x, z));
+        while (!lm.bake(64)) { /* bake */ }
+        const [cx, cz] = cave.chamber.at;
+        const y = grid.height(cx, cz) + 1.5;
+        expect(lm.inShadow(cx, y, cz)).toBe(true);
+        const m = buildCave(cave, (x, z) => grid.height(x, z));
+        expect(m.triangles).toBeGreaterThan(500);
+        expect(m.triangles).toBeLessThan(20000);
+    }, 120_000);
+
+    it("the Veil is kept in its chamber", () => {
+        const g = openFloor();
+        const pl = PLACES_OF_NOTE.find(p => p.id === "gardens")!;
+        g.teleportTo(pl.at[0], pl.at[1] - 120, 0);
+        step(g, 2);
+        const prize = g.pickups.find(p => p.kind === "potion" && p.item === "veil")!;
+        expect(prize).toBeTruthy();
+        expect(Math.hypot(prize.x - cave.chamber.at[0], prize.z - cave.chamber.at[1])).toBeLessThan(cave.chamber.r);
     });
 });

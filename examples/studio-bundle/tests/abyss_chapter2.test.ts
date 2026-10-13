@@ -183,6 +183,9 @@ describe("climbing on and off Kesh", () => {
         skipScene(g);
         const k = g.ch2!.kesh;
         expect(k.healed).toBe(true);
+        // The chapter's skybound start leaves the player within reach.
+        step(g, 1);
+        expect(g.interactable && "id" in g.interactable ? g.interactable.id : null).toBe("creature-ride");
         const fx = Math.sin(k.yaw), fz = Math.cos(k.yaw), rx = Math.cos(k.yaw), rz = -Math.sin(k.yaw);
         for (const [along, side] of [[6.5, 0], [0, 3.5], [-5.5, 0.5]]) {
             if (g.ch2!.mounted) { g.ch2!.dismount(); step(g, 20); }

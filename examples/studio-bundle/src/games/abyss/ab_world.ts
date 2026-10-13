@@ -426,6 +426,8 @@ export const LIGHT_RANGE_Y = 1024;
  */
 export class LightMap {
     readonly data = new Uint8Array(LIGHT_RES * LIGHT_RES * 4);
+    /** Roofs over the ground (caves): under each circle, up to `top`, no sun and almost no sky. */
+    roofs: { x: number; z: number; r: number; top: number }[] = [];
     readonly shadowTop = new Float32Array(LIGHT_RES * LIGHT_RES);
     readonly sky = new Float32Array(LIGHT_RES * LIGHT_RES);
     private row = 0;
@@ -489,7 +491,14 @@ export class LightMap {
                     const hy = g.height(x + dx * s, z + dz * s) - s * tanEl;
                     if (hy > top) top = hy;
                 }
-                const skyShare = this.skyLerp(x, z);
+                let skyShare = this.skyLerp(x, z);
+                for (const rf of this.roofs) {
+                    const d = Math.hypot(x - rf.x, z - rf.z);
+                    if (d > rf.r + 3) continue;
+                    const k = Math.min(1, Math.max(0, (rf.r + 3 - d) / 3));
+                    top = Math.max(top, rf.top * k + top * (1 - k));
+                    skyShare = Math.min(skyShare, skyShare * (1 - k) + 0.03 * k);
+                }
                 const t = j * LIGHT_RES + i;
                 this.shadowTop[t] = top;
                 this.sky[t] = skyShare;

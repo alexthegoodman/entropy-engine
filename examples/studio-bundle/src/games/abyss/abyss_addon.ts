@@ -19,7 +19,7 @@ import { MaskGrid, CHUNKS, LODS, buildChunk, chooseLods, buildOuterRing, buildCa
 import { Renderer, DEFAULT_LOOK, placeMatrix, identity, eulerMatrix, frameMatrix, multiply, CACHE_NAMESPACE, type WorldLook, type PointLight, type Mat4 } from "./ab_render";
 import { ITEM_FLOATS, PATTERN } from "./ab_shader";
 import { skyDome, puff, beam, ribbon, disc, decal, tracer, meshaObject, packEvaluation, cluster, type PackedMesh } from "./ab_models";
-import { plumeSites, plumePuffs, buildWater, type Plume } from "./ab_atmos";
+import { plumeSites, plumePuffs, buildWater, buildCave, caveRoofs, CAVES, type Plume } from "./ab_atmos";
 import { LOOKS, buildLook, personLods, personLod, lookKey } from "./ab_people";
 import { placeProps, solids, propKey, settlementDoors, type Prop } from "./ab_props";
 import { Game, GameWorld, NO_INPUT, START_PHASES, type GameInput, type GameEvent } from "./ab_game";
@@ -334,7 +334,11 @@ function makeLoadSteps(): LoadStep[] {
         { label: "Mapping the riverbed", weight: 1, run: () => masks.bake(fixedStep ? Infinity : 160) },
         {
             label: "Measuring the light", weight: 2, run: () => {
-                if (!light) light = new LightMap(grid, SUN_DIR);
+                if (!light) {
+                    light = new LightMap(grid, SUN_DIR);
+                    // Under the caves' roofs it is dark.
+                    light.roofs = CAVES.flatMap(c => caveRoofs(c, (x, z) => grid.height(x, z)));
+                }
                 const done = light.bake(fixedStep ? Infinity : 64);
                 if (done) renderer.setLightMap(light.data);
                 return done;
@@ -350,6 +354,10 @@ function makeLoadSteps(): LoadStep[] {
                     renderer.spawnCached("ab-outer", `outer-v${WORLD_VERSION}`, outer, terrainItem, "ground", [0, 0, 0, 20000]);
                 }
                 if (!renderer.has("ab-canyon")) renderer.spawnCached("ab-canyon", `canyon-v${WORLD_VERSION}`, () => buildCanyon(), terrainItem, "ground", [-4300, -300, 0, 4000]);
+                for (const c of CAVES) if (!renderer.has(`ab-cave-${c.id}`)) {
+                    const mesh = buildCave(c, (x, z) => grid.height(x, z));
+                    renderer.spawnCached(`ab-cave-${c.id}`, `cave-v${WORLD_VERSION}-${c.id}`, mesh, terrainItem, "solid", mesh.bounds);
+                }
                 if (!renderer.has("ab-water")) {
                     const water = buildWater((x, z) => grid.height(x, z));
                     renderer.spawnCached("ab-water", `water-v${WORLD_VERSION}`, water, terrainItem, "ground", water.bounds);
@@ -1155,6 +1163,17 @@ function drawAtmosphere(cam: V3): void {
         }
         // A vent's ember glow at the foot of the near ones.
         if (d < 700 && !pl.far) lights.push({ pos: [pl.x, pl.y + 6, pl.z], radius: 60, color: [1, 0.45, 0.18], intensity: 0.9 });
+    }
+    // The caves' own light: their crystals, glowing in the dark.
+    for (const c of CAVES) {
+        const [cx, cz] = c.chamber.at;
+        if (Math.hypot(cx - cam[0], cz - cam[2]) > 220) continue;
+        const y = grid.height(cx, cz);
+        const pulse = 0.85 + 0.15 * Math.sin(t * 1.3);
+        lights.push({ pos: [cx + 6, y + 3, cz + 4], radius: 22, color: [0.45, 0.9, 1], intensity: 2.2 * pulse });
+        lights.push({ pos: [cx - 7, y + 2.5, cz - 2], radius: 18, color: [0.75, 0.55, 1], intensity: 1.8 * pulse });
+        const mid = c.path[2];
+        lights.push({ pos: [mid[0], grid.height(mid[0], mid[1]) + 2, mid[1]], radius: 14, color: [0.5, 0.95, 0.85], intensity: 1.2 * pulse });
     }
     // Fires beyond the real ones' reach: tongues of flame at their sites, flickering.
     if (!game) return;
