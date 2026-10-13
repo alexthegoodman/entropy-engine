@@ -14,6 +14,8 @@
 //   45 light beam (searchlights, the Source's shaft)    46 tracer
 //   47 rotor blur disc                  48 scorch decal (ground)
 //   49 glowing moss / crystal (self-lit, pulsing)
+//   50 water (the Source's pool, the river near it): waves, sky and Source light reflected,
+//      shallow to deep, foam at the shore, the river's light moving in it
 //
 // Lighting: the sun, shadowed by the crack's walls (baked into the light map: ab_world.ts
 // LightMap) and by objects (the engine's sun-shadow cascades, group 3); skylight, reduced where
@@ -30,7 +32,7 @@ import { MESHA_SHADER } from "../../apps/mesha/mesha_shader";
 
 export const PATTERN = {
     terrain: 30, outer: 31, sky: 40, magic: 41, fire: 42, smoke: 43, waterfall: 44, beam: 45,
-    tracer: 46, rotor: 47, scorch: 48, moss: 49,
+    tracer: 46, rotor: 47, scorch: 48, moss: 49, water: 50,
 } as const;
 
 /** Hip and shoulder pivots of Mesha's default human (meters above the soles). */
@@ -38,8 +40,8 @@ export const HIP = 0.92;
 export const SHOULDER = 1.42;
 
 export const MAX_LIGHTS = 16;
-/** Floats in the World uniform: 12 vec4 of parameters, then two vec4 per point light. */
-export const WORLD_FLOATS = (12 + MAX_LIGHTS * 2) * 4;
+/** Floats in the World uniform: 13 vec4 of parameters, then two vec4 per point light. */
+export const WORLD_FLOATS = (13 + MAX_LIGHTS * 2) * 4;
 /** Floats per Item (a uniform, or one record of an instanced batch). */
 export const ITEM_FLOATS = 28;
 
@@ -52,7 +54,9 @@ function between(src: string, from: string, to: string): string {
 /** Mesha's noise helpers (hash3, vnoise, fbm). */
 const MESHA_NOISE = between(MESHA_SHADER, "fn hash3(", "// The studio environment");
 /** Mesha's surface patterns: everything from its glass pane to its rust, reading `uvp` for uv. */
-const MESHA_PATTERNS = between(MESHA_SHADER, "    if (pattern == 16) {", "    let key = normalize(studio.key_dir.xyz);").split("in.uv").join("uvp");
+const MESHA_PATTERNS = between(MESHA_SHADER, "    if (pattern == 16) {", "    let key = normalize(studio.key_dir.xyz);").split("in.uv").join("uvp")
+    // Scales sit on the creature, not the world: read them in the model's own space (Kesh flies).
+    .split("scale_pattern(p,").join("scale_pattern(in.local_pos,");
 
 const COMMON = /* wgsl */ `
 struct Camera {
@@ -76,6 +80,7 @@ struct World {
     grade: vec4<f32>,          // x saturation, y contrast, z fade to black (0..1), w vignette
     screen: vec4<f32>,         // viewport w, h, floor y, light count
     misc: vec4<f32>,           // x camera's sun visibility, y flash (white, 0..1), z flash hue (0 white, 1 magic), w surge
+    pall: vec4<f32>,           // the smoke over the crack: x density at its heart (1/m), y its height, z thinning above (m), w thickening below (m)
     lights: array<Light, ${MAX_LIGHTS}>,
 };
 @group(2) @binding(0) var<uniform> world: World;
@@ -231,7 +236,14 @@ fn light_at(p: vec3<f32>) -> LightSample {
     s.sky = mix(mix(a.sky, b.sky, f.x), mix(c.sky, d.sky, f.x), f.y);
     s.ground = mix(mix(a.ground, b.ground, f.x), mix(c.ground, d.ground, f.x), f.y);
     let inside = abs(p.x) < world.map.x && abs(p.z) < world.map.x;
-    if (!inside) { s.top = -10000.0; s.sky = 1.0; s.ground = p.y; }
+    if (!inside) {
+        // Beyond the map: the plains are open to the sun; the canyon's depths (below the rim)
+        // lie in its walls' shadow, as the crack's own floor does.
+        let deep = p.y < -80.0;
+        s.top = select(-10000.0, 0.0, deep);
+        s.sky = select(1.0, clamp(0.85 + p.y / 700.0, 0.2, 1.0), deep);
+        s.ground = p.y;
+    }
     return s;
 }
 
@@ -323,8 +335,48 @@ fn smoke_layer(d: vec3<f32>, t: f32) -> vec4<f32> {
 
 // --- Fog ------------------------------------------------------------------------------------------
 
-// Height fog: a thin haze everywhere, and dust thickening toward the floor of the abyss
-// (density bounce.w at the floor, falling off over dust.w meters), integrated along the ray.
+// exp(a + b t) integrated over t in 0..len.
+fn exp_integral(a: f32, b: f32, len: f32) -> f32 {
+    if (abs(b) < 1e-6) { return exp(a) * len; }
+    return exp(a) * (exp(b * len) - 1.0) / b;
+}
+
+// The pall: smoke over the crack, densest at world.pall.y and thinning above (over pall.z
+// meters) and below (over pall.w), integrated analytically along a ray from y0 rising dy per
+// meter for len meters.
+fn pall_depth(y0: f32, dy: f32, len: f32) -> f32 {
+    let k = world.pall.x;
+    if (k <= 0.0) { return 0.0; }
+    let c = world.pall.y;
+    let up = max(world.pall.z, 1.0);
+    let dn = max(world.pall.w, 1.0);
+    let y1 = y0 + dy * len;
+    var split = len;
+    if ((y0 - c) * (y1 - c) < 0.0) { split = (c - y0) / dy; }
+    // First part (from y0 to the crossing or the end), then the rest on the other side.
+    var depth = 0.0;
+    if (y0 >= c) { depth = exp_integral(-(y0 - c) / up, -dy / up, split); }
+    else { depth = exp_integral((y0 - c) / dn, dy / dn, split); }
+    if (split < len) {
+        let rest = len - split;
+        if (y1 >= c) { depth = depth + exp_integral(0.0, -dy / up, rest); }
+        else { depth = depth + exp_integral(0.0, dy / dn, rest); }
+    }
+    return k * max(depth, 0.0);
+}
+
+// The pall's own color: dark smoke, warmed where the sun reaches it and from the fires below.
+fn pall_color(lit: f32, dir: vec3<f32>) -> vec3<f32> {
+    let sun = normalize(world.sun_dir.xyz);
+    let mie = pow(max(dot(dir, sun), 0.0), 5.0);
+    let dark = vec3<f32>(0.06, 0.056, 0.054);
+    let litc = vec3<f32>(0.27, 0.255, 0.245) * mix(vec3<f32>(1.0), world.sun_color.rgb, 0.45) * (0.8 + mie * 1.5);
+    return mix(dark, litc, lit * 0.75) + vec3<f32>(0.09, 0.035, 0.012) * (1.0 - lit);
+}
+
+// Height fog: a thin haze everywhere, dust thickening toward the floor of the abyss (density
+// bounce.w at the floor, falling off over dust.w meters), and the pall of smoke over the crack
+// - all integrated along the ray.
 fn fog(col: vec3<f32>, p: vec3<f32>, sun_here: f32) -> vec3<f32> {
     let cam = camera.view_pos.xyz;
     let dv = p - cam;
@@ -341,11 +393,13 @@ fn fog(col: vec3<f32>, p: vec3<f32>, sun_here: f32) -> vec3<f32> {
         dusty = world.bounce.w * h / dir.y * (exp(-y0 / h) - exp(-(y0 + dir.y * dist) / h));
     }
     let optical = max(dusty, 0.0) + world.sky_horizon.w * dist;
-    let trans = exp(-optical);
+    let smoke = pall_depth(cam.y, dir.y, dist);
+    let trans = exp(-(optical + smoke));
     let sun = normalize(world.sun_dir.xyz);
     let mie = pow(max(dot(dir, sun), 0.0), 6.0);
     let lit = clamp(0.5 * (sun_here + world.misc.x), 0.0, 1.0);
-    let inscatter = mix(world.dust.rgb, world.sky_horizon.rgb * 0.9 + world.sun_color.rgb * mie * 0.6, lit);
+    let haze_col = mix(world.dust.rgb, world.sky_horizon.rgb * 0.9 + world.sun_color.rgb * mie * 0.6, lit);
+    let inscatter = (haze_col * optical + pall_color(lit, dir) * smoke) / max(optical + smoke, 1e-5);
     return col * trans + inscatter * (1.0 - trans);
 }
 
@@ -476,6 +530,63 @@ fn ground_shade(p: vec3<f32>, n_in: vec3<f32>, uv: vec2<f32>, col: vec4<f32>, fa
     return g;
 }
 
+// --- Water ---------------------------------------------------------------------------------------------
+
+// The water's surface height field (meters), moving: long swells, chop, fine ripples.
+fn water_h(q: vec2<f32>, t: f32) -> f32 {
+    return vnoise2(q * 0.11 + vec2<f32>(t * 0.05, t * 0.031)) * 0.55
+        + vnoise2(q * 0.42 - vec2<f32>(t * 0.21, -t * 0.13)) * 0.22
+        + vnoise2(q * 1.7 + vec2<f32>(t * 0.47, t * 0.39)) * 0.06;
+}
+
+// Water (uv.x: depth to the ground below, m; uv.y: how far down the river from the Source, 0..1).
+fn water_shade(in: VertexOutput, p: vec3<f32>, v: vec3<f32>, ls: LightSample, sun_wall: f32) -> vec3<f32> {
+    let t = world.sun_dir.w;
+    let depth = max(in.uv.x, 0.0);
+    // The river flows west: its ripples drift downstream; the pool's only stir.
+    let flow = vec2<f32>(-1.0, 0.25) * t * 0.6 * smoothstep(0.02, 0.1, in.uv.y);
+    let q = p.xz + flow;
+    let e = 0.15;
+    let h0 = water_h(q, t);
+    let hx = water_h(q + vec2<f32>(e, 0.0), t) - h0;
+    let hz = water_h(q + vec2<f32>(0.0, e), t) - h0;
+    // Calmer far away (no shimmering), choppier close.
+    let calm = clamp(length(camera.view_pos.xyz - p) / 260.0, 0.0, 0.85);
+    let n = normalize(vec3<f32>(-hx / e * (1.0 - calm), 1.0, -hz / e * (1.0 - calm)));
+    let nv = max(dot(n, v), 0.0);
+    let fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
+    let sky_vis = sky_seen(p, ls);
+    // What it reflects: the sky (dimmed where the walls hide it), the Source's glow, the sun.
+    let r = reflect(-v, n);
+    var refl = sky_color(r) * (0.15 + 0.85 * sky_vis);
+    let sd = normalize(world.source_pos.xyz - p);
+    let sdist = length(world.source_pos.xyz - p);
+    let source_k = pow(max(1.0 - sdist / (world.source_pos.w * 1.6), 0.0), 1.5);
+    let hs = normalize(sd + v);
+    let sun = normalize(world.sun_dir.xyz);
+    let hsun = normalize(sun + v);
+    let spec = world.source.rgb * world.source.w * source_k * (pow(max(dot(n, hs), 0.0), 90.0) * 6.0 + pow(max(dot(n, hs), 0.0), 12.0) * 0.4)
+        + world.sun_color.rgb * world.sun_color.w * pow(max(dot(n, hsun), 0.0), 400.0) * 8.0 * sun_wall;
+    // The body: clear and green-blue in the shallows, ink in the deep, lit from above.
+    let shallow = vec3<f32>(0.05, 0.16, 0.17);
+    let deep = vec3<f32>(0.006, 0.02, 0.035);
+    let body_k = 1.0 - exp(-depth * 0.35);
+    let ambient = mix(world.sky_horizon.rgb, world.sky_zenith.rgb, 0.5) * (0.25 + 0.75 * sky_vis) * 0.6 + point_lights(p, vec3<f32>(0.0, 1.0, 0.0));
+    var body = mix(shallow, deep, body_k) * (ambient + world.sun_color.rgb * world.sun_color.w * sun_wall * 0.15);
+    // The river's light moves in it: caustic threads, brightest near the Source and in the shallows.
+    // Caustic threads: two layers of ridged noise, drifting against each other.
+    let cq = p.xz * 0.22 + vec2<f32>(vnoise2(p.xz * 0.09 + vec2<f32>(t * 0.05, 0.0)), vnoise2(p.xz * 0.09 - vec2<f32>(0.0, t * 0.04))) * 1.6;
+    let r1 = 1.0 - abs(vnoise2(cq + vec2<f32>(t * 0.12, -t * 0.07)) * 2.0 - 1.0);
+    let r2 = 1.0 - abs(vnoise2(cq * 1.9 - vec2<f32>(t * 0.09, t * 0.1)) * 2.0 - 1.0);
+    let caustic = pow(r1, 7.0) * 0.7 + pow(r2, 9.0) * 0.5;
+    let glow = world.source.rgb * world.source.w * (0.1 + 0.55 * caustic) * (0.3 + source_k) * (1.0 - body_k * 0.75);
+    // Foam where it is shallow at the shore, broken and drifting.
+    let foam = smoothstep(0.45, 0.05, depth) * (0.55 + 0.45 * vnoise2(q * 2.3 + vec2<f32>(t * 0.4, 0.0)));
+    var col = body * (1.0 - fres) + glow * (1.0 - fres * 0.5) + refl * fres + spec;
+    col = mix(col, vec3<f32>(0.55, 0.62, 0.64) * (ambient + vec3<f32>(0.2)), foam * 0.7);
+    return col;
+}
+
 // --- Point lights ---------------------------------------------------------------------------------
 
 fn point_lights(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
@@ -519,8 +630,10 @@ fn effect(pattern: i32, in: VertexOutput, v: vec3<f32>) -> vec4<f32> {
         let streak = smoothstep(0.0, 0.25, fall) * smoothstep(1.0, 0.55, fall);
         let lanes = 0.55 + 0.45 * vnoise(vec3<f32>(in.uv.x * 60.0, in.uv.y * 2.0 - t * 2.0, 3.0));
         let heart = 1.0 - abs(in.uv.x - 0.5) * 2.0;
-        let c = world.source.rgb * (0.4 + 1.6 * streak * lanes) * (0.5 + heart) + vec3<f32>(1.0) * pow(heart, 6.0) * 0.4;
-        return vec4<f32>(c * world.source.w * 1.6, 1.0);
+        // White water, lit from inside by the Source's colors; foam brightest in the streaks.
+        let water = mix(vec3<f32>(0.5, 0.62, 0.7), world.source.rgb, 0.55);
+        let c = water * (0.35 + 1.4 * streak * lanes) * (0.45 + heart) + vec3<f32>(0.9, 0.95, 1.0) * pow(heart, 5.0) * 0.35 * (0.6 + 0.4 * streak);
+        return vec4<f32>(c * (0.55 + world.source.w * 1.4), 1.0);
     }
     if (pattern == 45) {
         // A light beam: brightest along its axis (uv.x across, uv.y along), fading out.
@@ -550,6 +663,14 @@ fn effect_keep(pattern: i32, in: VertexOutput) -> f32 {
     var keep = in.extra.x;
     if (pattern == 45) { keep = keep * pow(1.0 - abs(in.uv.x - 0.5) * 2.0, 0.8) * (1.0 - clamp(in.uv.y, 0.0, 1.0)) * 0.7; }
     if (pattern == 47) { keep = keep * 0.22; }
+    // Smoke puffs thin out toward their silhouettes and are eaten away by drifting noise, so a
+    // plume is billowing smoke, not a stack of balls.
+    if (pattern == 43) {
+        let facing = abs(dot(normalize(in.normal), normalize(camera.view_pos.xyz - in.world_pos)));
+        let q = in.local_pos * 1.6 + vec3<f32>(in.extra.w * 3.7, world.sun_dir.w * 0.05 + in.extra.w, in.extra.w * 1.3);
+        let erode = smoothstep(0.28, 0.72, fbm(q) * 0.65 + fbm(q * 2.7) * 0.35 + facing * 0.25);
+        keep = keep * smoothstep(0.02, 0.7, facing) * erode;
+    }
     if (pattern == 44) { keep = keep * (0.55 + 0.45 * (1.0 - abs(in.uv.x - 0.5) * 2.0)); }
     return keep;
 }
@@ -571,21 +692,33 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var col = sky_color(d);
         let sm = smoke_layer(d, world.sun_dir.w);
         col = mix(col, sm.rgb * (0.6 + 0.6 * world.sun_color.rgb), sm.a * 0.8);
+        // Seen through the pall (out to 20 km): the horizon drowns in smoke, as the land under it does.
+        let smoke = pall_depth(cam.y, d.y, 20000.0);
+        col = mix(pall_color(world.misc.x, d), col, exp(-smoke));
         return finish(col, in.clip_position);
     }
 
-    // Dithered opacity: fading things, effects.
+    // Dithered opacity: fading things, effects (the soft smoke pipeline blends instead).
     var keep = in.extra.x;
     if (pattern >= 41 && pattern != 48) { keep = effect_keep(pattern, in); }
-    if (keep < 0.999 && !dither_keep(in.clip_position, keep)) { discard; }
+    if (!SOFT_SMOKE && keep < 0.999 && !dither_keep(in.clip_position, keep)) { discard; }
+    if (SOFT_SMOKE && keep < 0.004) { discard; }
 
     let ls = light_at(p);
     let sun_wall = wall_sun(p, ls);
 
+    if (pattern == 50) {
+        // The shore dissolves into the ground under it.
+        if (!dither_keep(in.clip_position, smoothstep(0.0, 0.5, in.uv.x))) { discard; }
+        let w = water_shade(in, p, v, ls, sun_wall);
+        return finish(fog(w, p, sun_wall), in.clip_position);
+    }
+
     if (pattern >= 41 && pattern != 43 && pattern != 48) {
         let e = effect(pattern, in, v);
         var col = e.rgb;
-        if (in.extra.y < 1.5) { col = mix(col, fog(col, p, sun_wall), 0.6); }
+        // Self-lit effects carry through the haze better than lit surfaces (the waterfall most).
+        if (in.extra.y < 1.5) { col = mix(col, fog(col, p, sun_wall), select(0.6, 0.3, pattern == 44)); }
         return finish(col, in.clip_position);
     }
 
@@ -611,10 +744,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         glow = g.glow;
         n = g.n;
     } else if (pattern == 43) {
-        // Smoke and dust: lit puffs colored by the tint.
+        // Smoke and dust: lit puffs colored by the tint, lit softly (a puff has no hard
+        // shadow side: tops a little brighter than the undersides).
         base = in.tint.rgb;
         rough = 1.0;
         metal = 0.0;
+        n = normalize(mix(n, vec3<f32>(0.0, 1.0, 0.0), 0.6));
     } else if (pattern == 48) {
         // A scorch on the ground: char, darkest at the center.
         let r = length(in.local_pos.xz);
@@ -688,16 +823,26 @@ ${MESHA_PATTERNS}
     col = col + in.tint.rgb * pow(1.0 - nv, 3.0) * in.extra.z;
 
     if (in.extra.y < 1.5) { col = fog(col, p, sun_vis); }
-    return finish(col, in.clip_position);
+    let done = finish(col, in.clip_position);
+    // The soft smoke pipeline blends: its opacity goes out as alpha.
+    if (SOFT_SMOKE) { return vec4<f32>(done.rgb, clamp(keep, 0.0, 1.0)); }
+    return done;
 }
 `;
 
+const SOFT = (on: boolean) => `const SOFT_SMOKE: bool = ${on};\n`;
+
 /** The shader for meshes with one Item uniform each. */
-export const ABYSS_SHADER = (COMMON + SHADOW_WGSL + FRAGMENT)
+export const ABYSS_SHADER = (SOFT(false) + COMMON + SHADOW_WGSL + FRAGMENT)
     .replace("ITEM_BINDING", "@group(2) @binding(1) var<uniform> item: Item;")
     .split("ITEM_FETCH").join("item");
 
 /** The shader for instanced batches: each instance's Item from a storage buffer. */
-export const ABYSS_INSTANCED_SHADER = (COMMON + SHADOW_WGSL + FRAGMENT)
+export const ABYSS_INSTANCED_SHADER = (SOFT(false) + COMMON + SHADOW_WGSL + FRAGMENT)
+    .replace("ITEM_BINDING", "@group(2) @binding(1) var<storage, read> items: array<Item>;")
+    .split("ITEM_FETCH").join("items[ii]");
+
+/** Instanced soft smoke: alpha-blended (a transparent pipeline), never dithered. */
+export const ABYSS_SMOKE_SHADER = (SOFT(true) + COMMON + SHADOW_WGSL + FRAGMENT)
     .replace("ITEM_BINDING", "@group(2) @binding(1) var<storage, read> items: array<Item>;")
     .split("ITEM_FETCH").join("items[ii]");

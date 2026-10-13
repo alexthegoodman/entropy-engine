@@ -14,6 +14,10 @@
 
 import { HeightGrid, GRID, CELL, MAP_HALF, groundMask, outerHeight, clamp } from "./ab_world";
 
+/** The canyon beyond the map's west edge, drawn finer than the horizon ring (x from its far end to the map). */
+export const CANYON_FAR_X = -7000;
+export const CANYON_HALF_Z = 1400;
+
 export const CHUNK_CELLS = 64;
 export const CHUNKS = GRID / CHUNK_CELLS;
 export const CHUNK_SIZE = CHUNK_CELLS * CELL;
@@ -202,7 +206,10 @@ export function buildOuterRing(): TerrainMesh {
     };
     const inside = (i: number, j: number) => {
         const x0 = -OUTER_EXTENT + i * OUTER_CELL, z0 = -OUTER_EXTENT + j * OUTER_CELL;
-        return x0 >= -MAP_HALF && x0 + OUTER_CELL <= MAP_HALF && z0 >= -MAP_HALF && z0 + OUTER_CELL <= MAP_HALF;
+        const map = x0 >= -MAP_HALF && x0 + OUTER_CELL <= MAP_HALF && z0 >= -MAP_HALF && z0 + OUTER_CELL <= MAP_HALF;
+        // The far canyon has a mesh of its own (buildCanyon).
+        const canyon = x0 >= CANYON_FAR_X && x0 + OUTER_CELL <= -MAP_HALF && z0 >= -CANYON_HALF_Z && z0 + OUTER_CELL <= CANYON_HALF_Z;
+        return map || canyon;
     };
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
         if (inside(i, j)) continue;
@@ -228,4 +235,53 @@ export function buildOuterRing(): TerrainMesh {
         idx.push(t0, s0, t1, t1, s0, s1, t0, t1, s0, t1, s1, s0);
     }
     return { vertexData: Float32Array.from(v), indexData: Uint32Array.from(idx), bounds: [0, 0, 0, OUTER_EXTENT * 1.5], triangles: idx.length / 3 };
+}
+
+/**
+ * The canyon the crack becomes west of the map, out to CANYON_FAR_X: columns that widen with the
+ * distance from the map (20 m at its edge, 160 m far out), rows 25 m apart, the map's own masks
+ * (scorch, the dry river), and a skirt round its border so no seam shows sky.
+ */
+export function buildCanyon(): TerrainMesh {
+    const xs: number[] = [];
+    for (let x = -MAP_HALF, step = 20; x > CANYON_FAR_X; x -= step, step = Math.min(160, step * 1.045)) xs.push(x);
+    xs.push(CANYON_FAR_X);
+    const zs: number[] = [];
+    for (let z = -CANYON_HALF_Z; z <= CANYON_HALF_Z; z += 25) zs.push(z);
+    const nx = xs.length, nz = zs.length;
+    const v = new Float32Array((nx * nz + 2 * (nx + nz)) * 12);
+    const idx: number[] = [];
+    const scale = 1 + TERRAIN_PATTERN;
+    const put = (k: number, x: number, z: number, drop = 0) => {
+        const y = outerHeight(x, z) - drop;
+        const e = 6;
+        const ddx = outerHeight(x + e, z) - outerHeight(x - e, z), ddz = outerHeight(x, z + e) - outerHeight(x, z - e);
+        const l = Math.hypot(ddx, 2 * e, ddz);
+        const m = groundMask(x, z);
+        const o = k * 12;
+        v[o] = x; v[o + 1] = y; v[o + 2] = z;
+        v[o + 3] = (-ddx / l) * scale; v[o + 4] = (2 * e / l) * scale; v[o + 5] = (-ddz / l) * scale;
+        v[o + 6] = m.scorch; v[o + 7] = m.river; v[o + 8] = 0;
+        v[o + 9] = strataSeed(x, z); v[o + 10] = 0; v[o + 11] = 1;
+    };
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) put(j * nx + i, xs[i], zs[j]);
+    for (let j = 0; j + 1 < nz; j++) for (let i = 0; i + 1 < nx; i++) {
+        // x decreases with i: wind so the faces point up.
+        const p = j * nx + i, q = p + 1, r = p + nx, t = r + 1;
+        idx.push(p, q, r, q, t, r);
+    }
+    // The skirt: the border's vertices again, hung 60 m lower, faces both ways.
+    const border: number[] = [];
+    for (let i = 0; i < nx; i++) border.push(i);
+    for (let j = 1; j < nz; j++) border.push(j * nx + nx - 1);
+    for (let i = nx - 2; i >= 0; i--) border.push((nz - 1) * nx + i);
+    for (let j = nz - 2; j > 0; j--) border.push(j * nx);
+    const base = nx * nz;
+    border.forEach((b, k) => put(base + k, v[b * 12], v[b * 12 + 2], 60));
+    for (let k = 0; k < border.length; k++) {
+        const a = border[k], b = border[(k + 1) % border.length], sa = base + k, sb = base + (k + 1) % border.length;
+        idx.push(a, b, sa, b, sb, sa, a, sa, b, b, sa, sb);
+    }
+    const used = base + border.length;
+    return { vertexData: v.subarray(0, used * 12), indexData: Uint32Array.from(idx), bounds: [(CANYON_FAR_X - MAP_HALF) / 2, -300, 0, Math.hypot((MAP_HALF - CANYON_FAR_X) / 2, CANYON_HALF_Z, 400)], triangles: idx.length / 3 };
 }

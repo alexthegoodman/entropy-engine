@@ -108,6 +108,11 @@ export const BEATS: Record<string, Line[]> = {
         s("Radiation spike ahead. The shrine. Same signature as the Bore.", 8),
     ],
     shrinePrompt: [s("It is strongest here. Lieutenant - something under the water is still warm.")],
+    citizens: [
+        r("Pvt. Holt", "Movement! In the street - people! Sarge, there's people!"),
+        r(CAST.okafor, "HOLD FIRE. Hold your fire! They're running - they're civilians.", 2.2),
+        s("They are running from us, Lieutenant. Into their houses. They are afraid of us.", 4.5),
+    ],
     ambushStart: [r(CAST.okafor, "Find cover! Pair up! They're on the roofs!"), r("Pvt. Saarinen", "What is that light?!", 3)],
     manDown: [r(CAST.okafor, "Man down!")],
     fallbackStart: [r(CAST.voss, "Kilo-Two, fall back to the landing zone west of the structures. Lantern Six is inbound for extraction."), r(CAST.okafor, "You heard him. Move! Move!", 5)],

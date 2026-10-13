@@ -5,6 +5,7 @@
 // tests drive it headless from the title to the end card.
 
 import { HeightGrid, MAP_HALF, SHRINE, SETTLEMENT, EVAC_LZ, FLOOR_Y, LEDGE_Y, type V2, type V3 } from "./ab_world";
+import { fireSites, type FireSite } from "./ab_atmos";
 import {
     newCombat, spawn, stepCombat, damage, kill, castBolt, rayHitActor, meleeHits, surge, living, alive, actorById, chest,
     type CombatState, type Actor, type CombatWorld, type PlayerView, type Bolt,
@@ -285,6 +286,10 @@ export class Game {
     mendLeft = 0;
     /** Crouch held (toggled by the addon). */
     crouching = false;
+    /** Where the world burns (ab_atmos.ts): the near ones are kept alight as real fires. */
+    readonly fireSites: FireSite[] = fireSites();
+    /** The Western Dark's fallout: seconds spent in it (SAGE warns once). */
+    fallout = 0;
 
     constructor(world: GameWorld) {
         this.world = world;
@@ -840,6 +845,12 @@ export class Game {
         const fall = stepBody(b, { moveX: input.moveX, moveY: input.moveY, sprint: input.sprint, jump: input.jump, crouch }, dt, { ground: (x, z) => this.world.ground(x, z), collide: (x, z, r) => this.world.collide(x, z, r), half: MAP_HALF }, pace, st.jump, st.staminaDrain);
         if (fall > 0) this.hurt(fall * st.fallDamage, [b.x, b.y - 1, b.z]);
         if (b.y < FLOOR_Y - 60) this.hurt(999, [b.x, b.y, b.z]);
+        // The Western Dark: past the map's last kilometer west the air is the Bore's fallout.
+        if (b.x < -1450) {
+            this.fallout += dt;
+            if (this.fallout > 0.5 && !this.flags.falloutWarned) { this.flags.falloutWarned = true; this.say([{ speaker: "SAGE", text: "Radiation climbing fast, Lieutenant. The Bore's fallout lies in the west. Turn back.", channel: "sage" }]); }
+            this.hurt((b.x < -1530 ? 14 : 4) * dt, [b.x - 10, b.y + 1, b.z]);
+        } else this.fallout = 0;
         // Standing in fire burns.
         const burning = fireDamageAt(this.fx, b.x, b.z);
         if (burning > 0) this.hurt(burning * dt, [b.x, b.y, b.z]);
@@ -1243,6 +1254,7 @@ export class Game {
                 shootDown(ac);
             }
         }
+        this.stepAmbientFires();
         stepFx(this.fx, dt, [1.2, 0.4], (x, z) => this.world.ground(x, z));
         // Searchlights: gunships sweep the walls and floor; the ones over the fight find it.
         for (const a of this.aircraft) {
@@ -1253,6 +1265,46 @@ export class Game {
             if (a.id === "lantern9") { tx = this.body.x; tz = this.body.z; }
             a.lightTarget = [tx, this.world.ground(tx, tz), tz];
         }
+    }
+
+    /** The world's own fires within reach of the camera stay lit (as real fires: they glow, smoke and burn). */
+    private stepAmbientFires(): void {
+        const c = this.camera.pos;
+        if (this.phase === "title") return;
+        for (let i = 0; i < this.fireSites.length; i++) {
+            const f = this.fireSites[i];
+            if (Math.hypot(f.x - c[0], f.z - c[2]) > 420) continue;
+            const key = `amb:${i}`;
+            const burning = this.fx.fires.find(x => x.key === key);
+            if (burning && burning.life - burning.age > 4) continue;
+            ignite(this.fx, f.x, this.world.ground(f.x, f.z), f.z, f.radius, 30, key);
+        }
+    }
+
+    /** The doors of the settlement's houses (the addon and the tests pass them in from the props). */
+    doors: [number, number][] = [];
+
+    /** Chapter One: the people of the settlement, out in its streets, run for their houses. */
+    private citizensFlee(): void {
+        this.flags.citizens = true;
+        if (!this.doors.length) return;
+        const looks = ["citizen-m", "citizen-f", "citizen-old", "citizen-f", "citizen-m"];
+        const b = this.body;
+        // In the streets between Alex and the shrine, and around it: each runs to the nearest door away from him.
+        for (let i = 0; i < 14; i++) {
+            const a = this.rng.next() * Math.PI * 2, d = 25 + this.rng.next() * 110;
+            const x = SHRINE[0] + Math.cos(a) * d, z = SHRINE[1] + Math.sin(a) * d;
+            let best = this.doors[0], bd = Infinity;
+            for (const door of this.doors) {
+                const dd = Math.hypot(door[0] - x, door[1] - z) - Math.hypot(door[0] - b.x, door[1] - b.z) * 0.15;
+                if (dd < bd) { bd = dd; best = door; }
+            }
+            const c = spawn(this.combat, { name: "Citizen", look: looks[i % looks.length], faction: "neutral", role: "civilian", x, z, mortal: true, tag: "citizens" }, (xx, zz) => this.world.ground(xx, zz));
+            c.shelter = [best[0], best[1]];
+            c.pace = 0.85 + this.rng.next() * 0.45;
+            [c.x, c.z] = this.world.collide(c.x, c.z, 0.4);
+        }
+        this.beat("citizens");
     }
 
     private crashed(a: Aircraft, at: V3): void {
@@ -1283,6 +1335,8 @@ export class Game {
                 break;
             }
             case "floor": {
+                // The settlement's people see the expedition coming, and run for their doors.
+                if (!this.flags.citizens && near(SETTLEMENT, 300)) this.citizensFlee();
                 if (this.objective === 0 && near(SETTLEMENT, 150)) { this.objective = 1; this.beat("settlement"); }
                 if (this.objective === 1 && near(SHRINE, 16)) this.beat("shrinePrompt");
                 break;

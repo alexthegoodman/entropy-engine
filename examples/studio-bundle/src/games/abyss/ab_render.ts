@@ -2,7 +2,7 @@
 // texture, and meshes (plain ones, mesh-cache ones, instanced batches). The packing functions are
 // pure (tests check them); the Renderer is the only place that calls Entropy.* for drawing.
 
-import { ABYSS_SHADER, ABYSS_INSTANCED_SHADER, WORLD_FLOATS, ITEM_FLOATS, MAX_LIGHTS } from "./ab_shader";
+import { ABYSS_SHADER, ABYSS_INSTANCED_SHADER, ABYSS_SMOKE_SHADER, WORLD_FLOATS, ITEM_FLOATS, MAX_LIGHTS } from "./ab_shader";
 import { MAP_HALF, LIGHT_MIN_Y, LIGHT_RANGE_Y, LIGHT_RES, FLOOR_Y, type V3 } from "./ab_world";
 
 export type RGB = [number, number, number];
@@ -38,6 +38,11 @@ export interface WorldLook {
     cameraSun: number;
     /** Debug view (1: the terrain's masks). */
     debug?: number;
+    /** The pall of smoke over the crack: density at its heart (1/m), its height, thinning above and below (m). */
+    pallDensity: number;
+    pallY: number;
+    pallUp: number;
+    pallDown: number;
 }
 
 export const DEFAULT_LOOK: WorldLook = {
@@ -47,7 +52,7 @@ export const DEFAULT_LOOK: WorldLook = {
     zenith: [0.26, 0.28, 0.32],
     horizon: [0.62, 0.52, 0.43],
     exposure: 0.85,
-    haze: 0.00006,
+    haze: 0.00008,
     dustDensity: 0.0007,
     dustHeight: 150,
     dustColor: [0.12, 0.11, 0.12],
@@ -63,6 +68,10 @@ export const DEFAULT_LOOK: WorldLook = {
     flash: 0,
     flashHue: 0,
     cameraSun: 1,
+    pallDensity: 0.00028,
+    pallY: -120,
+    pallUp: 260,
+    pallDown: 300,
 };
 
 /** The World uniform's floats (see ab_shader.ts `World`). */
@@ -82,10 +91,11 @@ export function packWorld(l: WorldLook, time: number, screen: [number, number], 
     const count = Math.min(MAX_LIGHTS, lights.length);
     set(10, screen[0], screen[1], FLOOR_Y, count);
     set(11, l.cameraSun, l.flash, l.flashHue, l.debug ?? 0);
+    set(12, l.pallDensity, l.pallY, l.pallUp, l.pallDown);
     for (let i = 0; i < MAX_LIGHTS; i++) {
         const p = lights[i];
-        if (i < count && p) { set(12 + i * 2, ...p.pos, p.radius); set(13 + i * 2, ...p.color, p.intensity); }
-        else { set(12 + i * 2, 0, -1e6, 0, 0); set(13 + i * 2, 0, 0, 0, 0); }
+        if (i < count && p) { set(13 + i * 2, ...p.pos, p.radius); set(14 + i * 2, ...p.color, p.intensity); }
+        else { set(13 + i * 2, 0, -1e6, 0, 0); set(14 + i * 2, 0, 0, 0, 0); }
     }
     return out;
 }
@@ -169,7 +179,7 @@ const INSTANCED_ENTRIES = [
     { binding: 2, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
 ] as const;
 
-type Kind = "solid" | "ground" | "fx" | "people" | "instanced" | "instancedFx";
+type Kind = "solid" | "ground" | "fx" | "people" | "instanced" | "instancedFx" | "smoke";
 
 /**
  * Pipelines: "solid" Mesha objects (cast into every cascade), "ground" (the terrain: receives only),
@@ -177,7 +187,7 @@ type Kind = "solid" | "ground" | "fx" | "people" | "instanced" | "instancedFx";
  * cascades), and instanced batches (scattered rocks and debris; effects particles).
  */
 export class Renderer {
-    pipelines: Record<Kind, string> = { solid: "", ground: "", fx: "", people: "", instanced: "", instancedFx: "" };
+    pipelines: Record<Kind, string> = { solid: "", ground: "", fx: "", people: "", instanced: "", instancedFx: "", smoke: "" };
     worldBuffer = "";
     lightTexture = "";
     private worldScratch = new Float32Array(WORLD_FLOATS);
@@ -189,11 +199,12 @@ export class Renderer {
 
     init(): void {
         const make = (name: string, kind: Kind, extra: Record<string, unknown>) => {
-            const instanced = kind === "instanced" || kind === "instancedFx" || kind === "people";
+            const instanced = kind === "instanced" || kind === "instancedFx" || kind === "people" || kind === "smoke";
+            const shader = kind === "smoke" ? ABYSS_SMOKE_SHADER : instanced ? ABYSS_INSTANCED_SHADER : ABYSS_SHADER;
             this.pipelines[kind] = Entropy.Pipeline.create({
                 name, layout: "mesh", pbr: false, sunShadows: true,
-                vertexShader: instanced ? ABYSS_INSTANCED_SHADER : ABYSS_SHADER,
-                fragmentShader: instanced ? ABYSS_INSTANCED_SHADER : ABYSS_SHADER,
+                vertexShader: shader,
+                fragmentShader: shader,
                 extraBindGroups: [{ entries: (instanced ? INSTANCED_ENTRIES : PIPELINE_ENTRIES).map(e => ({ ...e, visibility: [...e.visibility] })) }],
                 ...extra,
             } as Parameters<typeof Entropy.Pipeline.create>[0]);
@@ -204,6 +215,8 @@ export class Renderer {
         make("Abyss People", "people", { shadowCascades: 2 });
         make("Abyss Instanced", "instanced", { shadowCascades: 3 });
         make("Abyss Instanced FX", "instancedFx", { shadowCaster: false });
+        // Made last so its meshes are created after the others' (the engine draws transparent ones last anyway).
+        make("Abyss Smoke", "smoke", { shadowCaster: false, transparent: true });
         this.worldBuffer = Entropy.Buffer.create({ size: WORLD_FLOATS * 4, usage: "Uniform" });
         // An empty light map until the bake lands (everything lit, full sky).
         const blank = new Uint8Array(LIGHT_RES * LIGHT_RES * 4);

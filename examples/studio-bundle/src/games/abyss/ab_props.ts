@@ -299,3 +299,11 @@ export function solids(props: readonly Prop[], chapter: 1 | 2 = 1): { x: number;
     }
     return out;
 }
+
+/** The doors of the settlement's houses (where its people run when the expedition comes): each on the side facing the shrine. */
+export function settlementDoors(props: readonly Prop[]): [number, number][] {
+    return props.filter(p => p.object === "architecture.cave_dwelling").map(p => {
+        const r = Number(p.values.radius ?? 3.2) + 0.4;
+        return [p.x + Math.sin(p.yaw) * r, p.z + Math.cos(p.yaw) * r] as [number, number];
+    });
+}

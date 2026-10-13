@@ -15,12 +15,13 @@
 // drives.
 
 import { HeightGrid, LightMap, SUN_DIR, MAP_HALF, FLOOR_Y, SOURCE, SOURCE_POOL, SHRINE, depthBelowRim, type V3 } from "./ab_world";
-import { MaskGrid, CHUNKS, LODS, buildChunk, chooseLods, buildOuterRing, chunkTriangles } from "./ab_terrain";
+import { MaskGrid, CHUNKS, LODS, buildChunk, chooseLods, buildOuterRing, buildCanyon, chunkTriangles } from "./ab_terrain";
 import { Renderer, DEFAULT_LOOK, placeMatrix, identity, eulerMatrix, frameMatrix, multiply, CACHE_NAMESPACE, type WorldLook, type PointLight, type Mat4 } from "./ab_render";
 import { ITEM_FLOATS, PATTERN } from "./ab_shader";
 import { skyDome, puff, beam, ribbon, disc, decal, tracer, meshaObject, packEvaluation, cluster, type PackedMesh } from "./ab_models";
+import { plumeSites, plumePuffs, buildWater, type Plume } from "./ab_atmos";
 import { LOOKS, buildLook, personLods, personLod, lookKey } from "./ab_people";
-import { placeProps, solids, propKey, type Prop } from "./ab_props";
+import { placeProps, solids, propKey, settlementDoors, type Prop } from "./ab_props";
 import { Game, GameWorld, NO_INPUT, START_PHASES, type GameInput, type GameEvent } from "./ab_game";
 import { alive, living, type Actor } from "./ab_combat";
 import { aircraftFrame } from "./ab_flight";
@@ -34,7 +35,7 @@ import { CH2_STARTS, SHOP, PLACES2, NPCS, type ChapterTwoStart } from "./ab_scri
 import { type Ch2Save } from "./ab_chapter2";
 import { creatureFrame, seatPosition, altitude, LENGTH as KESH_LENGTH, type Creature } from "./ab_creature";
 import { skywingShoulder } from "../../apps/mesha/library/skywing";
-import { Sound } from "./ab_audio";
+import { Sound, type Mood } from "./ab_audio";
 import { type DrawApi } from "../allegiance/al_ui";
 import { Controller } from "../allegiance/al_controller";
 import { shadowCascades } from "../allegiance/al_sky";
@@ -53,7 +54,7 @@ const addon = Entropy.AddonAtom.register({
 });
 
 /** Bumped whenever the world's shape or a generated mesh changes, so caches rebuild. */
-const WORLD_VERSION = 3;
+const WORLD_VERSION = 6;
 const MESH_VERSION = 2;
 
 const renderer = new Renderer();
@@ -241,7 +242,7 @@ function buildBehemoth(): void {
 
 function buildKesh(variant: KeshVariant): void {
     const values = { length: KESH_LENGTH, wounded: variant === "wounded", saddle: variant === "saddled" };
-    const base = `kesh-v${MESH_VERSION}.2-${variant}`;
+    const base = `kesh-v${MESH_VERSION}.3-${variant}`;
     const names = [`${base}-body-lod0`, `${base}-body-lod1`, `${base}-body-lod2`, `${base}-wingL`, `${base}-wingR`];
     if (allCached(names)) names.forEach(n => cache(n, () => { throw new Error("cached"); }));
     else {
@@ -296,6 +297,17 @@ const viewItems: Partial<Record<WeaponId, { mesh: string; item: string }>> = {};
 let solidBatches: InstanceBatches;
 let peopleBatches: InstanceBatches;
 let fxBatches: InstanceBatches;
+/** Soft smoke (a transparent pipeline): every puff of the frame, written far to near. */
+let smokeBatches: InstanceBatches;
+const smokeQueue: { x: number; y: number; z: number; spin: number; size: number; tint: number[]; opacity: number; d: number }[] = [];
+function queueSmoke(cam: V3, x: number, y: number, z: number, spin: number, size: number, tint: number[], opacity: number): void {
+    smokeQueue.push({ x, y, z, spin, size, tint, opacity, d: Math.hypot(x - cam[0], y - cam[1], z - cam[2]) });
+}
+function flushSmoke(): void {
+    smokeQueue.sort((a, b) => b.d - a.d);
+    for (const p of smokeQueue) addInstance(smokeBatches, FX.smoke, placeMatrix(p.x, p.y, p.z, p.spin, p.size), p.tint, [0, 0, 0, 0], [p.opacity, 0, 0, p.spin], [p.x, p.y, p.z, p.size]);
+    smokeQueue.length = 0;
+}
 const lightBinding = () => [{ group: 2, binding: 2, resource: { type: "Texture" as const, value: { id: renderer.lightTexture } } }];
 let frameTriangles = 0;
 
@@ -337,6 +349,13 @@ function makeLoadSteps(): LoadStep[] {
                     const outer = () => buildOuterRing();
                     renderer.spawnCached("ab-outer", `outer-v${WORLD_VERSION}`, outer, terrainItem, "ground", [0, 0, 0, 20000]);
                 }
+                if (!renderer.has("ab-canyon")) renderer.spawnCached("ab-canyon", `canyon-v${WORLD_VERSION}`, () => buildCanyon(), terrainItem, "ground", [-4300, -300, 0, 4000]);
+                if (!renderer.has("ab-water")) {
+                    const water = buildWater((x, z) => grid.height(x, z));
+                    renderer.spawnCached("ab-water", `water-v${WORLD_VERSION}`, water, terrainItem, "ground", water.bounds);
+                }
+                plumes = plumeSites();
+                for (const pl of plumes) pl.y = grid.height(pl.x, pl.z);
                 return true;
             },
         },
@@ -382,7 +401,7 @@ function makeLoadSteps(): LoadStep[] {
         {
             label: "Last checks", weight: 1, run: () => {
                 FX.fire = cache(`fx-v${MESH_VERSION}-fire`, () => puff(PATTERN.fire, [1, 1, 1]));
-                FX.smoke = cache(`fx-v${MESH_VERSION}-smoke`, () => puff(PATTERN.smoke, [1, 1, 1]));
+                FX.smoke = cache(`fx-v${MESH_VERSION}-smoke2`, () => puff(PATTERN.smoke, [1, 1, 1], 2));
                 FX.spark = FX.fire;
                 FX.magic = cache(`fx-v${MESH_VERSION}-magic`, () => puff(PATTERN.magic, [1, 1, 1]));
                 FX.tracer = cache(`fx-v${MESH_VERSION}-tracer`, () => tracer());
@@ -401,6 +420,7 @@ function makeLoadSteps(): LoadStep[] {
                     viewItems[id] = { mesh: `ab-view-${id}`, item };
                 }
                 game = new Game(world!);
+                game.doors = settlementDoors(props);
                 loadSettings();
                 mode = "title";
                 Entropy.println(`[abyss] loaded in ${(realTime).toFixed(1)} s`);
@@ -597,6 +617,7 @@ function resetGame(chapter: 1 | 2 = 1): void {
     // Wrecks are solids added during play; start from the props' own (this chapter's).
     world.solids = solids(props, chapter);
     game = new Game(world);
+    game.doors = settlementDoors(props);
     if (keep) { game.aimAssist = keep.a; game.sensitivity = keep.s; }
 }
 
@@ -675,6 +696,19 @@ function frame(dt: number): void {
 
 let lastBreathSound = -10;
 
+/** What the score should play under the game right now. */
+function musicMood(): Mood {
+    const g = game;
+    if (mode === "title") return "surface";
+    if (!g || mode === "loading" || g.cinema || g.phase === "complete" || !g.alive) return "none";
+    const b = g.body;
+    const fighting = g.combat.actors.some(a => alive(a) && a.faction === "below" && (a.target === -1 || g.combat.alert > 0) && Math.hypot(a.x - b.x, a.z - b.z) < 140);
+    if (fighting) return "combat";
+    if (g.ch2?.mounted && !g.ch2.kesh.grounded) return "flight";
+    if (g.ch2 && Math.hypot(b.x - PLACES2.firebase[0], b.z - PLACES2.firebase[1]) < 130) return "firebase";
+    return b.y > -80 ? "surface" : "floor";
+}
+
 function handleEvents(events: GameEvent[]): void {
     const g = game!;
     const ear = g.camera.pos;
@@ -723,7 +757,7 @@ function draw(dt: number): void {
     frameTriangles = 0;
     lights = [];
     if (solidBatches && mode !== "loading") {
-        solidBatches.begin(); peopleBatches.begin(); fxBatches.begin();
+        solidBatches.begin(); peopleBatches.begin(); fxBatches.begin(); smokeBatches.begin();
         drawProps(cam.pos, cam.target);
         if (game) {
             drawPeople(cam.pos);
@@ -734,18 +768,21 @@ function draw(dt: number): void {
             drawBeasts(cam.pos);
             drawFirebase();
         }
-        drawSource();
-        solidBatches.flush(); peopleBatches.flush(); fxBatches.flush();
+        drawSource(cam.pos);
+        drawAtmosphere(cam.pos);
+        flushSmoke();
+        solidBatches.flush(); peopleBatches.flush(); fxBatches.flush(); smokeBatches.flush();
     }
     drawViewModel(cam);
     updateLook(dt, cam);
     updateShadows(cam);
     renderer.writeWorld(look, game?.time ?? realTime, [w, h], pickLights(cam.pos));
-    lastTriangles = frameTriangles + terrainTriangles + renderer.trianglesOf("ab-outer");
+    lastTriangles = frameTriangles + terrainTriangles + renderer.trianglesOf("ab-outer") + renderer.trianglesOf("ab-canyon");
     hud.timer += dt;
     const interval = mode === "loading" ? 0.1 : game?.cinema ? 1 / 30 : 1 / 30;
     if (hud.timer >= interval || fixedStep) { drawUi(hud.timer, w, h, cam); hud.timer = 0; }
     sound.setListener(cam.pos, norm3([cam.target[0] - cam.pos[0], cam.target[1] - cam.pos[1], cam.target[2] - cam.pos[2]]));
+    sound.setMood(musicMood());
     if (game) sound.step(dt, realTime, cam.pos, nearestRotor(cam.pos), depthBelowRim(cam.pos[1]));
 }
 
@@ -985,7 +1022,7 @@ function drawFx(cam: V3): void {
         if (d > 1800) continue;
         const s = p.size;
         if (p.kind === "smoke") {
-            addInstance(fxBatches, FX.smoke, placeMatrix(p.x, p.y, p.z, p.spin, s), [p.tint[0], p.tint[1], p.tint[2], 0], [0, 0, 0, 0], [op, 0, 0, 0]);
+            queueSmoke(cam, p.x, p.y, p.z, p.spin, s, [p.tint[0], p.tint[1], p.tint[2], 0], op * 0.8);
         } else {
             const gl = particleGlow(p);
             const m = p.flame ? multiply(placeMatrix(p.x, p.y - s * 0.3, p.z, p.spin), [s, 0, 0, 0, 0, s * 2.4, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]) : placeMatrix(p.x, p.y, p.z, p.spin, s);
@@ -1071,21 +1108,69 @@ function sourceState(t: number): { color: [number, number, number]; intensity: n
     // A dying heartbeat: mostly dim, a pulse now and then, a flicker.
     const beat = Math.pow(Math.max(0, Math.sin(t * 0.9)), 8);
     const flicker = 0.85 + 0.15 * Math.sin(t * 13.1) * Math.sin(t * 7.7);
-    return { color: c, intensity: (0.35 + 0.65 * beat) * flicker };
+    return { color: c, intensity: (0.55 + 0.45 * beat) * flicker };
 }
 
-function drawSource(): void {
+let fallX: number | null = null;
+function drawSource(cam: V3): void {
     const t = game?.time ?? realTime;
     const s = sourceState(t);
     look.sourceColor = s.color;
     look.sourceIntensity = 0.55 * s.intensity;
     look.sourcePos = [SOURCE[0] - 40, FLOOR_Y + 60, SOURCE[2]];
     look.sourceReach = 520;
-    // The fall: a ribbon from the gash in the wall down to the pool.
+    // The fall: a ribbon from the gash in the wall down to the pool, just off the cliff's face
+    // (found once: where the ground at the fall's foot first drops away below its top).
     const top = SOURCE[1], bottom = grid.height(SOURCE_POOL[0], SOURCE_POOL[1]);
-    const m = frameMatrix([SOURCE[0] - 12, top, SOURCE[2]], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 46, top - bottom, 30);
-    addInstance(fxBatches, FX.waterfall, m, [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], [SOURCE[0], (top + bottom) / 2, SOURCE[2], (top - bottom) * 0.6]);
-    lights.push({ pos: [SOURCE_POOL[0], bottom + 6, SOURCE_POOL[1]], radius: 140, color: s.color, intensity: 2.5 * s.intensity });
+    if (fallX === null) {
+        let x = SOURCE[0];
+        while (x > SOURCE_POOL[0] && grid.height(x, SOURCE[2]) > (top + bottom) / 2) x -= 1;
+        fallX = x - 4;
+    }
+    const m = frameMatrix([fallX, top, SOURCE[2]], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 46, top - bottom, 30);
+    addInstance(fxBatches, FX.waterfall, m, [1, 1, 1, 0], [0, 0, 0, 0], [1, 0, 0, 0], [fallX, (top + bottom) / 2, SOURCE[2], (top - bottom) * 0.6]);
+    // Spray where it lands: a pale, glowing mist rising off the pool.
+    for (let k = 0; k < 7; k++) {
+        const u = (t * 0.05 + k / 7) % 1;
+        const a = k * 2.4 + t * 0.03;
+        const size = 9 + u * 26;
+        queueSmoke(cam, fallX - 8 - u * 22 + Math.cos(a) * 6, bottom + 4 + u * 40, SOURCE[2] + Math.sin(a) * 14, k + u, size, [0.45 + s.color[0] * 0.25, 0.5 + s.color[1] * 0.25, 0.55 + s.color[2] * 0.25, 0], Math.sin(Math.PI * u) * 0.32);
+    }
+    lights.push({ pos: [SOURCE_POOL[0], bottom + 8, SOURCE_POOL[1]], radius: 160, color: s.color, intensity: 3.2 * s.intensity });
+    lights.push({ pos: [fallX - 6, bottom + 60, SOURCE[2]], radius: 120, color: s.color, intensity: 1.8 * s.intensity });
+}
+
+/** Smoke billowing out of the crack, and the fires too far off to be real ones. */
+let plumes: Plume[] = [];
+function drawAtmosphere(cam: V3): void {
+    const t = game?.time ?? realTime;
+    for (const pl of plumes) {
+        const d = Math.hypot(pl.x - cam[0], pl.z - cam[2]);
+        // Far plumes draw fewer, bigger puffs.
+        const count = d > 2500 ? 6 : d > 1200 ? 9 : 12;
+        for (const pf of plumePuffs(pl, t, [3.2, 1.1], count)) {
+            if (pf.opacity < 0.04) continue;
+            const g = pf.shade;
+            queueSmoke(cam, pf.x, pf.y, pf.z, pf.spin, pf.size, [g, g * 0.95, g * 0.92, 0], pf.opacity * 0.7);
+        }
+        // A vent's ember glow at the foot of the near ones.
+        if (d < 700 && !pl.far) lights.push({ pos: [pl.x, pl.y + 6, pl.z], radius: 60, color: [1, 0.45, 0.18], intensity: 0.9 });
+    }
+    // Fires beyond the real ones' reach: tongues of flame at their sites, flickering.
+    if (!game) return;
+    for (let i = 0; i < game.fireSites.length; i++) {
+        const f = game.fireSites[i];
+        const d = Math.hypot(f.x - cam[0], f.z - cam[2]);
+        if (d < 400 || d > 3200) continue;
+        const y = grid.height(f.x, f.z);
+        for (let k = 0; k < 3; k++) {
+            const flick = 0.75 + 0.25 * Math.sin(t * (7 + k * 3) + i * 1.7);
+            const s = f.radius * (1.1 - k * 0.25) * flick;
+            const m = multiply(placeMatrix(f.x + (k - 1) * f.radius * 0.5, y + s * 1.1, f.z + Math.sin(i + k) * f.radius * 0.4, t * 0.5 + k), [s, 0, 0, 0, 0, s * 2.6, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]);
+            addInstance(fxBatches, FX.fire, m, [1, 0.6 - k * 0.1, 0.25, 1.4], [0, 0, 0, 0], [1, 0, 0, i * 0.3]);
+        }
+        if (d < 900) lights.push({ pos: [f.x, y + 3, f.z], radius: 30 + f.radius * 10, color: [1, 0.5, 0.2], intensity: 1.6 });
+    }
 }
 
 function drawViewModel(cam: { pos: V3; target: V3; fov: number }): void {
@@ -1361,6 +1446,7 @@ addon.onInit(() => {
     solidBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.instanced, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-solid", idleFrames: 240 });
     peopleBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.people, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-people", idleFrames: 240 });
     fxBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.instancedFx, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-fx", idleFrames: 240 });
+    smokeBatches = new InstanceBatches(meshCacheInstances(CACHE_NAMESPACE, () => renderer.pipelines.smoke, () => renderer.worldBuffer, lightBinding), ITEM_FLOATS, { prefix: "ab-smoke", idleFrames: 240 });
     loadSteps = makeLoadSteps();
     lookQueue = LOOKS.map(l => l.id);
     pickupQueue = [...Object.keys(ARTIFACTS), "warden-glaive", "medgel", "vial", "recorder", "dogtag", "relay", "loot", "potion", "tech"];

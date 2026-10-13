@@ -179,6 +179,11 @@ pub struct PipelineConfig {
     /// people leave no visible mark in the wide ones). Default: all.
     pub shadow_cascades: Option<u32>,
 
+    /// Blended see-through surfaces (smoke, glass, water): the pipeline tests depth but never
+    /// writes it, and its meshes draw after every opaque mesh of the pass, in the order they
+    /// were created (a batch's own instances in the order the addon wrote them - far to near).
+    pub transparent: Option<bool>,
+
 }
 
 

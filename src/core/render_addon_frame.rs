@@ -429,6 +429,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_grasses = Vec::new();
         let mut pbr_meshes = Vec::new();
         let mut non_pbr_meshes = Vec::new();
+        // Meshes of transparent pipelines: drawn after the opaque ones (see `transparent`).
+        let mut non_pbr_transparent = Vec::new();
         // Sun-shadow casters (addon_sun_shadows.rs): gathered before the camera's frustum culling,
         // since what shades the view may stand outside it.
         let mut shadow_meshes = Vec::new();
@@ -564,12 +566,16 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             if !frustum.sphere_visible(center, radius) { mesh_stats.culled += 1; continue; }
                         }
                         let mut is_pbr = true;
+                        let mut transparent = false;
                         if let Some(config) = ctx.pipeline_configs.get(&mesh.pipeline_id) {
                             is_pbr = config.pbr.unwrap_or(true);
+                            transparent = config.transparent == Some(true);
                         }
                         
                         if is_pbr {
                             pbr_meshes.push(mesh);
+                        } else if transparent {
+                            non_pbr_transparent.push(mesh);
                         } else {
                             non_pbr_meshes.push(mesh);
                         }
@@ -1183,6 +1189,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         }
 
         // 3. Pass for non-PBR objects
+        // Transparent meshes go last, in the order they were created, so they blend over
+        // everything opaque and never hide it (their pipelines do not write depth).
+        non_pbr_meshes.append(&mut non_pbr_transparent);
         if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() || !non_pbr_addon_models.is_empty() {
             let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

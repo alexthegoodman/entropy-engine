@@ -9,10 +9,102 @@
 // came from.
 
 import type { V3 } from "./ab_world";
+import { defaultBrass, noteConfig as brassNote } from "../../apps/daw_brass";
+import { defaultPhysMod, noteConfig as stringNote } from "../../apps/daw_physmod";
 
 type Note = Parameters<typeof Entropy.Audio.playNote>[0];
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
+
+// --- The orchestra --------------------------------------------------------------------------------
+
+/** A section of the orchestra: one player (a track bus) each, modeled horns and bowed strings. */
+type Section = "horn1" | "horn2" | "trombone" | "cello1" | "cello2" | "viola" | "violin" | "bass";
+
+const SECTION_INSTRUMENT: Record<Section, { kind: "brass" | "strings"; instrument: string; gain: number }> = {
+    horn1: { kind: "brass", instrument: "horn", gain: 0.55 },
+    horn2: { kind: "brass", instrument: "horn", gain: 0.45 },
+    trombone: { kind: "brass", instrument: "trombone", gain: 0.4 },
+    cello1: { kind: "strings", instrument: "cello", gain: 0.6 },
+    cello2: { kind: "strings", instrument: "cello", gain: 0.5 },
+    viola: { kind: "strings", instrument: "viola", gain: 0.45 },
+    violin: { kind: "strings", instrument: "violin", gain: 0.38 },
+    bass: { kind: "strings", instrument: "bass", gain: 0.55 },
+};
+
+/**
+ * Physically modeled horns and bowed strings (Entropy.Brass and Entropy.PhysMod, the DAW's own
+ * instruments) through a hall reverb. The players are built off the audio thread at load
+ * (`prepare`), and only play once they are ready - until then the score falls back to synth.
+ */
+class Orchestra {
+    private reverb = "";
+    private ready = new Set<Section>();
+    private failed = false;
+    private brass = (instrument: string) => ({ ...defaultBrass(instrument), quality: "draft" as const, vibratoDepth: 9, vibratoDelay: 0.35, articulation: "legato" as const, breath: 0.45 });
+    private strings = (instrument: string) => ({ ...defaultPhysMod(instrument), quality: "draft" as const, vibratoDepth: 14, vibratoDelay: 0.25 });
+    private trackId = (s: Section) => `abyss-${s}`;
+
+    /** Creates the buses and asks for every player to be built; call each frame until `allReady`. */
+    prepare(): void {
+        if (this.failed) return;
+        try {
+            if (!this.reverb) {
+                this.reverb = Entropy.AudioEffect.createReverb({ roomSize: 30, time: 4.2, damping: 0.45, mix: 0.34 });
+                for (const s of Object.keys(SECTION_INSTRUMENT) as Section[]) Entropy.Audio.ensureTrackBus(this.trackId(s), { gain: SECTION_INSTRUMENT[s].gain, effectIds: [this.reverb] });
+            }
+            for (const s of Object.keys(SECTION_INSTRUMENT) as Section[]) {
+                if (this.ready.has(s)) continue;
+                const r = this.config(s, 220, 0.6, 0.5);
+                const st = r.kind === "brass" ? Entropy.Audio.prepareBrass(this.trackId(s), r.config as never) : Entropy.Audio.preparePhysMod(this.trackId(s), r.config as never);
+                if (st && st.ok === false) { this.failed = true; return; }
+                if (st?.status === "ready") this.ready.add(s);
+            }
+        } catch { this.failed = true; }
+    }
+
+    get allReady(): boolean { return this.ready.size === Object.keys(SECTION_INSTRUMENT).length; }
+    has(s: Section): boolean { return !this.failed && this.ready.has(s); }
+
+    private config(s: Section, freq: number, velocity: number, duration: number) {
+        const d = SECTION_INSTRUMENT[s];
+        return d.kind === "brass"
+            ? { kind: "brass" as const, config: brassNote(this.trackId(s), this.brass(d.instrument), { freq, velocity, duration }) }
+            : { kind: "strings" as const, config: stringNote(this.trackId(s), this.strings(d.instrument), { freq, velocity, duration }) };
+    }
+
+    /** One note from a section (MIDI number, seconds, 0..1 dynamics). False if the section isn't ready. */
+    play(s: Section, midi: number, duration: number, velocity = 0.6): boolean {
+        if (!this.has(s)) return false;
+        try {
+            const r = this.config(s, mtof(midi), velocity, duration);
+            if (r.kind === "brass") Entropy.Audio.playBrassOnTrack(this.trackId(s), r.config as never);
+            else Entropy.Audio.playPhysModOnTrack(this.trackId(s), r.config as never);
+            return true;
+        } catch { this.failed = true; return false; }
+    }
+}
+
+// --- Music while playing --------------------------------------------------------------------------
+
+/** What the score plays under the game (cutscenes bring their own cues). */
+export type Mood = "none" | "floor" | "surface" | "firebase" | "flight" | "combat";
+
+/** Each mood: seconds per bar, and its chords (MIDI, low to high), walked one per bar. */
+export const MOODS: Record<Exclude<Mood, "none">, { bar: number; chords: number[][] }> = {
+    // The floor: D dorian, open and old - the kingdoms' light in the dark.
+    floor: { bar: 4.8, chords: [[38, 45, 50, 53, 57], [36, 43, 48, 52, 55], [34, 41, 46, 50, 53], [36, 43, 50, 52, 57]] },
+    // The surface: wind and ash; a minor ninth that does not resolve.
+    surface: { bar: 5.4, chords: [[33, 40, 47, 48, 52], [31, 38, 45, 50, 53], [29, 36, 43, 45, 52], [31, 38, 43, 50, 55]] },
+    // The firebase: warmer, a heartbeat of drums far off.
+    firebase: { bar: 4.4, chords: [[41, 48, 53, 57, 60], [38, 45, 50, 53, 57], [36, 43, 48, 52, 55], [38, 45, 50, 57, 62]] },
+    // Flight: D major, rising.
+    flight: { bar: 3.6, chords: [[38, 45, 50, 54, 57], [43, 50, 55, 59, 62], [45, 52, 57, 61, 64], [40, 47, 52, 55, 59]] },
+    // Combat: driving, low, dissonant at the edges.
+    combat: { bar: 2.4, chords: [[38, 45, 50, 51], [36, 43, 48, 49], [34, 41, 46, 47], [37, 44, 49, 50]] },
+};
+
+const BEAT_RNG = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 export class Sound {
     enabled = true;
@@ -120,6 +212,47 @@ export class Sound {
         this.play({ freq: 300, waveform: "sine", duration: 1.2, attack: 0.02, decay: 1, sustain: 0, release: 0.3, gain: 0.12, delayTime: 0.18, delayFeedback: 0.5, delayMix: 0.4 });
         this.play({ freq: 2400, waveform: "sine", duration: 0.08, gain: 0.08 });
     }
+    /**
+     * The opening (85 s) for horns and strings: a cello drone under the lore cards; the horns'
+     * call when THE ABYSS appears; strings opening out over the gunships; the full brass at the
+     * chapter card; hushed for the descent; warm when the city appears; settling as Kilo-Two lands.
+     * Falls back to the synth cue unless the orchestra is ready.
+     */
+    private openingWithOrchestra(): boolean {
+        const o = this.orchestra;
+        if (!o.allReady) return false;
+        const at = (t: number, fn: () => void) => this.after(t, fn);
+        const S = (s: Section, m: number, t: number, d: number, v = 0.5) => at(t, () => { o.play(s, m, d, v); });
+        const pad = (m: number[], t: number, dur: number, gain = 0.035, cutoff = 900) =>
+            m.forEach(n => this.queue(t, { freq: mtof(n), waveform: "saw", duration: dur, cutoff, attack: dur * 0.35, decay: dur * 0.2, sustain: 0.7, release: dur * 0.4, gain, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 6 }));
+        // Black, the lore: a low D in the basses and cellos, a viola's fifth creeping in.
+        S("bass", 38, 0.4, 9.5, 0.45); S("cello1", 50, 1.5, 8.5, 0.35); S("viola", 57, 5.5, 4.5, 0.3);
+        pad([38, 45], 0, 10, 0.025, 600);
+        // The plain, the title: the horns' call - D, A, up to D - over D minor strings.
+        S("cello1", 50, 10, 9, 0.5); S("cello2", 53, 10, 9, 0.42); S("viola", 57, 10, 9, 0.4); S("bass", 38, 10, 9, 0.5);
+        S("horn1", 62, 12, 1.6, 0.6); S("horn1", 69, 13.8, 1.4, 0.65); S("horn1", 74, 15.4, 3.2, 0.75); S("horn2", 62, 15.4, 3.2, 0.55);
+        // The swarm: B-flat, the strings open out, a second horn answers.
+        S("bass", 34, 19, 10, 0.5); S("cello1", 46, 19, 10, 0.5); S("cello2", 53, 19, 10, 0.45); S("viola", 58, 19, 10, 0.45); S("violin", 65, 21, 8, 0.38);
+        S("horn2", 65, 22, 1.8, 0.55); S("horn2", 62, 24, 3, 0.5);
+        // Aboard Kilo-Two: C, a pulse in the cellos.
+        S("bass", 36, 29, 9, 0.5); S("viola", 60, 29, 9, 0.42); S("violin", 64, 29, 9, 0.35);
+        for (let k = 0; k < 12; k++) S("cello2", k % 2 ? 48 : 43, 29 + k * 0.75, 0.6, 0.5);
+        // The edge, the chapter card: the full brass, the strings high - A, D, F, E over D minor.
+        S("bass", 38, 38, 10, 0.62); S("cello1", 50, 38, 10, 0.6); S("cello2", 45, 38, 10, 0.55); S("viola", 57, 38, 10, 0.55); S("violin", 69, 38, 10, 0.5);
+        S("horn1", 69, 39, 1.8, 0.8); S("horn1", 74, 40.8, 1.6, 0.85); S("horn1", 77, 42.4, 2, 0.9); S("horn1", 76, 44.4, 3.4, 0.8);
+        S("horn2", 62, 39, 1.8, 0.7); S("horn2", 65, 40.8, 1.6, 0.7); S("horn2", 69, 42.4, 2, 0.75); S("horn2", 67, 44.4, 3.4, 0.7);
+        S("trombone", 50, 39, 4, 0.7); S("trombone", 45, 43, 5, 0.7);
+        // The descent: hushed; violas shiver, a low pedal.
+        S("bass", 33, 48, 11, 0.4);
+        for (let k = 0; k < 20; k++) S("viola", k % 2 ? 57 : 58, 48 + k * 0.5, 0.45, 0.28);
+        S("violin", 76, 52, 6, 0.25);
+        // The city: warm - G major, the cellos sing.
+        S("bass", 43, 59, 9, 0.45); S("cello1", 55, 59, 2.6, 0.55); S("cello1", 59, 61.6, 2.4, 0.55); S("cello1", 57, 64, 4, 0.5); S("viola", 62, 59, 9, 0.38); S("violin", 71, 60, 8, 0.32);
+        // Touchdown: back to D, settling.
+        S("bass", 38, 68, 9, 0.42); S("cello1", 50, 68, 9, 0.42); S("viola", 57, 68, 9, 0.35); S("horn1", 62, 70, 5, 0.45); S("horn2", 57, 70, 5, 0.38);
+        return true;
+    }
+
     reload(): void {
         this.play({ freq: 900, waveform: "square", duration: 0.04, cutoff: 2000, gain: 0.08 });
         this.queue(0.8, { freq: 600, waveform: "square", duration: 0.05, cutoff: 1800, gain: 0.1 });
@@ -190,6 +323,13 @@ export class Sound {
     /** Called every frame: rotor thump of the nearest aircraft, the wind of the deep, queued music. */
     step(dt: number, time: number, ear: V3, nearestRotor: number, depth: number): void {
         for (let i = this.musicQueue.length - 1; i >= 0; i--) if (this.musicQueue[i].at <= time) { this.play(this.musicQueue[i].note); this.musicQueue.splice(i, 1); }
+        for (let i = this.later.length - 1; i >= 0; i--) if (this.later[i].at <= time) { const f = this.later[i].fn; this.later.splice(i, 1); if (this.enabled) f(); }
+        if (!this.orchestra.allReady && this.enabled) this.orchestra.prepare();
+        // The score under the game, bar by bar (not while a cutscene's cue is playing).
+        if (this.mood !== "none" && time >= this.cueUntil && time >= this.nextBar && this.enabled) {
+            this.bar();
+            this.nextBar = time + MOODS[this.mood as Exclude<Mood, "none">].bar;
+        }
         this.rotorT -= dt;
         if (nearestRotor < 400 && this.rotorT <= 0) {
             const g = Math.max(0, 1 - nearestRotor / 400) ** 1.5;
@@ -209,11 +349,80 @@ export class Sound {
     }
 
     private queue(delay: number, note: Note): void { this.musicQueue.push({ at: this.now + delay, note }); }
+    /** Things to do later (an orchestra note): the queue runs them on time. */
+    private later: { at: number; fn: () => void }[] = [];
+    private after(delay: number, fn: () => void): void { this.later.push({ at: this.now + delay, fn }); }
+
+    readonly orchestra = new Orchestra();
+    /** The mood the score is playing under the game, its next bar, and when a cutscene's cue frees it. */
+    private mood: Mood = "none";
+    private nextBar = 0;
+    private barIndex = 0;
+    private cueUntil = 0;
+    /** 0..1: music's share of the mix (settings). */
+    music = 0.8;
+
+    /** Every frame: the mood the game is in (combat breaks in at once; others wait for the bar). */
+    setMood(m: Mood): void {
+        if (m === this.mood) return;
+        if (m === "combat" || this.mood === "combat") this.nextBar = Math.min(this.nextBar, this.now + 0.3);
+        this.mood = m;
+        this.barIndex = 0;
+    }
+
+    /** One bar of the mood's music. */
+    private bar(): void {
+        const m = this.mood;
+        if (m === "none") return;
+        const def = MOODS[m];
+        const chord = def.chords[this.barIndex % def.chords.length];
+        const bar = def.bar, i = this.barIndex, o = this.orchestra, g = this.music;
+        const r = BEAT_RNG(i + m.length * 31);
+        const pad = (notes: number[], gain: number, cutoff: number) => notes.forEach(n => this.queue(0, { freq: mtof(n), waveform: "saw", duration: bar * 1.05, cutoff, attack: bar * 0.4, decay: bar * 0.2, sustain: 0.7, release: bar * 0.5, gain: gain * g, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 6 }));
+        const bell = (n: number, at: number, gain: number) => this.queue(at, { freq: mtof(n), waveform: "triangle", duration: 2.6, attack: 0.004, decay: 1.8, sustain: 0.05, release: 1.4, gain: gain * g, reverbMix: 0.65, reverbRoomSize: 30, reverbTime: 6, delayTime: 0.37, delayFeedback: 0.35, delayMix: 0.25 });
+        const drum = (at: number, low: boolean, gain: number) => this.queue(at, { freq: low ? 46 : 70, waveform: low ? "kick" : "tom", duration: 0.35, gain: gain * g });
+        if (m === "floor") {
+            pad(chord.slice(0, 3), 0.035, 900);
+            // Crystal bells: a few notes of the chord, high, at uneven times.
+            for (let k = 0; k < 3; k++) if (BEAT_RNG(i * 7 + k) < 0.7) bell(chord[2 + (k % 3)] + 24, bar * (0.1 + k * 0.3 + BEAT_RNG(i + k) * 0.15), 0.05);
+            if (i % 2 === 0) this.after(0.2, () => o.play("viola", chord[3] + 12, bar * 1.8, 0.35) || void 0);
+            if (i % 4 === 0) this.after(0, () => o.play("cello1", chord[0] + 12, bar * 3.6, 0.35) || void 0);
+        } else if (m === "surface") {
+            pad(chord.slice(0, 4), 0.032, 700);
+            this.queue(0, { freq: 500, waveform: "noise", duration: bar, cutoff: 420 + 200 * r, attack: bar * 0.5, decay: 0.2, sustain: 0.6, release: bar * 0.4, gain: 0.025 * g });
+            // A horn far off, every other bar: the chord's top, falling a step.
+            if (i % 2 === 1) this.after(bar * 0.2, () => { if (o.play("horn1", chord[4] + 12, bar * 0.6, 0.35)) this.after(bar * 0.6, () => o.play("horn1", chord[4] + 10, bar * 0.9, 0.3) || void 0); });
+            if (i % 4 === 0) this.after(0, () => o.play("bass", chord[0] + 12, bar * 3.8, 0.4) || void 0);
+        } else if (m === "firebase") {
+            pad(chord.slice(1, 4), 0.03, 1100);
+            drum(0, true, 0.12); drum(bar * 0.5, false, 0.07); drum(bar * 0.75, false, 0.05);
+            if (i % 2 === 0) this.after(0, () => o.play("cello2", chord[1], bar * 1.9, 0.38) || void 0);
+        } else if (m === "flight") {
+            pad(chord.slice(0, 3), 0.03, 1600);
+            // Strings in eighths (the ostinato), the horn's tune over the top.
+            for (let k = 0; k < 8; k++) this.after(k * bar / 8, () => { if (!o.play("viola", chord[2 + (k % 3)], bar / 8 * 0.9, 0.42)) this.queue(0, { freq: mtof(chord[2 + (k % 3)] + 12), waveform: "triangle", duration: bar / 8, attack: 0.01, decay: 0.12, sustain: 0.2, release: 0.1, gain: 0.04 * g }); });
+            const tune = [chord[4] + 12, chord[3] + 12, chord[4] + 12, chord[4] + 14];
+            this.after(0, () => o.play("horn1", tune[i % 4], bar * 0.95, 0.55) || void 0);
+            this.after(0, () => o.play("cello1", chord[0] + 12, bar, 0.45) || void 0);
+        } else if (m === "combat") {
+            // The drums drive it; low brass stabs; the cellos grind beneath.
+            for (let k = 0; k < 8; k++) drum(k * bar / 8, k % 4 === 0, k % 2 ? 0.1 : 0.17);
+            this.queue(0, { freq: 1800, waveform: "noise", duration: 0.08, cutoff: 5000, gain: 0.04 * g });
+            this.after(0, () => { if (!o.play("trombone", chord[1], bar * 0.22, 0.85)) this.queue(0, { freq: mtof(chord[1]), waveform: "saw", duration: bar * 0.25, cutoff: 800, attack: 0.02, decay: 0.2, sustain: 0.3, release: 0.1, gain: 0.08 * g }); });
+            this.after(bar * 0.62, () => o.play("trombone", chord[3], bar * 0.18, 0.75) || void 0);
+            this.after(0, () => { if (!o.play("cello1", chord[0], bar, 0.6)) pad([chord[0]], 0.05, 400); });
+            if (i % 2 === 1) this.after(bar * 0.5, () => o.play("horn1", chord[2] + 12, bar * 0.45, 0.7) || void 0);
+        }
+        this.barIndex++;
+    }
     private now = 0;
     setTime(t: number): void { this.now = t; }
 
     /** A cutscene's music cue. */
     cue(name: string): void {
+        // The score under the game rests while a cue plays.
+        this.cueUntil = this.now + (CUE_LENGTH[name] ?? 20);
+        if (name === "opening" && this.openingWithOrchestra()) return;
         const pad = (m: number[], at: number, dur: number, gain = 0.08, cutoff = 1400) =>
             m.forEach(n => this.queue(at, { freq: mtof(n), waveform: "saw", duration: dur, cutoff, attack: dur * 0.35, decay: dur * 0.2, sustain: 0.7, release: dur * 0.4, gain, reverbMix: 0.6, reverbRoomSize: 30, reverbTime: 6 }));
         const piano = (m: number, at: number, gain = 0.16) => this.queue(at, { freq: mtof(m), waveform: "triangle", duration: 2.4, attack: 0.004, decay: 1.6, sustain: 0.1, release: 1.2, gain, reverbMix: 0.55, reverbRoomSize: 30, reverbTime: 5 });
@@ -265,3 +474,6 @@ export class Sound {
         }
     }
 }
+
+/** How long each cutscene cue holds the in-game score off (seconds). */
+const CUE_LENGTH: Record<string, number> = { opening: 86, city: 12, contact: 10, battle: 8, ch2: 42, beast: 14, skybound: 28, ending: 60 };

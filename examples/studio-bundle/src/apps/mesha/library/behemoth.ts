@@ -105,7 +105,7 @@ export const behemothDef: ObjectDef = {
             meshes: ["@barrel", "@hump", "@rump", "@legFL", "@legFR", "@legBL", "@legBR", "@head", "@brow", "@ear", "@trunk", "@throat", "@eyes", "@tusks", "@tail", "@platesNode", "@deck", "@posts", "@rails", "@canopy", "@skirt"],
         },
     ],
-    limits: { maxSize: 14, minSize: 1, maxTriangles: 40000 },
+    limits: { maxSize: 18, minSize: 1, maxTriangles: 40000 },
 };
 
 export default behemothDef;

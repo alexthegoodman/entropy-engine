@@ -299,10 +299,11 @@ function drawPack(p: Painter, v: HudView, k: PackView, boot: number): void {
         textR(p, value, rx, y, 11, alpha(vc, boot), F.ui);
         y += 18;
     };
+    p.rect(rx - 242, y - 28, 250, packHeight(k) + 4, alpha(C.glass, boot * 0.7));
     p.text("PACK", rx - 230, y - 20, 11, alpha(C.cyanDim, boot), F.head);
     if (k.credits !== null) textR(p, `${k.credits} CR`, rx, y - 20, 13, alpha(C.amber, boot), F.ui);
     p.rect(rx - 230, y - 4, 230, 1, alpha(C.cyanFaint, boot));
-    for (const wp of k.weapons) row((wp.current ? "> " : "  ") + wp.name.toUpperCase(), wp.ammo, wp.current ? C.white : C.grey, wp.current ? C.white : C.cyanDim);
+    for (const wp of k.weapons) row((wp.current ? "> " : "  ") + wp.name.toUpperCase(), wp.ammo, wp.current ? C.white : [0.75, 0.82, 0.85, 0.85], wp.current ? C.white : C.cyan);
     row(`  MEDGEL  [H]`, `x${k.medgel}`, k.medgel ? C.white : C.grey, k.medgel ? C.green : C.grey);
     row(`  RIVER DRAUGHTS  [X]`, `x${k.draughts}`, k.draughts ? C.white : C.grey, k.draughts ? C.violet : C.grey);
     if (k.artifacts) row(`  ARTIFACTS  x${k.artifacts}`, `~${k.artifactValue} CR`, C.white, C.amber);

@@ -3605,6 +3605,10 @@ export interface PipelineConfig {
   shadowCaster?: boolean;
   /** With `sunShadows`: cast into only the first this-many cascades (default all). */
   shadowCascades?: number;
+  /** Blended see-through surfaces (smoke, glass): alpha-blended, depth tested but never written,
+   *  and drawn after every opaque mesh (in creation order; a batch's instances in the order they
+   *  were written, so write them far to near). */
+  transparent?: boolean;
   // [key: string]: unknown;
 }
 
