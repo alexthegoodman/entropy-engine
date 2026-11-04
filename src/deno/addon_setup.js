@@ -2258,6 +2258,40 @@ globalThis.Entropy = {
                 }
             },
             // 2D matrix heatmap widget with multiple colormaps, cell hover tooltips, cell click selection events, and colorbar (see entropy_gui::HeatmapView).
+            gameMap: (windowId, config) => {
+                const id = nextWidgetId(windowId, "game_map", config?.id);
+                ops.op_ui_widget_game_map(windowId, { ...(config || {}) }, id);
+
+                if (config?.onSpotSelect || config?.onSpotMove || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "MAP_SPOT_SELECT" && config.onSpotSelect) {
+                            config.onSpotSelect(parts[2]);
+                        } else if (type === "MAP_SPOT_MOVE" && config.onSpotMove) {
+                            config.onSpotMove(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
+                        } else if (type === "MAP_PATH_SELECT" && config.onPathSelect) {
+                            config.onPathSelect(parts[2]);
+                        } else if (type === "MAP_REGION_SELECT" && config.onRegionSelect) {
+                            config.onRegionSelect(parts[2]);
+                        } else if (type === "MAP_CLICK" && config.onMapClick) {
+                            config.onMapClick(parseFloat(parts[2]), parseFloat(parts[3]));
+                        } else if (type === "MAP_DBL_CLICK" && config.onMapDoubleClick) {
+                            config.onMapDoubleClick(parseFloat(parts[2]), parseFloat(parts[3]));
+                        } else if (type === "MAP_POINT_ADD" && config.onPointAdd) {
+                            config.onPointAdd(parseFloat(parts[2]), parseFloat(parts[3]));
+                        } else if (type === "MAP_MEASURE" && config.onMeasure) {
+                            config.onMeasure(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4]), parseFloat(parts[5]), parseFloat(parts[6]));
+                        } else if (type === "MAP_VIEWPORT" && config.onViewport) {
+                            config.onViewport(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4]));
+                        } else if (type === "MAP_TOOL" && config.onTool) {
+                            config.onTool(parts[2]);
+                        } else if (type === "MAP_BLOCKING" && config.onBlockingMode) {
+                            config.onBlockingMode(parts[2] === "true");
+                        }
+                    });
+                }
+            },
             heatmap: (windowId, config) => {
                 const id = nextWidgetId(windowId, "heatmap", config?.id);
                 ops.op_ui_widget_heatmap(windowId, { ...(config || {}) }, id);

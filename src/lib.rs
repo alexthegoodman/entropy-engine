@@ -91,6 +91,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "doc-editor-demo",
     "fft-river",
     "fft-water",
+    "game-planner",
     "game2d",
     "guitar-tabs",
     "html-ui-demo",

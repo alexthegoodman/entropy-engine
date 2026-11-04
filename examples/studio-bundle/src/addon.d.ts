@@ -814,6 +814,8 @@ export interface ScopedAPI {
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
       /** A 2D matrix heatmap widget with multiple colormaps (Turbo, Magma, Viridis, Phosphor, Warm, Cool), cell hover inspection, cell selection, and colorbar. */
+      /** Interactive 2D orthographic topological Game World Planner map widget. */
+      gameMap: (windowId: string, config: GameMapConfig) => void;
       heatmap: (windowId: string, config: HeatmapConfig) => void;
       /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */
       terminal: (windowId: string, config: TerminalViewConfig) => void;
@@ -3274,6 +3276,89 @@ export interface Chart3dConfig {
   onChartType?: (chartType: string) => void;
 }
 
+
+export interface MapSpotConfig {
+  id: string;
+  name: string;
+  spotType?: string;
+  x: number;
+  y: number;
+  elevation?: number;
+  color?: [number, number, number, number];
+  icon?: string;
+  tags?: string[];
+  isMajor?: boolean;
+}
+
+export interface MapPathConfig {
+  id: string;
+  name: string;
+  pathType?: string;
+  points: [number, number][];
+  width?: number;
+  color?: [number, number, number, number];
+  isMajor?: boolean;
+  flowSpeed?: number;
+}
+
+export interface MapRegionConfig {
+  id: string;
+  name: string;
+  regionType?: string;
+  points: [number, number][];
+  fillColor?: [number, number, number, number];
+  borderColor?: [number, number, number, number];
+  isMajor?: boolean;
+}
+
+export interface MapElevationBandConfig {
+  elevation: number;
+  points: [number, number][];
+  color?: [number, number, number, number];
+}
+
+export interface MapMeasureConfig {
+  active?: boolean;
+  p1?: [number, number];
+  p2?: [number, number];
+  distanceKm?: number;
+  travelInfo?: string;
+}
+
+export interface GameMapConfig {
+  id?: string;
+  worldWidthKm?: number;
+  worldHeightKm?: number;
+  gridSnapM?: number;
+  showGrid?: boolean;
+  showContours?: boolean;
+  showBiomes?: boolean;
+  blockingMode?: boolean;
+  activeTool?: string;
+  selectedId?: string;
+  highlightedQuestId?: string;
+  width?: number;
+  height?: number;
+  initialCenter?: [number, number];
+  initialZoom?: number;
+  spots?: MapSpotConfig[];
+  paths?: MapPathConfig[];
+  regions?: MapRegionConfig[];
+  elevationBands?: MapElevationBandConfig[];
+  measure?: MapMeasureConfig;
+  onSpotSelect?: (id: string) => void;
+  onSpotMove?: (id: string, x: number, y: number) => void;
+  onPathSelect?: (id: string) => void;
+  onRegionSelect?: (id: string) => void;
+  onMapClick?: (x: number, y: number) => void;
+  onMapDoubleClick?: (x: number, y: number) => void;
+  onPointAdd?: (x: number, y: number) => void;
+  onMeasure?: (x1: number, y1: number, x2: number, y2: number, distanceKm: number) => void;
+  onViewport?: (centerX: number, centerY: number, zoom: number) => void;
+  onTool?: (tool: string) => void;
+  onBlockingMode?: (blocking: boolean) => void;
+}
+
 export interface HeatmapConfig {
   id?: string;
   rows: number;
@@ -3936,6 +4021,8 @@ export interface EntropyAPI {
       water: (windowId: string, config: WaterViewConfig) => void;
       /** A live 3D chart (surface terrain, 3D bars, or 3D ribbons) with orbit camera, painter's-order hidden-line removal, and hover inspection. */
       chart3d: (windowId: string, config: Chart3dConfig) => void;
+      /** Interactive 2D orthographic topological Game World Planner map widget. */
+      gameMap: (windowId: string, config: GameMapConfig) => void;
       /** A 2D matrix heatmap widget with multiple colormaps (Turbo, Magma, Viridis, Phosphor, Warm, Cool), cell hover inspection, cell selection, and colorbar. */
       heatmap: (windowId: string, config: HeatmapConfig) => void;
       /** High-performance virtualized Terminal widget supporting ~60 catalog fonts, color-coded output, timestamps, and background execution status. */

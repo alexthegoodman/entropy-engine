@@ -66,7 +66,10 @@
     "test": "vitest",
     "test:canvas": "vitest run tests/canvas_surfaces.test.ts tests/canvas_paint_storage.test.ts tests/canvas_animation_bdd.test.ts tests/canvas_world_units.test.ts tests/canvas_world_bdd.test.ts --pool=threads",
     "typecheck:canvas": "tsc --project tsconfig.canvas.json --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build-game-planner": "npm run ensure-dist && deno bundle src/apps/game_planner/game_planner_addon.ts --output dist/game_planner.js",
+    "test:game-planner": "vitest run tests/game_planner.test.ts",
+    "typecheck:game-planner": "tsc --project tsconfig.game_planner.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

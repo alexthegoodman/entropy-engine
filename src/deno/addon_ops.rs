@@ -748,6 +748,132 @@ pub struct Chart3dViewConfig {
     pub show_toolbar: Option<bool>,
 }
 
+fn default_map_path_width() -> f32 { 3.0 }
+fn default_map_path_color() -> [f32; 4] { [0.8, 0.7, 0.5, 1.0] }
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapSpotConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub spot_type: String,
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub elevation: f32,
+    #[serde(default)]
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub is_major: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MapPathConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub path_type: String,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default = "default_map_path_width")]
+    pub width: f32,
+    #[serde(default = "default_map_path_color")]
+    pub color: [f32; 4],
+    #[serde(default)]
+    pub is_major: bool,
+    #[serde(default)]
+    pub flow_speed: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapRegionConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub region_type: String,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub fill_color: [f32; 4],
+    #[serde(default)]
+    pub border_color: [f32; 4],
+    #[serde(default)]
+    pub is_major: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapElevationBandConfig {
+    pub elevation: f32,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub color: [f32; 4],
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapMeasureConfig {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub p1: [f32; 2],
+    #[serde(default)]
+    pub p2: [f32; 2],
+    #[serde(default)]
+    pub distance_km: f32,
+    #[serde(default)]
+    pub travel_info: String,
+}
+
+/// `Widget.gameMap` - see `entropy_gui::GameMap`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GameMapConfig {
+    #[serde(default)]
+    pub world_width_km: Option<f32>,
+    #[serde(default)]
+    pub world_height_km: Option<f32>,
+    #[serde(default)]
+    pub grid_snap_m: Option<f32>,
+    #[serde(default)]
+    pub show_grid: Option<bool>,
+    #[serde(default)]
+    pub show_contours: Option<bool>,
+    #[serde(default)]
+    pub show_biomes: Option<bool>,
+    #[serde(default)]
+    pub blocking_mode: Option<bool>,
+    #[serde(default)]
+    pub active_tool: Option<String>,
+    #[serde(default)]
+    pub selected_id: Option<String>,
+    #[serde(default)]
+    pub highlighted_quest_id: Option<String>,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub initial_center: Option<[f32; 2]>,
+    #[serde(default)]
+    pub initial_zoom: Option<f32>,
+    #[serde(default)]
+    pub spots: Vec<MapSpotConfig>,
+    #[serde(default)]
+    pub paths: Vec<MapPathConfig>,
+    #[serde(default)]
+    pub regions: Vec<MapRegionConfig>,
+    #[serde(default)]
+    pub elevation_bands: Vec<MapElevationBandConfig>,
+    #[serde(default)]
+    pub measure: Option<MapMeasureConfig>,
+}
+
 /// `Widget.heatmap` - see `entropy_gui::HeatmapView`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1116,6 +1242,7 @@ pub enum UiWidget {
     WaterView { id: String, config: WaterViewConfig },
     Chart3dView { id: String, config: Chart3dViewConfig },
     HeatmapView { id: String, config: HeatmapViewConfig },
+    GameMap { id: String, config: GameMapConfig },
     Terminal { id: String, config: crate::deno::terminal_ops::TerminalWidgetConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
@@ -5406,6 +5533,18 @@ pub fn op_ui_widget_chart3d(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Chart3dView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_game_map(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: GameMapConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::GameMap { id, config });
     }
 }
 

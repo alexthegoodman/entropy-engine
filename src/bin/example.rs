@@ -100,6 +100,12 @@ async fn main() {
                 .with_title("FFT Water")
                 .with_window_size(1600.0, 900.0)
                 .with_window_icon("public/water1.png"),
+            Some("game-planner") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/game_planner.js")
+                .with_hot_reload(true)
+                .with_title("Game World Planner")
+                .with_window_size(1800.0, 1020.0)
+                .with_data_dir(env::var("ENTROPY_PLANNER_BDD_DATA").unwrap_or_else(|_| "../game-planner-data".to_string())),
             Some("game2d") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/game2d.js")
                 .with_title("Entropy 2D Arena")

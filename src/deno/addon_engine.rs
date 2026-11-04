@@ -117,7 +117,8 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_store_read, op_addon_store_write, op_addon_store_list, op_addon_store_remove, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_pick_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_ui_widget_heatmap, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_poll_wav_export, op_audio_cancel_wav_export, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_clipboard_read_text, op_clipboard_write_text, op_io_pick_sample_folder, op_io_pick_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_reverb_eq, op_ui_widget_physmod, op_ui_widget_fretboard, op_ui_widget_piano, op_ui_widget_brass, op_ui_widget_matter, op_ui_widget_water, op_ui_widget_chart3d, op_ui_widget_heatmap,
+        op_ui_widget_game_map, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_create_character, op_audio_effect_set_character, op_audio_effect_create_eq, op_audio_effect_set_eq, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_destroy, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_fov, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -4314,6 +4315,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             ("CC Manager", "kanban", egui::Color32::from_rgb(130, 220, 110))
         } else if addon_name.to_lowercase().contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
             ("Mesha", "shapes", egui::Color32::from_rgb(175, 150, 255))
+        } else if addon_name.to_lowercase().contains("game_planner") || addon_name.to_lowercase().contains("game-planner") || title.to_lowercase().contains("world planner") || title.to_lowercase().contains("game world") || title.to_lowercase().contains("game planner") {
+            ("Game World Planner", "map-trifold", egui::Color32::from_rgb(52, 211, 153))
         } else if addon_name.to_lowercase().contains("terminal") || title.to_lowercase().contains("terminal") {
             ("Terminal", "terminal", egui::Color32::from_rgb(0, 240, 200))
         } else {
@@ -4784,6 +4787,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             "kanban" => "📋".to_string(),
                             "shapes" => "❖".to_string(),
                             "terminal" => "⚡".to_string(),
+                            "map-trifold" => "🗺".to_string(),
                             _ => "▪".to_string(),
                         });
 
@@ -7059,6 +7063,122 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             HeatmapEvent::ColorMapChanged(cm) => {
                                 events_to_push.push(format!("HEATMAP_COLORMAP|{}|{}", hm_id, cm.name()));
+                            }
+                        }
+                    }
+                }
+
+                UiWidget::GameMap { id: map_id, config } => {
+                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapElevationBand, MapMeasure, MapPath, MapRegion, MapSpot};
+
+                    let opts = GameMapOptions {
+                        world_width_km: config.world_width_km.unwrap_or(25.0),
+                        world_height_km: config.world_height_km.unwrap_or(25.0),
+                        grid_snap_m: config.grid_snap_m.unwrap_or(0.0),
+                        show_grid: config.show_grid.unwrap_or(true),
+                        show_contours: config.show_contours.unwrap_or(true),
+                        show_biomes: config.show_biomes.unwrap_or(true),
+                        blocking_mode: config.blocking_mode.unwrap_or(false),
+                        active_tool: config.active_tool.clone().unwrap_or_else(|| "select".into()),
+                        selected_id: config.selected_id.clone(),
+                        highlighted_quest_id: config.highlighted_quest_id.clone(),
+                        width: config.width,
+                        height: config.height,
+                        initial_center: config.initial_center,
+                        initial_zoom: config.initial_zoom,
+                    };
+
+                    let spots: Vec<MapSpot> = config.spots.iter().map(|s| MapSpot {
+                        id: s.id.clone(),
+                        name: s.name.clone(),
+                        spot_type: s.spot_type.clone(),
+                        x: s.x,
+                        y: s.y,
+                        elevation: s.elevation,
+                        color: s.color,
+                        icon: s.icon.clone(),
+                        tags: s.tags.clone(),
+                        is_major: s.is_major,
+                    }).collect();
+
+                    let paths: Vec<MapPath> = config.paths.iter().map(|p| MapPath {
+                        id: p.id.clone(),
+                        name: p.name.clone(),
+                        path_type: p.path_type.clone(),
+                        points: p.points.clone(),
+                        width: p.width,
+                        color: p.color,
+                        is_major: p.is_major,
+                        flow_speed: p.flow_speed,
+                    }).collect();
+
+                    let regions: Vec<MapRegion> = config.regions.iter().map(|r| MapRegion {
+                        id: r.id.clone(),
+                        name: r.name.clone(),
+                        region_type: r.region_type.clone(),
+                        points: r.points.clone(),
+                        fill_color: r.fill_color,
+                        border_color: r.border_color,
+                        is_major: r.is_major,
+                    }).collect();
+
+                    let elevation_bands: Vec<MapElevationBand> = config.elevation_bands.iter().map(|b| MapElevationBand {
+                        elevation: b.elevation,
+                        points: b.points.clone(),
+                        color: b.color,
+                    }).collect();
+
+                    let measure = config.measure.as_ref().map(|m| MapMeasure {
+                        active: m.active,
+                        p1: m.p1,
+                        p2: m.p2,
+                        distance_km: m.distance_km,
+                        travel_info: m.travel_info.clone(),
+                    });
+
+                    let resp = GameMap::new(map_id.as_str())
+                        .options(opts)
+                        .spots(spots)
+                        .paths(paths)
+                        .regions(regions)
+                        .elevation_bands(elevation_bands)
+                        .measure(measure)
+                        .show(ui);
+
+                    for event in resp.events {
+                        match event {
+                            GameMapEvent::SpotSelected { id } => {
+                                events_to_push.push(format!("MAP_SPOT_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::SpotMoved { id, x, y } => {
+                                events_to_push.push(format!("MAP_SPOT_MOVE|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
+                            }
+                            GameMapEvent::PathSelected { id } => {
+                                events_to_push.push(format!("MAP_PATH_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::RegionSelected { id } => {
+                                events_to_push.push(format!("MAP_REGION_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::MapClicked { x, y } => {
+                                events_to_push.push(format!("MAP_CLICK|{}|{:.4}|{:.4}", map_id, x, y));
+                            }
+                            GameMapEvent::MapDoubleClicked { x, y } => {
+                                events_to_push.push(format!("MAP_DBL_CLICK|{}|{:.4}|{:.4}", map_id, x, y));
+                            }
+                            GameMapEvent::PointAdded { x, y } => {
+                                events_to_push.push(format!("MAP_POINT_ADD|{}|{:.4}|{:.4}", map_id, x, y));
+                            }
+                            GameMapEvent::MeasureUpdated { x1, y1, x2, y2, distance_km } => {
+                                events_to_push.push(format!("MAP_MEASURE|{}|{:.4}|{:.4}|{:.4}|{:.4}|{:.4}", map_id, x1, y1, x2, y2, distance_km));
+                            }
+                            GameMapEvent::ViewportChanged { center_x, center_y, zoom } => {
+                                events_to_push.push(format!("MAP_VIEWPORT|{}|{:.4}|{:.4}|{:.4}", map_id, center_x, center_y, zoom));
+                            }
+                            GameMapEvent::ToolChanged(tool) => {
+                                events_to_push.push(format!("MAP_TOOL|{}|{}", map_id, tool));
+                            }
+                            GameMapEvent::BlockingModeToggled(blocking) => {
+                                events_to_push.push(format!("MAP_BLOCKING|{}|{}", map_id, blocking));
                             }
                         }
                     }

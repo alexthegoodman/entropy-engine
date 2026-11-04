@@ -52,6 +52,7 @@ pub mod widgets_reverb_eq;
 pub mod widgets_chart3d;
 pub mod widgets_heatmap;
 pub mod widgets_terminal;
+pub mod widgets_game_map;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -108,6 +109,7 @@ pub use widgets_heatmap::{
     HeatmapResponse, HeatmapView,
 };
 pub use widgets_terminal::{TerminalRun, TerminalScreen, TerminalTheme, TerminalView};
+pub use widgets_game_map::{GameMap, GameMapEvent, GameMapOptions, GameMapResponse, GameMapState, MapElevationBand, MapMeasure, MapPath, MapRegion, MapSpot};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's
