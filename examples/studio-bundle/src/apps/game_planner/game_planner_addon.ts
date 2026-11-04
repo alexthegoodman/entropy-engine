@@ -2,6 +2,7 @@
 
 import { PlannerModel } from "./planner_model";
 import {
+    calculateRouteTravelTime,
     calculateTravelTime,
 } from "./travel_calculator";
 import {
@@ -18,6 +19,7 @@ import {
     generateConceptImagePrompt,
 } from "./codex_model";
 import {
+    computeAvailableMissions,
     createMission,
     getChronologicalActs,
     validateQuestGraph,
@@ -25,16 +27,23 @@ import {
 import {
     applyRevisionProposal,
     createSampleAgentProposal,
+    exportMapToSvg,
     exportWorldBibleJson,
     generateAgentPrompts,
     generateGameDesignDoc,
 } from "./agent_pipeline";
-import { NEO_AETHELGARD_PRESET, SHATTERED_ISLES_PRESET } from "./presets";
+import {
+    CRIMSON_EXPANSE_PRESET,
+    NEO_AETHELGARD_PRESET,
+    SHATTERED_ISLES_PRESET,
+} from "./presets";
 import type {
     BiomeType,
     CodexCategory,
     GameWorld,
+    Mission,
     PathType,
+    RegionType,
     RevisionProposal,
     SpotType,
     TravelEstimate,
@@ -47,7 +56,7 @@ import type { GameMapConfig, IconName, SplitConfig } from "../../addon";
 // Register Addon
 const addon = Entropy.Addon.register({
     name: "game-world-planner",
-    version: "1.0.0",
+    version: "1.1.0",
     description: "Game World Planner: orthographic topological map editor, time-to-travel calculator, procedural terrain tools, codex, story organizer, and AI agent revision pipeline.",
     author: ["Entropy Team", "Google DeepMind"],
     category: "Game Design",
@@ -80,9 +89,18 @@ let model = new PlannerModel();
 let statusMessage = "Welcome to Game World Planner. Draw your map or load a preset.";
 let codexCategoryFilter: CodexCategory | "all" = "all";
 let codexSearchQuery = "";
+let codexStyleFilter = "Dark Fantasy";
 let questViewMode: "chronological" | "freeform" = "chronological";
 let lastTravelEstimate: TravelEstimate | null = null;
 let activeProposal: RevisionProposal | null = null;
+
+// Procedural Parameters State
+let procSeed = 48201;
+let procMountainScale = 2800;
+let procErosionIters = 200;
+let procRiverCount = 3;
+let procScatterCount = 4;
+let procIslandMask = true;
 
 // --- Persistence ---
 
@@ -117,7 +135,6 @@ function loadWorld(): void {
             model = new PlannerModel(loaded);
             statusMessage = `Loaded "${model.world.meta.name}" (${model.world.spots.length} spots, ${model.world.paths.length} paths).`;
         } else {
-            // Default preset
             model = new PlannerModel(SHATTERED_ISLES_PRESET);
             saveWorld();
         }
@@ -170,7 +187,7 @@ function renderHeader(tabId: string): void {
                     accent: blocking ? UI.amber : UI.emerald,
                     onClick: () => {
                         model.setBlockingMode(!blocking);
-                        statusMessage = blocking ? "Switched to Detailing mode." : "Switched to Blocking mode.";
+                        statusMessage = blocking ? "Switched to Detailing mode (full micro-scatter visible)." : "Switched to Blocking mode (macro-structure only).";
                     },
                 });
 
@@ -220,14 +237,27 @@ function renderHeader(tabId: string): void {
                     onClick: () => saveWorld(),
                 });
 
+                const presetOptions = [
+                    "Preset: Shattered Isles (Fantasy)",
+                    "Preset: Neo-Aethelgard (Cyberpunk)",
+                    "Preset: Crimson Expanse (Sci-Fi)",
+                ];
+                let currentPresetIdx = 0;
+                if (model.world.meta.id === "world_neo_aethelgard" || model.world.meta.genre === "cyberpunk") {
+                    currentPresetIdx = 1;
+                } else if (model.world.meta.id === "world_crimson_expanse" || model.world.meta.genre === "scifi") {
+                    currentPresetIdx = 2;
+                }
+
                 W.dropdown(right, {
                     id: "dropdown_presets",
                     label: "World Presets",
-                    options: ["Preset: Shattered Isles (Fantasy)", "Preset: Neo-Aethelgard (Sci-Fi)"],
-                    selectedIndex: model.world.meta.genre === "fantasy" ? 0 : 1,
+                    options: presetOptions,
+                    selectedIndex: currentPresetIdx,
                     onChange: (v: string) => {
                         const idx = Number(v);
-                        model = new PlannerModel(idx === 0 ? SHATTERED_ISLES_PRESET : NEO_AETHELGARD_PRESET);
+                        const chosen = idx === 0 ? SHATTERED_ISLES_PRESET : idx === 1 ? NEO_AETHELGARD_PRESET : CRIMSON_EXPANSE_PRESET;
+                        model = new PlannerModel(chosen);
                         saveWorld();
                         statusMessage = `Switched to ${model.world.meta.name}.`;
                     },
@@ -264,7 +294,7 @@ function renderMapView(main: string): void {
         {
             id: "map_split_view",
             sideOpen: true,
-            sideWidth: 320,
+            sideWidth: 330,
             minHeight: 650,
             mainPadding: 0,
             sidePadding: 12,
@@ -287,6 +317,7 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
     W.bar(
         canvasArea,
         { id: "map_toolbar", height: 38, fill: UI.nav, border: UI.line, paddingX: 10 },
+        // Left zone: Active Map Tools
         (left: string) => {
             W.horizontal(left, () => {
                 const tools: Array<{ id: typeof model.activeTool; label: string }> = [
@@ -305,63 +336,139 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
                         accent: model.activeTool === t.id ? UI.cyan : undefined,
                         onClick: () => {
                             model.activeTool = t.id;
+                            if (t.id === "measure") {
+                                model.clearMeasurement();
+                                lastTravelEstimate = null;
+                            }
                             statusMessage = `Tool selected: ${t.label}`;
                         },
                     });
                 });
             });
         },
-        undefined,
-        (right: string) => {
+        // Center zone: Active Drawing Controls & Status
+        (center: string) => {
             if (model.activeTool === "draw_path" && model.pendingPathPoints.length > 0) {
-                W.horizontal(right, () => {
-                    W.label(right, { text: `Points: ${model.pendingPathPoints.length}`, fontSize: 11, color: UI.cyan });
-                    W.button(right, {
+                W.horizontal(center, () => {
+                    W.label(center, { text: `Points: ${model.pendingPathPoints.length}`, fontSize: 11, color: UI.cyan, bold: true });
+                    W.button(center, {
                         id: "btn_finish_path",
                         text: "✓ Complete Path",
                         accent: UI.emerald,
                         onClick: () => {
-                            if (model.pendingPathPoints.length >= 2) {
-                                model.addPath({
-                                    name: `Path ${model.world.paths.length + 1}`,
-                                    pathType: "road",
-                                    points: [...model.pendingPathPoints],
-                                    width: 3.5,
-                                    color: [0.8, 0.7, 0.5, 1.0],
-                                    isMajor: false,
-                                    flowSpeed: 0,
-                                    surfaceQuality: 1.0,
-                                });
-                                model.pendingPathPoints = [];
-                                model.activeTool = "select";
-                                statusMessage = "Path created successfully.";
-                            }
+                            const newPath = model.finishPendingPath("road");
+                            if (newPath) statusMessage = `Path "${newPath.name}" created with ${newPath.points.length} waypoints.`;
                         },
                     });
-                    W.button(right, {
+                    W.button(center, {
+                        id: "btn_undo_path_pt",
+                        text: "↶ Undo Point",
+                        onClick: () => model.undoPendingPathPoint(),
+                    });
+                    W.button(center, {
                         id: "btn_cancel_path",
                         text: "Cancel",
+                        onClick: () => model.cancelPendingPath(),
+                    });
+                });
+            } else if (model.activeTool === "draw_region" && model.pendingRegionPoints.length > 0) {
+                W.horizontal(center, () => {
+                    W.label(center, { text: `Vertices: ${model.pendingRegionPoints.length}`, fontSize: 11, color: UI.emerald, bold: true });
+                    W.button(center, {
+                        id: "btn_finish_region",
+                        text: "✓ Complete Region",
+                        accent: UI.emerald,
                         onClick: () => {
-                            model.pendingPathPoints = [];
+                            const newRegion = model.finishPendingRegion("plains");
+                            if (newRegion) statusMessage = `Region "${newRegion.name}" created with ${newRegion.points.length} vertices.`;
+                        },
+                    });
+                    W.button(center, {
+                        id: "btn_undo_region_pt",
+                        text: "↶ Undo Point",
+                        onClick: () => model.undoPendingRegionPoint(),
+                    });
+                    W.button(center, {
+                        id: "btn_cancel_region",
+                        text: "Cancel",
+                        onClick: () => model.cancelPendingRegion(),
+                    });
+                });
+            } else if (model.activeTool === "measure" && (model.measurePoints.p1 || lastTravelEstimate)) {
+                W.horizontal(center, () => {
+                    if (lastTravelEstimate) {
+                        W.label(center, { text: `📏 ${lastTravelEstimate.distanceKm} km | ${lastTravelEstimate.summaryText}`, fontSize: 11, color: UI.amber });
+                    }
+                    W.button(center, {
+                        id: "btn_clear_measure",
+                        text: "Clear Ruler",
+                        onClick: () => {
+                            model.clearMeasurement();
+                            lastTravelEstimate = null;
+                            statusMessage = "Ruler cleared.";
                         },
                     });
                 });
             }
+        },
+        // Right zone: Layer Display Toggles
+        (right: string) => {
+            W.horizontal(right, () => {
+                W.button(right, {
+                    id: "btn_toggle_minimap",
+                    text: model.showMinimap ? "Radar: ON" : "Radar: OFF",
+                    accent: model.showMinimap ? UI.cyan : undefined,
+                    onClick: () => {
+                        model.showMinimap = !model.showMinimap;
+                    },
+                });
+                W.button(right, {
+                    id: "btn_toggle_contours",
+                    text: model.showContours ? "Contours: ON" : "Contours: OFF",
+                    accent: model.showContours ? UI.emerald : undefined,
+                    onClick: () => {
+                        model.showContours = !model.showContours;
+                    },
+                });
+                W.button(right, {
+                    id: "btn_toggle_biomes",
+                    text: model.showBiomes ? "Biomes: ON" : "Biomes: OFF",
+                    accent: model.showBiomes ? UI.emerald : undefined,
+                    onClick: () => {
+                        model.showBiomes = !model.showBiomes;
+                    },
+                });
+            });
         }
     );
 
-    // Interactive GameMap Widget
+    // Interactive GameMap Native Widget
+    const currentPendingPoints = model.activeTool === "draw_path" && model.pendingPathPoints.length > 0
+        ? model.pendingPathPoints
+        : model.activeTool === "draw_region" && model.pendingRegionPoints.length > 0
+        ? model.pendingRegionPoints
+        : undefined;
+
+    const currentPendingMode = model.activeTool === "draw_path"
+        ? "path"
+        : model.activeTool === "draw_region"
+        ? "region"
+        : undefined;
+
     const mapConfig: GameMapConfig = {
         id: "game_world_map",
         worldWidthKm: model.world.meta.worldWidthKm,
         worldHeightKm: model.world.meta.worldHeightKm,
         gridSnapM: model.world.meta.gridSnapM,
-        showGrid: true,
-        showContours: true,
-        showBiomes: true,
+        showGrid: model.showGrid,
+        showContours: model.showContours,
+        showBiomes: model.showBiomes,
+        showMinimap: model.showMinimap,
         blockingMode: model.world.meta.blockingMode,
         activeTool: model.activeTool,
         selectedId: model.selectedId || undefined,
+        pendingPoints: currentPendingPoints,
+        pendingMode: currentPendingMode,
         spots: model.world.spots.map((s) => ({
             id: s.id,
             name: s.name,
@@ -415,26 +522,24 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
             }
         },
         onSpotMove: (id: string, x: number, y: number) => {
-            const snappedX = model.snapCoordinate(x);
-            const snappedY = model.snapCoordinate(y);
-            model.updateSpot(id, { x: snappedX, y: snappedY });
+            model.moveSpot(id, x, y);
         },
         onPathSelect: (id: string) => {
             model.selectedId = id;
             const path = model.world.paths.find((p) => p.id === id);
-            if (path) statusMessage = `Selected Path: ${path.name}`;
+            if (path) statusMessage = `Selected Path: ${path.name} (${path.pathType})`;
         },
         onRegionSelect: (id: string) => {
             model.selectedId = id;
             const region = model.world.regions.find((r) => r.id === id);
-            if (region) statusMessage = `Selected Region: ${region.name}`;
+            if (region) statusMessage = `Selected Region: ${region.name} (${region.dominantBiome})`;
         },
         onMapClick: (x: number, y: number) => {
             const sx = model.snapCoordinate(x);
             const sy = model.snapCoordinate(y);
 
             if (model.activeTool === "place_spot") {
-                model.addSpot({
+                const newSpot = model.addSpot({
                     name: `New Location ${model.world.spots.length + 1}`,
                     spotType: "town",
                     x: sx,
@@ -449,14 +554,17 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
                     linkedCodexIds: [],
                     linkedMissionIds: [],
                 });
-                statusMessage = `Placed new spot at [${sx}, ${sy}] km.`;
+                statusMessage = `Placed "${newSpot.name}" at [${sx}, ${sy}] km.`;
             } else if (model.activeTool === "draw_path") {
-                model.pendingPathPoints.push([sx, sy]);
-                statusMessage = `Added path point at [${sx}, ${sy}] km (${model.pendingPathPoints.length} total).`;
+                model.appendPendingPathPoint([sx, sy]);
+                statusMessage = `Added path point #${model.pendingPathPoints.length} at [${sx}, ${sy}] km.`;
+            } else if (model.activeTool === "draw_region") {
+                model.appendPendingRegionPoint([sx, sy]);
+                statusMessage = `Added region vertex #${model.pendingRegionPoints.length} at [${sx}, ${sy}] km.`;
             } else if (model.activeTool === "measure") {
                 if (!model.measurePoints.p1) {
                     model.measurePoints.p1 = [sx, sy];
-                    statusMessage = `Measurement point 1 set at [${sx}, ${sy}] km. Click destination.`;
+                    statusMessage = `Measurement origin anchored at [${sx}, ${sy}] km. Click destination.`;
                 } else {
                     model.measurePoints.p2 = [sx, sy];
                     lastTravelEstimate = calculateTravelTime(
@@ -470,6 +578,19 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
             } else if (model.activeTool === "select") {
                 model.selectedId = null;
             }
+        },
+        onMapDoubleClick: (_x: number, _y: number) => {
+            if (model.activeTool === "draw_path" && model.pendingPathPoints.length >= 2) {
+                const p = model.finishPendingPath("road");
+                if (p) statusMessage = `Completed path "${p.name}".`;
+            } else if (model.activeTool === "draw_region" && model.pendingRegionPoints.length >= 3) {
+                const r = model.finishPendingRegion("plains");
+                if (r) statusMessage = `Completed region "${r.name}".`;
+            }
+        },
+        onViewport: (cx: number, cy: number, zoom: number) => {
+            model.viewportCenter = [cx, cy];
+            model.viewportZoom = zoom;
         },
     };
 
@@ -485,7 +606,24 @@ function renderInspector(panel: string): void {
     const selId = model.selectedId;
     if (!selId) {
         W.label(panel, { text: "No element selected.", color: UI.dim, fontSize: 12 });
-        W.label(panel, { text: "Click on any Spot, Path, or Region on the map to edit its details, or use the tools above to place new ones.", wrap: true, color: UI.dim, fontSize: 11 });
+        W.spacer(panel, 6);
+        W.label(panel, {
+            text: "Click on any Spot, Path, or Region on the map to inspect and edit its details. Use the tools above to place new elements.",
+            wrap: true,
+            color: UI.dim,
+            fontSize: 11,
+        });
+        W.spacer(panel, 12);
+
+        W.card(panel, { id: "card_quick_stats", fill: UI.card, padding: 10 }, (card) => {
+            W.label(card, { text: "World Summary", bold: true, fontSize: 11, color: UI.emerald });
+            W.label(card, { text: `Name: ${model.world.meta.name}`, fontSize: 11, color: UI.text });
+            W.label(card, { text: `Genre: ${model.world.meta.genre.toUpperCase()}`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Dimensions: ${model.world.meta.worldWidthKm} x ${model.world.meta.worldHeightKm} km`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Total Spots: ${model.world.spots.length}`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Total Paths: ${model.world.paths.length}`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Total Regions: ${model.world.regions.length}`, fontSize: 11, color: UI.dim });
+        });
         return;
     }
 
@@ -510,7 +648,7 @@ function renderInspector(panel: string): void {
         return;
     }
 
-    W.label(panel, { text: "Unknown selection.", color: UI.dim });
+    W.label(panel, { text: "Selection not found.", color: UI.dim });
 }
 
 function renderSpotInspector(panel: string, spot: WorldSpot): void {
@@ -523,7 +661,10 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         onChange: (v) => model.updateSpot(spot.id, { name: v }),
     });
 
-    const spotTypes: SpotType[] = ["capital", "city", "town", "village", "fortress", "dungeon", "ruin", "port", "shrine", "camp", "mine", "boss", "landmark"];
+    const spotTypes: SpotType[] = [
+        "capital", "city", "town", "village", "fortress", "dungeon",
+        "ruin", "port", "shrine", "camp", "mine", "boss", "landmark"
+    ];
     W.dropdown(panel, {
         id: "edit_spot_type",
         label: "Spot Type",
@@ -559,9 +700,18 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         onChange: (v) => model.updateSpot(spot.id, { elevation: parseFloat(v) || 0 }),
     });
 
+    W.slider(panel, {
+        id: "edit_spot_danger",
+        label: `Danger Level (${spot.dangerLevel || 1}/10):`,
+        value: spot.dangerLevel || 1,
+        min: 1,
+        max: 10,
+        onChange: (v) => model.updateSpot(spot.id, { dangerLevel: Math.round(parseFloat(v) || 1) }),
+    });
+
     W.checkbox(panel, {
         id: "edit_spot_major",
-        label: "Major Hub (visible in Blocking Mode)",
+        label: "Major Hub (Visible in Macro-Blocking Mode)",
         value: spot.isMajor,
         onChange: (v) => model.updateSpot(spot.id, { isMajor: v }),
     });
@@ -602,9 +752,33 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         id: "btn_gen_spot_prompt",
         text: "⚡ Auto-Generate Image Prompt",
         onClick: () => {
-            const prompt = `Cinematic matte painting of ${spot.name}, ${spot.spotType} at elevation ${spot.elevation}m. ${spot.description}. ${model.world.meta.genre} aesthetic, highly detailed, 8k`;
+            const prompt = `Cinematic concept art of ${spot.name}, ${spot.spotType} at altitude ${spot.elevation}m. ${spot.description}. ${model.world.meta.genre} atmosphere, volumetric sunlight, 8k resolution`;
             model.updateSpot(spot.id, { conceptPrompt: prompt });
         },
+    });
+
+    W.spacer(panel, 8);
+
+    // Actions Row
+    W.horizontal(panel, () => {
+        W.button(panel, {
+            id: "btn_duplicate_spot",
+            text: "📑 Duplicate",
+            onClick: () => {
+                const copy = model.duplicateSpot(spot.id);
+                if (copy) statusMessage = `Duplicated spot to "${copy.name}".`;
+            },
+        });
+
+        W.button(panel, {
+            id: "btn_measure_from_spot",
+            text: "📏 Anchor Ruler",
+            onClick: () => {
+                model.measurePoints.p1 = [spot.x, spot.y];
+                model.activeTool = "measure";
+                statusMessage = `Ruler anchored at ${spot.name} [${spot.x}, ${spot.y}] km.`;
+            },
+        });
     });
 
     W.spacer(panel, 8);
@@ -656,14 +830,45 @@ function renderPathInspector(panel: string, path: WorldPath): void {
         onChange: (v) => model.updatePath(path.id, { isMajor: v }),
     });
 
-    W.label(panel, { text: `Points: ${path.points.length} waypoints`, color: UI.dim, fontSize: 11 });
+    if (path.pathType === "river") {
+        W.slider(panel, {
+            id: "edit_path_flow",
+            label: `Flow Speed (${path.flowSpeed.toFixed(1)} m/s):`,
+            value: path.flowSpeed,
+            min: 0,
+            max: 5,
+            onChange: (v) => model.updatePath(path.id, { flowSpeed: parseFloat(v) || 0 }),
+        });
+    }
 
-    W.spacer(panel, 12);
-    W.button(panel, {
-        id: "btn_delete_path",
-        text: "🗑 Delete Path",
-        accent: UI.rose,
-        onClick: () => model.deletePath(path.id),
+    // Travel Metric for this Path
+    const pathWaypoints = path.points.map(([x, y]) => ({ x, y }));
+    const travelFoot = calculateRouteTravelTime(pathWaypoints, "foot", path.pathType);
+    const travelHorse = calculateRouteTravelTime(pathWaypoints, "mount", path.pathType);
+
+    W.card(panel, { id: "card_path_travel", fill: UI.card, padding: 8 }, (card) => {
+        W.label(card, { text: "Route Travel Metrics", bold: true, fontSize: 11, color: UI.emerald });
+        W.label(card, { text: `Total Distance: ${travelFoot.distanceKm} km (${path.points.length} waypoints)`, fontSize: 11, color: UI.text });
+        W.label(card, { text: `Foot: ${travelFoot.formattedDuration} | Horse: ${travelHorse.formattedDuration}`, fontSize: 11, color: UI.dim });
+    });
+
+    W.spacer(panel, 8);
+    W.horizontal(panel, () => {
+        W.button(panel, {
+            id: "btn_duplicate_path",
+            text: "📑 Duplicate",
+            onClick: () => {
+                const copy = model.duplicatePath(path.id);
+                if (copy) statusMessage = `Duplicated path to "${copy.name}".`;
+            },
+        });
+
+        W.button(panel, {
+            id: "btn_delete_path",
+            text: "🗑 Delete",
+            accent: UI.rose,
+            onClick: () => model.deletePath(path.id),
+        });
     });
 }
 
@@ -677,10 +882,27 @@ function renderRegionInspector(panel: string, region: WorldRegion): void {
         onChange: (v) => model.updateRegion(region.id, { name: v }),
     });
 
-    const biomes: BiomeType[] = ["plains", "forest", "jungle", "desert", "tundra", "volcanic", "swamp", "alpine", "coastal", "savanna", "taiga", "badlands"];
+    const regionTypes: RegionType[] = ["kingdom", "province", "biome", "danger", "district"];
+    W.dropdown(panel, {
+        id: "edit_region_type",
+        label: "Region Classification",
+        options: regionTypes.map((t) => t.toUpperCase()),
+        selectedIndex: Math.max(0, regionTypes.indexOf(region.regionType)),
+        onChange: (v: string) => {
+            const idx = Number(v);
+            if (regionTypes[idx]) {
+                model.updateRegion(region.id, { regionType: regionTypes[idx] });
+            }
+        },
+    });
+
+    const biomes: BiomeType[] = [
+        "plains", "forest", "jungle", "desert", "tundra", "volcanic",
+        "swamp", "alpine", "coastal", "savanna", "taiga", "badlands"
+    ];
     W.dropdown(panel, {
         id: "edit_region_biome",
-        label: "Biome",
+        label: "Dominant Biome",
         options: biomes.map((b) => b.toUpperCase()),
         selectedIndex: Math.max(0, biomes.indexOf(region.dominantBiome)),
         onChange: (v: string) => {
@@ -708,12 +930,25 @@ function renderRegionInspector(panel: string, region: WorldRegion): void {
         onChange: (v) => model.updateRegion(region.id, { description: v }),
     });
 
-    W.spacer(panel, 12);
-    W.button(panel, {
-        id: "btn_delete_region",
-        text: "🗑 Delete Region",
-        accent: UI.rose,
-        onClick: () => model.deleteRegion(region.id),
+    W.label(panel, { text: `Vertices: ${region.points.length} boundary points`, color: UI.dim, fontSize: 11 });
+
+    W.spacer(panel, 8);
+    W.horizontal(panel, () => {
+        W.button(panel, {
+            id: "btn_duplicate_region",
+            text: "📑 Duplicate",
+            onClick: () => {
+                const copy = model.duplicateRegion(region.id);
+                if (copy) statusMessage = `Duplicated region to "${copy.name}".`;
+            },
+        });
+
+        W.button(panel, {
+            id: "btn_delete_region",
+            text: "🗑 Delete",
+            accent: UI.rose,
+            onClick: () => model.deleteRegion(region.id),
+        });
     });
 }
 
@@ -727,7 +962,7 @@ function renderCodexView(main: string): void {
         {
             id: "codex_split_view",
             sideOpen: true,
-            sideWidth: 300,
+            sideWidth: 320,
             minHeight: 650,
             mainPadding: 16,
             sidePadding: 12,
@@ -746,7 +981,7 @@ function renderCodexView(main: string): void {
 }
 
 function renderCodexList(side: string): void {
-    W.label(side, { text: "Codex Archives", bold: true, fontSize: 13, color: UI.text });
+    W.label(side, { text: "Codex & Lore Archives", bold: true, fontSize: 13, color: UI.text });
 
     W.textInput(side, {
         id: "codex_search",
@@ -801,6 +1036,7 @@ function renderCodexList(side: string): void {
             const cat: CodexCategory = codexCategoryFilter === "all" ? "character" : codexCategoryFilter;
             const newEntry = createCodexEntry("New Entry", cat, "Archetype / Title", "Entry description...", model.world.meta.genre);
             model.addCodexEntry(newEntry);
+            statusMessage = `Created codex entry "${newEntry.name}".`;
         },
     });
 
@@ -881,6 +1117,19 @@ function renderCodexDetail(main: string): void {
 
     W.separator(main);
     W.label(main, { text: "AI Concept Art Generator", bold: true, fontSize: 12, color: UI.cyan });
+
+    const styles = ["Dark Fantasy", "Studio Ghibli", "Cyberpunk Unreal 5", "Moebius Sci-Fi", "Antique Parchment"];
+    W.dropdown(main, {
+        id: "dropdown_codex_style",
+        label: "Visual Art Style Preset",
+        options: styles,
+        selectedIndex: Math.max(0, styles.indexOf(codexStyleFilter)),
+        onChange: (v: string) => {
+            const idx = Number(v);
+            if (styles[idx]) codexStyleFilter = styles[idx];
+        },
+    });
+
     W.textInput(main, {
         id: "edit_codex_prompt",
         label: "Prompt (for Midjourney / Stable Diffusion / Yumon Paint):",
@@ -889,21 +1138,49 @@ function renderCodexDetail(main: string): void {
         onChange: (v) => model.updateCodexEntry(entry.id, { conceptImagePrompt: v }),
     });
 
-    W.button(main, {
-        id: "btn_regen_codex_prompt",
-        text: "⚡ Regenerate Thematic Prompt",
-        onClick: () => {
-            const prompt = generateConceptImagePrompt(entry.name, entry.category, entry.subtitle, entry.description, model.world.meta.genre);
-            model.updateCodexEntry(entry.id, { conceptImagePrompt: prompt });
-        },
+    W.horizontal(main, () => {
+        W.button(main, {
+            id: "btn_regen_codex_prompt",
+            text: `⚡ Generate Prompt (${codexStyleFilter})`,
+            accent: UI.cyan,
+            onClick: () => {
+                const base = generateConceptImagePrompt(entry.name, entry.category, entry.subtitle, entry.description, model.world.meta.genre);
+                const styledPrompt = `${base}, rendered in ${codexStyleFilter} aesthetic, masterpiece composition, 8k`;
+                model.updateCodexEntry(entry.id, { conceptImagePrompt: styledPrompt });
+            },
+        });
+
+        W.button(main, {
+            id: "btn_copy_prompt",
+            text: "📋 Copy Prompt",
+            onClick: () => {
+                try {
+                    Entropy.Clipboard?.writeText(entry.conceptImagePrompt);
+                    statusMessage = "Prompt copied to clipboard.";
+                } catch {
+                    statusMessage = "Prompt ready in text field.";
+                }
+            },
+        });
     });
 
     W.spacer(main, 16);
-    W.button(main, {
-        id: "btn_delete_codex",
-        text: "🗑 Delete Codex Entry",
-        accent: UI.rose,
-        onClick: () => model.deleteCodexEntry(entry.id),
+    W.horizontal(main, () => {
+        W.button(main, {
+            id: "btn_duplicate_codex",
+            text: "📑 Duplicate Entry",
+            onClick: () => {
+                const copy = model.duplicateCodexEntry(entry.id);
+                if (copy) statusMessage = `Duplicated codex entry "${copy.name}".`;
+            },
+        });
+
+        W.button(main, {
+            id: "btn_delete_codex",
+            text: "🗑 Delete Entry",
+            accent: UI.rose,
+            onClick: () => model.deleteCodexEntry(entry.id),
+        });
     });
 }
 
@@ -941,7 +1218,8 @@ function renderStoryView(main: string): void {
             if (validation.valid) {
                 W.label(right, { text: "✓ Dependency Graph: Valid (No Cycles)", color: UI.emerald, fontSize: 11 });
             } else {
-                W.label(right, { text: "⚠ Cyclic Dependency Detected!", color: UI.rose, bold: true, fontSize: 11 });
+                const cycleStr = validation.cycle ? validation.cycle.join(" -> ") : "Unknown";
+                W.label(right, { text: `⚠ Cycle Detected in Quests: ${cycleStr}`, color: UI.rose, bold: true, fontSize: 11 });
             }
         }
     );
@@ -958,45 +1236,49 @@ function renderStoryView(main: string): void {
             scrollMain: true,
             scrollSide: true,
         } as SplitConfig,
-        // Main: Mission Detail & Linked Spatial Marking Inspector
+        // Main: Mission Detail & Route Inspector
         (editorArea: string) => {
             renderMissionDetail(editorArea);
         },
-        // Side: Quest Tree / Act List
+        // Side: Quest List / Acts List
         (listArea: string) => {
-            renderStoryTree(listArea);
+            renderQuestList(listArea);
         }
     );
 }
 
-function renderStoryTree(side: string): void {
-    W.horizontal(side, () => {
-        W.label(side, { text: "Missions & Milestones", bold: true, fontSize: 13, color: UI.text });
-        W.spacer(side, 8);
-        W.button(side, {
-            id: "btn_add_mission",
-            text: "+ Add Quest",
-            accent: UI.emerald,
-            onClick: () => {
-                const newMission = createMission(`New Quest ${model.world.missions.length + 1}`, "Quest objectives and milestones...", "main");
-                model.addMission(newMission);
-            },
-        });
+function renderQuestList(side: string): void {
+    W.label(side, { text: "Quest Log", bold: true, fontSize: 13, color: UI.text });
+
+    W.button(side, {
+        id: "btn_add_mission",
+        text: "+ New Mission",
+        accent: UI.cyan,
+        onClick: () => {
+            const newM = createMission(
+                `Quest: Expedition #${model.world.missions.length + 1}`,
+                "Explore the frontier and report back to the capital.",
+                "main"
+            );
+            newM.rewardXp = 1000;
+            model.addMission(newM);
+            statusMessage = `Created mission "${newM.title}".`;
+        },
     });
 
     W.separator(side);
 
     if (questViewMode === "chronological") {
         const acts = getChronologicalActs(model.world.acts, model.world.missions);
-        acts.forEach((a) => {
-            W.label(side, { text: `Act ${a.act.actNumber}: ${a.act.title}`, bold: true, color: UI.amber, fontSize: 12 });
-            a.chapters.forEach((c) => {
-                W.label(side, { text: `Chapter ${c.chapter.chapterNumber}: ${c.chapter.title}`, color: UI.dim, fontSize: 11 });
-                c.missions.forEach((m) => {
+        acts.forEach((actEntry) => {
+            W.label(side, { text: `Act ${actEntry.act.actNumber}: ${actEntry.act.title}`, bold: true, fontSize: 11, color: UI.amber });
+            actEntry.chapters.forEach((chapEntry) => {
+                W.label(side, { text: `  Ch. ${chapEntry.chapter.chapterNumber}: ${chapEntry.chapter.title}`, color: UI.dim, fontSize: 10 });
+                chapEntry.missions.forEach((m: Mission) => {
                     const isSelected = model.selectedId === m.id;
                     W.button(side, {
-                        id: `mission_item_${m.id}`,
-                        text: `  ⚔ ${m.title}`,
+                        id: `mission_btn_${m.id}`,
+                        text: `    ⚔ ${m.title}`,
                         accent: isSelected ? UI.emerald : undefined,
                         onClick: () => {
                             model.selectedId = m.id;
@@ -1004,19 +1286,32 @@ function renderStoryTree(side: string): void {
                     });
                 });
             });
-            W.spacer(side, 6);
+        });
+    } else {
+        // Freeform DAG view grouped by availability
+        const available = computeAvailableMissions(model.world.missions, new Set<string>());
+        W.label(side, { text: `Available Quests (${available.length}):`, bold: true, fontSize: 11, color: UI.emerald });
+        available.forEach((m: Mission) => {
+            const isSelected = model.selectedId === m.id;
+            W.button(side, {
+                id: `dag_avail_${m.id}`,
+                text: `● ${m.title}`,
+                accent: isSelected ? UI.emerald : undefined,
+                onClick: () => {
+                    model.selectedId = m.id;
+                },
+            });
         });
 
-        // Unassigned quests
-        const assignedIds = new Set(model.world.acts.flatMap((a) => a.chapters.flatMap((c) => c.missionIds)));
-        const unassigned = model.world.missions.filter((m) => !assignedIds.has(m.id));
-        if (unassigned.length > 0) {
-            W.label(side, { text: "Side Quests & Rumors", bold: true, color: UI.cyan, fontSize: 12 });
-            unassigned.forEach((m) => {
+        const locked = model.world.missions.filter((m: Mission) => !available.some((a: Mission) => a.id === m.id));
+        if (locked.length > 0) {
+            W.spacer(side, 8);
+            W.label(side, { text: `Locked Quests (${locked.length}):`, bold: true, fontSize: 11, color: UI.dim });
+            locked.forEach((m: Mission) => {
                 const isSelected = model.selectedId === m.id;
                 W.button(side, {
-                    id: `mission_item_${m.id}`,
-                    text: `  ❖ ${m.title}`,
+                    id: `dag_locked_${m.id}`,
+                    text: `🔒 ${m.title}`,
                     accent: isSelected ? UI.emerald : undefined,
                     onClick: () => {
                         model.selectedId = m.id;
@@ -1024,29 +1319,13 @@ function renderStoryTree(side: string): void {
                 });
             });
         }
-    } else {
-        // Freeform DAG quest list
-        model.world.missions.forEach((m) => {
-            const isSelected = model.selectedId === m.id;
-            const prereqCount = m.prerequisiteMissionIds.length;
-            const prereqLabel = prereqCount > 0 ? `(${prereqCount} prereq)` : "(root)";
-
-            W.button(side, {
-                id: `mission_item_${m.id}`,
-                text: `[${m.missionType[0].toUpperCase()}] ${m.title} ${prereqLabel}`,
-                accent: isSelected ? UI.cyan : undefined,
-                onClick: () => {
-                    model.selectedId = m.id;
-                },
-            });
-        });
     }
 }
 
 function renderMissionDetail(main: string): void {
     const mission = model.world.missions.find((m) => m.id === model.selectedId);
     if (!mission) {
-        W.label(main, { text: "Select a Quest from the left to view and link spatial locations.", color: UI.dim });
+        W.label(main, { text: "Select a quest from the left panel to inspect.", color: UI.dim, fontSize: 13 });
         return;
     }
 
@@ -1079,40 +1358,63 @@ function renderMissionDetail(main: string): void {
     });
 
     W.separator(main);
-    W.label(main, { text: "Spatial Map Connections", bold: true, fontSize: 12, color: UI.cyan });
+    W.label(main, { text: "Geographic Quest Routing & Time-to-Travel", bold: true, fontSize: 12, color: UI.cyan });
 
-    // Link Start Spot
     const spots = model.world.spots;
     const startSpot = spots.find((s) => s.id === mission.startSpotId);
-    W.horizontal(main, () => {
-        W.label(main, { text: "Quest Giver Spot:", bold: true, fontSize: 11, color: UI.dim });
-        W.label(main, { text: startSpot ? `📍 ${startSpot.name}` : "None assigned", color: UI.emerald });
-    });
-
-    // Objective spots
     const objSpots = spots.filter((s) => mission.objectiveSpotIds.includes(s.id));
-    W.label(main, { text: `Objective Locations (${objSpots.length}):`, bold: true, fontSize: 11, color: UI.dim });
-    objSpots.forEach((s) => {
-        W.label(main, { text: `  • 📍 ${s.name} (${s.spotType}) at [${s.x}, ${s.y}]km`, fontSize: 11, color: UI.text });
-    });
+    const turnInSpot = spots.find((s) => s.id === mission.turnInSpotId) || startSpot;
 
-    W.button(main, {
-        id: "btn_link_selected_spot",
-        text: "📍 Link Current Selected Map Spot as Objective",
-        onClick: () => {
-            if (model.selectedId && spots.some((s) => s.id === model.selectedId)) {
-                if (!mission.objectiveSpotIds.includes(model.selectedId)) {
-                    mission.objectiveSpotIds.push(model.selectedId);
-                    model.snapshot();
-                    statusMessage = "Linked spot to quest objectives.";
+    W.label(main, { text: startSpot ? `Quest Giver: 📍 ${startSpot.name} [${startSpot.x}, ${startSpot.y}] km` : "Quest Giver: None assigned", color: UI.text, fontSize: 11 });
+    W.label(main, { text: `Objectives (${objSpots.length}): ${objSpots.map((s) => s.name).join(", ") || "None"}`, color: UI.dim, fontSize: 11 });
+    W.label(main, { text: turnInSpot ? `Turn-in Location: 📍 ${turnInSpot.name}` : "Turn-in: Same as Quest Giver", color: UI.dim, fontSize: 11 });
+
+    // Compute route distance if waypoints exist
+    if (startSpot && objSpots.length > 0) {
+        const routeWaypoints = [
+            { x: startSpot.x, y: startSpot.y, elevation: startSpot.elevation },
+            ...objSpots.map((s) => ({ x: s.x, y: s.y, elevation: s.elevation })),
+            { x: turnInSpot!.x, y: turnInSpot!.y, elevation: turnInSpot!.elevation },
+        ];
+        const routeFoot = calculateRouteTravelTime(routeWaypoints, "foot");
+        const routeHorse = calculateRouteTravelTime(routeWaypoints, "mount");
+
+        W.card(main, { id: "card_mission_route", fill: UI.card, padding: 10 }, (card) => {
+            W.label(card, { text: "Quest Journey Estimate", bold: true, fontSize: 11, color: UI.amber });
+            W.label(card, { text: `Total Circuit Distance: ${routeFoot.distanceKm} km`, fontSize: 11, color: UI.text });
+            W.label(card, { text: `Foot Travel: ${routeFoot.formattedDuration} | Mounted Travel: ${routeHorse.formattedDuration}`, fontSize: 11, color: UI.dim });
+        });
+    }
+
+    W.spacer(main, 8);
+    W.horizontal(main, () => {
+        W.button(main, {
+            id: "btn_link_selected_spot",
+            text: "📍 Link Selected Spot as Objective",
+            onClick: () => {
+                if (model.selectedId && spots.some((s) => s.id === model.selectedId)) {
+                    if (!mission.objectiveSpotIds.includes(model.selectedId)) {
+                        mission.objectiveSpotIds.push(model.selectedId);
+                        model.snapshot();
+                        statusMessage = "Linked spot to quest objectives.";
+                    }
+                } else {
+                    statusMessage = "Select a spot on the Map View first.";
                 }
-            } else {
-                statusMessage = "Select a spot on the Map View first.";
-            }
-        },
+            },
+        });
+
+        W.button(main, {
+            id: "btn_duplicate_mission",
+            text: "📑 Duplicate Quest",
+            onClick: () => {
+                const copy = model.duplicateMission(mission.id);
+                if (copy) statusMessage = `Duplicated quest "${copy.title}".`;
+            },
+        });
     });
 
-    W.spacer(main, 16);
+    W.spacer(main, 12);
     W.button(main, {
         id: "btn_delete_mission",
         text: "🗑 Delete Quest",
@@ -1134,6 +1436,40 @@ function renderProceduralView(main: string): void {
     });
     W.separator(main);
 
+    // Global Procedural Controls Card
+    W.card(main, { id: "card_proc_globals", fill: UI.card, padding: 12 }, (card) => {
+        W.label(card, { text: "Procedural World Parameters", bold: true, fontSize: 12, color: UI.cyan });
+        W.horizontal(card, () => {
+            W.numericInput(card, {
+                id: "input_proc_seed",
+                label: "Seed:",
+                value: procSeed,
+                onChange: (v) => {
+                    procSeed = parseInt(v, 10) || 1337;
+                    model.world.meta.seed = procSeed;
+                },
+            });
+            W.numericInput(card, {
+                id: "input_mountain_scale",
+                label: "Max Mountain (meters):",
+                value: procMountainScale,
+                onChange: (v) => {
+                    procMountainScale = parseInt(v, 10) || 2800;
+                },
+            });
+        });
+        W.checkbox(card, {
+            id: "chk_island_mask",
+            label: "Island Boundary Falloff (Surrounded by Ocean)",
+            value: procIslandMask,
+            onChange: (v) => {
+                procIslandMask = v;
+            },
+        });
+    });
+
+    W.spacer(main, 10);
+
     // 1. Fractal Heightfield Generator
     W.card(main, { id: "card_proc_heightfield", fill: UI.card, padding: 12 }, (card) => {
         W.label(card, { text: "1. Fractal Heightfield & Topological Contours", bold: true, fontSize: 13, color: UI.text });
@@ -1148,11 +1484,11 @@ function renderProceduralView(main: string): void {
                     widthKm: model.world.meta.worldWidthKm,
                     heightKm: model.world.meta.worldHeightKm,
                     resolution: 48,
-                    seed: model.world.meta.seed,
+                    seed: procSeed,
                     octaves: 5,
-                    mountainScale: 2800,
+                    mountainScale: procMountainScale,
                     seaLevelM: model.world.meta.seaLevelM,
-                    islandMask: true,
+                    islandMask: procIslandMask,
                 });
                 model.snapshot();
                 model.world.contours = res.contours;
@@ -1168,6 +1504,17 @@ function renderProceduralView(main: string): void {
         W.label(card, { text: "2. Hydraulic & Thermal Erosion Simulation", bold: true, fontSize: 13, color: UI.text });
         W.label(card, { text: "Simulates rainfall droplet cascades to carve realistic valley gullies and deposit sediment in alluvial basins.", color: UI.dim, fontSize: 11 });
 
+        W.slider(card, {
+            id: "slider_erosion_iters",
+            label: `Erosion Droplets (${procErosionIters}):`,
+            value: procErosionIters,
+            min: 50,
+            max: 500,
+            onChange: (v) => {
+                procErosionIters = Math.round(parseFloat(v) || 200);
+            },
+        });
+
         W.button(card, {
             id: "btn_simulate_erosion",
             text: "💧 Run Droplet Erosion Simulation",
@@ -1177,12 +1524,14 @@ function renderProceduralView(main: string): void {
                     widthKm: model.world.meta.worldWidthKm,
                     heightKm: model.world.meta.worldHeightKm,
                     resolution: 36,
-                    seed: model.world.meta.seed,
+                    seed: procSeed,
+                    mountainScale: procMountainScale,
+                    islandMask: procIslandMask,
                 });
-                const erodedGrid = simulateErosion(raw.grid, 200, 0.08);
+                const erodedGrid = simulateErosion(raw.grid, procErosionIters, 0.08);
                 model.world.contours = extractContoursFromGrid(erodedGrid, model.world.meta.worldWidthKm, model.world.meta.worldHeightKm);
                 model.snapshot();
-                statusMessage = "Erosion simulation applied successfully to terrain contours.";
+                statusMessage = `Erosion simulation (${procErosionIters} droplets) applied to terrain contours.`;
             },
         });
     });
@@ -1194,6 +1543,17 @@ function renderProceduralView(main: string): void {
         W.label(card, { text: "3. Procedural River Drainage Routing", bold: true, fontSize: 13, color: UI.text });
         W.label(card, { text: "Traces steepest downhill descent from mountain watersheds to sea level, generating natural river paths.", color: UI.dim, fontSize: 11 });
 
+        W.slider(card, {
+            id: "slider_river_count",
+            label: `River Channels (${procRiverCount}):`,
+            value: procRiverCount,
+            min: 1,
+            max: 6,
+            onChange: (v) => {
+                procRiverCount = Math.round(parseFloat(v) || 3);
+            },
+        });
+
         W.button(card, {
             id: "btn_generate_rivers",
             text: "🌊 Route Rivers to Sea Level",
@@ -1203,9 +1563,11 @@ function renderProceduralView(main: string): void {
                     widthKm: model.world.meta.worldWidthKm,
                     heightKm: model.world.meta.worldHeightKm,
                     resolution: 40,
-                    seed: model.world.meta.seed,
+                    seed: procSeed,
+                    mountainScale: procMountainScale,
+                    islandMask: procIslandMask,
                 });
-                const rivers = generateRivers(model.world.meta, hf.grid, 3);
+                const rivers = generateRivers(model.world.meta, hf.grid, procRiverCount);
                 model.snapshot();
                 rivers.forEach((r) => model.world.paths.push(r));
                 statusMessage = `Carved ${rivers.length} procedural river paths to the coast.`;
@@ -1229,7 +1591,9 @@ function renderProceduralView(main: string): void {
                     widthKm: model.world.meta.worldWidthKm,
                     heightKm: model.world.meta.worldHeightKm,
                     resolution: 40,
-                    seed: model.world.meta.seed,
+                    seed: procSeed,
+                    mountainScale: procMountainScale,
+                    islandMask: procIslandMask,
                 });
                 const { spots, roads } = generateSettlements(model.world.meta, hf.grid, model.world.paths);
                 model.snapshot();
@@ -1247,12 +1611,23 @@ function renderProceduralView(main: string): void {
         W.label(card, { text: "5. Procedural POI Wilderness Scattering", bold: true, fontSize: 13, color: UI.text });
         W.label(card, { text: "Scatters ancient ruins, monster dens, resource mines, and shrines across unexplored wilderness zones.", color: UI.dim, fontSize: 11 });
 
+        W.slider(card, {
+            id: "slider_scatter_count",
+            label: `POIs to Scatter (${procScatterCount}):`,
+            value: procScatterCount,
+            min: 2,
+            max: 10,
+            onChange: (v) => {
+                procScatterCount = Math.round(parseFloat(v) || 4);
+            },
+        });
+
         W.button(card, {
             id: "btn_scatter_pois",
             text: "❖ Scatter Wilderness POIs",
             accent: UI.emerald,
             onClick: () => {
-                const scattered = scatterPointsOfInterest(model.world.meta, model.world.spots, 4);
+                const scattered = scatterPointsOfInterest(model.world.meta, model.world.spots, procScatterCount);
                 model.snapshot();
                 scattered.forEach((s) => model.world.spots.push(s));
                 statusMessage = `Scattered ${scattered.length} wilderness locations.`;
@@ -1268,7 +1643,7 @@ function renderProceduralView(main: string): void {
 function renderAgentView(main: string): void {
     W.label(main, { text: "AI Agent Collaboration & Revision Pipeline", bold: true, fontSize: 16, color: UI.cyan });
     W.label(main, {
-        text: "Export World Bibles, copy system prompts, and review proposed AI cartographer revisions before committing.",
+        text: "Export World Bibles, vector SVG maps, GDD documentation, and review proposed AI cartographer revisions before committing.",
         color: UI.dim,
         fontSize: 12,
     });
@@ -1307,9 +1682,23 @@ function renderAgentView(main: string): void {
         });
 
         W.button(main, {
+            id: "btn_export_svg_map",
+            text: "🗺 Export Vector SVG Map",
+            accent: UI.amber,
+            onClick: () => {
+                const svg = exportMapToSvg(model.world, 1400, 1400);
+                try {
+                    Entropy.Clipboard?.writeText(svg);
+                    statusMessage = `Vector SVG Map copied to clipboard (${svg.length} bytes).`;
+                } catch {
+                    statusMessage = `Vector SVG Map generated (${svg.length} bytes).`;
+                }
+            },
+        });
+
+        W.button(main, {
             id: "btn_simulate_agent_proposal",
             text: "🤖 Simulate Agent Proposal",
-            accent: UI.amber,
             onClick: () => {
                 activeProposal = createSampleAgentProposal(model.world);
                 statusMessage = `Agent "${activeProposal.agentName}" submitted ${activeProposal.changes.length} proposed world revisions!`;
@@ -1570,6 +1959,38 @@ addon.onInit(() => {
             };
             statusMessage = `Received revision proposal from ${activeProposal.agentName}`;
             return { success: true, proposalId: activeProposal.id };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_export_svg",
+            description: "Generates and returns the complete Game World Map as a vector SVG string.",
+            parameters: {
+                type: "object",
+                properties: {
+                    width: { type: "number", description: "SVG output width (default 1200)" },
+                    height: { type: "number", description: "SVG output height (default 1200)" },
+                },
+            },
+        },
+        (args: any) => {
+            const w = Number(args.width || 1200);
+            const h = Number(args.height || 1200);
+            const svg = exportMapToSvg(model.world, w, h);
+            return { success: true, svg };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_generate_gdd",
+            description: "Generates the complete Game Design Document in Markdown format.",
+            parameters: { type: "object", properties: {} },
+        },
+        () => {
+            const gdd = generateGameDesignDoc(model.world);
+            return { success: true, markdown: gdd };
         }
     );
 });

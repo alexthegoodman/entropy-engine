@@ -281,3 +281,94 @@ export function diffWorldWithProposal(
         };
     });
 }
+
+/**
+ * Exports a standalone, beautiful Vector SVG map of the game world.
+ */
+export function exportMapToSvg(world: GameWorld, width = 1200, height = 1200): string {
+    const { meta, spots, paths, regions, contours } = world;
+    const halfW = meta.worldWidthKm * 0.5;
+    const halfH = meta.worldHeightKm * 0.5;
+
+    const toSvgX = (wx: number) => (((wx + halfW) / meta.worldWidthKm) * (width - 80) + 40).toFixed(1);
+    const toSvgY = (wy: number) => (((halfH - wy) / meta.worldHeightKm) * (height - 80) + 40).toFixed(1);
+
+    let svg = `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background:#0b0e14;font-family:'Segoe UI',sans-serif;">\n`;
+    svg += `  <defs>\n`;
+    svg += `    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="glow"/><feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>\n`;
+    svg += `  </defs>\n\n`;
+
+    // 1. Grid
+    svg += `  <!-- Grid Lines -->\n  <g stroke="rgba(255,255,255,0.06)" stroke-width="1">\n`;
+    const gridStep = meta.worldWidthKm > 40 ? 10 : 5;
+    for (let x = -halfW; x <= halfW; x += gridStep) {
+        svg += `    <line x1="${toSvgX(x)}" y1="40" x2="${toSvgX(x)}" y2="${height - 40}" />\n`;
+        svg += `    <text x="${toSvgX(x)}" y="32" fill="#718096" font-size="9" text-anchor="middle">${x}km</text>\n`;
+    }
+    for (let y = -halfH; y <= halfH; y += gridStep) {
+        svg += `    <line x1="40" y1="${toSvgY(y)}" x2="${width - 40}" y2="${toSvgY(y)}" />\n`;
+        svg += `    <text x="32" y="${toSvgY(y)}" fill="#718096" font-size="9" text-anchor="end" alignment-baseline="middle">${y}km</text>\n`;
+    }
+    svg += `  </g>\n\n`;
+
+    // 2. Contours
+    svg += `  <!-- Elevation Contours -->\n  <g fill="none" stroke-width="1.2">\n`;
+    contours.forEach((c) => {
+        if (c.points.length >= 2) {
+            const pts = c.points.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(" ");
+            const rgba = `rgba(${Math.round(c.color[0] * 255)},${Math.round(c.color[1] * 255)},${Math.round(c.color[2] * 255)},${(c.color[3] * 0.8).toFixed(2)})`;
+            svg += `    <polyline points="${pts}" stroke="${rgba}" />\n`;
+        }
+    });
+    svg += `  </g>\n\n`;
+
+    // 3. Regions / Biomes
+    svg += `  <!-- Regions & Biomes -->\n  <g>\n`;
+    regions.forEach((r) => {
+        if (r.points.length >= 3) {
+            const pts = r.points.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(" ");
+            const fillRgba = `rgba(${Math.round(r.fillColor[0] * 255)},${Math.round(r.fillColor[1] * 255)},${Math.round(r.fillColor[2] * 255)},0.28)`;
+            const borderRgba = `rgba(${Math.round(r.borderColor[0] * 255)},${Math.round(r.borderColor[1] * 255)},${Math.round(r.borderColor[2] * 255)},0.85)`;
+            svg += `    <polygon points="${pts}" fill="${fillRgba}" stroke="${borderRgba}" stroke-width="2" />\n`;
+
+            const cx = r.points.reduce((acc, p) => acc + p[0], 0) / r.points.length;
+            const cy = r.points.reduce((acc, p) => acc + p[1], 0) / r.points.length;
+            svg += `    <text x="${toSvgX(cx)}" y="${toSvgY(cy)}" fill="#e2e8f0" font-size="12" font-weight="bold" text-anchor="middle">${r.name}</text>\n`;
+        }
+    });
+    svg += `  </g>\n\n`;
+
+    // 4. Paths & Rivers
+    svg += `  <!-- Paths, Roads & Rivers -->\n  <g fill="none">\n`;
+    paths.forEach((p) => {
+        if (p.points.length >= 2) {
+            const pts = p.points.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(" ");
+            const strokeCol = p.pathType === "river" ? "#38bdf8" : p.pathType === "highway" ? "#fbbf24" : "#cbd5e1";
+            const strokeW = p.pathType === "highway" ? 4.5 : p.pathType === "river" ? 3.5 : 2.5;
+            svg += `    <polyline points="${pts}" stroke="${strokeCol}" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round" />\n`;
+        }
+    });
+    svg += `  </g>\n\n`;
+
+    // 5. Spots / POIs
+    svg += `  <!-- Spots & POIs -->\n  <g>\n`;
+    spots.forEach((s) => {
+        const sx = toSvgX(s.x);
+        const sy = toSvgY(s.y);
+        const col = s.isMajor ? "#fbbf24" : "#34d399";
+        const radius = s.spotType === "capital" ? 9 : s.isMajor ? 7 : 5;
+        svg += `    <circle cx="${sx}" cy="${sy}" r="${radius + 3}" fill="#0f141e" />\n`;
+        svg += `    <circle cx="${sx}" cy="${sy}" r="${radius}" fill="${col}" filter="url(#glow)" />\n`;
+        svg += `    <text x="${sx}" y="${Number(sy) + radius + 13}" fill="#f8fafc" font-size="10" font-weight="600" text-anchor="middle">${s.name}</text>\n`;
+    });
+    svg += `  </g>\n\n`;
+
+    // 6. Header Badge Card
+    svg += `  <!-- Title Card -->\n`;
+    svg += `  <rect x="50" y="50" width="320" height="70" rx="6" fill="rgba(15,20,30,0.85)" stroke="#334155" stroke-width="1.5" />\n`;
+    svg += `  <text x="66" y="78" fill="#38bdf8" font-size="16" font-weight="bold">${meta.name}</text>\n`;
+    svg += `  <text x="66" y="98" fill="#94a3b8" font-size="11">${meta.genre.toUpperCase()} WORLD PLANNER | Scale: ${meta.worldWidthKm} x ${meta.worldHeightKm} km</text>\n`;
+
+    svg += `</svg>\n`;
+    return svg;
+}

@@ -9,11 +9,15 @@
 //! - Point of Interest (POI) spots with category badges, selection rings, and altitude tags
 //! - Built-in workflow filter for Blocking (macro-structure) vs Detailing (micro-features)
 //! - Interactive measurement ruler with real-time distance and multi-modal Time-to-Travel pills
+//! - Live drawing preview with rubber-band line & closing edges for paths and regions
+//! - Real-time spot dragging with grid snap and tether line
+//! - Ray-cast and distance hit-testing for selecting spots, paths, and regions
+//! - Mini-map radar overlay with camera frustum and interactive click-to-pan
 //! - Full event stream (selection, dragging, adding points, viewport changes)
 
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::context::Key;
-use crate::entropy_gui::geometry::{pos2, vec2, Align2, CornerRadius, FontId, Pos2, Rect, StrokeKind, Vec2};
+use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Pos2, Rect, StrokeKind, Vec2};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::Painter;
 use crate::entropy_gui::response::Sense;
@@ -34,9 +38,65 @@ const TEXT_MUTED: Color32 = Color32::from_rgb(95, 105, 125);
 const ACCENT_CYAN: Color32 = Color32::from_rgb(56, 189, 248);
 const ACCENT_AMBER: Color32 = Color32::from_rgb(251, 191, 36);
 const ACCENT_EMERALD: Color32 = Color32::from_rgb(52, 211, 153);
+#[allow(dead_code)]
 const ACCENT_ROSE: Color32 = Color32::from_rgb(244, 63, 94);
+#[allow(dead_code)]
 const ACCENT_VIOLET: Color32 = Color32::from_rgb(168, 85, 247);
 const BADGE_BG: Color32 = Color32::from_rgba_unmultiplied(18, 22, 32, 220);
+
+// -------------------------------------------------------------------------------------------------
+// Math Helpers
+// -------------------------------------------------------------------------------------------------
+
+/// Shortest distance from point `p` to line segment `a` -> `b`.
+fn dist_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = vec2(b.x - a.x, b.y - a.y);
+    let len_sq = ab.x * ab.x + ab.y * ab.y;
+    if len_sq < 1e-6 {
+        return ((p.x - a.x).powi(2) + (p.y - a.y).powi(2)).sqrt();
+    }
+    let ap = vec2(p.x - a.x, p.y - a.y);
+    let t = ((ap.x * ab.x + ap.y * ab.y) / len_sq).clamp(0.0, 1.0);
+    let proj = pos2(a.x + t * ab.x, a.y + t * ab.y);
+    ((p.x - proj.x).powi(2) + (p.y - proj.y).powi(2)).sqrt()
+}
+
+/// Ray-casting test for point `pt` inside polygon `poly`.
+fn point_in_polygon(pt: Pos2, poly: &[Pos2]) -> bool {
+    if poly.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = poly.len() - 1;
+    for i in 0..poly.len() {
+        let pi = poly[i];
+        let pj = poly[j];
+        if ((pi.y > pt.y) != (pj.y > pt.y)) && (pt.x < (pj.x - pi.x) * (pt.y - pi.y) / (pj.y - pi.y) + pi.x) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Hypsometric elevation tinting for natural topological gradients.
+fn elevation_contour_color(elevation: f32) -> Color32 {
+    if elevation < 0.0 {
+        Color32::from_rgba_unmultiplied(38, 110, 190, 180) // Deep sea / trench
+    } else if elevation < 80.0 {
+        Color32::from_rgba_unmultiplied(45, 160, 120, 170) // Coastal plain
+    } else if elevation < 250.0 {
+        Color32::from_rgba_unmultiplied(70, 180, 95, 170)  // Lowlands / forest
+    } else if elevation < 600.0 {
+        Color32::from_rgba_unmultiplied(170, 185, 70, 175) // Rolling hills
+    } else if elevation < 1200.0 {
+        Color32::from_rgba_unmultiplied(215, 165, 60, 180) // Plateaus & highlands
+    } else if elevation < 2000.0 {
+        Color32::from_rgba_unmultiplied(190, 115, 75, 190) // Rugged mountains
+    } else {
+        Color32::from_rgba_unmultiplied(220, 230, 255, 210) // Alpine / glacial peaks
+    }
+}
 
 // -------------------------------------------------------------------------------------------------
 // Data Models
@@ -47,7 +107,7 @@ pub struct MapSpot {
     pub id: String,
     pub name: String,
     pub spot_type: String, // "capital", "city", "town", "village", "fortress", "dungeon", "ruin", "port", "shrine", "camp", "mine", "boss"
-    pub x: f32,            // world km or m
+    pub x: f32,            // world km
     pub y: f32,
     pub elevation: f32,    // meters
     pub color: [f32; 4],
@@ -153,10 +213,13 @@ pub struct GameMapOptions {
     pub show_grid: bool,
     pub show_contours: bool,
     pub show_biomes: bool,
+    pub show_minimap: bool,
     pub blocking_mode: bool,    // true = blocking mode (macro layout only)
     pub active_tool: String,    // "select", "pan", "place_spot", "draw_path", "draw_region", "measure"
     pub selected_id: Option<String>,
     pub highlighted_quest_id: Option<String>,
+    pub pending_points: Vec<[f32; 2]>,
+    pub pending_mode: Option<String>, // "path" or "region"
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub initial_center: Option<[f32; 2]>,
@@ -172,10 +235,13 @@ impl Default for GameMapOptions {
             show_grid: true,
             show_contours: true,
             show_biomes: true,
+            show_minimap: true,
             blocking_mode: false,
             active_tool: "select".into(),
             selected_id: None,
             highlighted_quest_id: None,
+            pending_points: Vec::new(),
+            pending_mode: None,
             width: None,
             height: None,
             initial_center: None,
@@ -215,8 +281,11 @@ pub struct GameMapState {
     pub pan_start_pointer: Option<Pos2>,
     pub pan_start_center: Pos2,
     pub dragging_spot_id: Option<String>,
+    pub drag_start_world: Option<Pos2>,
     pub measure_anchor: Option<Pos2>,
     pub current_pointer_world: Option<Pos2>,
+    pub last_click_pos: Option<Pos2>,
+    pub last_click_time: f32,
 }
 
 impl Default for GameMapState {
@@ -228,8 +297,11 @@ impl Default for GameMapState {
             pan_start_pointer: None,
             pan_start_center: pos2(0.0, 0.0),
             dragging_spot_id: None,
+            drag_start_world: None,
             measure_anchor: None,
             current_pointer_world: None,
+            last_click_pos: None,
+            last_click_time: 1.0,
         }
     }
 }
@@ -291,6 +363,21 @@ impl GameMap {
         self
     }
 
+    pub fn pending_points(mut self, points: Vec<[f32; 2]>) -> Self {
+        self.options.pending_points = points;
+        self
+    }
+
+    pub fn pending_mode(mut self, mode: Option<String>) -> Self {
+        self.options.pending_mode = mode;
+        self
+    }
+
+    pub fn show_minimap(mut self, show: bool) -> Self {
+        self.options.show_minimap = show;
+        self
+    }
+
     pub fn show(self, ui: &mut Ui) -> GameMapResponse {
         let ctx = ui.ctx().clone();
         let opts = self.options;
@@ -317,6 +404,9 @@ impl GameMap {
         }
 
         let mut events: Vec<GameMapEvent> = Vec::new();
+        let dt = ctx.input(|i| i.dt);
+        st.last_click_time += dt;
+
         let pointer = ctx.input(|i| i.pointer);
         let pointer_pos = pointer.pos;
 
@@ -353,8 +443,16 @@ impl GameMap {
             }
         };
 
+        // Mini-map rectangle definition (bottom-right above status bar)
+        let minimap_size = vec2(130.0, 130.0);
+        let minimap_rect = Rect::from_min_size(
+            pos2(rect.max.x - minimap_size.x - 14.0, rect.max.y - minimap_size.y - 32.0),
+            minimap_size,
+        );
+        let is_pointer_in_minimap = opts.show_minimap && pointer_pos.is_some_and(|p| minimap_rect.contains(p));
+
         if let Some(sp) = pointer_pos {
-            if rect.contains(sp) {
+            if rect.contains(sp) && !is_pointer_in_minimap {
                 st.current_pointer_world = Some(screen_to_world(sp));
             } else {
                 st.current_pointer_world = None;
@@ -364,9 +462,27 @@ impl GameMap {
         }
 
         // -----------------------------------------------------------------------------------------
+        // Mini-map Interaction: Click to Pan
+        // -----------------------------------------------------------------------------------------
+        if opts.show_minimap && is_pointer_in_minimap && pointer.primary_pressed {
+            if let Some(sp) = pointer_pos {
+                let norm_x = (sp.x - minimap_rect.min.x) / minimap_size.x;
+                let norm_y = (sp.y - minimap_rect.min.y) / minimap_size.y;
+                let target_wx = (norm_x - 0.5) * opts.world_width_km;
+                let target_wy = (0.5 - norm_y) * opts.world_height_km;
+                st.center = pos2(target_wx, target_wy);
+                events.push(GameMapEvent::ViewportChanged {
+                    center_x: st.center.x,
+                    center_y: st.center.y,
+                    zoom: st.zoom,
+                });
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
         // Input Handling: Pan & Zoom
         // -----------------------------------------------------------------------------------------
-        let is_hovered = pointer_pos.is_some_and(|p| rect.contains(p));
+        let is_hovered = pointer_pos.is_some_and(|p| rect.contains(p)) && !is_pointer_in_minimap;
         let scroll_delta = if is_hovered { ctx.input(|i| i.scroll_delta.y) } else { 0.0 };
 
         if scroll_delta.abs() > 0.01 {
@@ -375,10 +491,9 @@ impl GameMap {
 
             // Zoom centered on pointer if over map
             if let Some(sp) = pointer_pos {
-                if rect.contains(sp) {
+                if rect.contains(sp) && !is_pointer_in_minimap {
                     let world_before = screen_to_world(sp);
                     st.zoom = new_zoom;
-                    // recompute center so world_before stays at sp
                     st.center = pos2(
                         world_before.x - (sp.x - screen_center.x) / new_zoom,
                         world_before.y + (sp.y - screen_center.y) / new_zoom,
@@ -401,7 +516,7 @@ impl GameMap {
         let is_pan_tool = opts.active_tool == "pan";
 
         if is_hovered {
-            if (pointer.secondary_pressed || (is_pan_tool && pointer.primary_pressed) || (is_space_down && pointer.primary_pressed)) && !st.is_panning {
+            if (pointer.secondary_pressed || (is_pan_tool && pointer.primary_pressed) || (is_space_down && pointer.primary_pressed)) && !st.is_panning && st.dragging_spot_id.is_none() {
                 st.is_panning = true;
                 st.pan_start_pointer = pointer_pos;
                 st.pan_start_center = st.center;
@@ -539,29 +654,54 @@ impl GameMap {
         let world_rect = Rect::from_min_max(pos2(p_tl.x.min(p_br.x), p_tl.y.min(p_br.y)), pos2(p_tl.x.max(p_br.x), p_tl.y.max(p_br.y)));
         painter.rect_stroke(world_rect, 0u8, Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 45)), StrokeKind::Middle);
 
-        // 4. Elevation Bands / Contours
+        // 4. Elevation Bands / Contours with Altitude Color Grading
         if opts.show_contours {
             for band in &self.elevation_bands {
                 if band.points.len() >= 2 {
-                    let stroke_col = Color32::from_rgba_unmultiplied(
-                        (band.color[0] * 255.0) as u8,
-                        (band.color[1] * 255.0) as u8,
-                        (band.color[2] * 255.0) as u8,
-                        (band.color[3] * 120.0) as u8,
-                    );
+                    let stroke_col = if band.color[3] > 0.05 {
+                        Color32::from_rgba_unmultiplied(
+                            (band.color[0] * 255.0) as u8,
+                            (band.color[1] * 255.0) as u8,
+                            (band.color[2] * 255.0) as u8,
+                            (band.color[3] * 140.0) as u8,
+                        )
+                    } else {
+                        elevation_contour_color(band.elevation)
+                    };
+
+                    let line_stroke = Stroke::new(1.3, stroke_col);
+
                     for w in band.points.windows(2) {
                         let p0 = world_to_screen(w[0][0], w[0][1]);
                         let p1 = world_to_screen(w[1][0], w[1][1]);
                         let b = Rect::from_min_max(pos2(p0.x.min(p1.x), p0.y.min(p1.y)), pos2(p0.x.max(p1.x), p0.y.max(p1.y)));
                         if rect.intersect(b).is_positive() {
-                            painter.line_segment([p0, p1], Stroke::new(1.2, stroke_col));
+                            painter.line_segment([p0, p1], line_stroke);
+                        }
+                    }
+
+                    // Elevation Tag pill along contour if zoomed in
+                    if st.zoom >= 26.0 && band.points.len() > 2 {
+                        let mid_idx = band.points.len() / 2;
+                        let mid_screen = world_to_screen(band.points[mid_idx][0], band.points[mid_idx][1]);
+                        if rect.contains(mid_screen) {
+                            let elev_str = format!("{:.0}m", band.elevation);
+                            painter.text(
+                                mid_screen,
+                                Align2::CENTER_CENTER,
+                                elev_str,
+                                FontId::proportional(8.5),
+                                stroke_col,
+                            );
                         }
                     }
                 }
             }
         }
 
-        // 5. Territory Regions
+        // 5. Territory Regions & Biomes
+        let mut hovered_region: Option<&MapRegion> = None;
+
         if opts.show_biomes {
             for reg in &self.regions {
                 if opts.blocking_mode && !reg.is_major {
@@ -570,20 +710,44 @@ impl GameMap {
                 if reg.points.len() >= 3 {
                     let screen_pts: Vec<Pos2> = reg.points.iter().map(|p| world_to_screen(p[0], p[1])).collect();
 
+                    let is_selected = opts.selected_id.as_deref() == Some(&reg.id);
+                    let is_region_hovered = pointer_pos.is_some_and(|sp| rect.contains(sp) && !is_pointer_in_minimap && point_in_polygon(sp, &screen_pts));
+
+                    if is_region_hovered && hovered_region.is_none() {
+                        hovered_region = Some(reg);
+                    }
+
+                    let fill_alpha = if is_selected { 0.40 } else if is_region_hovered { 0.32 } else { reg.fill_color[3] };
                     let fill = Color32::from_rgba_unmultiplied(
                         (reg.fill_color[0] * 255.0) as u8,
                         (reg.fill_color[1] * 255.0) as u8,
                         (reg.fill_color[2] * 255.0) as u8,
-                        (reg.fill_color[3] * 255.0) as u8,
-                    );
-                    let border = Color32::from_rgba_unmultiplied(
-                        (reg.border_color[0] * 255.0) as u8,
-                        (reg.border_color[1] * 255.0) as u8,
-                        (reg.border_color[2] * 255.0) as u8,
-                        (reg.border_color[3] * 255.0) as u8,
+                        (fill_alpha * 255.0) as u8,
                     );
 
-                    painter.add(Shape::convex_polygon(screen_pts.clone(), fill, Stroke::new(1.5, border)));
+                    let border_col = if is_selected {
+                        ACCENT_CYAN
+                    } else if is_region_hovered {
+                        Color32::from_white_alpha(200)
+                    } else {
+                        Color32::from_rgba_unmultiplied(
+                            (reg.border_color[0] * 255.0) as u8,
+                            (reg.border_color[1] * 255.0) as u8,
+                            (reg.border_color[2] * 255.0) as u8,
+                            (reg.border_color[3] * 255.0) as u8,
+                        )
+                    };
+
+                    let border_width = if is_selected { 2.5 } else { 1.5 };
+                    painter.add(Shape::convex_polygon(screen_pts.clone(), fill, Stroke::new(border_width, border_col)));
+
+                    // Corner vertex rings if selected
+                    if is_selected {
+                        for pt in &screen_pts {
+                            painter.circle_filled(*pt, 3.5, ACCENT_CYAN);
+                            painter.circle_stroke(*pt, 4.5, Stroke::new(1.0, Color32::from_rgb(12, 16, 24)));
+                        }
+                    }
 
                     // Center label calculation
                     let sum_x: f32 = screen_pts.iter().map(|p| p.x).sum();
@@ -592,8 +756,11 @@ impl GameMap {
 
                     if rect.contains(center_pt) {
                         let text_w = Painter::measure_text(&ctx, FontId::proportional(11.0), &reg.name).x;
-                        let badge_rect = Rect::from_center_size(center_pt, vec2(text_w + 12.0, 18.0));
-                        painter.rect_filled(badge_rect, 4u8, Color32::from_rgba_unmultiplied(10, 14, 22, 180));
+                        let badge_rect = Rect::from_center_size(center_pt, vec2(text_w + 14.0, 19.0));
+                        painter.rect_filled(badge_rect, 4u8, Color32::from_rgba_unmultiplied(10, 14, 22, 190));
+                        if is_selected {
+                            painter.rect_stroke(badge_rect, 4u8, Stroke::new(1.0, ACCENT_CYAN), StrokeKind::Middle);
+                        }
                         painter.text(center_pt, Align2::CENTER_CENTER, &reg.name, FontId::proportional(11.0), TEXT_BRIGHT);
                     }
                 }
@@ -601,6 +768,8 @@ impl GameMap {
         }
 
         // 6. Paths, Roads, Rivers, Bridges
+        let mut hovered_path: Option<&MapPath> = None;
+
         for path in &self.paths {
             if opts.blocking_mode && !path.is_major {
                 continue;
@@ -616,6 +785,24 @@ impl GameMap {
 
                 let line_width = (path.width * (st.zoom / 24.0).clamp(0.6, 2.5)).clamp(1.5, 12.0);
 
+                let mut is_path_hovered = false;
+                if let Some(sp) = pointer_pos {
+                    if rect.contains(sp) && !is_pointer_in_minimap {
+                        for w in path.points.windows(2) {
+                            let p0 = world_to_screen(w[0][0], w[0][1]);
+                            let p1 = world_to_screen(w[1][0], w[1][1]);
+                            if dist_to_segment(sp, p0, p1) <= (line_width * 0.5 + 5.0).max(8.0) {
+                                is_path_hovered = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if is_path_hovered && hovered_path.is_none() {
+                    hovered_path = Some(path);
+                }
+
                 for w in path.points.windows(2) {
                     let p0 = world_to_screen(w[0][0], w[0][1]);
                     let p1 = world_to_screen(w[1][0], w[1][1]);
@@ -627,11 +814,11 @@ impl GameMap {
 
                     if path.path_type == "highway" {
                         // Double outline for highways
-                        painter.line_segment([p0, p1], Stroke::new(line_width + 2.0, Color32::from_rgb(18, 22, 32)));
+                        painter.line_segment([p0, p1], Stroke::new(line_width + 2.5, Color32::from_rgb(18, 22, 32)));
                         painter.line_segment([p0, p1], Stroke::new(line_width, col));
                     } else if path.path_type == "river" {
                         // Water blue with subtle glow
-                        painter.line_segment([p0, p1], Stroke::new(line_width + 1.0, Color32::from_rgba_unmultiplied(30, 80, 140, 160)));
+                        painter.line_segment([p0, p1], Stroke::new(line_width + 1.5, Color32::from_rgba_unmultiplied(30, 80, 140, 160)));
                         painter.line_segment([p0, p1], Stroke::new(line_width, ACCENT_CYAN));
                     } else if path.path_type == "bridge" {
                         // Bridge plank marks
@@ -643,13 +830,26 @@ impl GameMap {
                     }
 
                     if is_selected {
-                        painter.line_segment([p0, p1], Stroke::new(line_width + 4.0, Color32::from_rgba_unmultiplied(56, 189, 248, 80)));
+                        painter.line_segment([p0, p1], Stroke::new(line_width + 4.5, Color32::from_rgba_unmultiplied(56, 189, 248, 120)));
+                    } else if is_path_hovered {
+                        painter.line_segment([p0, p1], Stroke::new(line_width + 3.0, Color32::from_white_alpha(80)));
+                    }
+                }
+
+                // Render vertex handles when selected
+                if is_selected {
+                    for pt in &path.points {
+                        let sp = world_to_screen(pt[0], pt[1]);
+                        if rect.contains(sp) {
+                            painter.circle_filled(sp, 3.5, ACCENT_CYAN);
+                            painter.circle_stroke(sp, 4.5, Stroke::new(1.0, Color32::from_rgb(15, 20, 30)));
+                        }
                     }
                 }
             }
         }
 
-        // 7. Spots / POIs (Points of Interest)
+        // 7. Spots / POIs (Points of Interest) & Drag Handling
         let mut hovered_spot: Option<&MapSpot> = None;
         let mut clicked_spot: Option<&MapSpot> = None;
 
@@ -668,7 +868,7 @@ impl GameMap {
             let base_radius = if is_capital { 11.0 } else if spot.is_major { 8.5 } else { 6.5 };
 
             let hit_rect = Rect::from_center_size(sp, vec2(base_radius * 2.8, base_radius * 2.8));
-            let is_spot_hovered = pointer_pos.is_some_and(|p| hit_rect.contains(p));
+            let is_spot_hovered = pointer_pos.is_some_and(|p| hit_rect.contains(p)) && !is_pointer_in_minimap;
 
             if is_spot_hovered {
                 hovered_spot = Some(spot);
@@ -727,34 +927,117 @@ impl GameMap {
             }
         }
 
+        // Spot Drag & Select handling
         if let Some(spot) = clicked_spot {
             events.push(GameMapEvent::SpotSelected { id: spot.id.clone() });
+            if opts.active_tool == "select" {
+                st.dragging_spot_id = Some(spot.id.clone());
+                st.drag_start_world = Some(pos2(spot.x, spot.y));
+            }
         }
 
-        // 8. Interactive Measurement Tool Overlay
+        if let Some(ref drag_id) = st.dragging_spot_id {
+            if pointer.primary_down {
+                if let Some(sp) = pointer_pos {
+                    let raw_world = screen_to_world(sp);
+                    let snapped = snap_world(raw_world);
+
+                    // Draw drag tether dashed line
+                    if let Some(start_w) = st.drag_start_world {
+                        let start_s = world_to_screen(start_w.x, start_w.y);
+                        let cur_s = world_to_screen(snapped.x, snapped.y);
+                        painter.line_segment([start_s, cur_s], Stroke::new(1.5, ACCENT_AMBER));
+                        painter.circle_filled(cur_s, 5.0, ACCENT_AMBER);
+                    }
+
+                    events.push(GameMapEvent::SpotMoved {
+                        id: drag_id.clone(),
+                        x: snapped.x,
+                        y: snapped.y,
+                    });
+                }
+            } else {
+                st.dragging_spot_id = None;
+                st.drag_start_world = None;
+            }
+        }
+
+        // 8. Pending Drawing Pass: Live Rubber-Band Previews for Path and Region Creation
+        if !opts.pending_points.is_empty() {
+            let is_region = opts.pending_mode.as_deref() == Some("region") || opts.active_tool == "draw_region";
+
+            // Draw line connecting pending points
+            let pts_screen: Vec<Pos2> = opts.pending_points.iter().map(|p| world_to_screen(p[0], p[1])).collect();
+            for w in pts_screen.windows(2) {
+                painter.line_segment([w[0], w[1]], Stroke::new(2.5, ACCENT_CYAN));
+            }
+
+            // Draw numbered vertex dots
+            for (idx, sp) in pts_screen.iter().enumerate() {
+                painter.circle_filled(*sp, 6.0, Color32::from_rgb(15, 20, 30));
+                painter.circle_filled(*sp, 4.5, ACCENT_CYAN);
+                painter.text(*sp, Align2::CENTER_CENTER, format!("{}", idx + 1), FontId::proportional(8.0), Color32::from_rgb(10, 14, 20));
+            }
+
+            // Draw rubber-band line from last pending point to current mouse cursor
+            if let Some(sp) = pointer_pos {
+                if is_hovered {
+                    let snapped = snap_world(screen_to_world(sp));
+                    let snap_s = world_to_screen(snapped.x, snapped.y);
+                    let last_s = *pts_screen.last().unwrap();
+
+                    // Dashed line to cursor
+                    painter.line_segment([last_s, snap_s], Stroke::new(1.8, ACCENT_EMERALD));
+
+                    // Cursor reticle ring
+                    painter.circle_stroke(snap_s, 6.0, Stroke::new(1.5, ACCENT_EMERALD));
+
+                    // If region mode and at least 2 points placed, draw closing preview back to point 0
+                    if is_region && pts_screen.len() >= 2 {
+                        let first_s = pts_screen[0];
+                        painter.line_segment([snap_s, first_s], Stroke::new(1.2, Color32::from_rgba_unmultiplied(52, 211, 153, 140)));
+
+                        // Translucent preview polygon
+                        let mut poly_pts = pts_screen.clone();
+                        poly_pts.push(snap_s);
+                        painter.add(Shape::convex_polygon(
+                            poly_pts,
+                            Color32::from_rgba_unmultiplied(52, 211, 153, 30),
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(52, 211, 153, 80)),
+                        ));
+                    }
+
+                    // Floating coordinate readout
+                    let coord_label = format!("[{:.2}, {:.2}] km", snapped.x, snapped.y);
+                    painter.text(pos2(snap_s.x + 10.0, snap_s.y - 12.0), Align2::LEFT_CENTER, coord_label, FontId::proportional(9.5), TEXT_BRIGHT);
+                }
+            }
+        }
+
+        // 9. Interactive Measurement Tool Overlay
         if let Some(measure) = &self.measure {
             if measure.active {
                 let sp1 = world_to_screen(measure.p1[0], measure.p1[1]);
                 let sp2 = world_to_screen(measure.p2[0], measure.p2[1]);
 
-                // Dashed ruler line
-                painter.line_segment([sp1, sp2], Stroke::new(2.0, ACCENT_AMBER));
-                painter.circle_filled(sp1, 4.0, ACCENT_AMBER);
-                painter.circle_filled(sp2, 4.0, ACCENT_AMBER);
+                // Ruler line
+                painter.line_segment([sp1, sp2], Stroke::new(2.2, ACCENT_AMBER));
+                painter.circle_filled(sp1, 4.5, ACCENT_AMBER);
+                painter.circle_filled(sp2, 4.5, ACCENT_AMBER);
 
                 // Distance & travel pill at midpoint
                 let mid = pos2((sp1.x + sp2.x) * 0.5, (sp1.y + sp2.y) * 0.5);
                 let label = format!("{:.2} km | {}", measure.distance_km, measure.travel_info);
                 let text_w = Painter::measure_text(&ctx, FontId::proportional(11.0), &label).x;
-                let pill_rect = Rect::from_center_size(mid, vec2(text_w + 16.0, 22.0));
+                let pill_rect = Rect::from_center_size(mid, vec2(text_w + 18.0, 24.0));
 
-                painter.rect_filled(pill_rect, 4u8, Color32::from_rgba_unmultiplied(16, 20, 28, 230));
-                painter.rect_stroke(pill_rect, 4u8, Stroke::new(1.0, ACCENT_AMBER), StrokeKind::Middle);
+                painter.rect_filled(pill_rect, 4u8, Color32::from_rgba_unmultiplied(16, 20, 28, 235));
+                painter.rect_stroke(pill_rect, 4u8, Stroke::new(1.2, ACCENT_AMBER), StrokeKind::Middle);
                 painter.text(mid, Align2::CENTER_CENTER, label, FontId::proportional(11.0), TEXT_BRIGHT);
             }
         }
 
-        // 9. Tooltip for hovered spot
+        // 10. Tooltip for hovered spot, path, or region
         if let Some(spot) = hovered_spot {
             if let Some(sp) = pointer_pos {
                 let tip_pos = pos2(sp.x + 14.0, sp.y + 14.0);
@@ -778,9 +1061,115 @@ impl GameMap {
                     painter.text(pos2(tip_pos.x + 8.0, tip_pos.y + 38.0), Align2::LEFT_CENTER, tags, FontId::proportional(9.5), ACCENT_EMERALD);
                 }
             }
+        } else if let Some(path) = hovered_path {
+            if let Some(sp) = pointer_pos {
+                let tip_pos = pos2(sp.x + 14.0, sp.y + 14.0);
+                let title = format!("Path: {} ({})", path.name, path.path_type);
+                let sub = format!("Points: {} | Width: {:.1}m", path.points.len(), path.width);
+                let w1 = Painter::measure_text(&ctx, FontId::proportional(11.5), &title).x;
+                let w2 = Painter::measure_text(&ctx, FontId::proportional(10.0), &sub).x;
+                let box_w = w1.max(w2) + 20.0;
+                let tip_rect = Rect::from_min_size(tip_pos, vec2(box_w, 42.0));
+                painter.rect_filled(tip_rect, 4u8, BADGE_BG);
+                painter.rect_stroke(tip_rect, 4u8, Stroke::new(1.0, BORDER_COLOR), StrokeKind::Middle);
+                painter.text(pos2(tip_pos.x + 8.0, tip_pos.y + 11.0), Align2::LEFT_CENTER, title, FontId::proportional(11.5), TEXT_BRIGHT);
+                painter.text(pos2(tip_pos.x + 8.0, tip_pos.y + 26.0), Align2::LEFT_CENTER, sub, FontId::proportional(10.0), TEXT_DIM);
+            }
+        } else if let Some(region) = hovered_region {
+            if let Some(sp) = pointer_pos {
+                let tip_pos = pos2(sp.x + 14.0, sp.y + 14.0);
+                let title = format!("Region: {} ({})", region.name, region.region_type);
+                let sub = format!("Vertices: {}", region.points.len());
+                let w1 = Painter::measure_text(&ctx, FontId::proportional(11.5), &title).x;
+                let w2 = Painter::measure_text(&ctx, FontId::proportional(10.0), &sub).x;
+                let box_w = w1.max(w2) + 20.0;
+                let tip_rect = Rect::from_min_size(tip_pos, vec2(box_w, 42.0));
+                painter.rect_filled(tip_rect, 4u8, BADGE_BG);
+                painter.rect_stroke(tip_rect, 4u8, Stroke::new(1.0, BORDER_COLOR), StrokeKind::Middle);
+                painter.text(pos2(tip_pos.x + 8.0, tip_pos.y + 11.0), Align2::LEFT_CENTER, title, FontId::proportional(11.5), TEXT_BRIGHT);
+                painter.text(pos2(tip_pos.x + 8.0, tip_pos.y + 26.0), Align2::LEFT_CENTER, sub, FontId::proportional(10.0), TEXT_DIM);
+            }
         }
 
-        // 10. Canvas HUD: Scale Bar & Coordinates Readout
+        // 11. Mini-Map (Radar Overview Navigator)
+        if opts.show_minimap {
+            painter.rect_filled(minimap_rect, 4u8, Color32::from_rgba_unmultiplied(12, 16, 24, 230));
+            painter.rect_stroke(minimap_rect, 4u8, Stroke::new(1.2, BORDER_COLOR), StrokeKind::Middle);
+
+            // Mini-map title tag
+            painter.text(
+                pos2(minimap_rect.min.x + 6.0, minimap_rect.min.y + 6.0),
+                Align2::LEFT_TOP,
+                "OVERVIEW",
+                FontId::proportional(8.5),
+                TEXT_MUTED,
+            );
+
+            let mini_w = minimap_rect.width() - 8.0;
+            let mini_h = minimap_rect.height() - 8.0;
+            let mini_origin = pos2(minimap_rect.min.x + 4.0, minimap_rect.min.y + 4.0);
+
+            let world_to_mini = |wx: f32, wy: f32| -> Pos2 {
+                let nx = (wx / opts.world_width_km) + 0.5;
+                let ny = 0.5 - (wy / opts.world_height_km);
+                pos2(mini_origin.x + nx.clamp(0.0, 1.0) * mini_w, mini_origin.y + ny.clamp(0.0, 1.0) * mini_h)
+            };
+
+            // Miniature regions
+            for reg in &self.regions {
+                if reg.points.len() >= 3 {
+                    let pts: Vec<Pos2> = reg.points.iter().map(|p| world_to_mini(p[0], p[1])).collect();
+                    let mini_fill = Color32::from_rgba_unmultiplied(
+                        (reg.fill_color[0] * 255.0) as u8,
+                        (reg.fill_color[1] * 255.0) as u8,
+                        (reg.fill_color[2] * 255.0) as u8,
+                        70,
+                    );
+                    painter.add(Shape::convex_polygon(pts, mini_fill, Stroke::NONE));
+                }
+            }
+
+            // Miniature paths
+            for path in &self.paths {
+                let mini_col = Color32::from_rgba_unmultiplied(
+                    (path.color[0] * 255.0) as u8,
+                    (path.color[1] * 255.0) as u8,
+                    (path.color[2] * 255.0) as u8,
+                    160,
+                );
+                for w in path.points.windows(2) {
+                    let p0 = world_to_mini(w[0][0], w[0][1]);
+                    let p1 = world_to_mini(w[1][0], w[1][1]);
+                    painter.line_segment([p0, p1], Stroke::new(1.0, mini_col));
+                }
+            }
+
+            // Miniature spots
+            for spot in &self.spots {
+                let sp = world_to_mini(spot.x, spot.y);
+                let spot_col = Color32::from_rgba_unmultiplied(
+                    (spot.color[0] * 255.0) as u8,
+                    (spot.color[1] * 255.0) as u8,
+                    (spot.color[2] * 255.0) as u8,
+                    220,
+                );
+                painter.circle_filled(sp, if spot.is_major { 2.5 } else { 1.8 }, spot_col);
+            }
+
+            // Camera Viewport Frustum Box
+            let cam_tl_w = screen_to_world(pos2(rect.min.x, rect.min.y));
+            let cam_br_w = screen_to_world(pos2(rect.max.x, rect.max.y));
+            let cam_tl_m = world_to_mini(cam_tl_w.x, cam_tl_w.y);
+            let cam_br_m = world_to_mini(cam_br_w.x, cam_br_w.y);
+            let cam_mini_rect = Rect::from_min_max(
+                pos2(cam_tl_m.x.min(cam_br_m.x).clamp(mini_origin.x, mini_origin.x + mini_w), cam_tl_m.y.min(cam_br_m.y).clamp(mini_origin.y, mini_origin.y + mini_h)),
+                pos2(cam_tl_m.x.max(cam_br_m.x).clamp(mini_origin.x, mini_origin.x + mini_w), cam_tl_m.y.max(cam_br_m.y).clamp(mini_origin.y, mini_origin.y + mini_h)),
+            );
+            painter.rect_filled(cam_mini_rect, 0u8, Color32::from_rgba_unmultiplied(56, 189, 248, 25));
+            painter.rect_stroke(cam_mini_rect, 0u8, Stroke::new(1.2, ACCENT_CYAN), StrokeKind::Middle);
+        }
+
+        // 12. Canvas HUD: Scale Bar & Coordinates Readout
         // Scale bar in bottom-left
         let scale_km = if st.zoom > 100.0 { 0.1 } else if st.zoom > 40.0 { 0.5 } else if st.zoom > 15.0 { 2.0 } else if st.zoom > 5.0 { 5.0 } else { 20.0 };
         let bar_len_px = scale_km * st.zoom;
@@ -818,11 +1207,44 @@ impl GameMap {
         painter.rect_stroke(mode_pill_rect, 4u8, Stroke::new(1.0, mode_col), StrokeKind::Middle);
         painter.text(mode_pill_rect.center(), Align2::CENTER_CENTER, mode_label, FontId::proportional(9.5), mode_col);
 
-        // Click handling on empty canvas
+        // 13. Click & Double-Click Handling: Selection of Paths, Regions, and Empty Canvas
         if resp.clicked() && clicked_spot.is_none() && is_hovered {
-            if let Some(pw) = st.current_pointer_world {
-                let snapped = snap_world(pw);
-                events.push(GameMapEvent::MapClicked { x: snapped.x, y: snapped.y });
+            let is_double_click = if let Some(last_p) = st.last_click_pos {
+                if let Some(sp) = pointer_pos {
+                    st.last_click_time < 0.35 && (sp.x - last_p.x).hypot(sp.y - last_p.y) < 12.0
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if is_double_click {
+                st.last_click_pos = None;
+                st.last_click_time = 1.0;
+                if let Some(pw) = st.current_pointer_world {
+                    let snapped = snap_world(pw);
+                    events.push(GameMapEvent::MapDoubleClicked { x: snapped.x, y: snapped.y });
+                }
+            } else {
+                st.last_click_pos = pointer_pos;
+                st.last_click_time = 0.0;
+
+                if let Some(pw) = st.current_pointer_world {
+                    let snapped = snap_world(pw);
+
+                    if opts.active_tool == "select" {
+                        if let Some(path) = hovered_path {
+                            events.push(GameMapEvent::PathSelected { id: path.id.clone() });
+                        } else if let Some(reg) = hovered_region {
+                            events.push(GameMapEvent::RegionSelected { id: reg.id.clone() });
+                        } else {
+                            events.push(GameMapEvent::MapClicked { x: snapped.x, y: snapped.y });
+                        }
+                    } else {
+                        events.push(GameMapEvent::MapClicked { x: snapped.x, y: snapped.y });
+                    }
+                }
             }
         }
 

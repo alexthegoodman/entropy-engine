@@ -872,6 +872,12 @@ pub struct GameMapConfig {
     pub elevation_bands: Vec<MapElevationBandConfig>,
     #[serde(default)]
     pub measure: Option<MapMeasureConfig>,
+    #[serde(default)]
+    pub pending_points: Option<Vec<[f32; 2]>>,
+    #[serde(default)]
+    pub pending_mode: Option<String>,
+    #[serde(default)]
+    pub show_minimap: Option<bool>,
 }
 
 /// `Widget.heatmap` - see `entropy_gui::HeatmapView`.

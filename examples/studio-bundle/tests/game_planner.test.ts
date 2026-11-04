@@ -38,11 +38,13 @@ import {
     applyRevisionProposal,
     createSampleAgentProposal,
     diffWorldWithProposal,
+    exportMapToSvg,
     exportWorldBibleJson,
     generateAgentPrompts,
     generateGameDesignDoc,
 } from "../src/apps/game_planner/agent_pipeline";
 import {
+    CRIMSON_EXPANSE_PRESET,
     NEO_AETHELGARD_PRESET,
     SHATTERED_ISLES_PRESET,
 } from "../src/apps/game_planner/presets";
@@ -751,5 +753,126 @@ describe("Game World Planner: Agent Collaboration Pipeline & Diff Engine", () =>
 
         const modifiedSpot = model.world.spots.find((s) => s.id === model.world.spots[0].id);
         expect(modifiedSpot!.name).toContain("(Reinforced)");
+    });
+
+    it("loads and validates the Sci-Fi Crimson Expanse preset", () => {
+        const model = new PlannerModel(CRIMSON_EXPANSE_PRESET);
+        expect(model.world.meta.name).toBe("The Crimson Expanse: Ares-IV");
+        expect(model.world.meta.genre).toBe("scifi");
+        expect(model.world.spots.length).toBeGreaterThanOrEqual(5);
+        expect(model.world.regions.length).toBeGreaterThanOrEqual(3);
+        expect(model.world.paths.length).toBeGreaterThanOrEqual(2);
+        expect(model.world.codex.length).toBeGreaterThanOrEqual(3);
+        expect(model.world.missions.length).toBeGreaterThanOrEqual(2);
+        expect(model.world.meta.worldWidthKm).toBe(40.0);
+    });
+
+    it("generates clean standalone Vector SVG maps", () => {
+        const model = new PlannerModel(SHATTERED_ISLES_PRESET);
+        const svg = exportMapToSvg(model.world, 1000, 1000);
+
+        expect(svg).toContain("<svg");
+        expect(svg).toContain("</svg>");
+        expect(svg).toContain("viewBox=\"0 0 1000 1000\"");
+        expect(svg).toContain(model.world.meta.name);
+        expect(svg).toContain("polyline");
+        expect(svg).toContain("polygon");
+        expect(svg).toContain("circle");
+    });
+
+    it("manages interactive path drawing lifecycle", () => {
+        const model = new PlannerModel(SHATTERED_ISLES_PRESET);
+        const initPaths = model.world.paths.length;
+
+        model.activeTool = "draw_path";
+        model.appendPendingPathPoint([0, 0]);
+        model.appendPendingPathPoint([2, 4]);
+        model.appendPendingPathPoint([5, 8]);
+        expect(model.pendingPathPoints.length).toBe(3);
+
+        model.undoPendingPathPoint();
+        expect(model.pendingPathPoints.length).toBe(2);
+
+        const createdPath = model.finishPendingPath("highway", "Royal Northern Expressway");
+        expect(createdPath).toBeDefined();
+        expect(createdPath!.name).toBe("Royal Northern Expressway");
+        expect(createdPath!.pathType).toBe("highway");
+        expect(createdPath!.points.length).toBe(2);
+        expect(model.world.paths.length).toBe(initPaths + 1);
+        expect(model.pendingPathPoints.length).toBe(0);
+        expect(model.activeTool).toBe("select");
+    });
+
+    it("manages interactive region drawing lifecycle", () => {
+        const model = new PlannerModel(SHATTERED_ISLES_PRESET);
+        const initRegions = model.world.regions.length;
+
+        model.activeTool = "draw_region";
+        model.appendPendingRegionPoint([-5, -5]);
+        model.appendPendingRegionPoint([5, -5]);
+        model.appendPendingRegionPoint([5, 5]);
+        model.appendPendingRegionPoint([-5, 5]);
+        expect(model.pendingRegionPoints.length).toBe(4);
+
+        const createdRegion = model.finishPendingRegion("forest", "Verdant Reach");
+        expect(createdRegion).toBeDefined();
+        expect(createdRegion!.name).toBe("Verdant Reach");
+        expect(createdRegion!.dominantBiome).toBe("forest");
+        expect(createdRegion!.points.length).toBe(4);
+        expect(model.world.regions.length).toBe(initRegions + 1);
+        expect(model.pendingRegionPoints.length).toBe(0);
+        expect(model.activeTool).toBe("select");
+    });
+
+    it("supports spot dragging with grid snapping", () => {
+        const model = new PlannerModel(SHATTERED_ISLES_PRESET);
+        model.setGridSnap(100); // 100m = 0.1km snap
+
+        const targetSpot = model.world.spots[0];
+        const originalX = targetSpot.x;
+        const originalY = targetSpot.y;
+
+        const res = model.moveSpot(targetSpot.id, 5.1234, 8.7891);
+        expect(res).toBe(true);
+
+        const updated = model.world.spots.find((s) => s.id === targetSpot.id)!;
+        expect(updated.x).toBe(5.1);
+        expect(updated.y).toBe(8.8);
+
+        // Can undo the move
+        expect(model.undo()).toBe(true);
+        const reverted = model.world.spots.find((s) => s.id === targetSpot.id)!;
+        expect(reverted.x).toBe(originalX);
+        expect(reverted.y).toBe(originalY);
+    });
+
+    it("supports duplicating entities (spots, paths, regions, codex, missions)", () => {
+        const model = new PlannerModel(SHATTERED_ISLES_PRESET);
+
+        // Spot duplicate
+        const dupSpot = model.duplicateSpot(model.world.spots[0].id);
+        expect(dupSpot).toBeDefined();
+        expect(dupSpot!.name).toContain("(Copy)");
+        expect(dupSpot!.id).not.toBe(model.world.spots[0].id);
+
+        // Path duplicate
+        const dupPath = model.duplicatePath(model.world.paths[0].id);
+        expect(dupPath).toBeDefined();
+        expect(dupPath!.name).toContain("(Copy)");
+
+        // Region duplicate
+        const dupRegion = model.duplicateRegion(model.world.regions[0].id);
+        expect(dupRegion).toBeDefined();
+        expect(dupRegion!.name).toContain("(Copy)");
+
+        // Codex duplicate
+        const dupCodex = model.duplicateCodexEntry(model.world.codex[0].id);
+        expect(dupCodex).toBeDefined();
+        expect(dupCodex!.name).toContain("(Copy)");
+
+        // Mission duplicate
+        const dupMission = model.duplicateMission(model.world.missions[0].id);
+        expect(dupMission).toBeDefined();
+        expect(dupMission!.title).toContain("(Copy)");
     });
 });

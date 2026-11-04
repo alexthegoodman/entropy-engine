@@ -3346,6 +3346,9 @@ export interface GameMapConfig {
   regions?: MapRegionConfig[];
   elevationBands?: MapElevationBandConfig[];
   measure?: MapMeasureConfig;
+  pendingPoints?: [number, number][];
+  pendingMode?: string;
+  showMinimap?: boolean;
   onSpotSelect?: (id: string) => void;
   onSpotMove?: (id: string, x: number, y: number) => void;
   onPathSelect?: (id: string) => void;
