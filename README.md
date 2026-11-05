@@ -6,71 +6,6 @@
 
 **Entropy Suite is the deep creation powerhouse.** Entropy Suite enables artists, writers, coders, and more to create using innovative, powerful, open source tooling. Built with Entropy Engine. See [Gallery](#gallery)
 
-**Entropy Agent is the (upcoming) agentic marketing harness.** Entropy Agent logs and captures your creative sessions (creating games, music, writing, and more) and drafts content for you to share to drive your marketing outputs as you create. The key is to work on something original, novel, or new so that your content is equally as unique and helpful in the sea of content that exists today. TBD: connect webcam to capture physical creation sessions.
-
-**Entropy is experimental and in beta, and some things may not work as expected**
-
-|                          | React Native | Flutter | **Entropy** |
-| ------------------------ | ------------ | ------- | ----------- |
-| TypeScript               | **✓**        | —       | **✓**       |
-| Native                   | **✓**        | **✓**   | **✓**       |
-| Cross-platform UI        | **✓✓✓**      | **✓✓✓** | ✓           |
-| GPU / rendering          | ✓            | ✓✓      | **✓✓✓**     |
-| 3D                       | —            | △       | **✓✓✓**     |
-| Physics                  | —            | △       | **✓✓✓**     |
-| Audio                    | △            | △       | **✓✓✓**      |
-| Game systems             | —            | △       | **✓✓✓**     |
-| Creative-tool primitives | △            | ✓       | **✓✓✓**     |
-| Low-level extensibility  | ✓            | ✓       | **✓✓✓**     |
-| TypeScript productivity  | **✓✓✓**      | —       | **✓✓✓**     |
-| Ecosystem                | **✓✓✓**      | **✓✓✓** | —           |
-
----
-
-## Building Entropy and all example addons
-
-From this directory, run `node scripts/build-all.mjs`. It builds the default Studio bundle first
-(which Cargo embeds), then runs `cargo build` alongside all 23 standalone example addon bundles.
-Extra arguments go to Cargo, for example `node scripts/build-all.mjs --release --locked`.
-Set `ENTROPY_BUNDLE_JOBS` to change the number of simultaneous Deno bundle processes (default 3).
-You can also run `npm run build:all -- --release` from `examples/studio-bundle`.
-
-The command needs Node, Deno, Cargo, and the Studio bundle's installed npm dependencies.
-
-## Embedding Quickstart
-
-**Have production needs to extend the TypeScript API itself? Fork Entropy Engine and build new Rust components as needed.**
-
-Building just a simple app or prototype? Need to use the existing API to build an app? Follow below:
-
-1. `cargo new my_app` and add `entropy-engine` as a dependency.
-2. Write your app's logic as one or more addons (see [Writing Addons](#writing-addons)), and bundle it with Deno:
-   ```bash
-   mkdir -p dist
-   deno bundle src/index.ts > dist/bundle.js
-   ```
-3. Point your Rust `main.rs` at the bundle:
-   ```rust
-   fn main() {
-       entropy_engine::EntropyApp::new()
-           .with_bundle("dist/bundle.js")
-           .run()
-           .expect("Couldn't run app");
-   }
-   ```
-
-No project picker, no forced data model. Your addons persist their own data under a directory you control with `.with_data_dir(...)` (defaults to `./data`) — see [Persisting your own data](#persisting-your-own-data).
-
-Entropy is developed on Windows and now also builds and runs on Linux (tested on Ubuntu 24.04, X11) - see [Linux](#linux) for setup and for which features are still Windows-only. Mac support coming soon.
-
-The [ML Graph demo](docs/ML_GRAPH_ARCHITECTURES.md) edits and trains Burn models through a node graph. Its architecture view includes executable LSTM, sparse MoE, and conditioned U-Net nodes, with small deterministic CPU training tasks for the Yumon NPC, Yumon Pet, and Mini-Pic presets. Run it with `cargo run --bin example -- ml-graph-demo`; use **Tiny Config** before training a reference preset.
-
-The [Game World Planner](docs/GAME_WORLD_PLANNER.md) is where you plan a game world visually and agents build it. Sketch intents on a topographic map - outline an area to settle, pin a landmark, draw a route and say how long the journey should take - and every intent becomes a live check the world passes or fails. The built-in Planner Agent drafts proposals from the terrain, external agents answer the same queue over MCP, and every change waits on the map as a preview until you accept it. Sculpt canyons, mountain ranges and road beds into the terrain, paint biome and population plans that regions and the Codex read back, and plan quests on the map with a planning check of travel time, danger and who is where. Run it with `cargo run --bin example -- game-planner`.
-
-[Guitar Tabs](docs/GUITAR_TABS.md) teaches a tab by playing it: paste an ASCII tab, check it in a spreadsheet, then play along while a neon fretboard shows where the fingers go and [Guitar-to-MIDI](docs/GUITAR_TO_MIDI.md) checks every note, at your own pace or in real time, switching between pick and chord detection as the song goes. Run it with `cargo run --bin example -- guitar-tabs`; no guitar needed to try it (click the neck).
-
-Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://indie-machine.com), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://indie-machine.com/posts/fft-ocean-water), [replacing egui with an in-house immediate-mode GUI kit](https://indie-machine.com/posts/replacing-egui-with-entropy-gui), and [building a Media Foundation-backed media player addon](https://indie-machine.com/posts/entropy-media-player).
-
 ---
 
 ## Writing Addons
@@ -123,25 +58,6 @@ Pick whatever filenames make sense for your app — `projects.json`, `save1.json
 ### The API surface
 
 Everything below lives on the global `Entropy` object, and most of it is also available pre-scoped to your addon on the object `Addon.register()` returns (so you can write `addon.Model.load(...)` instead of `Entropy.Model.load(...)`). Full typed signatures live in [`addon.d.ts`](./examples/studio-bundle/src/addon.d.ts). Paste it into an LLM for reliable addon code generation, or reference it directly in an editor with TypeScript support.
-
-This section describes every namespace in plain language. Click a heading to expand it.
-
-#### Table of contents
-
-- [Addons, lifecycle & behaviors](#addons-lifecycle--behaviors)
-- [Models, meshes & visuals](#models-meshes--visuals)
-- [Terrain & procedural world](#terrain--procedural-world)
-- [Custom rendering & GPU compute](#custom-rendering--gpu-compute)
-- [UI windows & widgets](#ui-windows--widgets)
-- [Input, camera & controls](#input-camera--controls)
-- [Audio](#audio)
-- [VST3 instruments](#vst3-instruments)
-- [Particles & lighting](#particles--lighting)
-- [Persistence & files](#persistence--files)
-- [Video](#video)
-- [Networking](#networking)
-- [Composer (cross-addon registry)](#composer-cross-addon-registry)
-- [Utilities & misc](#utilities--misc)
 
 <a id="addons-lifecycle--behaviors"></a>
 <details>
@@ -570,103 +486,6 @@ Run `cargo run --bin example` with no name for the full list (also: `game2d`,
 `level-editor-2d`, `light-hive`, `mcp-tools-demo`, `media-player`, `node-graph`,
 `theme-gallery`).
 
-The Media Player example (Windows and Linux) loads the MP4s in `public/` into a playlist. Build it with
-`npm run build-media-player` from `examples/studio-bundle`, then run
-`cargo run --release --bin example -- media-player` from this directory. Enter another MP4 path
-to add it. It loads a matching `.srt` or `.vtt` next to a clip when present, or you can enter a
-subtitle path. The controls cover seek, volume, speed, repeat, captions and fullscreen.
-`cargo test --release --test media_player_live -- --nocapture` runs the real window BDD suite, and
-`cargo test --release --test video_export_live -- --nocapture` exports the `video-export-demo` clip
-and checks the MP4 it writes. On Linux, `cargo test --test openh264_codec` covers the codec layer
-by itself. On a headless Linux box, run the live suites under `xvfb-run -a`.
-
-<a id="quadplanet"></a>
-**QuadPlanet** ([how it works](docs/QUADPLANET.md)) wraps the QuadScape quadtree terrain around
-whole planets. Three of them (green Verdant with oceans, red desert Ember, frozen Glacia) are each
-six cube-face quadtrees streamed around the camera, from a few coarse chunks seen across space
-down to meter-sized cells under your boots. You start on Verdant next to your ship: walk over
-(W/S, A/D to turn, Shift to run, Space to jump), press **E** to board, lift off with Space or W, and
-fly (W thrust, Shift boost, A/D yaw, arrow keys pitch, Space/C climb and sink) or press **T** (or a
-**Fly to ...** button) for the autopilot, which arcs across to a sunlit landing site on the next
-planet. **E** steps out once landed. Drag to orbit the camera, scroll to zoom, and **L** tints every
-chunk by its quadtree level. The fourth planet is **Earth** at its real size, with real terrain:
-elevation streamed from the open SRTM-derived Terrain Tiles (cached on disk, with a built-in world
-tile for offline use). Type a place into the HUD's **Earth** box (or use the `quadplanet_goto`
-tool) to go there: "Matterhorn", "Grand Canyon", "46.0, 7.6", or any name OpenStreetMap knows.
-The terrain streaming is Rust-side and exposed to TypeScript as `Entropy.QuadPlanet`.
-`npm run test:quadplanet` runs the TypeScript tier, `cargo test --release --lib QuadPlanet` the
-terrain tier, and `cargo test --release --test quadplanet_live -- --nocapture` walks, boards,
-flies to Ember and on to Glacia, then goes to Earth and the Matterhorn in the real window and
-checks the captures (under `xvfb-run -a` on a headless box).
-
-<a id="allegiance"></a>
-**Allegiance** ([how to play and how it works](docs/ALLEGIANCE.md)) is a political conquest game on
-QuadPlanet's full-scale Earth in the year 2100. Found a party (name, ideology, color), search for your real hometown to start in, and wait on a propaganda-poster loading screen while the real terrain,
-OpenStreetMap streets and Mesha houses stream in and cache. Streamed cities, towns and villages
-are independent political targets inside future-country territories. Xbox/DualShock controls and
-sparse housing-based hover-car traffic are supported. You arrive beside a parked personal flying
-car: press E (X/Square) to board, Space (A/Cross) to rise, WASD (left stick) to fly and L
-(D-pad down) to land; hold Shift to build boost up to 120 m/s for long trips, and fit garage upgrades. Position, altitude and occupancy are saved with the campaign.
-You play in first person with five armed comrades, starting with a guided mission to storm a regime outpost near your hometown and make it your party headquarters. Sky markers and a mini map show nearby towns, cities, military compounds and your HQ. Every town and city has a walled military compound sized to its population: clear its garrison and raise your flag to take the place (civilians are never harmed). Walk into houses to search them for supplies, buy from street shops, use your inventory, and come back at your last checkpoint if you fall (the game autosaves). Mesha trees, shrubs and grass and low-poly street props are drawn instanced and culled, and bend in the wind. The street has cascaded sun shadows (an engine feature for addon pipelines with their own shaders: `sunShadows`), drifting clouds with moving cloud shadows, a sun that warms as it sinks, and procedurally textured brick, render, stone, concrete, tile and timber with weathering. People use Mesha's full human model
-nearby, with distance LODs prepared on the loading screen and cached to disk. On the street, pedestrians walk between
-real building doors on A* paths. Give speeches as a five-beat mini-game (pick a line for the crowd,
-hit the timing, rebut hecklers, out-argue rival orators), hand out pamphlets, and recruit passers-by.
-Then build a chain of command (inner circle, bloc commissioners, region chiefs, cell leaders),
-manage dues and taxes, scheme, arm your members and take regions by election, coup or war. Wars are
-fought in alternating offensives and counterattacks, and you can join them in person. Liberator or
-tyrant, govern three quarters of humanity to win. Every screen is drawn with `drawRect`/`drawText`
-only. `npm run test:allegiance` runs the TypeScript tier, and
-`cargo test --release --test allegiance_live -- --nocapture --test-threads=1` plays it in the real
-window and checks the captures (under `xvfb-run -a` on a headless box).
-
-See the [performance investigation and proposed instancing API](docs/ALLEGIANCE_PERFORMANCE.md)
-for live profiling observations and optimization priorities.
-The [material acquisition checklist](docs/ALLEGIANCE_MATERIALS.md) lists surface sets to obtain and the integration needed beyond the existing fieldstone material.
-Clouds use a shared GPU noise cache; see [cloud rendering and its measured budget](docs/ALLEGIANCE_CLOUDS.md)
-for the procedural/cached comparison and the live 5% budget check.
-
-**Mesha** ([overview](docs/MESHA_APP.md), [catalog and authoring guide](docs/MESHA_CATALOG.md),
-[future model roadmap](docs/MESHA_FUTURE_MODELS.md)) is a
-library of procedural objects: an office chair, table, cabinets and chests of drawers, dining chairs, stools and benches, sofas, beds, bookshelves filled with books, crates and cartons, plates, bowls and trays, fences and gates, stairs and ramps, street lights, bollards and signs, pipework with valves, table lamp, coffee maker, bottle, mug, window, door, facade, hollow dome building, a walkable two-to-three-storey house (rooms, stairs, porch, dormers), a street car with a fitted
-interior behind see-through glazing, gear, bolt and rocks, and a post-apocalyptic kit (a five-storey Rust Dome, wrecked cars, shipping containers, utility poles, barrels, ruined walls and wasteland ground), each a JSON program over a geometry-nodes-style component catalog. Pick one, shape it with
-meaningful controls, press **Variation** for another sensible design (lock what you want kept),
-compose several into a scene and export ordinary GLB geometry. **Procedural scenes** are configurable too: *The Road to the Dome* builds a whole wasteland level of editable objects from a few controls (decay, size, mood, how tall the dome is). `npm run test:mesha` and
-`npm run mesha:verify` (the parameter fuzzer and contact sheets) run without a window;
-`cargo test --release --test mesha_live -- --nocapture` drives the real one.
-
-Mesha viewport: drag the gizmo arrows to move or its rings to rotate (no scale handles).
-Right-drag orbits, middle-drag pans, and the wheel zooms. The toolbar's **Zoom** knob
-sets a saved 0.1x-3x sensitivity multiplier; scrolling over GUI panels does not zoom the scene.
-Transform drags keep object meshes
-resident on the GPU; contact shadows refresh when the drag ends.
-
-The DAW is one window with no page to scroll. A header holds the song (with Songs, History and Save
-version), the transport (Play, Song or Pattern loop, the position, BPM) and the window toggles and
-Export. Under it, **Arrange**, **Piano Roll** and **Mixer** are tabs (keys 1, 2 and 3), so each view
-gets the full height: the arrangement's empty channels shrink to slim lanes, and the piano roll's
-rows stretch to fill the view (or pick S, M or L), with root notes tinted, a velocity lane, and a
-strip showing where the pattern plays in the song. The right-hand **inspector** (key I) holds the
-active track's **Sound** (instrument, voice, preview), **Character**, **FX** and **Moves**. A status
-bar at the bottom shows hints, the selected clip and export messages.
-
-The DAW's **Music Video** button (the film-strip icon in the header) turns the open song into an MP4 you can post where
-a WAV won't go. Pick one of six visualizer styles, a size (HD, Full HD, square, vertical for
-Shorts/Reels), a frame rate, a colour theme or your own colours, how hard it reacts, and a
-title/artist overlay or background picture. The preview moves with the song while it plays.
-**Export MP4...** bounces the song and renders the video in the background, with progress in a
-toast. The look is saved with the song. The chart icon in the header puts the Analyzer window away
-and brings it back. `cargo test --release --test daw_visualizer_live -- --nocapture`
-drives both in the real window and checks the exported file. `cargo test --lib music_video` covers
-the renderer and the encoder by themselves.
-
-The DAW's **Reverb & EQ** button (the cube icon in the header) shows the active track's reverb as a 3D room, its tail as a
-waterfall, and a six-band EQ (after the reverb on the track's bus, so it shapes the tail too) with
-draggable nodes over what the track is playing. Both are saved with the song and apply in the WAV
-export. The instrument windows (Drum Rack, Wavetable, Bowed String, Brass, Kit, Water, Guitar Input)
-share one **Instruments** menu so the header keeps its room.
-`cargo test --test reverb_eq_view_bdd` covers the widget headlessly, and
-`cargo test --test daw_space_live -- --nocapture` drives the window in the real DAW.
-
 ---
 
 ## Linux
@@ -745,41 +564,6 @@ The Rust P2P layer provides member-signed publications with maintainer moderatio
 rarest-first/sequential-ahead scheduling. Sessions require an index-derived `Allowlist` and filter
 both message planes through `CatalogTransport`. `Session::download_swarm` learns peer availability
 and accepts live playback-window updates. See [the protocol design](docs/P2P_PROTOCOL_DESIGN.md).
-
-```bash
-cargo test --jobs 1 --lib p2p -- --test-threads=1
-cargo test --jobs 1 --test p2p_tracker_bdd --test p2p_room_bdd --test p2p_scheduler_bdd
-cargo test --jobs 1 --test p2p_swarm --test p2p_session -- --test-threads=1
-```
-
-The `p2p_peer` test binary requires `--room-index <file> --room-id <64 hex digits>` and
-`--curator-key <64 hex digits>` in addition to its transport/content arguments. Members receive
-the pinned room id and maintainer public key through trusted configuration. Each author uses a local
-`SigningKey` (Ed25519, no account); only the pinned maintainer can moderate. Schema-2 indexes retain
-author conflicts, withdrawals, publication removals, content blocks, bans and publishing policy.
-Reliable `RoomRecords` messages validate and merge metadata before allowing payload transfers.
-Schema-1 room snapshots and wire protocol 1 are rejected; content metadata stays schema 1.
-The current snapshot limit remains 4,096 records / 4 MiB. Phase 9 adds the queue-only
-`Entropy.P2P.start/command/poll/stop` API and the native forum; see [forum setup and API](docs/P2P_FORUM.md).
-
-Phase 7 adds `tracker`, a standalone public metadata server for one configured room, and
-`p2p::rendezvous::RendezvousClient`, an async Rust client. Start a local tracker with public pins:
-
-```bash
-cargo run --jobs 1 --bin tracker -- --room-id <64 hex digits> --maintainer-key <64 hex digits> --index ./tracker/room.msgpack --bind 127.0.0.1:47110
-```
-
-The client exposes `get_index`, `put_records`, `put_announce`, and `get_peers`; it verifies
-snapshots against caller-configured room/maintainer pins and bounds responses. See
-[tracker operation and HTTP API](docs/P2P_TRACKER.md) for signed announcements, limits and a
-Rust client example. `p2p_session` includes a three-process tracker/discovery/KCP file-transfer
-check. Payloads travel between peers; the tracker stores only public signed room metadata.
-Announcements expire after 90 seconds and disappear on restart; durable publications survive.
-Phase 9 adds `P2pService`, persistent local identities/sequences, room synchronization, bounded
-task ownership and the forum addon. Create local member/reader/maintainer profiles with
-the prebuilt `p2p_room_setup` executable, then run the prebuilt `example p2p-forum`
-with a separate `ENTROPY_P2P_DATA` directory per window. DigitalOcean deployment and physical
-NAT/no-relay checks remain later work. Large files/media are still future product surfaces.
 
 ## MCP
 
