@@ -3,6 +3,7 @@ import type {
     RevisionChange,
     RevisionProposal,
 } from "./planner_types";
+import { extractTerrainContours } from "./terrain";
 
 /**
  * Serializes the complete game world into a structured JSON string (World Bible).
@@ -286,7 +287,9 @@ export function diffWorldWithProposal(
  * Exports a standalone, beautiful Vector SVG map of the game world.
  */
 export function exportMapToSvg(world: GameWorld, width = 1200, height = 1200): string {
-    const { meta, spots, paths, regions, contours } = world;
+    const { meta, spots, paths, regions } = world;
+    // Contours traced from the heightfield when the world has one (hand-drawn lines otherwise).
+    const contours = world.terrain ? extractTerrainContours(world.terrain, meta) : world.contours;
     const halfW = meta.worldWidthKm * 0.5;
     const halfH = meta.worldHeightKm * 0.5;
 

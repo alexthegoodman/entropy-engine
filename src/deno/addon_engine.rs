@@ -7090,7 +7090,19 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         height: config.height,
                         initial_center: config.initial_center,
                         initial_zoom: config.initial_zoom,
+                        show_labels: config.show_labels.unwrap_or(true),
+                        terrain_style: config.terrain_style.clone().unwrap_or_else(|| "relief".into()),
+                        terrain_palette: config.terrain_palette.clone().unwrap_or_else(|| "temperate".into()),
+                        contour_interval_m: config.contour_interval_m.unwrap_or(0.0),
+                        measure_anchor: config.measure_anchor,
+                        fit_request: config.fit_request.unwrap_or(0),
                     };
+                    let terrain = config.terrain.as_ref().map(|t| crate::entropy_gui::MapTerrain {
+                        cols: t.cols,
+                        rows: t.rows,
+                        data: t.data.clone(),
+                        sea_level_m: t.sea_level_m,
+                    });
 
                     let spots: Vec<MapSpot> = config.spots.iter().map(|s| MapSpot {
                         id: s.id.clone(),
@@ -7146,6 +7158,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         .paths(paths)
                         .regions(regions)
                         .elevation_bands(elevation_bands)
+                        .terrain(terrain)
                         .measure(measure)
                         .show(ui);
 
@@ -7156,6 +7169,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             GameMapEvent::SpotMoved { id, x, y } => {
                                 events_to_push.push(format!("MAP_SPOT_MOVE|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
+                            }
+                            GameMapEvent::SpotDragEnded { id, x, y } => {
+                                events_to_push.push(format!("MAP_SPOT_DRAG_END|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
                             }
                             GameMapEvent::PathSelected { id } => {
                                 events_to_push.push(format!("MAP_PATH_SELECT|{}|{}", map_id, id));
@@ -7625,15 +7641,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 UiWidget::Hyperlink { id: _, text, url } => {
                     ui.hyperlink_to(text, url.as_str());
                 }
-                UiWidget::TextInput { id: input_id, label, value, width, height } => {
-                    if *height > 0.0 {
-                        if !label.is_empty() { ui.label(label); }
-                        let rect = ui.allocate_space(egui::vec2(ui.available_size().x, height.clamp(60.0, 600.0)));
-                        let mut child = ui.child_ui_at(rect, egui::Layout::top_down(egui::Align::Min), ("addon_textarea", input_id));
-                        let mut current_value = value.clone();
-                        if child.text_edit_multiline(&mut current_value).changed() { events_to_push.push(format!("{}|{}", input_id, current_value)); }
-                        continue;
-                    }
+                UiWidget::TextInput { id: input_id, label, value, width, height } if *height > 0.0 => {
+                    // A multiline text area. (This used to `continue` the widget loop, which skips
+                    // its `i += 1`: the same text area was laid out again and again forever, and
+                    // any addon showing one froze while its memory grew without bound.)
+                    if !label.is_empty() { ui.label(label); }
+                    let w = if *width > 0.0 { (*width).min(ui.available_size().x) } else { ui.available_size().x };
+                    let rect = ui.allocate_space(egui::vec2(w, height.clamp(60.0, 600.0)));
+                    let mut child = ui.child_ui_at(rect, egui::Layout::top_down(egui::Align::Min), ("addon_textarea", input_id));
+                    let mut current_value = value.clone();
+                    if child.text_edit_multiline(&mut current_value).changed() { events_to_push.push(format!("{}|{}", input_id, current_value)); }
+                }
+                UiWidget::TextInput { id: input_id, label, value, width, height: _ } => {
                     ui.horizontal(|ui| {
                         if !label.is_empty() {
                             ui.label(label);

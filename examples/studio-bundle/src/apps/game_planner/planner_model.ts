@@ -4,11 +4,27 @@ import type {
     GameWorld,
     Mission,
     PathType,
+    TerrainGrid,
+    TerrainStyle,
     WorldPath,
     WorldRegion,
     WorldSpot,
 } from "./planner_types";
 import { SHATTERED_ISLES_PRESET } from "./presets";
+import { sampleSlopeDeg, sampleTerrain, terrainForWorld } from "./terrain";
+
+/** The map's color theme for a genre: Mars-like worlds are arid, neon cities dark. */
+export function paletteForGenre(genre: GameWorld["meta"]["genre"]): "temperate" | "arid" | "frozen" | "neon" {
+    switch (genre) {
+        case "scifi":
+        case "postapoc":
+            return "arid";
+        case "cyberpunk":
+            return "neon";
+        default:
+            return "temperate";
+    }
+}
 
 export class PlannerModel {
     world: GameWorld;
@@ -19,12 +35,21 @@ export class PlannerModel {
     pendingRegionPoints: [number, number][] = [];
     measurePoints: { p1?: [number, number]; p2?: [number, number] } = {};
     measureWaypoints: [number, number][] = [];
+    /** What the draw tools make. */
+    pendingPathType: PathType = "road";
+    pendingRegionBiome: BiomeType = "plains";
+    /** Spot being dragged on the map (one undo step per drag). */
+    draggingSpotId: string | null = null;
 
     // Layer and HUD visibility
     showMinimap = true;
     showGrid = true;
     showContours = true;
     showBiomes = true;
+    showLabels = true;
+    terrainStyle: TerrainStyle = "relief";
+    /** Bumped to ask the map to fit the whole world. */
+    fitRequest = 0;
 
     // Viewport position memory
     viewportCenter: [number, number] = [0, 0];
@@ -33,10 +58,46 @@ export class PlannerModel {
     private undoStack: string[] = [];
     private redoStack: string[] = [];
     private maxHistory = 50;
+    private lastSnapshotKey: string | null = null;
+    private lastSnapshotAt = 0;
     isDirty = false;
 
     constructor(initialWorld?: GameWorld) {
         this.world = initialWorld ? JSON.parse(JSON.stringify(initialWorld)) : JSON.parse(JSON.stringify(SHATTERED_ISLES_PRESET));
+        this.ensureTerrain();
+    }
+
+    /**
+     * A world without a heightfield (a preset, an older save) gets one generated from its seed and
+     * fitted to its spots' elevations; its old hand-drawn contour sketches are dropped, since the
+     * map now traces real contours from the terrain.
+     */
+    ensureTerrain(): void {
+        const t = this.world.terrain;
+        if (t && t.cols >= 2 && t.rows >= 2 && t.data?.length === t.cols * t.rows) return;
+        this.world.terrain = terrainForWorld(this.world.meta, this.world.spots, {}, this.world.paths.filter((p) => p.pathType === "river"));
+        this.world.contours = [];
+    }
+
+    /** Replaces the heightfield (one undo step) and re-reads every spot's elevation from it. */
+    setTerrain(terrain: TerrainGrid, resampleSpots = true): void {
+        this.snapshot();
+        this.world.terrain = terrain;
+        this.world.contours = [];
+        if (resampleSpots) {
+            for (const s of this.world.spots) s.elevation = Math.round(sampleTerrain(terrain, this.world.meta, s.x, s.y));
+        }
+    }
+
+    /** Ground elevation (meters) at a world position, or `fallback` without terrain. */
+    elevationAt(x: number, y: number, fallback = 100): number {
+        const t = this.world.terrain;
+        return t ? Math.round(sampleTerrain(t, this.world.meta, x, y)) : fallback;
+    }
+
+    slopeAt(x: number, y: number): number {
+        const t = this.world.terrain;
+        return t ? sampleSlopeDeg(t, this.world.meta, x, y) : 0;
     }
 
     get canUndo(): boolean {
@@ -47,7 +108,19 @@ export class PlannerModel {
         return this.redoStack.length > 0;
     }
 
-    snapshot(): void {
+    /**
+     * Pushes an undo step. With a `coalesceKey`, repeated calls with the same key within 1.5 s
+     * (typing into one field, dragging one slider) share a single step.
+     */
+    snapshot(coalesceKey?: string): void {
+        const now = Date.now();
+        if (coalesceKey && coalesceKey === this.lastSnapshotKey && now - this.lastSnapshotAt < 1500) {
+            this.lastSnapshotAt = now;
+            this.isDirty = true;
+            return;
+        }
+        this.lastSnapshotKey = coalesceKey ?? null;
+        this.lastSnapshotAt = now;
         const stateStr = JSON.stringify(this.world);
         this.undoStack.push(stateStr);
         if (this.undoStack.length > this.maxHistory) {
@@ -63,6 +136,7 @@ export class PlannerModel {
         this.redoStack.push(currentState);
         const prev = this.undoStack.pop()!;
         this.world = JSON.parse(prev);
+        this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
     }
@@ -73,6 +147,7 @@ export class PlannerModel {
         this.undoStack.push(currentState);
         const next = this.redoStack.pop()!;
         this.world = JSON.parse(next);
+        this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
     }
@@ -91,18 +166,35 @@ export class PlannerModel {
     updateSpot(id: string, updates: Partial<WorldSpot>): boolean {
         const idx = this.world.spots.findIndex((s) => s.id === id);
         if (idx === -1) return false;
-        this.snapshot();
+        this.snapshot(`spot:${id}:${Object.keys(updates).sort().join(",")}`);
+        const moved = updates.x !== undefined || updates.y !== undefined;
         this.world.spots[idx] = { ...this.world.spots[idx], ...updates };
+        // Moving a spot puts it on the ground at its new place (unless an elevation was given too).
+        if (moved && updates.elevation === undefined && this.world.terrain) {
+            const s = this.world.spots[idx];
+            s.elevation = this.elevationAt(s.x, s.y, s.elevation);
+        }
         return true;
     }
 
+    /**
+     * Moves a spot (snapped) and sets its elevation from the terrain. During a map drag
+     * (`draggingSpotId` set to this spot) the whole drag is one undo step.
+     */
     moveSpot(id: string, xKm: number, yKm: number): boolean {
         const spot = this.world.spots.find((s) => s.id === id);
         if (!spot) return false;
-        this.snapshot();
+        this.snapshot(this.draggingSpotId === id ? `drag:${id}` : undefined);
         spot.x = this.snapCoordinate(xKm);
         spot.y = this.snapCoordinate(yKm);
+        spot.elevation = this.elevationAt(spot.x, spot.y, spot.elevation);
         return true;
+    }
+
+    /** Ends a spot drag: the next move starts a new undo step. */
+    endSpotDrag(): void {
+        this.draggingSpotId = null;
+        this.lastSnapshotKey = null;
     }
 
     duplicateSpot(id: string): WorldSpot | null {
@@ -155,7 +247,7 @@ export class PlannerModel {
     updatePath(id: string, updates: Partial<WorldPath>): boolean {
         const idx = this.world.paths.findIndex((p) => p.id === id);
         if (idx === -1) return false;
-        this.snapshot();
+        this.snapshot(`path:${id}:${Object.keys(updates).sort().join(",")}`);
         this.world.paths[idx] = { ...this.world.paths[idx], ...updates };
         return true;
     }
@@ -202,7 +294,7 @@ export class PlannerModel {
         this.pendingPathPoints.pop();
     }
 
-    finishPendingPath(pathType: PathType = "road", name?: string): WorldPath | null {
+    finishPendingPath(pathType: PathType = this.pendingPathType, name?: string): WorldPath | null {
         if (this.pendingPathPoints.length < 2) return null;
         const colors: Record<PathType, [number, number, number, number]> = {
             highway: [0.98, 0.75, 0.14, 1.0],
@@ -212,10 +304,10 @@ export class PlannerModel {
             bridge: [0.8, 0.85, 0.9, 1.0],
         };
         const newPath = this.addPath({
-            name: name || `Path ${this.world.paths.length + 1}`,
+            name: name || `${pathType[0].toUpperCase()}${pathType.slice(1)} ${this.world.paths.filter((p) => p.pathType === pathType).length + 1}`,
             pathType,
             points: [...this.pendingPathPoints],
-            width: pathType === "highway" ? 5.0 : pathType === "river" ? 4.5 : 3.5,
+            width: pathType === "highway" ? 5.0 : pathType === "river" ? 4.5 : pathType === "trail" ? 2.0 : 3.5,
             color: colors[pathType] || [0.8, 0.7, 0.5, 1.0],
             isMajor: pathType === "highway" || pathType === "river",
             flowSpeed: pathType === "river" ? 1.5 : 0,
@@ -245,7 +337,7 @@ export class PlannerModel {
     updateRegion(id: string, updates: Partial<WorldRegion>): boolean {
         const idx = this.world.regions.findIndex((r) => r.id === id);
         if (idx === -1) return false;
-        this.snapshot();
+        this.snapshot(`region:${id}:${Object.keys(updates).sort().join(",")}`);
         this.world.regions[idx] = { ...this.world.regions[idx], ...updates };
         return true;
     }
@@ -284,7 +376,7 @@ export class PlannerModel {
         this.pendingRegionPoints.pop();
     }
 
-    finishPendingRegion(biomeType: BiomeType = "plains", name?: string): WorldRegion | null {
+    finishPendingRegion(biomeType: BiomeType = this.pendingRegionBiome, name?: string): WorldRegion | null {
         if (this.pendingRegionPoints.length < 3) return null;
         const biomeColors: Record<BiomeType, { fill: [number, number, number, number]; border: [number, number, number, number] }> = {
             plains: { fill: [0.2, 0.7, 0.35, 0.22], border: [0.3, 0.85, 0.45, 0.85] },
@@ -303,7 +395,7 @@ export class PlannerModel {
         const colors = biomeColors[biomeType] || biomeColors.plains;
 
         const newRegion = this.addRegion({
-            name: name || `Region ${this.world.regions.length + 1}`,
+            name: name || `${biomeType[0].toUpperCase()}${biomeType.slice(1)} Region ${this.world.regions.length + 1}`,
             regionType: "biome",
             points: [...this.pendingRegionPoints],
             fillColor: colors.fill,
@@ -336,7 +428,7 @@ export class PlannerModel {
     updateCodexEntry(id: string, updates: Partial<CodexEntry>): boolean {
         const idx = this.world.codex.findIndex((c) => c.id === id);
         if (idx === -1) return false;
-        this.snapshot();
+        this.snapshot(`codex:${id}:${Object.keys(updates).sort().join(",")}`);
         this.world.codex[idx] = { ...this.world.codex[idx], ...updates };
         return true;
     }
@@ -378,7 +470,7 @@ export class PlannerModel {
     updateMission(id: string, updates: Partial<Mission>): boolean {
         const idx = this.world.missions.findIndex((m) => m.id === id);
         if (idx === -1) return false;
-        this.snapshot();
+        this.snapshot(`mission:${id}:${Object.keys(updates).sort().join(",")}`);
         this.world.missions[idx] = { ...this.world.missions[idx], ...updates };
         return true;
     }

@@ -2262,7 +2262,7 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "game_map", config?.id);
                 ops.op_ui_widget_game_map(windowId, { ...(config || {}) }, id);
 
-                if (config?.onSpotSelect || config?.onSpotMove || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode) {
+                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -2270,6 +2270,8 @@ globalThis.Entropy = {
                             config.onSpotSelect(parts[2]);
                         } else if (type === "MAP_SPOT_MOVE" && config.onSpotMove) {
                             config.onSpotMove(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
+                        } else if (type === "MAP_SPOT_DRAG_END" && config.onSpotDragEnd) {
+                            config.onSpotDragEnd(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
                         } else if (type === "MAP_PATH_SELECT" && config.onPathSelect) {
                             config.onPathSelect(parts[2]);
                         } else if (type === "MAP_REGION_SELECT" && config.onRegionSelect) {
@@ -2603,7 +2605,11 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PIANO_") || event.startsWith("PHYSMOD_") || event.startsWith("FRETBOARD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("REVERB_EQ_") || event.startsWith("PIANO_") || event.startsWith("PHYSMOD_") || event.startsWith("FRETBOARD_") || event.startsWith("BRASS_") || event.startsWith("MATTER_") || event.startsWith("WATER_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|") || event.startsWith("MAP_") || event.startsWith("HEATMAP_") || event.startsWith("CHART3D_")) {
+                // MAP_/HEATMAP_/CHART3D_ (gameMap, heatmap, chart3d) were missing here, so their
+                // events fell through to the generic `id|payload` branch, which reads the event
+                // type ("MAP_CLICK") as the widget id: no map click, selection or drag ever
+                // reached the addon.
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
