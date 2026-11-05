@@ -451,6 +451,10 @@ export interface SculptSettings {
     gradeWidthKm: number;
     gradeMaxPercent: number;
     featherKm: number;
+    /** Road bed: also lay a road of this kind along it ("none" grades the ground only). */
+    layRoad: "none" | "trail" | "road" | "highway";
+    /** Canyon: also run a river along its floor. */
+    layRiver: boolean;
 }
 
 export function defaultSculptSettings(): SculptSettings {
@@ -469,6 +473,8 @@ export function defaultSculptSettings(): SculptSettings {
         gradeWidthKm: 0.12,
         gradeMaxPercent: 8,
         featherKm: 0.4,
+        layRoad: "road",
+        layRiver: false,
     };
 }
 

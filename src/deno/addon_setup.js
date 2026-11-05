@@ -2262,7 +2262,7 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "game_map", config?.id);
                 ops.op_ui_widget_game_map(windowId, { ...(config || {}) }, id);
 
-                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode || config?.onIntentSelect || config?.onGhostSelect || config?.onBrushStroke || config?.onMarkerSelect || config?.onMarkerMove) {
+                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode || config?.onIntentSelect || config?.onGhostSelect || config?.onBrushStroke || config?.onMarkerSelect || config?.onMarkerMove || config?.onStructureSelect || config?.onStructureMove || config?.onStructureRotate) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -2301,6 +2301,12 @@ globalThis.Entropy = {
                             config.onMarkerSelect(parts[2]);
                         } else if (type === "MAP_MARKER_MOVE" && config.onMarkerMove) {
                             config.onMarkerMove(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
+                        } else if (type === "MAP_STRUCTURE_SELECT" && config.onStructureSelect) {
+                            config.onStructureSelect(parts[2]);
+                        } else if (type === "MAP_STRUCTURE_MOVE" && config.onStructureMove) {
+                            config.onStructureMove(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
+                        } else if (type === "MAP_STRUCTURE_ROTATE" && config.onStructureRotate) {
+                            config.onStructureRotate(parts[2], parseFloat(parts[3]), parts[4] === "1");
                         }
                     });
                 }

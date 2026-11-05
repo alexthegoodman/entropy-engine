@@ -109,7 +109,7 @@ pub use widgets_heatmap::{
     HeatmapResponse, HeatmapView,
 };
 pub use widgets_terminal::{TerminalRun, TerminalScreen, TerminalTheme, TerminalView};
-pub use widgets_game_map::{GameMap, GameMapEvent, GameMapOptions, GameMapResponse, GameMapState, MapBrush, MapElevationBand, MapGhost, MapIntent, MapMarker, MapMeasure, MapOverlay, MapOverlayLayer, MapPath, MapQuestRoute, MapRegion, MapSpot, MapTerrain};
+pub use widgets_game_map::{GameMap, GameMapEvent, GameMapOptions, GameMapResponse, GameMapState, MapBrush, MapBuildCursor, MapElevationBand, MapGhost, MapIntent, MapMarker, MapMeasure, MapOverlay, MapOverlayLayer, MapPath, MapQuestRoute, MapRegion, MapSpot, MapStructure, MapTerrain};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

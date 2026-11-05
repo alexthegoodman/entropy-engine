@@ -64,6 +64,11 @@ fn lighten(c: Color32, f: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(l(c.r()), l(c.g()), l(c.b()), c.a())
 }
 
+fn darken(c: Color32, f: f32) -> Color32 {
+    let d = |v: u8| (v as f32 * (1.0 - f)) as u8;
+    Color32::from_rgba_unmultiplied(d(c.r()), d(c.g()), d(c.b()), c.a())
+}
+
 fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
@@ -553,6 +558,40 @@ pub struct MapQuestRoute {
     pub points: Vec<[f32; 2]>,
     pub color: [f32; 4],
     pub highlighted: bool,
+    /// Only the numbered stops, no connecting line: the quest has drawn quest paths of its own.
+    pub markers_only: bool,
+}
+
+/// A planned building, wall, street or area (town planning), in world km. Footprints arrive as
+/// convex `parts` to fill plus their `outline`; walls and streets as an open `outline` with a width
+/// in meters; areas as a closed outline with triangle `parts`.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapStructure {
+    pub id: String,
+    pub kind: String,
+    /// Drawn on the map once there is room (named structures); always in the tooltip.
+    pub label: String,
+    /// A second tooltip line ("House · 10 x 8 m · 2 floors").
+    pub detail: String,
+    pub parts: Vec<Vec<[f32; 2]>>,
+    pub outline: Vec<[f32; 2]>,
+    pub closed: bool,
+    /// Walls and streets: width in meters; 0 for footprints and areas.
+    pub line_width_m: f32,
+    pub color: [f32; 4],
+    /// The point a drag moves and a rotation turns about.
+    pub anchor: [f32; 2],
+    pub rotation_deg: f32,
+    /// Footprints can be turned with a handle when selected.
+    pub rotatable: bool,
+}
+
+/// What the Build tool will place, drawn under the cursor: shapes as km offsets from the cursor.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapBuildCursor {
+    pub parts: Vec<Vec<[f32; 2]>>,
+    pub outline: Vec<[f32; 2]>,
+    pub color: [f32; 4],
 }
 
 /// The paint / sculpt brush under the cursor. With `paint`, a primary drag is reported as brush
@@ -612,6 +651,12 @@ pub struct GameMapOptions {
     pub focus_request: u32,
     pub focus_center: Option<[f32; 2]>,
     pub focus_zoom: Option<f32>,
+    /// Surface detail when zoomed in past the heightfield's own resolution: 0 draws the grid as is
+    /// (smooth, blurry up close); 1 (default) re-samples it bicubically on a fine screen-space mesh
+    /// with per-vertex shading and subtle procedural micro-relief; up to 2 for stronger relief.
+    pub terrain_detail: f32,
+    pub show_structures: bool,
+    pub build_cursor: Option<MapBuildCursor>,
 }
 
 impl Default for GameMapOptions {
@@ -650,6 +695,9 @@ impl Default for GameMapOptions {
             focus_request: 0,
             focus_center: None,
             focus_zoom: None,
+            terrain_detail: 1.0,
+            show_structures: true,
+            build_cursor: None,
         }
     }
 }
@@ -679,6 +727,11 @@ pub enum GameMapEvent {
     MarkerSelected { id: String },
     /// A marker was dragged to a new place.
     MarkerMoved { id: String, x: f32, y: f32 },
+    StructureSelected { id: String },
+    /// A structure was dragged: its anchor's new place.
+    StructureMoved { id: String, x: f32, y: f32 },
+    /// A structure's rotation handle is being dragged (`done` on release).
+    StructureRotated { id: String, deg: f32, done: bool },
 }
 
 pub struct GameMapResponse {
@@ -714,6 +767,8 @@ pub struct GameMapState {
     pub stroke_active: bool,
     pub stroke_last: Option<Pos2>,
     pub dragging_marker_id: Option<String>,
+    pub dragging_structure_id: Option<String>,
+    pub rotating_structure_id: Option<String>,
 }
 
 impl Default for GameMapState {
@@ -741,6 +796,8 @@ impl Default for GameMapState {
             stroke_active: false,
             stroke_last: None,
             dragging_marker_id: None,
+            dragging_structure_id: None,
+            rotating_structure_id: None,
         }
     }
 }
@@ -874,6 +931,209 @@ fn trace_isolines(t: &MapTerrain, w_km: f32, h_km: f32, level: f32) -> Vec<Vec<[
     lines
 }
 
+/// How a terrain vertex is colored: the style's tint for its elevation, lit by its gradient.
+struct TerrainShade<'a> {
+    style: &'a str,
+    palette: &'a str,
+    sea: f32,
+    sea_span: f32,
+    land_span: f32,
+}
+
+impl TerrainShade<'_> {
+    /// `gx`, `gy`: the ground's slope east and south (meters per meter; screen y points south).
+    fn color(&self, e: f32, gx: f32, gy: f32) -> [f32; 4] {
+        // Light from the north-west, 45 degrees up.
+        let (lx, ly, lz) = (-0.5f32, -0.5f32, 0.7071f32);
+        let z_exag = 2.2;
+        let (nx, ny, nz) = (-gx * z_exag, -gy * z_exag, 1.0);
+        let nl = (nx * nx + ny * ny + nz * nz).sqrt();
+        let shade = ((nx * lx + ny * ly + nz * lz) / nl / lz).max(0.0);
+        let slope_deg = (gx * gx + gy * gy).sqrt().atan().to_degrees();
+        let (sea, sea_span, land_span) = (self.sea, self.sea_span, self.land_span);
+        let underwater = e <= sea;
+        let (base, light) = match self.style {
+            "heatmap" => {
+                if underwater {
+                    (lerp3(hex(0x1f2a44), hex(0x0b1020), ((sea - e) / sea_span).clamp(0.0, 1.0).sqrt()), 0.15)
+                } else {
+                    (heat_tint(0.3 + 0.7 * ((e - sea) / land_span).clamp(0.0, 1.0)), 0.45)
+                }
+            }
+            "slope" => {
+                if underwater {
+                    (lerp3(hex(0x24344a), hex(0x101826), ((sea - e) / sea_span).clamp(0.0, 1.0).sqrt()), 0.1)
+                } else {
+                    (lerp3(slope_tint(slope_deg), hex(0x9aa3a8), 0.22), 0.55)
+                }
+            }
+            _ => {
+                if underwater {
+                    (water_tint(self.palette, ((sea - e) / sea_span).clamp(0.0, 1.0).powf(0.6)), 0.12)
+                } else {
+                    (land_tint(self.palette, ((e - sea) / land_span).clamp(0.0, 1.0)), 0.75)
+                }
+            }
+        };
+        let f = (1.0 - light + light * shade).clamp(0.3, 1.35);
+        // Shadows lean cool, lit slopes warm, so relief reads without washing the tints out.
+        let warm = (shade - 1.0).max(0.0) * 0.06 * light;
+        let cool = (1.0 - shade).max(0.0) * 0.05 * light;
+        [
+            (base[0] * f + warm - cool).clamp(0.0, 1.0),
+            (base[1] * f + warm * 0.6 - cool * 0.3).clamp(0.0, 1.0),
+            (base[2] * f + cool).clamp(0.0, 1.0),
+            1.0,
+        ]
+    }
+}
+
+/// Catmull-Rom (bicubic) elevation at fractional grid coordinates: smooth between vertices, where
+/// bilinear interpolation leaves visible creases up close.
+fn bicubic(t: &MapTerrain, gx: f32, gy: f32) -> f32 {
+    let (cols, rows) = (t.cols as i64, t.rows as i64);
+    let c1 = gx.floor() as i64;
+    let r1 = gy.floor() as i64;
+    let fx = gx - c1 as f32;
+    let fy = gy - r1 as f32;
+    let at = |c: i64, r: i64| t.data[(r.clamp(0, rows - 1) * cols + c.clamp(0, cols - 1)) as usize];
+    let cr = |p0: f32, p1: f32, p2: f32, p3: f32, f: f32| p1 + 0.5 * f * (p2 - p0 + f * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3 + f * (3.0 * (p1 - p2) + p3 - p0)));
+    let row = |r: i64| cr(at(c1 - 1, r), at(c1, r), at(c1 + 1, r), at(c1 + 2, r), fx);
+    cr(row(r1 - 1), row(r1), row(r1 + 1), row(r1 + 2), fy)
+}
+
+fn lattice_hash(ix: i32, iy: i32, octave: u32) -> f32 {
+    let mut h = (ix as u32).wrapping_mul(0x8da6_b343) ^ (iy as u32).wrapping_mul(0xd816_3841) ^ octave.wrapping_mul(0xcb1a_b31f);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5bd1_e995);
+    h ^= h >> 15;
+    (h & 0xffff) as f32 / 32767.5 - 1.0
+}
+
+/// Smooth value noise in -1..1 (world-anchored, so it does not swim as the view moves).
+fn value_noise(x: f32, y: f32, octave: u32) -> f32 {
+    let (ix, iy) = (x.floor() as i32, y.floor() as i32);
+    let (fx, fy) = (x - ix as f32, y - iy as f32);
+    let (u, v) = (fx * fx * (3.0 - 2.0 * fx), fy * fy * (3.0 - 2.0 * fy));
+    let a = lattice_hash(ix, iy, octave);
+    let b = lattice_hash(ix + 1, iy, octave);
+    let c = lattice_hash(ix, iy + 1, octave);
+    let d = lattice_hash(ix + 1, iy + 1, octave);
+    a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+
+/// Micro-relief below the heightfield's resolution, in meters: fractal noise whose largest
+/// features are about a grid cell, scaled by `amp_m`, with only as many octaves as the screen can
+/// show (`min_wave_m`). It is surface texture for reading the ground up close, not data: it never
+/// turns land into water or water into land.
+fn micro_relief(x_m: f32, y_m: f32, cell_m: f32, amp_m: f32, min_wave_m: f32) -> f32 {
+    let mut sum = 0.0;
+    let mut wave = cell_m * 0.9;
+    let mut amp = amp_m;
+    let mut o = 0;
+    while wave >= min_wave_m && o < 6 {
+        // Ridged octaves read as rock and gullies rather than bumps.
+        let n = value_noise(x_m / wave, y_m / wave, o);
+        sum += (0.5 - n.abs()) * 2.0 * amp;
+        wave *= 0.5;
+        amp *= 0.5;
+        o += 1;
+    }
+    sum
+}
+
+/// The fine terrain mesh for the current view, kept until the view or the terrain changes.
+#[derive(Clone, Debug, Default)]
+struct FineTerrain {
+    key: u64,
+    verts: Vec<Vertex>,
+    idx: Vec<u32>,
+}
+
+/// The fine terrain mesh over `view` = [min x, max x, min y, max y] (world km): about 45k vertices
+/// whatever the zoom, elevations re-sampled bicubically plus micro-relief, shaded per vertex.
+fn build_fine_terrain(t: &MapTerrain, opts: &GameMapOptions, cache: &TerrainCache, view: [f32; 4], zoom: f32, detail: f32, w2s: &dyn Fn(f32, f32) -> Pos2, key: u64) -> FineTerrain {
+    let [x0, x1, y0, y1] = view;
+    let half_w = opts.world_width_km * 0.5;
+    let half_h = opts.world_height_km * 0.5;
+    let sx = opts.world_width_km / (t.cols - 1) as f32;
+    let sy = opts.world_height_km / (t.rows - 1) as f32;
+    let (w_px, h_px) = ((x1 - x0) * zoom, (y1 - y0) * zoom);
+    let step_px = (w_px * h_px / 45000.0).sqrt().max(4.0);
+    let nx = ((w_px / step_px).ceil() as usize + 1).clamp(2, 420);
+    let ny = ((h_px / step_px).ceil() as usize + 1).clamp(2, 420);
+    let dx_km = (x1 - x0) / (nx - 1) as f32;
+    let dy_km = (y1 - y0) / (ny - 1) as f32;
+    let sea = t.sea_level_m;
+    let cell_m = sx.min(sy) * 1000.0;
+    // The smallest feature worth drawing: a couple of mesh steps.
+    let min_wave_m = step_px / zoom * 1000.0 * 2.2;
+    // Base elevations first (they set how rough the ground is), then the micro-relief.
+    let mut base = vec![0.0f32; nx * ny];
+    for j in 0..ny {
+        let y = y1 - j as f32 * dy_km;
+        let gy = (half_h - y) / sy;
+        for i in 0..nx {
+            let x = x0 + i as f32 * dx_km;
+            base[j * nx + i] = bicubic(t, (x + half_w) / sx, gy);
+        }
+    }
+    let (dx_m, dy_m) = (dx_km * 1000.0, dy_km * 1000.0);
+    let mut h = base.clone();
+    if detail > 0.0 {
+        for j in 0..ny {
+            for i in 0..nx {
+                let k = j * nx + i;
+                let b = base[k];
+                if b <= sea {
+                    continue;
+                }
+                let (il, ir) = (i.saturating_sub(1), (i + 1).min(nx - 1));
+                let (ju, jd) = (j.saturating_sub(1), (j + 1).min(ny - 1));
+                let gx = (base[j * nx + ir] - base[j * nx + il]) / (dx_m * (ir - il).max(1) as f32);
+                let gy = (base[jd * nx + i] - base[ju * nx + i]) / (dy_m * (jd - ju).max(1) as f32);
+                // Steeper ground is rougher; flats stay calm, and the shore fades the texture out.
+                let rough = 0.25 + ((gx * gx + gy * gy).sqrt() * 3.0).min(1.0);
+                let shore = ((b - sea) / 6.0).clamp(0.0, 1.0);
+                let amp = detail * cell_m * 0.03 * rough * shore;
+                let x_m = (x0 + i as f32 * dx_km) * 1000.0;
+                let y_m = (y1 - j as f32 * dy_km) * 1000.0;
+                h[k] = (b + micro_relief(x_m, y_m, cell_m, amp, min_wave_m)).max(sea + 0.05);
+            }
+        }
+    }
+    let shade = TerrainShade {
+        style: opts.terrain_style.as_str(),
+        palette: opts.terrain_palette.as_str(),
+        sea,
+        sea_span: (sea - cache.min_m).max(1.0),
+        land_span: (cache.max_m - sea).max(1.0),
+    };
+    let mut verts = Vec::with_capacity(nx * ny);
+    for j in 0..ny {
+        let y = y1 - j as f32 * dy_km;
+        for i in 0..nx {
+            let (il, ir) = (i.saturating_sub(1), (i + 1).min(nx - 1));
+            let (ju, jd) = (j.saturating_sub(1), (j + 1).min(ny - 1));
+            let gx = (h[j * nx + ir] - h[j * nx + il]) / (dx_m * (ir - il).max(1) as f32);
+            let gy = (h[jd * nx + i] - h[ju * nx + i]) / (dy_m * (jd - ju).max(1) as f32);
+            let p = w2s(x0 + i as f32 * dx_km, y);
+            verts.push(Vertex::new(p.x, p.y, 0.0, shade.color(h[j * nx + i], gx, gy)));
+        }
+    }
+    let mut idx = Vec::with_capacity((nx - 1) * (ny - 1) * 6);
+    for j in 0..ny - 1 {
+        for i in 0..nx - 1 {
+            let a = (j * nx + i) as u32;
+            let b = a + 1;
+            let c = a + nx as u32;
+            let d = c + 1;
+            idx.extend_from_slice(&[a, b, d, a, d, c]);
+        }
+    }
+    FineTerrain { key, verts, idx }
+}
+
 fn build_terrain_cache(t: &MapTerrain, opts: &GameMapOptions, key: u64) -> TerrainCache {
     let (cols, rows) = (t.cols, t.rows);
     let d = &t.data;
@@ -887,12 +1147,7 @@ fn build_terrain_cache(t: &MapTerrain, opts: &GameMapOptions, key: u64) -> Terra
     let sea_span = (sea - min_m).max(1.0);
     let dx_m = opts.world_width_km * 1000.0 / (cols - 1) as f32;
     let dy_m = opts.world_height_km * 1000.0 / (rows - 1) as f32;
-    // Light from the north-west, 45 degrees up; screen y points south.
-    let (lx, ly, lz) = (-0.5f32, -0.5f32, 0.7071f32);
-    let flat = lz;
-    let z_exag = 2.2;
-    let style = opts.terrain_style.as_str();
-    let palette = opts.terrain_palette.as_str();
+    let shade = TerrainShade { style: opts.terrain_style.as_str(), palette: opts.terrain_palette.as_str(), sea, sea_span, land_span };
     let mut colors = Vec::with_capacity(d.len());
     for r in 0..rows {
         for c in 0..cols {
@@ -903,44 +1158,7 @@ fn build_terrain_cache(t: &MapTerrain, opts: &GameMapOptions, key: u64) -> Terra
             let rd = (r + 1).min(rows - 1);
             let gx = (d[r * cols + cr] - d[r * cols + cl]) / (dx_m * (cr - cl).max(1) as f32);
             let gy = (d[rd * cols + c] - d[ru * cols + c]) / (dy_m * (rd - ru).max(1) as f32);
-            let (nx, ny, nz) = (-gx * z_exag, -gy * z_exag, 1.0);
-            let nl = (nx * nx + ny * ny + nz * nz).sqrt();
-            let shade = ((nx * lx + ny * ly + nz * lz) / nl / flat).max(0.0);
-            let slope_deg = (gx * gx + gy * gy).sqrt().atan().to_degrees();
-            let underwater = e <= sea;
-            let (base, light) = match style {
-                "heatmap" => {
-                    if underwater {
-                        (lerp3(hex(0x1f2a44), hex(0x0b1020), ((sea - e) / sea_span).sqrt()), 0.15)
-                    } else {
-                        (heat_tint(0.3 + 0.7 * (e - sea) / land_span), 0.45)
-                    }
-                }
-                "slope" => {
-                    if underwater {
-                        (lerp3(hex(0x24344a), hex(0x101826), ((sea - e) / sea_span).sqrt()), 0.1)
-                    } else {
-                        (lerp3(slope_tint(slope_deg), hex(0x9aa3a8), 0.22), 0.55)
-                    }
-                }
-                _ => {
-                    if underwater {
-                        (water_tint(palette, ((sea - e) / sea_span).powf(0.6)), 0.12)
-                    } else {
-                        (land_tint(palette, (e - sea) / land_span), 0.75)
-                    }
-                }
-            };
-            let f = (1.0 - light + light * shade).clamp(0.3, 1.35);
-            // Shadows lean cool, lit slopes warm, so relief reads without washing the tints out.
-            let warm = (shade - 1.0).max(0.0) * 0.06 * light;
-            let cool = (1.0 - shade).max(0.0) * 0.05 * light;
-            colors.push([
-                (base[0] * f + warm - cool).clamp(0.0, 1.0),
-                (base[1] * f + warm * 0.6 - cool * 0.3).clamp(0.0, 1.0),
-                (base[2] * f + cool).clamp(0.0, 1.0),
-                1.0,
-            ]);
+            colors.push(shade.color(e, gx, gy));
         }
     }
 
@@ -1004,12 +1222,14 @@ pub struct GameMap {
     overlay: Option<MapOverlay>,
     markers: Vec<MapMarker>,
     quest_routes: Vec<MapQuestRoute>,
+    structures: Vec<MapStructure>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Hover {
     None,
     Marker(usize),
+    Structure(usize),
     Spot(usize),
     Path(usize),
     Region(usize),
@@ -1148,6 +1368,7 @@ impl GameMap {
             overlay: None,
             markers: Vec::new(),
             quest_routes: Vec::new(),
+            structures: Vec::new(),
         }
     }
 
@@ -1159,6 +1380,11 @@ impl GameMap {
         self.markers = markers;
         self
     }
+    pub fn structures(mut self, structures: Vec<MapStructure>) -> Self {
+        self.structures = structures;
+        self
+    }
+
     pub fn quest_routes(mut self, routes: Vec<MapQuestRoute>) -> Self {
         self.quest_routes = routes;
         self
@@ -1401,7 +1627,27 @@ impl GameMap {
         // -----------------------------------------------------------------------------------------
         // Hover pass: one target, spots over paths over regions.
         // -----------------------------------------------------------------------------------------
-        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate");
+        let build_drawing = matches!(opts.pending_mode.as_deref(), Some("build_line") | Some("build_area"));
+        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "quest_path" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate") || build_drawing;
+        // Structures: screen geometry for hit-testing (and drawing below).
+        let structure_screen: Vec<(Vec<Vec<Pos2>>, Vec<Pos2>, f32)> = self
+            .structures
+            .iter()
+            .map(|st| {
+                let parts = st.parts.iter().map(|part| part.iter().map(|q| w2s(q[0], q[1])).collect()).collect();
+                let outline = st.outline.iter().map(|q| w2s(q[0], q[1])).collect();
+                (parts, outline, (st.line_width_m / 1000.0 * zoom).max(1.2))
+            })
+            .collect();
+        let selected_structure = self.structures.iter().position(|x| opts.selected_id.as_deref() == Some(x.id.as_str()));
+        // The rotation handle of the selected footprint: behind it, past its far edge.
+        let rotate_handle: Option<(usize, Pos2, Pos2)> = selected_structure.filter(|&i| self.structures[i].rotatable && opts.show_structures).map(|i| {
+            let st = &self.structures[i];
+            let c = w2s(st.anchor[0], st.anchor[1]);
+            let r = structure_screen[i].1.iter().map(|p| (p.x - c.x).hypot(p.y - c.y)).fold(0.0, f32::max);
+            let a = st.rotation_deg.to_radians();
+            (i, c, pos2(c.x - a.sin() * (r + 18.0), c.y - a.cos() * (r + 18.0)))
+        });
         let brush_paint = opts.brush.as_ref().is_some_and(|b| b.paint);
 
         // Intent geometry: outlines, route curves, pin heads and their badges.
@@ -1512,6 +1758,27 @@ impl GameMap {
                 }
             }
             }
+            if hover == Hover::None && !drawing && opts.show_structures && matches!(opts.active_tool.as_str(), "select" | "pan" | "build") {
+                if let Some((i, _, h)) = rotate_handle {
+                    if (h.x - p.x).hypot(h.y - p.y) <= 9.0 {
+                        hover = Hover::Structure(i);
+                    }
+                }
+                if hover == Hover::None {
+                    for (i, (parts, outline, lw)) in structure_screen.iter().enumerate().rev() {
+                        let st = &self.structures[i];
+                        let hit = if st.closed {
+                            parts.iter().any(|part| part.len() >= 3 && point_in_polygon(p, part)) || (outline.len() >= 3 && point_in_polygon(p, outline))
+                        } else {
+                            near_polyline(p, outline, (lw * 0.5).max(4.0))
+                        };
+                        if hit {
+                            hover = Hover::Structure(i);
+                            break;
+                        }
+                    }
+                }
+            }
             if hover == Hover::None && !drawing {
                 'paths: for (i, path) in self.paths.iter().enumerate().rev() {
                     if opts.blocking_mode && !path.is_major {
@@ -1588,6 +1855,22 @@ impl GameMap {
                         st.drag_moved = false;
                     }
                 }
+                ("select" | "pan" | "build", Hover::Structure(i)) => {
+                    let sref = &self.structures[i];
+                    let on_handle = rotate_handle.is_some_and(|(hi, _, h)| hi == i && (h.x - p.x).hypot(h.y - p.y) <= 9.0);
+                    events.push(GameMapEvent::StructureSelected { id: sref.id.clone() });
+                    if opts.active_tool != "pan" {
+                        if on_handle {
+                            st.rotating_structure_id = Some(sref.id.clone());
+                        } else {
+                            st.dragging_structure_id = Some(sref.id.clone());
+                            st.drag_press_pos = Some(p);
+                            st.drag_start_world = Some(pos2(sref.anchor[0], sref.anchor[1]));
+                            st.drag_last_world = Some(pos2(sref.anchor[0], sref.anchor[1]));
+                            st.drag_moved = false;
+                        }
+                    }
+                }
                 ("select" | "pan", Hover::Intent(i)) => events.push(GameMapEvent::IntentSelected { id: self.intents[i].id.clone() }),
                 ("select" | "pan", Hover::Ghost(i)) => events.push(GameMapEvent::GhostSelected { id: self.ghosts[i].id.clone() }),
                 ("select", Hover::Path(i)) => events.push(GameMapEvent::PathSelected { id: self.paths[i].id.clone() }),
@@ -1646,6 +1929,58 @@ impl GameMap {
             }
         }
 
+        // Structure drag (a preview while held, one move when let go) and rotation (live).
+        let mut structure_preview: Option<(String, Pos2)> = None;
+        if let Some(drag_id) = st.dragging_structure_id.clone() {
+            if pointer.primary_down {
+                if let (Some(p), Some(press)) = (pointer_pos, st.drag_press_pos) {
+                    if !st.drag_moved && (p.x - press.x).hypot(p.y - press.y) > 4.0 {
+                        st.drag_moved = true;
+                    }
+                    if st.drag_moved {
+                        let start = st.drag_start_world.unwrap_or(pos2(0.0, 0.0));
+                        let offset = s2w(press);
+                        let raw = s2w(p);
+                        let target = snap(pos2(start.x + raw.x - offset.x, start.y + raw.y - offset.y));
+                        st.drag_last_world = Some(target);
+                        structure_preview = Some((drag_id.clone(), target));
+                    }
+                }
+            } else {
+                if st.drag_moved {
+                    if let Some(l) = st.drag_last_world {
+                        events.push(GameMapEvent::StructureMoved { id: drag_id.clone(), x: l.x, y: l.y });
+                    }
+                }
+                st.dragging_structure_id = None;
+                st.drag_press_pos = None;
+                st.drag_moved = false;
+            }
+        }
+        if let Some(rot_id) = st.rotating_structure_id.clone() {
+            let anchor = self.structures.iter().find(|x| x.id == rot_id).map(|x| pos2(x.anchor[0], x.anchor[1]));
+            match (anchor, pointer_pos) {
+                (Some(a), Some(p)) if pointer.primary_down => {
+                    let w = s2w(p);
+                    let (vx, vy) = (w.x - a.x, w.y - a.y);
+                    if vx.hypot(vy) > 1e-6 {
+                        // The handle sits behind the footprint (its local +y).
+                        let mut deg = (-vx).atan2(vy).to_degrees();
+                        let snapped = (deg / 15.0).round() * 15.0;
+                        if (deg - snapped).abs() < 3.0 {
+                            deg = snapped;
+                        }
+                        let deg = ((deg % 360.0) + 360.0) % 360.0;
+                        events.push(GameMapEvent::StructureRotated { id: rot_id.clone(), deg: (deg * 10.0).round() / 10.0, done: false });
+                    }
+                }
+                _ => {
+                    events.push(GameMapEvent::StructureRotated { id: rot_id.clone(), deg: f32::NAN, done: true });
+                    st.rotating_structure_id = None;
+                }
+            }
+        }
+
         // Spot drag: starts after the pointer moves a few pixels, reports only real moves.
         let mut drag_preview: Option<(String, Pos2)> = None;
         if let Some(drag_id) = st.dragging_spot_id.clone() {
@@ -1680,9 +2015,9 @@ impl GameMap {
 
         // Cursor.
         if is_hovered || over_hud_btn.is_some() || in_minimap {
-            let cursor = if st.is_panning || st.drag_moved {
+            let cursor = if st.is_panning || st.drag_moved || st.rotating_structure_id.is_some() {
                 CursorIcon::Grabbing
-            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_) | Hover::Intent(_) | Hover::Ghost(_) | Hover::Marker(_)) && opts.active_tool == "select") {
+            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_) | Hover::Intent(_) | Hover::Ghost(_) | Hover::Marker(_) | Hover::Structure(_)) && opts.active_tool == "select") {
                 CursorIcon::PointingHand
             } else if opts.active_tool == "pan" || st.space_down {
                 CursorIcon::Grab
@@ -1704,9 +2039,29 @@ impl GameMap {
             if cache.key != key || cache.colors.len() != t.data.len() {
                 cache = build_terrain_cache(t, &opts, key);
             }
-            if opts.terrain_style != "flat" {
-                let sx = opts.world_width_km / (t.cols - 1) as f32;
-                let sy = opts.world_height_km / (t.rows - 1) as f32;
+            let sx = opts.world_width_km / (t.cols - 1) as f32;
+            let sy = opts.world_height_km / (t.rows - 1) as f32;
+            let detail = opts.terrain_detail.clamp(0.0, 2.0);
+            let cell_px = sx.min(sy) * zoom;
+            let (fx0, fx1) = (vis_min_x.max(-half_w), vis_max_x.min(half_w));
+            let (fy0, fy1) = (vis_min_y.max(-half_h), vis_max_y.min(half_h));
+            if opts.terrain_style != "flat" && detail > 0.0 && cell_px > 6.0 && fx1 > fx0 && fy1 > fy0 {
+                // Zoomed in past the grid: a fine mesh over the visible part of the world, re-sampled
+                // bicubically with per-vertex shading and micro-relief, rebuilt only when the view moves.
+                let fine_id = self.id.with("fine_terrain");
+                let mut fine: FineTerrain = ctx.memory_mut(|m| m.take_view_state(fine_id));
+                let mut hasher = DefaultHasher::new();
+                cache.key.hash(&mut hasher);
+                for v in [fx0, fx1, fy0, fy1, zoom, detail, rect.min.x, rect.min.y, rect.max.x, rect.max.y] {
+                    v.to_bits().hash(&mut hasher);
+                }
+                let fkey = hasher.finish();
+                if fine.key != fkey || fine.verts.is_empty() {
+                    fine = build_fine_terrain(t, &opts, &cache, [fx0, fx1, fy0, fy1], zoom, detail, &w2s, fkey);
+                }
+                painter.mesh(fine.verts.clone(), fine.idx.clone());
+                ctx.memory_mut(|m| m.put_view_state(fine_id, fine));
+            } else if opts.terrain_style != "flat" {
                 let c0 = (((vis_min_x + half_w) / sx).floor() as i64 - 1).clamp(0, t.cols as i64 - 1) as usize;
                 let c1 = (((vis_max_x + half_w) / sx).ceil() as i64 + 1).clamp(0, t.cols as i64 - 1) as usize;
                 let r0 = (((half_h - vis_max_y) / sy).floor() as i64 - 1).clamp(0, t.rows as i64 - 1) as usize;
@@ -2016,7 +2371,7 @@ impl GameMap {
             polyline(&painter, &pts, Stroke::new(w + if path.path_type == "highway" { 3.2 } else { 2.2 }, casing));
         }
         for (i, path) in self.paths.iter().enumerate() {
-            if !path_visible(path) || path.path_type == "river" {
+            if !path_visible(path) || path.path_type == "river" || path.path_type == "quest" {
                 continue;
             }
             let pts = screen_pts(path);
@@ -2056,6 +2411,164 @@ impl GameMap {
             }
         }
 
+        // -----------------------------------------------------------------------------------------
+        // 5'. Town planning: areas, streets, walls, then building footprints. A building shows up
+        //     once it is about a pixel across; names once there is room for them.
+        // -----------------------------------------------------------------------------------------
+        if opts.show_structures {
+            let ink_soft = Color32::from_rgba_unmultiplied(20, 16, 12, 200);
+            for (i, sref) in self.structures.iter().enumerate() {
+                let (parts0, outline0, lw) = &structure_screen[i];
+                let (parts, outline): (Vec<Vec<Pos2>>, Vec<Pos2>) = match structure_preview.as_ref().filter(|(id, _)| *id == sref.id) {
+                    Some((_, target)) => {
+                        let d = vec2((target.x - sref.anchor[0]) * zoom, -(target.y - sref.anchor[1]) * zoom);
+                        (parts0.iter().map(|pt| pt.iter().map(|q| *q + d).collect()).collect(), outline0.iter().map(|q| *q + d).collect())
+                    }
+                    None => (parts0.clone(), outline0.clone()),
+                };
+                if outline.is_empty() {
+                    continue;
+                }
+                let (mut bx0, mut by0, mut bx1, mut by1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+                for q in &outline {
+                    bx0 = bx0.min(q.x);
+                    by0 = by0.min(q.y);
+                    bx1 = bx1.max(q.x);
+                    by1 = by1.max(q.y);
+                }
+                if bx1 < rect.min.x - lw || bx0 > rect.max.x + lw || by1 < rect.min.y - lw || by0 > rect.max.y + lw {
+                    continue;
+                }
+                let size = (bx1 - bx0).max(by1 - by0);
+                let selected = selected_structure == Some(i);
+                let hovered = hover == Hover::Structure(i);
+                let col = rgba([sref.color[0], sref.color[1], sref.color[2], 1.0]);
+                if !sref.closed {
+                    // Walls: dark casing, stone fill; streets: soft casing, paved fill.
+                    let wall = sref.kind == "wall";
+                    let w = if wall { lw.max(1.6) } else { *lw };
+                    polyline(&painter, &outline, Stroke::new(w + if wall { 2.0 } else { 1.4 }, if wall { Color32::from_rgba_unmultiplied(18, 20, 26, 230) } else { Color32::from_rgba_unmultiplied(40, 32, 24, 150) }));
+                    polyline(&painter, &outline, Stroke::new(w, col));
+                    if wall && w >= 4.0 {
+                        // Crenellation ticks along the wall top.
+                        dashed_polyline(&painter, &outline, Stroke::new(w * 0.35, lighten(col, 0.25)), w * 0.8, w * 0.8);
+                    }
+                } else if sref.parts.is_empty() || size < 1.0 {
+                    if size >= 0.6 {
+                        painter.rect_filled(Rect::from_center_size(pos2((bx0 + bx1) * 0.5, (by0 + by1) * 0.5), vec2(1.4, 1.4)), 0u8, col);
+                    }
+                } else {
+                    let area = matches!(sref.kind.as_str(), "plaza" | "market" | "garden" | "field");
+                    // A small drop shadow lifts buildings off the ground once they are a few pixels.
+                    if !area && size > 6.0 {
+                        let off = vec2(1.2, 1.4) * (size / 40.0).clamp(0.6, 2.5);
+                        for part in &parts {
+                            painter.add(Shape::convex_polygon(part.iter().map(|q| *q + off).collect(), Color32::from_rgba_unmultiplied(0, 0, 0, 70), Stroke::NONE));
+                        }
+                    }
+                    let fill = if area { with_alpha(col, if sref.kind == "field" { 95 } else { 150 }) } else { col };
+                    for part in &parts {
+                        painter.add(Shape::convex_polygon(part.clone(), fill, Stroke::NONE));
+                    }
+                    if area && sref.kind == "field" && size > 18.0 {
+                        // Furrows.
+                        let n = ((size / 6.0) as usize).clamp(2, 40);
+                        let (a, b, c) = (outline[0], outline.get(1).copied().unwrap_or(outline[0]), outline.get(3).copied().unwrap_or(outline[0]));
+                        for k in 1..n {
+                            let f = k as f32 / n as f32;
+                            let p0 = pos2(a.x + (c.x - a.x) * f, a.y + (c.y - a.y) * f);
+                            let p1 = pos2(p0.x + (b.x - a.x), p0.y + (b.y - a.y));
+                            painter.line_segment([p0, p1], Stroke::new(0.7, Color32::from_rgba_unmultiplied(70, 80, 30, 110)));
+                        }
+                    }
+                    if size > 3.0 {
+                        let mut closed = outline.clone();
+                        closed.push(outline[0]);
+                        let edge = if area { with_alpha(darken(col, 0.35), 200) } else { ink_soft };
+                        polyline(&painter, &closed, Stroke::new(if size > 30.0 { 1.2 } else { 0.8 }, edge));
+                    }
+                }
+                if selected || hovered {
+                    let mut closed = outline.clone();
+                    if sref.closed {
+                        closed.push(outline[0]);
+                    }
+                    let c = if selected { ACCENT_CYAN } else { Color32::from_white_alpha(200) };
+                    let w = if sref.closed { 1.8 } else { lw + 3.0 };
+                    if sref.closed {
+                        polyline(&painter, &closed, Stroke::new(w, c));
+                    } else {
+                        polyline(&painter, &closed, Stroke::new(w, with_alpha(c, 110)));
+                    }
+                    if size < 6.0 {
+                        painter.circle_stroke(pos2((bx0 + bx1) * 0.5, (by0 + by1) * 0.5), 6.0, Stroke::new(1.4, c));
+                    }
+                }
+                if !sref.label.is_empty() && opts.show_labels && (size > 46.0 || selected) {
+                    let c = if sref.closed { polygon_centroid(&outline) } else { outline[outline.len() / 2] };
+                    text_pill(&painter, &ctx, c, Align2::CENTER_CENTER, &sref.label, FontId::proportional(9.5), TEXT_BRIGHT, Color32::from_rgba_unmultiplied(10, 14, 22, 170));
+                }
+            }
+            // The rotation handle of the selected footprint.
+            if let Some((_, c, h)) = rotate_handle.filter(|_| structure_preview.is_none()) {
+                painter.line_segment([c, h], Stroke::new(1.2, with_alpha(ACCENT_CYAN, 180)));
+                painter.circle_filled(h, 6.5, INK);
+                painter.circle_filled(h, 5.0, ACCENT_CYAN);
+                painter.text(h, Align2::CENTER_CENTER, icon("arrow-clockwise"), FontId::proportional(8.0), INK);
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // 5''. Quest paths: the routes quests send the player along, in the quest's color, dashed
+        //      with direction chevrons, from a "!" at the start to a flag at the end.
+        // -----------------------------------------------------------------------------------------
+        for (i, path) in self.paths.iter().enumerate() {
+            let selected = opts.selected_id.as_deref() == Some(path.id.as_str());
+            if path.path_type != "quest" || path.points.len() < 2 || !(opts.show_quests || selected) {
+                continue;
+            }
+            let pts = screen_pts(path);
+            let hovered = hover == Hover::Path(i);
+            let base = rgba([path.color[0], path.color[1], path.color[2], 1.0]);
+            let w = if selected { 3.4 } else if hovered { 3.0 } else { 2.4 };
+            polyline(&painter, &pts, Stroke::new(w + 3.0, Color32::from_rgba_unmultiplied(8, 11, 17, 150)));
+            if selected || hovered {
+                polyline(&painter, &pts, Stroke::new(w + 7.0, if selected { Color32::from_rgba_unmultiplied(56, 189, 248, 90) } else { Color32::from_white_alpha(60) }));
+            }
+            dashed_polyline(&painter, &pts, Stroke::new(w, base), 9.0, 5.0);
+            let mut run = 40.0;
+            for wnd in pts.windows(2) {
+                let len = (wnd[1].x - wnd[0].x).hypot(wnd[1].y - wnd[0].y);
+                run += len;
+                if run < 90.0 || len < 14.0 {
+                    continue;
+                }
+                run = 0.0;
+                let dir = vec2((wnd[1].x - wnd[0].x) / len, (wnd[1].y - wnd[0].y) / len);
+                let m = pos2((wnd[0].x + wnd[1].x) * 0.5, (wnd[0].y + wnd[1].y) * 0.5);
+                let nrm = vec2(-dir.y, dir.x);
+                let tip = pos2(m.x + dir.x * 4.0, m.y + dir.y * 4.0);
+                let back = pos2(m.x - dir.x * 4.0, m.y - dir.y * 4.0);
+                painter.add(Shape::convex_polygon(vec![tip, pos2(back.x + nrm.x * 4.5, back.y + nrm.y * 4.5), pos2(back.x - nrm.x * 4.5, back.y - nrm.y * 4.5)], base, Stroke::new(1.0, INK)));
+            }
+            let (first, last) = (pts[0], pts[pts.len() - 1]);
+            painter.circle_filled(first, 7.0, INK);
+            painter.circle_filled(first, 5.6, base);
+            painter.text(first, Align2::CENTER_CENTER, "!", FontId::proportional(9.0), INK);
+            painter.circle_filled(last, 7.0, INK);
+            painter.circle_filled(last, 5.6, base);
+            painter.text(last, Align2::CENTER_CENTER, icon("flag"), FontId::proportional(8.0), INK);
+            if selected {
+                for p in &pts[1..pts.len() - 1] {
+                    painter.circle_filled(*p, 3.2, ACCENT_CYAN);
+                }
+            }
+            if opts.show_labels && (selected || hovered || zoom > fit_zoom * 1.6) {
+                let mid = pts[pts.len() / 2];
+                text_pill(&painter, &ctx, pos2(mid.x, mid.y - 12.0), Align2::CENTER_CENTER, &path.name, FontId::proportional(9.5), base, Color32::from_rgba_unmultiplied(10, 14, 22, 190));
+            }
+        }
+
         // Region names go above roads, below spots.
         for (c, name, col, selected) in &region_labels {
             if rect.contains(*c) && opts.show_labels {
@@ -2074,10 +2587,12 @@ impl GameMap {
                 let pts: Vec<Pos2> = q.points.iter().map(|p| w2s(p[0], p[1])).collect();
                 let base = rgba([q.color[0], q.color[1], q.color[2], 1.0]);
                 let (w, a) = if q.highlighted { (2.8, 255u8) } else { (1.6, 110u8) };
-                polyline(&painter, &pts, Stroke::new(w + 2.5, Color32::from_rgba_unmultiplied(8, 11, 17, if q.highlighted { 150 } else { 60 })));
-                dashed_polyline(&painter, &pts, Stroke::new(w, with_alpha(base, a)), 6.0, 5.0);
+                if !q.markers_only {
+                    polyline(&painter, &pts, Stroke::new(w + 2.5, Color32::from_rgba_unmultiplied(8, 11, 17, if q.highlighted { 150 } else { 60 })));
+                    dashed_polyline(&painter, &pts, Stroke::new(w, with_alpha(base, a)), 6.0, 5.0);
+                }
                 // Chevrons on each leg toward the next stop.
-                for wnd in pts.windows(2) {
+                for wnd in pts.windows(if q.markers_only { usize::MAX } else { 2 }) {
                     let len = (wnd[1].x - wnd[0].x).hypot(wnd[1].y - wnd[0].y);
                     if len < 30.0 {
                         continue;
@@ -2398,8 +2913,8 @@ impl GameMap {
         // -----------------------------------------------------------------------------------------
         if !opts.pending_points.is_empty() {
             let intent_mode = opts.active_tool == "intent" || opts.active_tool == "sculpt";
-            let is_region = matches!(opts.pending_mode.as_deref(), Some("region") | Some("intent_area") | Some("sculpt_area")) || opts.active_tool == "draw_region";
-            let accent = if intent_mode { ACCENT_AMBER } else if is_region { ACCENT_EMERALD } else { ACCENT_CYAN };
+            let is_region = matches!(opts.pending_mode.as_deref(), Some("region") | Some("intent_area") | Some("sculpt_area") | Some("build_area")) || opts.active_tool == "draw_region";
+            let accent = if intent_mode || opts.active_tool == "quest_path" { ACCENT_AMBER } else if is_region { ACCENT_EMERALD } else { ACCENT_CYAN };
             // A line stroke's width, shown along the course.
             if let Some(b) = opts.brush.as_ref().filter(|_| opts.pending_mode.as_deref() == Some("sculpt_line")) {
                 let mut course: Vec<Pos2> = opts.pending_points.iter().map(|p| w2s(p[0], p[1])).collect();
@@ -2448,7 +2963,25 @@ impl GameMap {
                 painter.circle_filled(cp, r, with_alpha(col, 26));
             }
             painter.circle_filled(cp, 2.0, col);
-        } else if opts.pending_points.is_empty() && matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "place_spot" | "intent" | "sculpt" | "populate") {
+        } else if let (Some(bc), Some(cw), true) = (
+            opts.build_cursor.as_ref(),
+            cursor_world.filter(|_| is_hovered && !st.space_down && st.dragging_structure_id.is_none() && st.rotating_structure_id.is_none()),
+            opts.active_tool == "build" && opts.pending_points.is_empty() && !matches!(hover, Hover::Structure(_)),
+        ) {
+            // The building the next click places, where it will go.
+            let col = rgba([bc.color[0], bc.color[1], bc.color[2], 1.0]);
+            let to_s = |q: &[f32; 2]| w2s(cw.x + q[0], cw.y + q[1]);
+            for part in &bc.parts {
+                painter.add(Shape::convex_polygon(part.iter().map(to_s).collect(), with_alpha(col, 110), Stroke::NONE));
+            }
+            if bc.outline.len() >= 2 {
+                let mut o: Vec<Pos2> = bc.outline.iter().map(to_s).collect();
+                o.push(o[0]);
+                polyline(&painter, &o, Stroke::new(1.4, with_alpha(ACCENT_CYAN, 230)));
+            }
+            let cp = w2s(cw.x, cw.y);
+            painter.circle_filled(cp, 2.0, ACCENT_CYAN);
+        } else if opts.pending_points.is_empty() && matches!(opts.active_tool.as_str(), "draw_path" | "quest_path" | "build" | "draw_region" | "place_spot" | "intent" | "sculpt" | "populate") {
             if let Some(cw) = cursor_world.filter(|_| is_hovered) {
                 let cp = w2s(cw.x, cw.y);
                 let accent = if matches!(opts.active_tool.as_str(), "place_spot" | "intent") { ACCENT_AMBER } else { ACCENT_CYAN };
@@ -2554,6 +3087,17 @@ impl GameMap {
                 Hover::Marker(i) => {
                     let m = &self.markers[i];
                     vec![(m.label.clone(), rgba([m.color[0], m.color[1], m.color[2], 1.0]), 11.5), (m.detail.clone(), TEXT_DIM, 10.0)]
+                }
+                Hover::Structure(i) => {
+                    let x = &self.structures[i];
+                    let mut l = vec![(x.label.clone(), rgba([x.color[0], x.color[1], x.color[2], 1.0]), 11.5)];
+                    if !x.detail.is_empty() {
+                        l.push((x.detail.clone(), TEXT_DIM, 10.0));
+                    }
+                    if opts.selected_id.as_deref() == Some(x.id.as_str()) && x.rotatable {
+                        l.push(("Drag to move · drag the handle to turn it".into(), TEXT_DIM, 9.5));
+                    }
+                    l
                 }
                 Hover::Ghost(i) => {
                     let g = &self.ghosts[i];
@@ -2925,5 +3469,45 @@ mod tests {
         // Water is blue-ish, the summit is light.
         let corner = cache.colors[0];
         assert!(corner[2] > corner[0]);
+    }
+
+    #[test]
+    fn bicubic_passes_through_the_grid_and_stays_smooth_between() {
+        let t = cone(17);
+        for (c, r) in [(0usize, 0usize), (8, 8), (3, 11), (16, 5)] {
+            assert!((bicubic(&t, c as f32, r as f32) - t.data[r * 17 + c]).abs() < 1e-3);
+        }
+        // Halfway between two samples on a slope: between them.
+        let (a, b) = (t.data[8 * 17 + 4], t.data[8 * 17 + 5]);
+        let mid = bicubic(&t, 4.5, 8.0);
+        assert!(mid > a.min(b) - 1.0 && mid < a.max(b) + 1.0, "{a} {mid} {b}");
+    }
+
+    #[test]
+    fn micro_relief_is_bounded_and_world_anchored() {
+        let mut worst: f32 = 0.0;
+        for k in 0..400 {
+            let (x, y) = (k as f32 * 37.3, k as f32 * -11.9);
+            let v = micro_relief(x, y, 200.0, 5.0, 4.0);
+            worst = worst.max(v.abs());
+            assert_eq!(v, micro_relief(x, y, 200.0, 5.0, 4.0));
+        }
+        // Octave amplitudes 5 + 2.5 + 1.25 + ... stay under twice the first.
+        assert!(worst <= 10.0 && worst > 0.5, "{worst}");
+        // No octave finer than the screen can show: nothing at all when the cell is already small.
+        assert_eq!(micro_relief(10.0, 10.0, 200.0, 5.0, 500.0), 0.0);
+    }
+
+    #[test]
+    fn fine_mesh_covers_the_view_with_valid_triangles() {
+        let t = cone(17);
+        let opts = GameMapOptions { world_width_km: 10.0, world_height_km: 10.0, ..Default::default() };
+        let cache = build_terrain_cache(&t, &opts, 1);
+        let w2s = |x: f32, y: f32| pos2(x * 100.0, -y * 100.0);
+        let fine = build_fine_terrain(&t, &opts, &cache, [-2.0, 2.0, -1.0, 1.0], 100.0, 2.0, &w2s, 7);
+        assert!(fine.verts.len() > 1000 && fine.verts.len() <= 420 * 420);
+        assert_eq!(fine.idx.len() % 6, 0);
+        assert!(fine.idx.iter().all(|&i| (i as usize) < fine.verts.len()));
+        assert_eq!(fine.key, 7);
     }
 }

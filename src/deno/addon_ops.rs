@@ -902,6 +902,49 @@ pub struct MapQuestRouteConfig {
     pub color: Option<[f32; 4]>,
     #[serde(default)]
     pub highlighted: bool,
+    #[serde(default)]
+    pub markers_only: bool,
+}
+
+/// A planned building, wall, street or area (see `entropy_gui::MapStructure`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapStructureConfig {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub parts: Vec<Vec<[f32; 2]>>,
+    #[serde(default)]
+    pub outline: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub closed: bool,
+    #[serde(default)]
+    pub line_width_m: f32,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub anchor: [f32; 2],
+    #[serde(default)]
+    pub rotation_deg: f32,
+    #[serde(default)]
+    pub rotatable: bool,
+}
+
+/// What the Build tool places, drawn under the cursor (see `entropy_gui::MapBuildCursor`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapBuildCursorConfig {
+    #[serde(default)]
+    pub parts: Vec<Vec<[f32; 2]>>,
+    #[serde(default)]
+    pub outline: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -1033,6 +1076,15 @@ pub struct GameMapConfig {
     pub focus_center: Option<[f32; 2]>,
     #[serde(default)]
     pub focus_zoom: Option<f32>,
+    /// 0 (off) .. 2: surface detail when zoomed in past the heightfield's resolution (default 1).
+    #[serde(default)]
+    pub terrain_detail: Option<f32>,
+    #[serde(default)]
+    pub structures: Vec<MapStructureConfig>,
+    #[serde(default)]
+    pub show_structures: Option<bool>,
+    #[serde(default)]
+    pub build_cursor: Option<MapBuildCursorConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

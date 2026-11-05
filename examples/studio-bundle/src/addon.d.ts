@@ -3293,6 +3293,7 @@ export interface MapSpotConfig {
 export interface MapPathConfig {
   id: string;
   name: string;
+  /** "highway", "road", "trail", "river", "bridge", or "quest" (a quest's route: dashed, with chevrons, in `color`). */
   pathType?: string;
   points: [number, number][];
   width?: number;
@@ -3380,6 +3381,30 @@ export interface MapQuestRouteConfig {
   points: [number, number][];
   color?: [number, number, number, number];
   highlighted?: boolean;
+  /** Only the numbered stops (the quest has quest paths drawn as paths). */
+  markersOnly?: boolean;
+}
+
+/**
+ * A planned building, wall, street or area (town planning), in world km: footprints as convex
+ * `parts` plus their `outline`; walls and streets as an open `outline` with `lineWidthM`; areas as
+ * a closed outline with triangle `parts`.
+ */
+export interface MapStructureConfig {
+  id: string;
+  kind?: string;
+  label?: string;
+  detail?: string;
+  parts?: [number, number][][];
+  outline?: [number, number][];
+  closed?: boolean;
+  lineWidthM?: number;
+  color?: [number, number, number, number];
+  /** What a drag moves and a rotation turns about. */
+  anchor?: [number, number];
+  rotationDeg?: number;
+  /** Footprints get a rotation handle when selected. */
+  rotatable?: boolean;
 }
 
 export interface GameMapConfig {
@@ -3441,6 +3466,18 @@ export interface GameMapConfig {
   focusRequest?: number;
   focusCenter?: [number, number];
   focusZoom?: number;
+  /** 0 (off) .. 2: surface detail when zoomed in past the heightfield's own resolution (default 1). */
+  terrainDetail?: number;
+  /** Town planning: buildings, walls, streets, plazas, drawn in order. */
+  structures?: MapStructureConfig[];
+  showStructures?: boolean;
+  /** The Build tool's next shape, drawn at the cursor (km offsets from it). */
+  buildCursor?: { parts: [number, number][][]; outline: [number, number][]; color?: [number, number, number, number] };
+  onStructureSelect?: (id: string) => void;
+  /** A structure was dragged: its anchor's new place. */
+  onStructureMove?: (id: string, x: number, y: number) => void;
+  /** The rotation handle is being dragged; `done` (with no meaningful angle) on release. */
+  onStructureRotate?: (id: string, deg: number, done: boolean) => void;
   /** Part of a brush stroke (points since the last call, world km); `done` when the button is released. */
   onBrushStroke?: (points: [number, number][], done: boolean) => void;
   onMarkerSelect?: (id: string) => void;

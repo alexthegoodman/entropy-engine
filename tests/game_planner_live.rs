@@ -41,7 +41,7 @@ fn game_planner_live_feature() {
         assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     }
     let states: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter().filter(|t| t["tool"] == "game_planner_state").map(|t| &t["result"]).collect();
-    assert_eq!(states.len(), 14, "one state per checkpoint");
+    assert_eq!(states.len(), 18, "one state per checkpoint");
     let spot = |state: &serde_json::Value, id: &str| -> serde_json::Value { state["spots"].as_array().unwrap().iter().find(|s| s["id"] == id).cloned().unwrap_or_else(|| panic!("no spot {id}")) };
     let num = |v: &serde_json::Value| v.as_f64().unwrap();
 
@@ -67,13 +67,19 @@ fn game_planner_live_feature() {
     assert!(num(&placed["elevation"]) > 0.0, "placed on land: {placed}");
     assert!((num(&placed["x"]) - 2.0).abs() < 0.11 && (num(&placed["y"]) + 2.0).abs() < 0.11, "snapped near [2, -2]: {placed}");
 
-    // Drawing a path: three points, the last one snapped onto Drake's Caldera.
+    // Drawing a quest path: three points, the last one snapped onto Drake's Caldera. Finishing it
+    // made a quest whose objective is the caldera; roads and rivers are untouched.
     let pending = states[4]["pendingPathPoints"].as_array().unwrap();
     assert_eq!(pending.len(), 3);
     assert_eq!(pending[2], serde_json::json!([8.5, -6]));
-    assert_eq!(states[5]["counts"]["paths"], 4);
-    assert_eq!(states[5]["activeTool"], "select");
-    assert_eq!(states[5]["paths"].as_array().unwrap().last().unwrap()["pathType"], "road");
+    assert_eq!(states[5]["counts"]["paths"], states[0]["counts"]["paths"]);
+    assert_eq!(states[5]["counts"]["questPaths"], 1);
+    assert_eq!(num(&states[5]["counts"]["missions"]), num(&states[0]["counts"]["missions"]) + 1.0);
+    assert_eq!(states[5]["activeTool"], "quest_path");
+    let route = &states[5]["questPaths"][0];
+    let quest = states[5]["missions"].as_array().unwrap().iter().find(|m| m["id"] == route["missionId"]).unwrap();
+    assert_eq!(quest["objectiveSpotIds"].as_array().unwrap().last().unwrap(), "spot_drake_peak", "{quest}");
+    assert_eq!(states[5]["selectedId"], route["id"]);
 
     // Measuring from the capital to the caldera, both ends snapped to the spots.
     assert_eq!(states[6]["measurePoints"]["p1"], serde_json::json!([0, 6.5]));
@@ -151,17 +157,52 @@ fn game_planner_live_feature() {
 
     // The terrain tools (now in the map sidebar) added settlements, roads, rivers and points of interest.
     assert!(num(&states[12]["counts"]["spots"]) > 10.0, "{}", states[12]["counts"]);
-    assert!(num(&states[12]["counts"]["paths"]) > 6.0, "{}", states[12]["counts"]);
+    assert!(num(&states[12]["counts"]["paths"]) > num(&states[0]["counts"]["paths"]) + 2.0, "{}", states[12]["counts"]);
 
-    // Switching presets loaded the Crimson Expanse.
-    assert_eq!(states[13]["counts"]["spots"], 5);
-    assert_eq!(states[13]["activeTab"], "map");
+    // "Lay out" on the capital drafted a town around it.
+    let town: Vec<&serde_json::Value> = states[13]["structures"].as_array().unwrap().iter().filter(|s| s["spotId"] == "spot_solaris_citadel").collect();
+    assert!(town.len() > 40, "{} structures", town.len());
+    for kind in ["street", "market", "keep", "temple", "house"] {
+        assert!(town.iter().any(|s| s["kind"] == kind), "no {kind}");
+    }
+    // A house placed with a real click at [2.5, -2.5], dragged 100 px east (0.1 km at 1000 px/km)
+    // and turned with its handle to face west (its back toward the pointer, 270 degrees).
+    let house = states[14]["structures"].as_array().unwrap().last().unwrap();
+    assert_eq!(house["kind"], "house");
+    assert!((num(&house["x"]) - 2.6).abs() < 0.011 && (num(&house["y"]) + 2.5).abs() < 0.011, "{house}");
+    assert!((num(&house["rotationDeg"]) - 270.0).abs() < 4.0, "{house}");
+    assert_eq!(states[14]["selectedId"], house["id"]);
+    assert_eq!(states[14]["terrainDetail"], 2);
 
-    // What the planner saved: the world with its heightfield.
-    let saved = read(&data.join("game-world-planner.json"));
-    let terrain = &saved["terrain"];
-    let (cols, rows) = (terrain["cols"].as_u64().unwrap(), terrain["rows"].as_u64().unwrap());
-    assert!(cols >= 65 && rows >= 65);
-    assert_eq!(terrain["data"].as_array().unwrap().len() as u64, cols * rows);
-    assert!(saved["intents"].is_array(), "worlds save their intents");
+    // A new world: empty, on its own terrain, saved to the library next to the first one.
+    assert_eq!(states[15]["world"]["name"], "Ember Reach");
+    assert_eq!(states[15]["counts"]["spots"], 0);
+    assert_eq!(states[15]["counts"]["structures"], 0);
+    assert!(states[15]["library"].as_array().unwrap().len() >= 2);
+    // Opening the first world again brought back its town and its quest route.
+    assert_eq!(states[16]["world"]["id"], "world_shattered_isles");
+    assert_eq!(states[16]["counts"]["structures"], states[14]["counts"]["structures"]);
+    assert_eq!(states[16]["counts"]["questPaths"], 1);
+    // Starting from a preset made a copy of the Crimson Expanse.
+    assert_eq!(states[17]["counts"]["spots"], 5);
+    assert_eq!(states[17]["activeTab"], "map");
+    assert_ne!(states[17]["world"]["id"], "world_crimson_expanse");
+
+    // What the planner saved: settings that remember the open world, and a library of compact
+    // world files (the heightfield packed, not a JSON array of numbers).
+    let settings = read(&data.join("game-world-planner.json"));
+    assert_eq!(settings["kind"], "planner-settings");
+    assert_eq!(settings["currentWorldId"], states[17]["world"]["id"]);
+    let index = read(&data.join("game-world-planner").join("worlds").join("index.json"));
+    assert!(index.as_array().unwrap().len() >= 3, "{index}");
+    let saved = read(&data.join("game-world-planner").join("worlds").join("world_shattered_isles.world.json"));
+    assert_eq!(saved["format"], "entropy-game-world");
+    let terrain = &saved["world"]["terrain"];
+    assert_eq!(terrain["enc"], "q16p");
+    assert!(terrain["cols"].as_u64().unwrap() >= 65);
+    assert!(saved["world"]["structures"].as_array().unwrap().len() > 40);
+    assert_eq!(saved["world"]["questPaths"].as_array().unwrap().len(), 1);
+    assert!(saved["world"]["intents"].is_array(), "worlds save their intents");
+    let bytes = fs::metadata(data.join("game-world-planner").join("worlds").join("world_shattered_isles.world.json")).unwrap().len();
+    assert!(bytes < 400_000, "a world file stays compact: {bytes} bytes");
 }

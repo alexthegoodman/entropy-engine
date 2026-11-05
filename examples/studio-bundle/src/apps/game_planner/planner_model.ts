@@ -8,7 +8,11 @@ import type {
     Mission,
     PathType,
     PlanIntent,
+    QuestPath,
     RevisionChange,
+    StructureKind,
+    StructureShape,
+    WorldStructure,
     RevisionProposal,
     TerrainGrid,
     TerrainStyle,
@@ -18,13 +22,15 @@ import type {
 } from "./planner_types";
 import { SHATTERED_ISLES_PRESET } from "./presets";
 import { sampleSlopeDeg, sampleTerrain, terrainForWorld } from "./terrain";
-import { BIOME_COLORS } from "./planner_defaults";
+import { BIOME_COLORS, PATH_DEFAULTS } from "./planner_defaults";
 import { applyRevisionChange, isProposalPending, rejectRevisionChange } from "./agent_pipeline";
 import { createIntent, evaluateIntent, spotNear } from "./intent_model";
 import { SCULPT_INFO, applyBrushStroke, applyShapeStroke, defaultSculptSettings, type SculptSettings } from "./terrain_sculpt";
 import { emptyOverlay, paintStroke, pruneCodexReferences, type PaintOptions } from "./planning_layers";
+import { attachRouteToQuest, followSpot, forgetSpot, questFromRoute } from "./quest_paths";
+import { STRUCTURE_KINDS, translateStructure } from "./town_planning";
 
-export type PlannerTool = "select" | "pan" | "place_spot" | "draw_path" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate";
+export type PlannerTool = "select" | "pan" | "place_spot" | "quest_path" | "build" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate";
 
 /** Whether a spot sits on the ground (its elevation follows the terrain). Older saves: yes. */
 export const isSnapped = (s: Pick<WorldSpot, "snapToGround">) => s.snapToGround !== false;
@@ -45,7 +51,7 @@ export function paletteForGenre(genre: GameWorld["meta"]["genre"]): "temperate" 
 export class PlannerModel {
     world: GameWorld;
     selectedId: string | null = null;
-    activeTab: "map" | "codex" | "story" | "agent" = "map";
+    activeTab: "map" | "codex" | "story" | "agent" | "worlds" = "map";
     activeTool: PlannerTool = "select";
     pendingPathPoints: [number, number][] = [];
     pendingRegionPoints: [number, number][] = [];
@@ -54,6 +60,18 @@ export class PlannerModel {
     /** What the draw tools make. */
     pendingPathType: PathType = "road";
     pendingRegionBiome: BiomeType = "plains";
+    /** The Quest Path tool: the quest a drawn route goes to, or "new" to make a quest from it. */
+    pendingQuestId: string = "new";
+    /** The Build tool: what a click places. */
+    buildKind: StructureKind = "house";
+    buildShape: StructureShape = "rect";
+    buildWidthM = 10;
+    buildDepthM = 8;
+    buildRotationDeg = 0;
+    /** Turn new buildings to face the nearest street or road. */
+    buildAlign = true;
+    /** Points of a wall, street or area being clicked out. */
+    pendingBuildPoints: [number, number][] = [];
     /** Spot being dragged on the map (one undo step per drag). */
     draggingSpotId: string | null = null;
 
@@ -126,7 +144,17 @@ export class PlannerModel {
         this.world = initialWorld ? JSON.parse(JSON.stringify(initialWorld)) : JSON.parse(JSON.stringify(SHATTERED_ISLES_PRESET));
         this.world.intents ??= [];
         this.world.proposals ??= [];
+        this.world.questPaths ??= [];
+        this.world.structures ??= [];
         this.ensureTerrain();
+    }
+
+    get questPaths(): QuestPath[] {
+        return (this.world.questPaths ??= []);
+    }
+
+    get structures(): WorldStructure[] {
+        return (this.world.structures ??= []);
     }
 
     get intents(): PlanIntent[] {
@@ -217,8 +245,32 @@ export class PlannerModel {
         this.world.contours = [];
         this.resampleSnappedSpots();
         this.pendingSculptPoints = [];
+        // Physical roads and rivers are laid with the ground they need: a graded bed, a canyon floor.
+        this.lastLaidPath = null;
+        const lay: PathType | null = this.sculpt.mode === "grade" && this.sculpt.layRoad !== "none" ? this.sculpt.layRoad : this.sculpt.mode === "canyon" && this.sculpt.layRiver ? "river" : null;
+        if (lay) {
+            const d = PATH_DEFAULTS[lay];
+            const n = this.world.paths.filter((p) => p.pathType === lay).length + 1;
+            const path: WorldPath = {
+                id: `path_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                name: `${lay[0].toUpperCase()}${lay.slice(1)} ${n}`,
+                pathType: lay,
+                points: points.map((p) => [p[0], p[1]] as [number, number]),
+                width: d.width,
+                color: d.color,
+                isMajor: d.isMajor,
+                flowSpeed: d.flowSpeed,
+                surfaceQuality: d.surfaceQuality,
+                description: lay === "river" ? "Runs along a carved canyon floor." : `Laid on a graded bed (max ${this.sculpt.gradeMaxPercent}% grade).`,
+            };
+            this.world.paths.push(path);
+            this.lastLaidPath = path;
+        }
         return true;
     }
+
+    /** The road or river the last road-bed or canyon stroke laid, if any. */
+    lastLaidPath: WorldPath | null = null;
 
     // --- Planning marks & population ---
 
@@ -353,6 +405,8 @@ export class PlannerModel {
         const prev = this.undoStack.pop()!;
         this.world = JSON.parse(prev);
         this.world.intents ??= [];
+        this.world.questPaths ??= [];
+        this.world.structures ??= [];
         this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
@@ -365,6 +419,8 @@ export class PlannerModel {
         const next = this.redoStack.pop()!;
         this.world = JSON.parse(next);
         this.world.intents ??= [];
+        this.world.questPaths ??= [];
+        this.world.structures ??= [];
         this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
@@ -386,7 +442,14 @@ export class PlannerModel {
         if (idx === -1) return false;
         this.snapshot(`spot:${id}:${Object.keys(updates).sort().join(",")}`);
         const moved = updates.x !== undefined || updates.y !== undefined;
-        this.world.spots[idx] = { ...this.world.spots[idx], ...updates };
+        const before = this.world.spots[idx];
+        this.world.spots[idx] = { ...before, ...updates };
+        if (moved) {
+            const after = this.world.spots[idx];
+            followSpot(this.world, id, after.x, after.y);
+            const dx = after.x - before.x, dy = after.y - before.y;
+            if (dx || dy) for (const st of this.structures) if (st.spotId === id) Object.assign(st, translateStructure(st, dx, dy));
+        }
         // A snapped spot stays on the ground: moving it (or switching the snap on) re-reads the
         // ground; an explicit elevation switches the snap off.
         const s = this.world.spots[idx];
@@ -405,9 +468,16 @@ export class PlannerModel {
         const spot = this.world.spots.find((s) => s.id === id);
         if (!spot) return false;
         this.snapshot(this.draggingSpotId === id ? `drag:${id}` : undefined);
+        const [ox, oy] = [spot.x, spot.y];
         spot.x = this.snapCoordinate(xKm);
         spot.y = this.snapCoordinate(yKm);
         if (isSnapped(spot)) spot.elevation = this.elevationAt(spot.x, spot.y, spot.elevation);
+        // Quest routes that pass through the spot, and the town planned around it, come along.
+        followSpot(this.world, id, spot.x, spot.y);
+        const dx = spot.x - ox, dy = spot.y - oy;
+        if (dx || dy) {
+            for (const st of this.structures) if (st.spotId === id) Object.assign(st, translateStructure(st, dx, dy));
+        }
         return true;
     }
 
@@ -444,6 +514,8 @@ export class PlannerModel {
         this.world.codex.forEach((c) => {
             c.linkedSpotIds = c.linkedSpotIds.filter((sid) => sid !== id);
         });
+        forgetSpot(this.world, id);
+        for (const st of this.structures) if (st.spotId === id) delete st.spotId;
         this.world.missions.forEach((m) => {
             if (m.startSpotId === id) delete m.startSpotId;
             if (m.turnInSpotId === id) delete m.turnInSpotId;
@@ -671,6 +743,7 @@ export class PlannerModel {
             if (m.reputation) m.reputation = m.reputation.filter((r) => r.factionId !== id);
             for (const d of Object.values(m.objectiveDetails ?? {})) if (d.targetCodexId === id) delete d.targetCodexId;
         }
+        for (const st of this.structures) if (st.occupantCodexIds) st.occupantCodexIds = st.occupantCodexIds.filter((x) => x !== id);
         if (this.populateCodexId === id) this.populateCodexId = null;
         return true;
     }
@@ -720,7 +793,124 @@ export class PlannerModel {
         }
         for (const act of this.world.acts) for (const ch of act.chapters) ch.missionIds = ch.missionIds.filter((x) => x !== id);
         if (this.highlightedQuestId === id) this.highlightedQuestId = null;
+        // A quest's routes go with it.
+        this.world.questPaths = this.questPaths.filter((q) => q.missionId !== id);
+        if (this.pendingQuestId === id) this.pendingQuestId = "new";
         return true;
+    }
+
+    // --- Quest paths ---
+
+    /**
+     * Finishes the route being drawn: makes a new quest from it (pendingQuestId "new"), or wires it
+     * into the chosen quest. One undo step. Returns the route, its quest and what was linked.
+     */
+    finishPendingQuestPath(): { questPath: QuestPath; mission: Mission; created: boolean; linked: string[] } | null {
+        if (this.pendingPathPoints.length < 2) return null;
+        const points = this.pendingPathPoints.map((p) => [p[0], p[1]] as [number, number]);
+        const existing = this.pendingQuestId !== "new" ? this.world.missions.find((m) => m.id === this.pendingQuestId) : undefined;
+        this.snapshot();
+        let result: { questPath: QuestPath; mission: Mission; created: boolean; linked: string[] };
+        if (existing) {
+            const { questPath, linked } = attachRouteToQuest(this.world, existing, points);
+            this.questPaths.push(questPath);
+            result = { questPath, mission: existing, created: false, linked };
+        } else {
+            const { mission, questPath } = questFromRoute(this.world, points);
+            this.world.missions.push(mission);
+            this.questPaths.push(questPath);
+            // The places on the route know the quest.
+            for (const sid of [mission.startSpotId, ...mission.objectiveSpotIds, mission.turnInSpotId]) {
+                const spot = sid ? this.world.spots.find((s) => s.id === sid) : undefined;
+                if (spot && !spot.linkedMissionIds.includes(mission.id)) spot.linkedMissionIds.push(mission.id);
+            }
+            this.pendingQuestId = mission.id;
+            result = { questPath, mission, created: true, linked: [] };
+        }
+        this.pendingPathPoints = [];
+        this.selectedId = result.questPath.id;
+        this.highlightedQuestId = result.mission.id;
+        return result;
+    }
+
+    updateQuestPath(id: string, updates: Partial<QuestPath>): boolean {
+        const q = this.questPaths.find((x) => x.id === id);
+        if (!q) return false;
+        this.snapshot(`qpath:${id}:${Object.keys(updates).sort().join(",")}`);
+        Object.assign(q, updates);
+        return true;
+    }
+
+    deleteQuestPath(id: string): boolean {
+        const n = this.questPaths.length;
+        if (!this.questPaths.some((q) => q.id === id)) return false;
+        this.snapshot();
+        this.world.questPaths = this.questPaths.filter((q) => q.id !== id);
+        if (this.selectedId === id) this.selectedId = null;
+        return this.questPaths.length < n;
+    }
+
+    // --- Town planning ---
+
+    /** Sets what the Build tool places, with that kind's default shape and size. */
+    setBuildKind(kind: StructureKind): void {
+        const info = STRUCTURE_KINDS[kind] ?? STRUCTURE_KINDS.house;
+        this.buildKind = kind;
+        this.buildShape = info.shape;
+        this.buildWidthM = info.shape === "wall" || info.shape === "street" ? info.lineWidthM ?? 4 : info.widthM;
+        this.buildDepthM = info.depthM;
+        this.pendingBuildPoints = [];
+    }
+
+    addStructures(list: WorldStructure[], select = true): WorldStructure[] {
+        if (!list.length) return [];
+        this.snapshot();
+        this.structures.push(...list);
+        if (select) this.selectedId = list[list.length - 1].id;
+        return list;
+    }
+
+    updateStructure(id: string, updates: Partial<WorldStructure>): boolean {
+        const s = this.structures.find((x) => x.id === id);
+        if (!s) return false;
+        this.snapshot(`structure:${id}:${Object.keys(updates).sort().join(",")}`);
+        Object.assign(s, updates);
+        return true;
+    }
+
+    /** Moves a structure so its anchor lands at (x, y). */
+    moveStructure(id: string, x: number, y: number): boolean {
+        const s = this.structures.find((q) => q.id === id);
+        if (!s) return false;
+        this.snapshot();
+        Object.assign(s, translateStructure(s, this.snapCoordinate(x) - s.x, this.snapCoordinate(y) - s.y));
+        return true;
+    }
+
+    duplicateStructure(id: string): WorldStructure | null {
+        const s = this.structures.find((q) => q.id === id);
+        if (!s) return null;
+        const copy: WorldStructure = { ...JSON.parse(JSON.stringify(s)), id: `bld_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}` };
+        Object.assign(copy, translateStructure(copy, Math.max(s.widthM, 6) * 1.3 / 1000, 0));
+        this.addStructures([copy]);
+        return copy;
+    }
+
+    deleteStructure(id: string): boolean {
+        if (!this.structures.some((s) => s.id === id)) return false;
+        this.snapshot();
+        this.world.structures = this.structures.filter((s) => s.id !== id);
+        if (this.selectedId === id) this.selectedId = null;
+        return true;
+    }
+
+    /** Removes everything planned for a settlement (one undo step); returns how many. */
+    clearTown(spotId: string): number {
+        const n = this.structures.filter((s) => s.spotId === spotId).length;
+        if (!n) return 0;
+        this.snapshot();
+        this.world.structures = this.structures.filter((s) => s.spotId !== spotId);
+        return n;
     }
 
     // --- Design intents ---

@@ -1,14 +1,17 @@
 Feature: The Game World Planner in the real window
   (The driver's GUI pointer "move" holds the button down, so plain hovering is sent as "up".)
   The map's tools driven with real pointer input: select and drag a spot (it lands on the ground),
-  place a spot, draw a road that snaps to a town, measure between two spots, switch terrain views
-  and zoom in on the contours. Then the Codex and Agent tabs, whose multiline text fields used to
+  place a spot, draw a quest path that snaps to a town (and becomes a quest), measure between two
+  spots, switch terrain views and zoom in on the contours. Then the Codex and Agent tabs, whose multiline text fields used to
   freeze the app, and the terrain tools, whose results land back on the map. In between, design
   intents: an area sketched with the Intent tool and settled by the Planner Agent, a pacing route
   whose proposal is rejected, and a pinned intent answered by an external agent over MCP. Then the
   planning tools: a canyon and a mountain range sculpted with real clicks, a raise brush dragged,
   forest painted as planning marks, a creature placed and painted, and a quest shown on the map.
-  The terrain tools live in the map sidebar when nothing is selected. Screenshots of every
+  The terrain tools live in the map sidebar when nothing is selected. Then town planning: a capital
+  laid out from its spot, a building placed, dragged and turned with real pointer input, close
+  enough for the terrain's surface detail; and the world library: a new world created, the first
+  one opened again with its town and quest route intact, and a world started from a preset. Screenshots of every
   step are kept for visual verification. Map geometry assumes the 1800x1020 window and the Shattered
   Isles preset: the 30 km world fits at 26.73 px/km around (730, 558).
 
@@ -63,9 +66,8 @@ Feature: The Game World Planner in the real window
     Then I capture "06-placed-spot"
     And I call the tool "game_planner_state"
 
-  Scenario: Draw a road ending at a town
-    When I click "tool_draw_path"
-    And I set "dropdown_pending_path_type" "1"
+  Scenario: Draw a quest path ending at a town: it becomes a quest
+    When I click "tool_quest_path"
     And I advance 2 frames
     And I send GUI pointer "up" at "703" "585"
     And I advance 2 frames
@@ -81,7 +83,7 @@ Feature: The Game World Planner in the real window
     And I advance 8 frames
     And I send GUI pointer "up" at "955" "716"
     And I advance 3 frames
-    Then I capture "07-drawing-road"
+    Then I capture "07-drawing-quest-path"
     When I send GUI pointer "down" at "955" "716"
     And I advance 2 frames
     And I send GUI pointer "up" at "955" "716"
@@ -89,7 +91,7 @@ Feature: The Game World Planner in the real window
     And I call the tool "game_planner_state"
     When I click "btn_finish_path"
     And I advance 3 frames
-    Then I capture "08-road-done"
+    Then I capture "08-quest-path-done"
     And I call the tool "game_planner_state"
 
   Scenario: Measure from the capital to Drake Peak
@@ -389,7 +391,80 @@ Feature: The Game World Planner in the real window
     When I click "nav_tab_map"
     And I advance 10 frames
     Then I capture "15-generated-world"
-    When I set "dropdown_presets" "2"
+
+  Scenario: Lay out a capital, then place, drag and turn a building up close
+    When I click "btn_fit_world"
+    And I click "tool_select"
+    And I advance 3 frames
+    And I send GUI pointer "up" at "731" "385"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "731" "385"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "731" "385"
+    And I advance 3 frames
+    Then I see the label "Nothing planned here yet. Lay it out from its type, or place buildings with Build (K)."
+    When I click "btn_spot_layout"
+    And I advance 8 frames
+    Then I capture "town-01-capital-laid-out"
+    And I call the tool "game_planner_state"
+    When I click "tool_build"
+    And I call the tool "game_planner_view" with {"x": 2.5, "y": -2.5, "zoom": 1000, "terrainDetail": 2}
+    And I advance 5 frames
+    And I send GUI pointer "up" at "730" "558"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "730" "558"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "730" "558"
+    And I advance 3 frames
+    Then I capture "town-02-house-placed"
+    When I send GUI pointer "down" at "730" "558"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "780" "558"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "830" "558"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "830" "558"
+    And I advance 3 frames
+    And I set "edit_structure_rotation" "0"
+    And I advance 3 frames
+    And I send GUI pointer "up" at "830" "534"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "830" "534"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "860" "550"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "880" "558"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "880" "558"
+    And I advance 3 frames
+    Then I capture "town-03-house-moved-and-turned"
+    And I call the tool "game_planner_state"
+    When I call the tool "game_planner_view" with {"spotId": "spot_solaris_citadel", "zoom": 1400, "terrainDetail": 1}
+    And I click "tool_select"
+    And I advance 5 frames
+    Then I capture "town-04-capital-close"
+
+  Scenario: The world library: a new world, the first one again, a preset
+    When I click "nav_tab_worlds"
+    And I advance 5 frames
+    Then I see the label "Create, open and save your game worlds."
+    And I capture "worlds-01-library"
+    When I set "edit_new_world_name" "Ember Reach"
+    And I set "dropdown_new_world_landform" "2"
+    And I set "input_new_world_seed" "77"
+    And I click "btn_create_world"
+    And I advance 8 frames
+    Then I capture "worlds-02-new-world"
+    And I call the tool "game_planner_state"
+    When I click "nav_tab_worlds"
+    And I advance 3 frames
+    And I click "btn_world_open_world_shattered_isles"
+    And I advance 8 frames
+    Then I capture "worlds-03-reopened"
+    And I call the tool "game_planner_state"
+    When I click "nav_tab_worlds"
+    And I advance 3 frames
+    And I click "btn_world_from_preset_2"
     And I advance 15 frames
     Then I capture "16-crimson-expanse"
     And I call the tool "game_planner_state"
