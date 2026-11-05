@@ -806,6 +806,48 @@ pub struct MapRegionConfig {
     pub is_major: bool,
 }
 
+/// A design intent drawn on the map (see `entropy_gui::MapIntent`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapIntentConfig {
+    pub id: String,
+    #[serde(default)]
+    pub number: u32,
+    #[serde(default)]
+    pub shape: String,
+    #[serde(default)]
+    pub kind: String,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub satisfied: Option<bool>,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+}
+
+/// A proposed change previewed on the map (see `entropy_gui::MapGhost`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapGhostConfig {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub from: Option<[f32; 2]>,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub spot_type: Option<String>,
+    #[serde(default)]
+    pub path_type: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MapElevationBandConfig {
@@ -895,6 +937,16 @@ pub struct GameMapConfig {
     pub measure_anchor: Option<[f32; 2]>,
     #[serde(default)]
     pub fit_request: Option<u32>,
+    #[serde(default)]
+    pub intents: Vec<MapIntentConfig>,
+    #[serde(default)]
+    pub ghosts: Vec<MapGhostConfig>,
+    #[serde(default)]
+    pub show_intents: Option<bool>,
+    #[serde(default)]
+    pub show_proposals: Option<bool>,
+    #[serde(default)]
+    pub selected_change_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

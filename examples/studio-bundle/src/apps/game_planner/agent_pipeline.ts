@@ -4,6 +4,9 @@ import type {
     RevisionProposal,
 } from "./planner_types";
 import { extractTerrainContours } from "./terrain";
+import { evaluateIntent, intentPoints } from "./intent_model";
+
+const escapeXml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /**
  * Serializes the complete game world into a structured JSON string (World Bible).
@@ -98,6 +101,18 @@ export function generateGameDesignDoc(world: GameWorld): string {
         }
         md += `\n`;
     });
+
+    const intents = (world.intents ?? []).filter((i) => i.status !== "dismissed");
+    if (intents.length) {
+        md += `## 7. Design Intent\n\n`;
+        md += `What the designer asked for on the map, and whether the world delivers it now.\n\n`;
+        intents.forEach((i) => {
+            const ev = evaluateIntent(world, i);
+            const mark = ev.satisfied === null ? "◻" : ev.satisfied ? "✓" : "✗";
+            md += `- ${mark} **#${i.number} ${i.title}** (${i.kind}) - ${ev.summary}${i.directive ? `. _${i.directive}_` : ""}\n`;
+        });
+        md += `\n`;
+    }
 
     return md;
 }
@@ -201,6 +216,101 @@ export function createSampleAgentProposal(world: GameWorld): RevisionProposal {
 }
 
 /**
+ * Makes one proposed change real. Returns false when it cannot apply (its target is gone, or the
+ * thing it adds already exists). References to ids that are neither in the world nor pending in
+ * the same proposal are dropped from added missions.
+ */
+export function applyRevisionChange(world: GameWorld, change: RevisionChange, proposal?: RevisionProposal): boolean {
+    const after = change.after ?? {};
+    const id = change.targetId;
+    switch (change.changeType) {
+        case "add_spot":
+            if (world.spots.some((s) => s.id === id)) return false;
+            world.spots.push({ ...after, id });
+            return true;
+        case "modify_spot": {
+            const s = world.spots.find((x) => x.id === id);
+            if (!s) return false;
+            Object.assign(s, after, { id });
+            return true;
+        }
+        case "delete_spot": {
+            const n = world.spots.length;
+            world.spots = world.spots.filter((s) => s.id !== id);
+            world.missions.forEach((m) => {
+                if (m.startSpotId === id) delete m.startSpotId;
+                if (m.turnInSpotId === id) delete m.turnInSpotId;
+                m.objectiveSpotIds = m.objectiveSpotIds.filter((x) => x !== id);
+            });
+            world.codex.forEach((c) => (c.linkedSpotIds = c.linkedSpotIds.filter((x) => x !== id)));
+            return world.spots.length < n;
+        }
+        case "add_path":
+            if (world.paths.some((p) => p.id === id)) return false;
+            world.paths.push({ ...after, id });
+            return true;
+        case "modify_path": {
+            const p = world.paths.find((x) => x.id === id);
+            if (!p) return false;
+            Object.assign(p, after, { id });
+            return true;
+        }
+        case "delete_path": {
+            const n = world.paths.length;
+            world.paths = world.paths.filter((p) => p.id !== id);
+            world.missions.forEach((m) => (m.objectivePathIds = m.objectivePathIds.filter((x) => x !== id)));
+            return world.paths.length < n;
+        }
+        case "add_region":
+            if (world.regions.some((r) => r.id === id)) return false;
+            world.regions.push({ ...after, id });
+            return true;
+        case "modify_region": {
+            const r = world.regions.find((x) => x.id === id);
+            if (!r) return false;
+            Object.assign(r, after, { id });
+            return true;
+        }
+        case "add_mission": {
+            if (world.missions.some((m) => m.id === id)) return false;
+            const pendingIds = new Set((proposal?.changes ?? []).filter((c) => c.status === "pending" && c.id !== change.id).map((c) => c.targetId));
+            const known = (sid?: string) => !!sid && (world.spots.some((s) => s.id === sid) || pendingIds.has(sid));
+            const m = { objectivePathIds: [], objectiveRegionIds: [], requiredCodexIds: [], prerequisiteMissionIds: [], rewardItems: [], rewardXp: 1000, status: "available", missionType: "side", description: "", ...after, id } as any;
+            m.objectiveSpotIds = (m.objectiveSpotIds ?? []).filter(known);
+            if (m.startSpotId && !known(m.startSpotId)) delete m.startSpotId;
+            if (m.turnInSpotId && !known(m.turnInSpotId)) delete m.turnInSpotId;
+            world.missions.push(m);
+            for (const sid of [m.startSpotId, ...m.objectiveSpotIds, m.turnInSpotId]) {
+                const s = world.spots.find((x) => x.id === sid);
+                if (s && !s.linkedMissionIds.includes(id)) s.linkedMissionIds.push(id);
+            }
+            return true;
+        }
+        case "add_codex":
+            if (world.codex.some((c) => c.id === id)) return false;
+            world.codex.push({ linkedSpotIds: [], linkedMissionIds: [], tags: [], attributes: {}, subtitle: "", description: "", conceptImagePrompt: "", ...after, id });
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**
+ * Rejecting an added spot also drops it from missions accepted earlier from the same proposal.
+ */
+export function rejectRevisionChange(world: GameWorld, change: RevisionChange): void {
+    change.status = "rejected";
+    if (change.changeType === "add_spot") {
+        const id = change.targetId;
+        world.missions.forEach((m) => {
+            if (m.startSpotId === id) delete m.startSpotId;
+            if (m.turnInSpotId === id) delete m.turnInSpotId;
+            m.objectiveSpotIds = m.objectiveSpotIds.filter((x) => x !== id);
+        });
+    }
+}
+
+/**
  * Applies accepted changes from an agent revision proposal into the live world.
  */
 export function applyRevisionProposal(
@@ -213,37 +323,81 @@ export function applyRevisionProposal(
 
     proposal.changes.forEach((change) => {
         const shouldApply = acceptedChangeIds ? acceptedChangeIds.includes(change.id) : change.status === "accepted";
-
         if (shouldApply) {
+            applyRevisionChange(world, change, proposal);
             change.status = "accepted";
             appliedCount++;
-
-            if (change.changeType === "add_spot") {
-                const newSpot = { ...change.after, id: change.targetId };
-                // Ensure no duplicate id
-                if (!world.spots.some((s) => s.id === newSpot.id)) {
-                    world.spots.push(newSpot);
-                }
-            } else if (change.changeType === "modify_spot") {
-                const idx = world.spots.findIndex((s) => s.id === change.targetId);
-                if (idx !== -1) {
-                    world.spots[idx] = { ...world.spots[idx], ...change.after };
-                }
-            } else if (change.changeType === "delete_spot") {
-                world.spots = world.spots.filter((s) => s.id !== change.targetId);
-            } else if (change.changeType === "add_path") {
-                const newPath = { ...change.after, id: change.targetId };
-                if (!world.paths.some((p) => p.id === newPath.id)) {
-                    world.paths.push(newPath);
-                }
-            }
         } else {
-            change.status = "rejected";
+            rejectRevisionChange(world, change);
             rejectedCount++;
         }
     });
 
     return { appliedCount, rejectedCount };
+}
+
+/** A proposal still waiting on the designer (some change neither accepted nor rejected). */
+export function isProposalPending(p: RevisionProposal): boolean {
+    return p.changes.some((c) => c.status === "pending");
+}
+
+/** What the map draws for a pending change: a translucent preview of what it would make. */
+export interface ProposalGhost {
+    id: string;
+    proposalId: string;
+    kind: "spot" | "path" | "region" | "move" | "remove";
+    points: [number, number][];
+    label: string;
+    spotType?: string;
+    pathType?: string;
+    /** For a move: where it is now. */
+    from?: [number, number];
+}
+
+export function proposalGhosts(world: GameWorld): ProposalGhost[] {
+    const out: ProposalGhost[] = [];
+    for (const p of world.proposals) {
+        for (const c of p.changes) {
+            if (c.status !== "pending") continue;
+            const a = c.after ?? {};
+            const base = { id: c.id, proposalId: p.id, label: c.title };
+            switch (c.changeType) {
+                case "add_spot":
+                    if (Number.isFinite(a.x) && Number.isFinite(a.y)) out.push({ ...base, kind: "spot", points: [[a.x, a.y]], label: a.name ?? c.title, spotType: a.spotType });
+                    break;
+                case "modify_spot": {
+                    const s = world.spots.find((x) => x.id === c.targetId);
+                    if (s && (a.x !== undefined || a.y !== undefined)) out.push({ ...base, kind: "move", points: [[a.x ?? s.x, a.y ?? s.y]], from: [s.x, s.y], label: s.name, spotType: s.spotType });
+                    break;
+                }
+                case "delete_spot": {
+                    const s = world.spots.find((x) => x.id === c.targetId);
+                    if (s) out.push({ ...base, kind: "remove", points: [[s.x, s.y]], label: s.name, spotType: s.spotType });
+                    break;
+                }
+                case "add_path":
+                case "modify_path": {
+                    const pts = a.points ?? world.paths.find((x) => x.id === c.targetId)?.points;
+                    if (Array.isArray(pts) && pts.length >= 2) out.push({ ...base, kind: "path", points: pts, pathType: a.pathType ?? world.paths.find((x) => x.id === c.targetId)?.pathType ?? "road" });
+                    break;
+                }
+                case "delete_path": {
+                    const path = world.paths.find((x) => x.id === c.targetId);
+                    if (path) out.push({ ...base, kind: "remove", points: path.points, pathType: path.pathType });
+                    break;
+                }
+                case "add_region":
+                case "modify_region": {
+                    const pts = a.points ?? world.regions.find((x) => x.id === c.targetId)?.points;
+                    if (Array.isArray(pts) && pts.length >= 3) out.push({ ...base, kind: "region", points: pts });
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    }
+    return out;
 }
 
 export interface ProposalDiffItem {
@@ -366,7 +520,31 @@ export function exportMapToSvg(world: GameWorld, width = 1200, height = 1200): s
     });
     svg += `  </g>\n\n`;
 
-    // 6. Header Badge Card
+    // 6. Design intents: dashed, numbered, green when the world meets them.
+    const intents = (world.intents ?? []).filter((i) => i.status !== "dismissed");
+    if (intents.length) {
+        svg += `  <!-- Design Intents -->\n  <g fill="none" stroke-width="2" stroke-dasharray="9 5" font-size="11" font-weight="600">\n`;
+        intents.forEach((i) => {
+            const ev = evaluateIntent(world, i);
+            const col = ev.satisfied === true ? "#34d399" : ev.satisfied === false ? "#fbbf24" : "#cbd5e1";
+            const pts = intentPoints(world, i);
+            const label = `#${i.number} ${escapeXml(i.title)}${ev.satisfied === true ? " ✓" : ev.satisfied === false ? " ✗" : ""}`;
+            if (i.shape === "area" && pts.length >= 3) {
+                svg += `    <polygon points="${pts.map(([x, y]) => `${toSvgX(x)},${toSvgY(y)}`).join(" ")}" stroke="${col}" fill="${col}" fill-opacity="0.08" />\n`;
+                const top = pts.reduce((a, b) => (b[1] > a[1] ? b : a));
+                svg += `    <text x="${toSvgX(top[0])}" y="${Number(toSvgY(top[1])) - 8}" fill="${col}" stroke="none" text-anchor="middle">${label}</text>\n`;
+            } else if (i.shape === "route" && pts.length >= 2) {
+                svg += `    <line x1="${toSvgX(pts[0][0])}" y1="${toSvgY(pts[0][1])}" x2="${toSvgX(pts[1][0])}" y2="${toSvgY(pts[1][1])}" stroke="${col}" />\n`;
+                svg += `    <text x="${toSvgX((pts[0][0] + pts[1][0]) / 2)}" y="${Number(toSvgY((pts[0][1] + pts[1][1]) / 2)) - 8}" fill="${col}" stroke="none" text-anchor="middle">${label}</text>\n`;
+            } else if (pts[0]) {
+                svg += `    <circle cx="${toSvgX(pts[0][0])}" cy="${toSvgY(pts[0][1])}" r="9" stroke="${col}" />\n`;
+                svg += `    <text x="${Number(toSvgX(pts[0][0])) + 13}" y="${Number(toSvgY(pts[0][1])) + 4}" fill="${col}" stroke="none">${label}</text>\n`;
+            }
+        });
+        svg += `  </g>\n\n`;
+    }
+
+    // 7. Header Badge Card
     svg += `  <!-- Title Card -->\n`;
     svg += `  <rect x="50" y="50" width="320" height="70" rx="6" fill="rgba(15,20,30,0.85)" stroke="#334155" stroke-width="1.5" />\n`;
     svg += `  <text x="66" y="78" fill="#38bdf8" font-size="16" font-weight="bold">${meta.name}</text>\n`;

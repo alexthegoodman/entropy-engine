@@ -3325,6 +3325,32 @@ export interface MapMeasureConfig {
   travelInfo?: string;
 }
 
+export interface MapIntentConfig {
+  id: string;
+  number: number;
+  shape: "pin" | "area" | "route";
+  kind: string;
+  points: [number, number][];
+  title: string;
+  /** What the live check found, one line. */
+  summary: string;
+  status: string;
+  /** null when it can't be checked automatically. */
+  satisfied: boolean | null;
+  color?: [number, number, number, number];
+}
+
+export interface MapGhostConfig {
+  /** The change's id. */
+  id: string;
+  kind: "spot" | "path" | "region" | "move" | "remove";
+  points: [number, number][];
+  from?: [number, number];
+  label: string;
+  spotType?: string;
+  pathType?: string;
+}
+
 export interface GameMapConfig {
   id?: string;
   worldWidthKm?: number;
@@ -3361,6 +3387,16 @@ export interface GameMapConfig {
   measureAnchor?: [number, number];
   /** Bump to re-fit the view to the whole world. */
   fitRequest?: number;
+  /** Design intents: dashed areas, journeys and pins with a numbered badge and a met/unmet check. */
+  intents?: MapIntentConfig[];
+  /** Proposed changes, previewed in violet until accepted or rejected. */
+  ghosts?: MapGhostConfig[];
+  showIntents?: boolean;
+  showProposals?: boolean;
+  /** The proposed change under review (drawn highlighted). */
+  selectedChangeId?: string;
+  onIntentSelect?: (id: string) => void;
+  onGhostSelect?: (changeId: string) => void;
   onSpotSelect?: (id: string) => void;
   /** Sent while a spot is dragged, each time its snapped position changes. */
   onSpotMove?: (id: string, x: number, y: number) => void;

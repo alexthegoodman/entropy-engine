@@ -189,9 +189,22 @@ export interface StoryAct {
     chapters: StoryChapter[];
 }
 
+export type RevisionChangeType =
+    | "add_spot"
+    | "modify_spot"
+    | "delete_spot"
+    | "add_path"
+    | "modify_path"
+    | "delete_path"
+    | "add_region"
+    | "modify_region"
+    | "add_mission"
+    | "add_codex"
+    | "adjust_landscape";
+
 export interface RevisionChange {
     id: string;
-    changeType: "add_spot" | "modify_spot" | "delete_spot" | "add_path" | "add_mission" | "add_codex" | "adjust_landscape";
+    changeType: RevisionChangeType;
     targetId: string;
     title: string;
     summary: string;
@@ -206,6 +219,80 @@ export interface RevisionProposal {
     timestamp: number;
     motivation: string;
     changes: RevisionChange[];
+    /** The intent this proposal answers, when an agent worked from one. */
+    intentId?: string;
+}
+
+// -------------------------------------------------------------------------------------------------
+// Design intents: what the designer wants, sketched on the map, for agents to build
+// -------------------------------------------------------------------------------------------------
+
+/** How an intent is drawn: a pin at one place, an area outline, or a route between two places. */
+export type IntentShape = "pin" | "area" | "route";
+
+/**
+ * What an intent asks for. Each kind (except freeform) has an automatic check, so an intent is
+ * also an acceptance test the world either passes or fails.
+ * - settle: "N settlements in this area" (area)
+ * - danger: "this area is dangerous, threat level N" (area)
+ * - landmark: "a place of this type here" (pin)
+ * - connect: "these two places are joined by a road" (route)
+ * - pacing: "getting from A to B takes about N minutes by mode" (route)
+ * - quest: "a quest happens here" (pin or area)
+ * - freeform: anything else, for an LLM agent to interpret (any shape; checked by hand)
+ */
+export type IntentKind = "settle" | "danger" | "landmark" | "connect" | "pacing" | "quest" | "freeform";
+
+export type IntentStatus = "open" | "claimed" | "proposed" | "done" | "dismissed";
+
+export interface IntentParams {
+    /** settle: how many places. */
+    count?: number;
+    /** settle / landmark / quest: what kind of spot. */
+    spotType?: SpotType;
+    /** danger: threat level 1-10. */
+    dangerLevel?: number;
+    /** pacing: target travel time. */
+    targetMinutes?: number;
+    /** pacing: how the player travels (default foot). */
+    mode?: TravelMode;
+    /** pacing: allowed deviation from the target, 0..1 (default 0.25). */
+    tolerance?: number;
+    /** connect: road kind to build (default road). */
+    pathType?: PathType;
+    /** danger / settle: biome the area should read as. */
+    biome?: BiomeType;
+}
+
+export interface PlanIntent {
+    id: string;
+    /** Shown on the map badge ("#3"); stable for the intent's life. */
+    number: number;
+    shape: IntentShape;
+    kind: IntentKind;
+    /** pin: [p]; area: polygon; route: [from, to]. World km. */
+    points: [number, number][];
+    /** route: endpoints pinned to spots follow them when they move. */
+    fromSpotId?: string;
+    toSpotId?: string;
+    title: string;
+    /** The designer's words: what they want, for agents to read. */
+    directive: string;
+    params: IntentParams;
+    priority: "low" | "normal" | "high";
+    status: IntentStatus;
+    claimedBy?: string;
+    createdAt: number;
+}
+
+/** The live check of an intent against the world. */
+export interface IntentEvaluation {
+    /** null when nothing can be checked automatically (freeform). */
+    satisfied: boolean | null;
+    /** One line for the map and inspector: "2 of 3 settlements". */
+    summary: string;
+    /** 0..1, how close the world is to meeting it. */
+    progress: number;
 }
 
 export interface WorldMetadata {
@@ -233,4 +320,6 @@ export interface GameWorld {
     acts: StoryAct[];
     missions: Mission[];
     proposals: RevisionProposal[];
+    /** Design intents sketched on the map (older saves have none). */
+    intents?: PlanIntent[];
 }

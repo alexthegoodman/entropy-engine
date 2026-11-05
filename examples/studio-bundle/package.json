@@ -68,7 +68,7 @@
     "typecheck:canvas": "tsc --project tsconfig.canvas.json --noEmit",
     "typecheck": "tsc --noEmit",
     "build-game-planner": "npm run ensure-dist && deno bundle src/apps/game_planner/game_planner_addon.ts --output dist/game_planner.js",
-    "test:game-planner": "vitest run tests/game_planner.test.ts tests/game_planner_terrain.test.ts",
+    "test:game-planner": "vitest run tests/game_planner.test.ts tests/game_planner_terrain.test.ts tests/game_planner_intents.test.ts",
     "typecheck:game-planner": "tsc --project tsconfig.game_planner.json --noEmit"
   },
   "devDependencies": {
