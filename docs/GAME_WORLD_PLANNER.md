@@ -2,7 +2,9 @@
 
 The Game World Planner (`cargo run --bin example -- game-planner`) is a topographic map editor for
 game worlds: terrain with real drainage and contours, spots, roads, rivers, regions, travel times,
-a codex and a quest organizer. This document covers the part that lets a designer **plan at the
+towns planned building by building, quests drawn as routes on the map, a codex and a quest
+organizer, and a library of worlds you create and save (see [Worlds, towns and quest
+paths](#worlds-towns-and-quest-paths)). This document covers the part that lets a designer **plan at the
 level of vision and leave the building to agents**: design intents.
 
 ![Agent proposals previewed on the map](../public/game-planner-intents-proposed-live.png)
@@ -113,9 +115,9 @@ the layer bar clears the selection to get back to it.
 | Mode | How | What it does |
 | ---- | --- | ------------ |
 | Raise, Lower, Smooth, Flatten, Roughen | drag a brush (`[` `]` resize it) | build up, dig, soften, level (to the ground where the stroke starts, or a set height), add broken relief |
-| Canyon | click along its course, Enter | cuts a floor `depth` below the ground with walls up to the rim; the floor runs downhill from the first point, so water could follow it |
+| Canyon | click along its course, Enter | cuts a floor `depth` below the ground with walls up to the rim; the floor runs downhill from the first point, so water could follow it ("Run a river along its floor" adds one) |
 | Mountain range | click along the spine, Enter | adds a crest of peaks and saddles that tapers at the ends, with ridged spurs on the flanks |
-| Road bed | click along a road, Enter | cut and fill: the route's profile is smoothed and its grade capped (8% by default), shoulders blend into the land, water is left for bridges |
+| Road bed | click along a road, Enter | cut and fill: the route's profile is smoothed and its grade capped (8% by default), shoulders blend into the land, water is left for bridges; and lays a trail, road or highway on it ("Lay on it", or nothing) |
 | Plateau / pad | outline an area, Enter | levels it to the mean ground (or a set height) with a soft edge |
 
 Every stroke is one undo step. A selected road has **Grade terrain along it**; a river **Carve a
@@ -184,6 +186,109 @@ of it goes into the Game Design Document.
 | `game_planner_place_codex` | place a codex entry with count, behavior, levels |
 | `game_planner_quest_plan` | read or update a quest's planning detail and get its planning check |
 
+## Worlds, towns and quest paths
+
+![A capital laid out from its spot, up close with surface detail](../public/game-planner-town-live.png)
+
+### The world library
+
+The **Worlds** tab lists every saved world (name, genre, size, counts, file size, when it was saved)
+and opens, copies or deletes them. **New world** makes an empty world on generated terrain: name,
+genre, width and height in km, seed, land (island, archipelago, continent, highlands, lowlands)
+and the terrain grid (129 standard, 257 fine). A preset is now a starting point: "start from a
+preset" makes a copy, and the preset itself is never changed. Switching worlds saves the open one
+first; Ctrl+S saves; the header shows the open world's name and `*` for unsaved changes.
+
+![The Worlds tab](../public/game-planner-worlds-live.png)
+
+Worlds live in the addon's store, `<data>/game-world-planner/worlds/<id>.world.json`, with a small
+`index.json` (rebuilt from the files if it goes missing). The addon's own `game-world-planner.json`
+now holds only settings (the open world, the surface detail). A world saved by an older version in
+that file is moved into the library the first time this version starts.
+
+The file is JSON in a format sized for the data:
+
+| Part | Stored as |
+| ---- | --------- |
+| heightfield | 10 cm steps (16 bits; taller reliefs get coarser steps), predicted from the west, north and north-west samples (the LOCO-I median edge detector), residuals as zigzag varints in base64: 1-2 bytes a sample instead of 6-10 characters of JSON |
+| painted marks | each layer as bytes (density x 255) with runs of empty cells collapsed |
+| everything else | plain JSON, numbers rounded to 4 decimals (0.1 m in km), no whitespace |
+
+Measured on the Shattered Isles with a laid-out capital (157 structures) and a quest route: 143 KB
+as plain JSON, 72 KB in this format on the 129 x 129 grid; on a 257 x 257 grid, 505 KB against
+155 KB. The
+format carries a version (`"format": "entropy-game-world", "version": 2`); bare worlds (the old
+format) still load.
+
+### Surface detail up close
+
+The heightfield is a grid (129 x 129 by default, a sample every ~230 m on a 30 km world). Zoomed in
+past it, the map used to stretch each cell across hundreds of pixels and the ground went soft.
+Now, once a cell is more than a few pixels wide, the visible part of the world is drawn as a fine
+screen-space mesh (~45k vertices, rebuilt only when the view changes): elevations re-sampled with
+Catmull-Rom (bicubic) interpolation, shaded per vertex, plus fractal micro-relief scaled to the cell
+size and the slope. **Detail** in the layer bar sets it: Off (the grid as is), Normal, High. The
+micro-relief is surface texture for reading the ground, not data: it never turns land into water or
+water into land, and elevations, contours, travel and sculpting all use the heightfield.
+
+For real detail, **Terrain & Procedural** re-samples the heightfield to 257 x 257 (bicubic, one
+undo step), which gives the Sculpt brushes, road beds and building pads four times the samples.
+
+### Towns and locations: the Build tool (K)
+
+Zoomed in on a settlement, plan it building by building. **Build** places footprints: house, hall,
+inn, shop, smithy, temple, keep, tower, barracks, warehouse, workshop, farmhouse, barn, mill, dock,
+well, gatehouse, each with a default shape and size in meters. Footprints are rect, round, L, T or U;
+walls and streets are clicked out as lines with a width; squares, markets, gardens and fields as
+outlines. A new building faces the nearest street or road (within 60 m) unless you turn that off;
+`,` and `.` turn the next one by 15 degrees. The cursor shows the footprint before you click.
+
+Drag a building to move it; drag the handle behind a selected building to turn it (it snaps to 15
+degrees). The inspector edits name, kind, shape, size, rotation, floors, which settlement it belongs
+to (the nearest when placed), who lives or works there (characters from the Codex) and notes.
+
+**Lay out** (a settlement spot's **Town plan** card, or the Build panel) drafts the whole place from
+its type in one undo step: radial streets (and a ring for towns and up), a square or market, the
+landmarks near the middle (inn, temple, hall, smithy; the keep for a capital), houses along the
+streets facing them, walls with gatehouses around a city or capital, docks on the nearest shore for
+a port, fields around a village. Roads already running through town are kept clear and lined with
+houses; water and ground steeper than 24 degrees are left empty. "Lay out again" drafts a variant.
+Moving the spot moves its town. The town plan goes into the Game Design Document and the SVG export.
+
+### Quest Paths (L)
+
+![A quest path drawn to Drake's Caldera, which became a quest](../public/game-planner-quest-path-live.png)
+
+What used to be the Path tool is now **Quest Path**: a route always belongs to a quest. Draw from the
+place the quest is given through the places the player goes (points snap to spots) and press Enter:
+
+- with **+ New quest** chosen, a quest is made from the route: the first spot is the giver, the
+  other spots the route passes are the objectives in order, and a route that returns to its start is
+  turned in there. The next route you draw goes to the same quest.
+- with an existing quest chosen, the route is added to it, filling only what it lacks (a giver,
+  objectives it does not have, a turn-in).
+
+Quest paths are drawn in the quest's color (main amber, side cyan, faction violet), dashed with
+direction chevrons, from a `!` to a flag. The inspector shows the quest's giver, objectives and
+turn-in, and the travel time **along the drawn route** (Naismith's rule on the sampled
+slope, quicker on roads, slow through water) on foot and mounted. A quest's Story page lists its
+routes and has **Draw its route on the map**. Route points on a spot follow it when it moves;
+deleting a quest deletes its routes.
+
+Quest paths are plans, not roads: travel times, the road network and "connect" intents ignore them.
+Physical roads and rivers are made by the tools that shape the ground for them: Sculpt > Road bed
+lays a trail, road or highway; Sculpt > Canyon can run a river; the procedural tools and agent
+proposals build both. Existing roads and rivers are selected and edited as before.
+
+### MCP
+
+| Tool | Purpose |
+| ---- | ------- |
+| `game_planner_worlds` | `list`, `save`, `new` (name, genre, size, seed, landform, resolution), `open`, `save_as`, `from_preset`, `delete` |
+| `game_planner_quest_path` | draw a route (points, optional `missionId`): makes or wires up the quest, returns the travel time along it |
+| `game_planner_build` | `place` a building, a `line` (wall, street), an `area` (plaza, field...), `layout` a settlement, `clear` it, `list` |
+| `game_planner_view` | center and zoom the map, set the surface detail, pick a tool |
+
 ## Code
 
 - `examples/studio-bundle/src/apps/game_planner/intent_model.ts` - intents, directive parsing, live
@@ -194,16 +299,25 @@ of it goes into the Game Design Document.
 - `.../terrain_sculpt.ts` - brushes, canyons, mountain ranges, road beds, plateaus.
 - `.../planning_layers.ts` - painted marks, codex placements, region and codex map summaries.
 - `.../quest_planning.ts` - quest objective detail and the planning check.
-- `src/entropy_gui/widgets_game_map.rs` - intent and ghost layers (`MapIntent`, `MapGhost`), their
+- `.../world_store.ts` - the world file format (terrain and paint encodings), the library, new worlds.
+- `.../town_planning.ts` - structure kinds and footprints, street alignment, laying out a settlement.
+- `.../quest_paths.ts` - quests from drawn routes, travel along a route.
+- `src/entropy_gui/widgets_game_map.rs` - the fine terrain mesh (`build_fine_terrain`,
+  `terrain_detail`), structures (`MapStructure`: fill, drag, rotation handle, `StructureMoved` /
+  `StructureRotated` events), the Build cursor (`MapBuildCursor`), quest paths (paths of type
+  `quest`); intent and ghost layers (`MapIntent`, `MapGhost`), their
   hit-testing, tooltips and mini-map markers; painted marks (`MapOverlay`), codex markers
   (`MapMarker`), quest routes (`MapQuestRoute`) and the brush (`MapBrush`, `BrushStroke` events).
 
 Tests: `npm run test:game-planner` in `examples/studio-bundle` (includes
-`tests/game_planner_intents.test.ts` and `tests/game_planner_planning.test.ts`), and the live window test `tests/game_planner_live.rs`
+`tests/game_planner_intents.test.ts`, `tests/game_planner_planning.test.ts`,
+`tests/game_planner_worlds.test.ts` and `tests/game_planner_towns_quests.test.ts`), and the live window test `tests/game_planner_live.rs`
 (`xvfb-run -a cargo test --test game_planner_live` on Linux after `npm run build-game-planner`),
 which sketches intents with real pointer input, runs the Planner Agent, rejects a proposal, and
 answers an intent as an external agent over MCP, then sculpts a canyon and a mountain range with
 real clicks, drags a raise brush, paints forest, places and paints a creature, and shows a quest on
-the map.
+the map; draws a quest path that becomes a quest, lays out the capital, places, drags and turns a
+building up close with surface detail on, creates a new world, reopens the first one with its town
+and route intact, and starts a world from a preset.
 
 ![The plan, mostly met](../public/game-planner-intents-plan-live.png)

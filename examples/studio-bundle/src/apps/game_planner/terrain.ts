@@ -1016,3 +1016,33 @@ export function terrainForWorld(
     const carved = rivers.length ? carveRivers(eroded, meta, rivers, 25) : eroded;
     return fitTerrainToSpots(carved, meta, spots);
 }
+
+/**
+ * The heightfield at a new resolution, sampled with Catmull-Rom (bicubic) interpolation so finer
+ * grids stay smooth rather than faceted. Going finer adds room for detail (sculpting, roads, town
+ * pads); going coarser keeps the save and the map lighter.
+ */
+export function resampleTerrain(t: TerrainGrid, cols: number, rows: number = cols): TerrainGrid {
+    cols = Math.max(2, Math.round(cols));
+    rows = Math.max(2, Math.round(rows));
+    const { data } = t;
+    const at = (c: number, r: number) => data[Math.max(0, Math.min(t.rows - 1, r)) * t.cols + Math.max(0, Math.min(t.cols - 1, c))];
+    const cr = (p0: number, p1: number, p2: number, p3: number, f: number) =>
+        p1 + 0.5 * f * (p2 - p0 + f * (2 * p0 - 5 * p1 + 4 * p2 - p3 + f * (3 * (p1 - p2) + p3 - p0)));
+    const out = new Array<number>(cols * rows);
+    for (let r = 0; r < rows; r++) {
+        const gy = (r / (rows - 1)) * (t.rows - 1);
+        const r1 = Math.floor(gy);
+        const fy = gy - r1;
+        for (let c = 0; c < cols; c++) {
+            const gx = (c / (cols - 1)) * (t.cols - 1);
+            const c1 = Math.floor(gx);
+            const fx = gx - c1;
+            const row = (rr: number) => cr(at(c1 - 1, rr), at(c1, rr), at(c1 + 1, rr), at(c1 + 2, rr), fx);
+            const v = cr(row(r1 - 1), row(r1), row(r1 + 1), row(r1 + 2), fy);
+            out[r * cols + c] = Math.round(v * 100) / 100;
+        }
+    }
+    const { min, max } = terrainStats(out);
+    return { cols, rows, data: out, seaLevelM: t.seaLevelM, minM: min, maxM: max };
+}

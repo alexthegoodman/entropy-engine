@@ -435,4 +435,82 @@ export interface GameWorld {
     overlay?: PlanningOverlay;
     /** Codex entries placed on the map: NPCs, enemy camps, faction outposts. */
     placements?: CodexPlacement[];
+    /** Routes drawn for quests: the way the player is meant to travel (older saves have none). */
+    questPaths?: QuestPath[];
+    /** Buildings, walls, streets and plazas planned in towns and locations (older saves have none). */
+    structures?: WorldStructure[];
+}
+
+// -------------------------------------------------------------------------------------------------
+// Quest paths: the journey a quest sends the player on, drawn on the map. Not a road: roads and
+// rivers are physical (they change travel times); a quest path is a plan of where the player goes.
+// -------------------------------------------------------------------------------------------------
+
+export interface QuestPath {
+    id: string;
+    /** The quest this route belongs to (every quest path has one). */
+    missionId: string;
+    name: string;
+    points: [number, number][]; // world km
+    /** Spots the route's points landed on, by point index, so the quest can be wired from them. */
+    spotIds?: Array<string | null>;
+    notes?: string;
+}
+
+// -------------------------------------------------------------------------------------------------
+// Town planning: building footprints and town features, placed in meters around a center.
+// -------------------------------------------------------------------------------------------------
+
+/**
+ * rect, round, L, T and U are footprints placed at a center; wall and street are polylines with a
+ * width; area is a polygon (a plaza, a field, a district).
+ */
+export type StructureShape = "rect" | "round" | "L" | "T" | "U" | "wall" | "street" | "area";
+
+export type StructureKind =
+    | "house"
+    | "hall"
+    | "inn"
+    | "shop"
+    | "smithy"
+    | "temple"
+    | "keep"
+    | "tower"
+    | "barracks"
+    | "warehouse"
+    | "workshop"
+    | "farmhouse"
+    | "barn"
+    | "mill"
+    | "dock"
+    | "well"
+    | "gate"
+    | "wall"
+    | "street"
+    | "plaza"
+    | "market"
+    | "garden"
+    | "field";
+
+export interface WorldStructure {
+    id: string;
+    kind: StructureKind;
+    shape: StructureShape;
+    name?: string;
+    /** Footprints: the center in world km. Lines and areas: their first point. */
+    x: number;
+    y: number;
+    /** Footprint size in meters (width along the rotated x axis, depth along y). */
+    widthM: number;
+    depthM: number;
+    /** Degrees, counter-clockwise. */
+    rotationDeg: number;
+    /** Walls, streets and areas: their points in world km. */
+    points?: [number, number][];
+    floors?: number;
+    /** The settlement spot it belongs to (the nearest one when placed). */
+    spotId?: string;
+    /** Characters who live or work here. */
+    occupantCodexIds?: string[];
+    notes?: string;
 }

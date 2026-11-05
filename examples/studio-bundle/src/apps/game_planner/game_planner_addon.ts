@@ -17,9 +17,39 @@ import {
     erodeTerrain,
     fitTerrainToSpots,
     generateTerrain,
+    resampleTerrain,
     sampleTerrain,
     terrainStats,
 } from "./terrain";
+import {
+    LANDFORMS,
+    WorldLibrary,
+    copyWorld,
+    createBlankWorld,
+    deserializeWorld,
+    type Landform,
+    type WorldSummary,
+} from "./world_store";
+import { QUEST_PATH_COLORS, questPathTravel, questPathsOf, routeSpots } from "./quest_paths";
+import {
+    FOOTPRINT_SHAPES,
+    STRUCTURE_KINDS,
+    STRUCTURE_KIND_IDS,
+    alignToStreet,
+    canLayOut,
+    createStructure,
+    drawOrder,
+    isFootprint,
+    isLine,
+    layOutTown,
+    localOutline,
+    localParts,
+    normalizeDeg,
+    settlementNear,
+    structureAreaM2,
+    structureGeometry,
+    townSummary,
+} from "./town_planning";
 import {
     createCodexEntry,
     filterCodexByCategory,
@@ -104,6 +134,11 @@ import type {
     CodexEntry,
     CodexPlacement,
     GameWorld,
+    GenreType,
+    QuestPath,
+    StructureKind,
+    StructureShape,
+    WorldStructure,
     IntentKind,
     IntentShape,
     Mission,
@@ -124,13 +159,13 @@ import type {
     WorldRegion,
     WorldSpot,
 } from "./planner_types";
-import type { GameMapConfig, IconName, MapGhostConfig, MapIntentConfig, MapMarkerConfig, MapOverlayConfig, MapQuestRouteConfig, SplitConfig } from "../../addon";
+import type { GameMapConfig, IconName, MapGhostConfig, MapIntentConfig, MapMarkerConfig, MapOverlayConfig, MapPathConfig, MapQuestRouteConfig, MapStructureConfig, SplitConfig } from "../../addon";
 
 // Register Addon
 const addon = Entropy.Addon.register({
     name: "game-world-planner",
-    version: "1.4.0",
-    description: "Game World Planner: sketch design intents on a topographic map and let agents build them - live intent checks, previewed agent proposals you accept or reject on the map, a terrain-aware built-in planner agent and MCP tools for external agents; terrain sculpting (canyons, mountain ranges, road beds, plateaus), painted biome and population plans tied to regions and the codex, quests planned on the map; plus travel times, procedural terrain, codex and story.",
+    version: "1.5.0",
+    description: "Game World Planner: a library of game worlds you create and save; plan towns building by building (or lay one out from a spot) and quests by drawing their routes on the map; sketch design intents on a topographic map and let agents build them - live intent checks, previewed agent proposals you accept or reject on the map, a terrain-aware built-in planner agent and MCP tools for external agents; terrain sculpting (canyons, mountain ranges, road beds, plateaus), painted biome and population plans tied to regions and the codex, quests planned on the map; plus travel times, procedural terrain, codex and story.",
     author: ["Entropy Team", "Google DeepMind"],
     category: "Game Design",
     capabilities: { ui: true, needsViewport: false },
@@ -169,7 +204,17 @@ const fmtKm = (p: [number, number]) => `[${round2(p[0])}, ${round2(p[1])}] km`;
 
 // Global Model State
 let model = new PlannerModel();
-let statusMessage = "Welcome to Game World Planner. Draw your map or load a preset.";
+let statusMessage = "Welcome to Game World Planner. Open a world, start a new one, or begin from a preset.";
+/** The saved-worlds library (`<data>/game-world-planner/worlds/`); null when the app has no data folder. */
+let library: WorldLibrary | null = null;
+/** Surface detail when zoomed in: 0 off, 1 normal, 2 high. A view setting, kept with the app settings. */
+let terrainDetail = 1;
+let showStructures = true;
+/** The New World form. */
+const newWorldForm = { name: "New World", genre: "fantasy" as GenreType, widthKm: 30, heightKm: 30, seed: 1, landform: "island" as Landform, resolution: 129 };
+/** Worlds tab: which saved world is being renamed / confirmed for deletion. */
+let worldsConfirmDelete: string | null = null;
+let worldsSaveAsName = "";
 let codexCategoryFilter: CodexCategory | "all" = "all";
 let codexSearchQuery = "";
 let codexStyleFilter = "Dark Fantasy";
@@ -239,12 +284,44 @@ function setModel(next: PlannerModel): void {
 }
 
 // --- Persistence ---
+//
+// Worlds live in a library in the addon's store, one compact file each (see world_store.ts). The
+// addon's own JSON (`IO.save`) keeps only app settings: which world was open, view preferences.
+// Older versions saved the whole world there; it is moved into the library on first start.
+
+interface PlannerSettings {
+    kind: "planner-settings";
+    currentWorldId?: string;
+    terrainDetail?: number;
+}
+
+const GENRES: GenreType[] = ["fantasy", "scifi", "postapoc", "cyberpunk", "steampunk", "historical"];
+const PRESETS: Array<{ world: GameWorld; label: string }> = [
+    { world: SHATTERED_ISLES_PRESET, label: "Shattered Isles (Fantasy)" },
+    { world: NEO_AETHELGARD_PRESET, label: "Neo-Aethelgard (Cyberpunk)" },
+    { world: CRIMSON_EXPANSE_PRESET, label: "Crimson Expanse (Sci-Fi)" },
+];
+
+function saveSettings(): void {
+    try {
+        const settings: PlannerSettings = { kind: "planner-settings", currentWorldId: model.world.meta.id, terrainDetail };
+        addon.IO.save(settings, { pretty: false });
+    } catch (e) {
+        Entropy.println(`Game World Planner: could not save settings: ${e}`);
+    }
+}
+
+function formatBytes(n: number): string {
+    return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
 
 function saveWorld(): void {
     try {
-        addon.IO.save(model.world, { pretty: false });
+        if (!library) throw new Error("this app has no data folder to save into");
+        const info = library.save(model.world);
         model.isDirty = false;
-        statusMessage = `Saved "${model.world.meta.name}" to world_plan.json.`;
+        saveSettings();
+        statusMessage = `Saved "${model.world.meta.name}" (${formatBytes(info.bytes)}).`;
         Entropy.UI.toast?.({
             id: "planner-save",
             message: `Saved "${model.world.meta.name}".`,
@@ -264,22 +341,78 @@ function saveWorld(): void {
     }
 }
 
+/** Saves the open world first if it has unsaved changes, so switching never loses work. */
+function saveIfDirty(): void {
+    if (model.isDirty) saveWorld();
+}
+
+/** Opens a world from the library. */
+function openWorld(id: string): boolean {
+    if (!library) return false;
+    try {
+        const w = library.load(id);
+        if (!w) {
+            statusMessage = `No saved world "${id}".`;
+            return false;
+        }
+        if (id !== model.world.meta.id) saveIfDirty();
+        setModel(new PlannerModel(w));
+        model.isDirty = false;
+        saveSettings();
+        statusMessage = `Opened "${model.world.meta.name}" (${model.world.spots.length} spots, ${model.world.missions.length} quests, ${model.structures.length} structures).`;
+        return true;
+    } catch (e) {
+        statusMessage = `Could not open that world: ${e}`;
+        return false;
+    }
+}
+
+/** Makes `world` the open world and saves it as a new entry in the library. */
+function startWorld(world: GameWorld, what: string): void {
+    saveIfDirty();
+    setModel(new PlannerModel(world));
+    model.activeTab = "map";
+    saveWorld();
+    statusMessage = `${what} "${model.world.meta.name}" - saved to your worlds.`;
+}
+
+function createNewWorld(): void {
+    const f = newWorldForm;
+    const world = createBlankWorld({ name: f.name, genre: f.genre, widthKm: f.widthKm, heightKm: f.heightKm, seed: f.seed, landform: f.landform, resolution: f.resolution });
+    startWorld(world, "Created");
+    statusMessage = `Created "${model.world.meta.name}": ${f.widthKm} x ${f.heightKm} km of ${f.landform} terrain. Place spots (P), lay out towns (K), draw quest paths (L).`;
+}
+
 function loadWorld(): void {
     try {
-        const loaded = addon.IO.load() as GameWorld | null;
-        if (loaded && loaded.meta && loaded.spots) {
-            const hadTerrain = !!loaded.terrain;
-            setModel(new PlannerModel(loaded));
-            statusMessage = `Loaded "${model.world.meta.name}" (${model.world.spots.length} spots, ${model.world.paths.length} paths).`;
-            if (!hadTerrain) saveWorld();
-        } else {
-            setModel(new PlannerModel(SHATTERED_ISLES_PRESET));
-            saveWorld();
+        library = new WorldLibrary(addon.IO.store);
+    } catch (e) {
+        library = null;
+        Entropy.println(`Game World Planner: no data folder, worlds cannot be saved: ${e}`);
+    }
+    let settings: PlannerSettings | null = null;
+    try {
+        const saved = addon.IO.load() as any;
+        if (saved?.kind === "planner-settings") {
+            settings = saved;
+        } else if (saved?.meta && saved?.spots && library) {
+            // An older version kept the open world here: move it into the library.
+            const legacy = deserializeWorld(JSON.stringify(saved));
+            library.save(legacy);
+            settings = { kind: "planner-settings", currentWorldId: legacy.meta.id };
+            Entropy.println(`Game World Planner: moved "${legacy.meta.name}" into the world library.`);
         }
     } catch (e) {
-        Entropy.println(`Game World Planner: using preset due to load error: ${e}`);
-        setModel(new PlannerModel(SHATTERED_ISLES_PRESET));
+        Entropy.println(`Game World Planner: could not read settings: ${e}`);
     }
+    if (settings?.terrainDetail !== undefined) terrainDetail = settings.terrainDetail;
+    if (settings?.currentWorldId && library?.has(settings.currentWorldId) && openWorld(settings.currentWorldId)) return;
+    // First start (or the open world is gone): the most recent world, else the first preset.
+    const recent = library?.list()[0];
+    if (recent && openWorld(recent.id)) return;
+    setModel(new PlannerModel(SHATTERED_ISLES_PRESET));
+    if (library) saveWorld();
+    statusMessage = "Welcome to Game World Planner: this is the Shattered Isles preset. Worlds (in the header) makes new ones.";
 }
 
 // --- Selection helpers ---
@@ -291,6 +424,18 @@ function deleteSelected(): void {
     }
     const id = model.selectedId;
     if (!id) return;
+    const qp = model.questPaths.find((q) => q.id === id);
+    if (qp) {
+        model.deleteQuestPath(id);
+        statusMessage = `Deleted quest path "${qp.name}" (the quest stays).`;
+        return;
+    }
+    const structure = model.structures.find((x) => x.id === id);
+    if (structure) {
+        model.deleteStructure(id);
+        statusMessage = `Removed ${structureLabel(structure)}.`;
+        return;
+    }
     const placement = model.placements.find((p) => p.id === id);
     if (placement) {
         model.deletePlacement(id);
@@ -311,7 +456,7 @@ function deleteSelected(): void {
         statusMessage = `Deleted spot "${spot.name}".`;
     } else if (path) {
         model.deletePath(id);
-        statusMessage = `Deleted path "${path.name}".`;
+        statusMessage = `Deleted ${path.pathType} "${path.name}".`;
     } else if (region) {
         model.deleteRegion(id);
         statusMessage = `Deleted region "${region.name}".`;
@@ -319,7 +464,8 @@ function deleteSelected(): void {
 }
 
 function selectTool(tool: typeof model.activeTool): void {
-    if (tool !== "draw_path") model.cancelPendingPath();
+    if (tool !== "quest_path") model.cancelPendingPath();
+    if (tool !== "build") model.pendingBuildPoints = [];
     if (tool !== "draw_region") model.cancelPendingRegion();
     if (tool !== "intent") model.cancelPendingIntent();
     if (tool !== "sculpt") model.pendingSculptPoints = [];
@@ -333,7 +479,8 @@ function selectTool(tool: typeof model.activeTool): void {
         select: "Select: click to select, drag spots to move them.",
         pan: "Pan: drag to move the view.",
         place_spot: `Add Spot: click the map to place a ${placeSpotType}.`,
-        draw_path: "Draw Path: click to add points (they snap to spots), double-click or Enter to finish.",
+        quest_path: questPathHint(),
+        build: buildHint(),
         draw_region: "Draw Region: click to add vertices, double-click or Enter to close it.",
         measure: "Measure: click a start point, then a destination.",
         intent: intentToolHint(),
@@ -342,6 +489,79 @@ function selectTool(tool: typeof model.activeTool): void {
         populate: populateHint(),
     };
     statusMessage = names[tool];
+}
+
+function questPathHint(): string {
+    const m = model.pendingQuestId !== "new" ? model.world.missions.find((x) => x.id === model.pendingQuestId) : undefined;
+    return m
+        ? `Quest Path for "${m.title}": click the route (points snap to spots), Enter or double-click to finish. Spots it passes become objectives.`
+        : "Quest Path: click from where the quest is given through the places the player goes (points snap to spots); Enter makes the quest.";
+}
+
+function buildHint(): string {
+    const info = STRUCTURE_KINDS[model.buildKind];
+    if (isLine(model.buildShape)) return `Build ${info.label}: click along it, Enter or double-click to finish.`;
+    if (model.buildShape === "area") return `Build ${info.label}: click its outline, Enter or double-click to close it.`;
+    return `Build ${info.label} (${model.buildWidthM} x ${model.buildDepthM} m): click to place${model.buildAlign ? ", it faces the nearest street" : ""}. , and . turn it; select a spot and use Lay out for a whole town.`;
+}
+
+function structureLabel(s: WorldStructure): string {
+    return s.name || STRUCTURE_KINDS[s.kind]?.label.toLowerCase() || s.kind;
+}
+
+function structureDetail(s: WorldStructure): string {
+    const info = STRUCTURE_KINDS[s.kind];
+    const spot = s.spotId ? model.world.spots.find((p) => p.id === s.spotId) : undefined;
+    const size = isFootprint(s.shape)
+        ? `${s.widthM} x ${s.depthM} m${s.floors ? ` · ${s.floors} floor${s.floors > 1 ? "s" : ""}` : ""}`
+        : isLine(s.shape)
+            ? `${Math.round(structureAreaM2(s) / Math.max(1, s.widthM))} m long, ${s.widthM} m wide`
+            : `${Math.round(structureAreaM2(s))} m²`;
+    const who = (s.occupantCodexIds ?? []).map((id) => codexName(id)).join(", ");
+    return `${info?.label ?? s.kind} · ${size}${spot ? ` · ${spot.name}` : ""}${who ? ` · ${who}` : ""}`;
+}
+
+/** Places what the Build tool holds at a clicked point (footprints) or from clicked points (lines, areas). */
+function placeStructureAt(x: number, y: number): WorldStructure | null {
+    const kind = model.buildKind;
+    if (isFootprint(model.buildShape)) {
+        const rot = model.buildAlign ? alignToStreet(model.world, x, y, 0.06) ?? model.buildRotationDeg : model.buildRotationDeg;
+        const s = createStructure(model.world, kind, x, y, { shape: model.buildShape, widthM: model.buildWidthM, depthM: model.buildDepthM, rotationDeg: rot });
+        model.addStructures([s]);
+        return s;
+    }
+    return null;
+}
+
+function finishBuildShape(): boolean {
+    const pts = model.pendingBuildPoints;
+    const need = model.buildShape === "area" ? 3 : 2;
+    if (pts.length < need) return false;
+    const s = createStructure(model.world, model.buildKind, pts[0][0], pts[0][1], { shape: model.buildShape, points: pts, widthM: isLine(model.buildShape) ? model.buildWidthM : undefined });
+    model.addStructures([s]);
+    model.pendingBuildPoints = [];
+    statusMessage = `Built ${structureLabel(s)}: ${structureDetail(s)}.`;
+    return true;
+}
+
+/** Lays out a whole settlement around a spot (one undo step), replacing what was planned there. */
+function layOutSpot(spot: WorldSpot, variant = 0): void {
+    const had = model.structures.filter((s) => s.spotId === spot.id).length;
+    const { structures, skipped } = layOutTown(model.world, spot, { variant });
+    model.snapshot();
+    model.world.structures = model.structures.filter((s) => s.spotId !== spot.id);
+    model.structures.push(...structures);
+    const sum = townSummary(model.world, spot.id);
+    statusMessage = `Laid out ${spot.name}: ${sum.buildings} buildings, ${structures.length - sum.buildings} streets, walls and squares${had ? ` (replacing ${had})` : ""}${skipped ? `; ${skipped} spots left empty (water or steep ground)` : ""}. Zoom in to see it; one undo step.`;
+}
+
+/** Centers the map on a settlement close enough to see its buildings. */
+function zoomToTown(spot: WorldSpot): void {
+    model.activeTab = "map";
+    const list = model.structures.filter((s) => s.spotId === spot.id);
+    let r = 0.25;
+    for (const s of list) for (const p of structureGeometry(s).outline) r = Math.max(r, Math.hypot(p[0] - spot.x, p[1] - spot.y));
+    model.focusOn(spot.x, spot.y, Math.max(120, Math.min(2400, 420 / r)));
 }
 
 function sculptHint(): string {
@@ -375,7 +595,8 @@ function finishSculptShape(): boolean {
     const label = SCULPT_INFO[model.sculpt.mode].label;
     if (!model.sculptShape()) return false;
     const t = model.world.terrain!;
-    statusMessage = `${label} applied along ${n} points. Terrain now ${Math.round(t.minM)} to ${Math.round(t.maxM)} m; snapped spots re-read their ground.`;
+    const laid = model.lastLaidPath;
+    statusMessage = `${label} applied along ${n} points${laid ? `, and ${laid.pathType} "${laid.name}" laid on it (${round2(pathPolylineLengthKm(laid.points))} km)` : ""}. Terrain now ${Math.round(t.minM)} to ${Math.round(t.maxM)} m; snapped spots re-read their ground.`;
     return true;
 }
 
@@ -446,11 +667,18 @@ function finishDrawing(): boolean {
         if (intent) announceIntent(intent);
         return true;
     }
-    if (model.activeTool === "draw_path" && model.pendingPathPoints.length >= 2) {
-        const p = model.finishPendingPath();
-        if (p) statusMessage = `Created ${p.pathType} "${p.name}" (${round2(pathPolylineLengthKm(p.points))} km, ${p.points.length} points).`;
+    if (model.activeTool === "quest_path" && model.pendingPathPoints.length >= 2) {
+        const r = model.finishPendingQuestPath();
+        if (r) {
+            const km = round2(pathPolylineLengthKm(r.questPath.points));
+            const stops = [r.mission.startSpotId, ...r.mission.objectiveSpotIds].filter(Boolean).length;
+            statusMessage = r.created
+                ? `Created quest "${r.mission.title}" from a ${km} km route${stops ? ` (${stops} stop${stops > 1 ? "s" : ""}: giver and objectives from the spots it passes)` : ""}. Edit it in the inspector or the Story tab; the next route you draw is added to it.`
+                : `Added a ${km} km route to "${r.mission.title}"${r.linked.length ? `: ${r.linked.join(", ")}` : ""}.`;
+        }
         return true;
     }
+    if (model.activeTool === "build" && model.pendingBuildPoints.length) return finishBuildShape();
     if (model.activeTool === "draw_region" && model.pendingRegionPoints.length >= 3) {
         const r = model.finishPendingRegion();
         if (r) statusMessage = `Created region "${r.name}" with ${r.points.length} vertices.`;
@@ -460,7 +688,8 @@ function finishDrawing(): boolean {
 }
 
 function cancelAction(): void {
-    if (model.pendingPathPoints.length || model.pendingRegionPoints.length || model.pendingIntentPoints.length || model.pendingSculptPoints.length) {
+    if (model.pendingPathPoints.length || model.pendingRegionPoints.length || model.pendingIntentPoints.length || model.pendingSculptPoints.length || model.pendingBuildPoints.length) {
+        model.pendingBuildPoints = [];
         model.cancelPendingPath();
         model.cancelPendingRegion();
         model.cancelPendingIntent();
@@ -498,6 +727,7 @@ function renderHeader(tabId: string): void {
                     { id: "codex", label: icon("book-open", "Codex") },
                     { id: "story", label: icon("sword", "Story & Quests") },
                     { id: "agent", label: icon("robot", model.pendingProposals.length ? `Agents (${model.pendingProposals.length})` : "Agents") },
+                    { id: "worlds", label: icon("globe-hemisphere-west", "Worlds") },
                 ];
 
                 tabs.forEach((t) => {
@@ -568,20 +798,7 @@ function renderHeader(tabId: string): void {
                     onClick: () => saveWorld(),
                 });
 
-                const presets = [SHATTERED_ISLES_PRESET, NEO_AETHELGARD_PRESET, CRIMSON_EXPANSE_PRESET];
-                const presetOptions = ["Shattered Isles (Fantasy)", "Neo-Aethelgard (Cyberpunk)", "Crimson Expanse (Sci-Fi)"];
-                const currentPresetIdx = Math.max(0, presets.findIndex((p) => p.meta.id === model.world.meta.id));
-                W.dropdown(right, {
-                    id: "dropdown_presets",
-                    label: "Preset",
-                    options: presetOptions,
-                    selectedIndex: currentPresetIdx,
-                    onChange: (v: string) => {
-                        setModel(new PlannerModel(presets[Number(v)] || SHATTERED_ISLES_PRESET));
-                        saveWorld();
-                        statusMessage = `Switched to ${model.world.meta.name}.`;
-                    },
-                });
+                W.label(right, { text: model.world.meta.name + (model.isDirty ? " *" : ""), fontSize: 11, color: UI.dim, bold: true });
             });
         }
     );
@@ -598,7 +815,7 @@ function renderStatusBar(tabId: string): void {
         },
         undefined,
         (right: string) => {
-            const counts = `${model.world.spots.length} Spots | ${model.world.paths.length} Paths | ${model.world.regions.length} Regions | ${model.world.codex.length} Codex | ${model.world.missions.length} Quests | ${model.intents.length} Intents`;
+            const counts = `${model.world.spots.length} Spots | ${model.structures.length} Structures | ${model.questPaths.length} Quest paths | ${model.world.paths.length} Roads & rivers | ${model.world.regions.length} Regions | ${model.world.codex.length} Codex | ${model.world.missions.length} Quests | ${model.intents.length} Intents`;
             W.label(right, { text: counts, fontSize: 11, color: UI.emerald });
         }
     );
@@ -640,7 +857,8 @@ function renderMapToolbar(canvasArea: string): void {
                     { id: "select", label: icon("cursor", "Select"), key: "V" },
                     { id: "pan", label: icon("hand", "Pan"), key: "H" },
                     { id: "place_spot", label: icon("map-pin-plus", "Spot"), key: "P" },
-                    { id: "draw_path", label: icon("path", "Path"), key: "L" },
+                    { id: "quest_path", label: icon("path", "Quest Path"), key: "L" },
+                    { id: "build", label: icon("buildings", "Build"), key: "K" },
                     { id: "draw_region", label: icon("polygon", "Region"), key: "G" },
                     { id: "measure", label: icon("ruler", "Measure"), key: "M" },
                     { id: "intent", label: icon("lightbulb", "Intent"), key: "I" },
@@ -671,21 +889,43 @@ function renderMapToolbar(canvasArea: string): void {
                             placeSpotType = SPOT_TYPES[Number(v)] || "town";
                         },
                     });
-                } else if (model.activeTool === "draw_path") {
+                } else if (model.activeTool === "quest_path") {
+                    const quests = model.world.missions;
                     W.dropdown(center, {
-                        id: "dropdown_pending_path_type",
-                        label: "Type",
-                        options: PATH_TYPES.map((t) => t[0].toUpperCase() + t.slice(1)),
-                        selectedIndex: Math.max(0, PATH_TYPES.indexOf(model.pendingPathType)),
+                        id: "dropdown_quest_path_quest",
+                        label: "Quest",
+                        options: ["+ New quest", ...quests.map((m) => m.title)],
+                        selectedIndex: model.pendingQuestId === "new" ? 0 : Math.max(0, quests.findIndex((m) => m.id === model.pendingQuestId) + 1),
                         onChange: (v: string) => {
-                            model.pendingPathType = PATH_TYPES[Number(v)] || "road";
+                            const i = Number(v);
+                            model.pendingQuestId = i === 0 ? "new" : quests[i - 1]?.id ?? "new";
+                            statusMessage = questPathHint();
                         },
                     });
                     if (model.pendingPathPoints.length > 0) {
-                        W.label(center, { text: `${model.pendingPathPoints.length} pts · ${round2(pathPolylineLengthKm(model.pendingPathPoints))} km`, fontSize: 11, color: UI.cyan, bold: true });
+                        const stops = routeSpots(model.world, model.pendingPathPoints).stops.length;
+                        W.label(center, { text: `${model.pendingPathPoints.length} pts · ${round2(pathPolylineLengthKm(model.pendingPathPoints))} km · ${stops} stop${stops === 1 ? "" : "s"}`, fontSize: 11, color: UI.amber, bold: true });
                         W.button(center, { id: "btn_finish_path", text: icon("check", "Finish"), tooltip: "Enter", accent: UI.emerald, onClick: () => finishDrawing() });
                         W.button(center, { id: "btn_undo_path_pt", text: icon("arrow-counter-clockwise", "Point"), onClick: () => model.undoPendingPathPoint() });
                         W.button(center, { id: "btn_cancel_path", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => model.cancelPendingPath() });
+                    }
+                } else if (model.activeTool === "build") {
+                    W.dropdown(center, {
+                        id: "dropdown_build_kind",
+                        label: "Build",
+                        options: STRUCTURE_KIND_IDS.map((k) => STRUCTURE_KINDS[k].label),
+                        selectedIndex: Math.max(0, STRUCTURE_KIND_IDS.indexOf(model.buildKind)),
+                        onChange: (v: string) => {
+                            model.setBuildKind(STRUCTURE_KIND_IDS[Number(v)] || "house");
+                            statusMessage = buildHint();
+                        },
+                    });
+                    if (isFootprint(model.buildShape)) {
+                        W.label(center, { text: `${model.buildShape} ${model.buildWidthM}x${model.buildDepthM} m`, fontSize: 11, color: UI.dim });
+                    } else if (model.pendingBuildPoints.length > 0) {
+                        W.label(center, { text: `${model.pendingBuildPoints.length} pts`, fontSize: 11, color: UI.cyan, bold: true });
+                        W.button(center, { id: "btn_finish_build", text: icon("check", "Finish"), tooltip: "Enter", accent: UI.emerald, onClick: () => finishBuildShape() });
+                        W.button(center, { id: "btn_cancel_build", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => (model.pendingBuildPoints = []) });
                     }
                 } else if (model.activeTool === "draw_region") {
                     W.dropdown(center, {
@@ -845,6 +1085,21 @@ function renderMapToolbar(canvasArea: string): void {
                         statusMessage = `Terrain shown as ${model.terrainStyle}.`;
                     },
                 });
+                W.segmented(left, {
+                    id: "seg_terrain_detail",
+                    label: "Detail",
+                    options: ["Off", "Normal", "High"],
+                    selectedIndex: Math.max(0, Math.min(2, Math.round(terrainDetail))),
+                    compact: true,
+                    accent: UI.emerald,
+                    onChange: (v: string) => {
+                        terrainDetail = Math.max(0, Math.min(2, Number(v) || 0));
+                        saveSettings();
+                        statusMessage = terrainDetail
+                            ? `Surface detail ${terrainDetail > 1 ? "high" : "normal"}: zoomed in, the ground is re-sampled smoothly with fine relief shading (texture only; elevations and contours come from the heightfield).`
+                            : "Surface detail off: the heightfield is drawn as it is.";
+                    },
+                });
             });
         },
         undefined,
@@ -857,6 +1112,7 @@ function renderMapToolbar(canvasArea: string): void {
                 toggle("btn_toggle_marks", icon("tree", "Marks"), model.showMarks, () => (model.showMarks = !model.showMarks));
                 toggle("btn_toggle_population", icon("users", "Population"), model.showPopulation, () => (model.showPopulation = !model.showPopulation));
                 toggle("btn_toggle_quests", icon("sword", "Quests"), model.showQuests, () => (model.showQuests = !model.showQuests));
+                toggle("btn_toggle_structures", icon("buildings", "Towns"), showStructures, () => (showStructures = !showStructures));
                 toggle("btn_toggle_intents", icon("lightbulb", "Intents"), model.showIntents, () => (model.showIntents = !model.showIntents));
                 toggle("btn_toggle_proposals", icon("ghost", "Proposals"), model.showProposals, () => (model.showProposals = !model.showProposals));
                 toggle("btn_toggle_labels", icon("tag", "Labels"), model.showLabels, () => (model.showLabels = !model.showLabels));
@@ -917,9 +1173,22 @@ function handleMapClick(x: number, y: number): void {
         statusMessage = elev <= model.world.meta.seaLevelM
             ? `Placed "${newSpot.name}" at ${fmtKm(pt)} - note: that is ${model.world.meta.seaLevelM - elev} m under water.`
             : `Placed "${newSpot.name}" at ${fmtKm(pt)}, ${elev} m above sea level.`;
-    } else if (model.activeTool === "draw_path") {
+    } else if (model.activeTool === "quest_path") {
         model.appendPendingPathPoint(pt);
-        statusMessage = `Path point #${model.pendingPathPoints.length} at ${fmtKm(pt)} - ${round2(pathPolylineLengthKm(model.pendingPathPoints))} km so far.`;
+        const on = routeSpots(model.world, [pt]).stops[0];
+        statusMessage = `Route point #${model.pendingPathPoints.length}${on ? ` at ${on.name}` : ` at ${fmtKm(pt)}`} - ${round2(pathPolylineLengthKm(model.pendingPathPoints))} km so far. Enter finishes.`;
+    } else if (model.activeTool === "build") {
+        if (isFootprint(model.buildShape)) {
+            const s = placeStructureAt(sx, sy);
+            if (s) {
+                const t = model.world.terrain;
+                const wet = t && sampleTerrain(t, model.world.meta, sx, sy) <= model.world.meta.seaLevelM && s.kind !== "dock";
+                statusMessage = `Placed ${structureLabel(s)}: ${structureDetail(s)}${wet ? " - note: that is in the water" : ""}.`;
+            }
+        } else {
+            model.pendingBuildPoints.push(pt);
+            statusMessage = `${STRUCTURE_KINDS[model.buildKind].label} point #${model.pendingBuildPoints.length} - Enter or double-click to finish.`;
+        }
     } else if (model.activeTool === "draw_region") {
         model.appendPendingRegionPoint(pt);
         statusMessage = `Region vertex #${model.pendingRegionPoints.length} at ${fmtKm(pt)}.`;
@@ -1005,7 +1274,61 @@ function mapQuestRoutes(): MapQuestRouteConfig[] {
             points: stops.map((s) => [s.x, s.y] as [number, number]),
             color: MISSION_COLORS[m.missionType] ?? UI.amber,
             highlighted: m.id === model.highlightedQuestId,
+            // A quest with drawn routes shows those; its stops are still numbered when highlighted.
+            markersOnly: questPathsOf(model.world, m.id).length > 0,
         }));
+}
+
+/** Quest paths as the map draws them: paths of type "quest" in their quest's color. */
+function mapQuestPaths(): MapPathConfig[] {
+    return model.questPaths.map((q) => {
+        const m = model.world.missions.find((x) => x.id === q.missionId);
+        return {
+            id: q.id,
+            name: m ? m.title : q.name,
+            pathType: "quest",
+            points: q.points,
+            width: 2.5,
+            color: QUEST_PATH_COLORS[m?.missionType ?? "side"],
+            isMajor: true,
+            flowSpeed: 0,
+        };
+    });
+}
+
+function mapStructures(): MapStructureConfig[] {
+    return drawOrder(model.structures).map((s) => {
+        const g = structureGeometry(s);
+        return {
+            id: s.id,
+            kind: s.kind,
+            label: s.name ?? "",
+            detail: structureDetail(s),
+            parts: g.parts,
+            outline: g.outline,
+            closed: g.closed,
+            lineWidthM: g.lineWidthM,
+            color: STRUCTURE_KINDS[s.kind]?.color,
+            anchor: [s.x, s.y],
+            rotationDeg: s.rotationDeg,
+            rotatable: isFootprint(s.shape),
+        };
+    });
+}
+
+/** The Build tool's next footprint, drawn at the cursor. */
+function mapBuildCursor(): GameMapConfig["buildCursor"] {
+    if (model.activeTool !== "build" || !isFootprint(model.buildShape)) return undefined;
+    const origin = { x: 0, y: 0, rotationDeg: model.buildRotationDeg };
+    const toKm = (p: [number, number]) => {
+        const a = (origin.rotationDeg * Math.PI) / 180;
+        return [(p[0] * Math.cos(a) - p[1] * Math.sin(a)) / 1000, (p[0] * Math.sin(a) + p[1] * Math.cos(a)) / 1000] as [number, number];
+    };
+    return {
+        parts: localParts(model.buildShape, model.buildWidthM, model.buildDepthM).map((part) => part.map(toKm)),
+        outline: localOutline(model.buildShape, model.buildWidthM, model.buildDepthM).map(toKm),
+        color: STRUCTURE_KINDS[model.buildKind].color,
+    };
 }
 
 /** The brush ring for the active tool, if it has one. */
@@ -1122,7 +1445,7 @@ function mapIntents(): MapIntentConfig[] {
 function renderMapCanvasAndToolbar(canvasArea: string): void {
     renderMapToolbar(canvasArea);
 
-    const pending = model.activeTool === "draw_path" ? model.pendingPathPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : model.activeTool === "intent" ? model.pendingIntentPoints : model.activeTool === "sculpt" ? model.pendingSculptPoints : [];
+    const pending = model.activeTool === "quest_path" ? model.pendingPathPoints : model.activeTool === "build" ? model.pendingBuildPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : model.activeTool === "intent" ? model.pendingIntentPoints : model.activeTool === "sculpt" ? model.pendingSculptPoints : [];
     const t = model.world.terrain;
     const measuring = model.activeTool === "measure";
 
@@ -1140,8 +1463,30 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
         activeTool: model.activeTool,
         selectedId: model.selectedId || undefined,
         pendingPoints: pending.length ? pending : undefined,
-        pendingMode: model.activeTool === "draw_path" ? "path" : model.activeTool === "draw_region" ? "region" : model.activeTool === "intent" ? `intent_${model.intentShape}` : model.activeTool === "sculpt" ? `sculpt_${model.sculptKind}` : undefined,
+        pendingMode: model.activeTool === "quest_path" ? "path" : model.activeTool === "build" ? (isLine(model.buildShape) ? "build_line" : model.buildShape === "area" ? "build_area" : "build") : model.activeTool === "draw_region" ? "region" : model.activeTool === "intent" ? `intent_${model.intentShape}` : model.activeTool === "sculpt" ? `sculpt_${model.sculptKind}` : undefined,
         overlay: mapOverlay(),
+        terrainDetail,
+        structures: mapStructures(),
+        showStructures,
+        buildCursor: mapBuildCursor(),
+        onStructureSelect: (id: string) => {
+            model.selectedId = id;
+            model.selectedChangeId = null;
+            model.selectedPlacementId = null;
+            const st = model.structures.find((x) => x.id === id);
+            if (st) statusMessage = `Selected ${structureLabel(st)} (${structureDetail(st)}) - drag to move${isFootprint(st.shape) ? ", drag the handle to turn it" : ""}.`;
+        },
+        onStructureMove: (id: string, x: number, y: number) => {
+            model.moveStructure(id, Number(x.toFixed(4)), Number(y.toFixed(4)));
+            const st = model.structures.find((q) => q.id === id);
+            if (st) statusMessage = `Moved ${structureLabel(st)} to ${fmtKm([st.x, st.y])}.`;
+        },
+        onStructureRotate: (id: string, deg: number, done: boolean) => {
+            const st = model.structures.find((q) => q.id === id);
+            if (!st) return;
+            if (!done && Number.isFinite(deg)) model.updateStructure(id, { rotationDeg: normalizeDeg(deg) });
+            if (done) statusMessage = `Turned ${structureLabel(st)} to ${st.rotationDeg}°.`;
+        },
         markers: mapMarkers(),
         questRoutes: mapQuestRoutes(),
         showMarks: model.showMarks,
@@ -1199,16 +1544,19 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
             tags: s.tags,
             isMajor: s.isMajor,
         })),
-        paths: model.world.paths.map((p) => ({
-            id: p.id,
-            name: p.name,
-            pathType: p.pathType,
-            points: p.points,
-            width: p.width,
-            color: p.color,
-            isMajor: p.isMajor,
-            flowSpeed: p.flowSpeed,
-        })),
+        paths: [
+            ...model.world.paths.map((p) => ({
+                id: p.id,
+                name: p.name,
+                pathType: p.pathType,
+                points: p.points,
+                width: p.width,
+                color: p.color,
+                isMajor: p.isMajor,
+                flowSpeed: p.flowSpeed,
+            })),
+            ...mapQuestPaths(),
+        ],
         regions: model.world.regions.map((r) => ({
             id: r.id,
             name: r.name,
@@ -1248,6 +1596,12 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
             model.selectedChangeId = null;
             const path = model.world.paths.find((p) => p.id === id);
             if (path) statusMessage = `Selected ${path.pathType} "${path.name}".`;
+            const qp = model.questPaths.find((q) => q.id === id);
+            if (qp) {
+                const m = model.world.missions.find((x) => x.id === qp.missionId);
+                model.highlightedQuestId = qp.missionId;
+                statusMessage = `Selected the route of "${m?.title ?? "?"}" (${round2(pathPolylineLengthKm(qp.points))} km).`;
+            }
         },
         onRegionSelect: (id: string) => {
             model.selectedId = id;
@@ -1281,8 +1635,9 @@ function renderInspector(panel: string): void {
         if (found) return renderChangeReview(panel, found.proposal, found.change);
     }
     // The painting and sculpting tools keep their settings on top, whatever is selected.
-    if (["sculpt", "paint", "populate"].includes(model.activeTool)) {
-        if (model.activeTool === "sculpt") renderSculptPanel(panel);
+    if (["sculpt", "paint", "populate", "build"].includes(model.activeTool)) {
+        if (model.activeTool === "build") renderBuildPanel(panel);
+        else if (model.activeTool === "sculpt") renderSculptPanel(panel);
         else if (model.activeTool === "paint") renderPaintPanel(panel);
         else renderPopulatePanel(panel);
         W.spacer(panel, 8);
@@ -1292,6 +1647,10 @@ function renderInspector(panel: string): void {
     const spot = selId ? model.world.spots.find((s) => s.id === selId) : undefined;
     const path = selId ? model.world.paths.find((p) => p.id === selId) : undefined;
     const region = selId ? model.world.regions.find((r) => r.id === selId) : undefined;
+    const questPath = selId ? model.questPaths.find((q) => q.id === selId) : undefined;
+    const structure = selId ? model.structures.find((x) => x.id === selId) : undefined;
+    if (questPath) return renderQuestPathInspector(panel, questPath);
+    if (structure) return renderStructureInspector(panel, structure);
     if (placement) return renderPlacementInspector(panel, placement);
     if (spot) return renderSpotInspector(panel, spot);
     if (path) return renderPathInspector(panel, path);
@@ -1310,7 +1669,7 @@ function renderWorldPanel(panel: string): void {
     renderPlanBoard(panel);
     W.spacer(panel, 8);
     W.label(panel, {
-        text: "Tools: V select, H pan, P spot, L path, G region, M measure, I intent, E sculpt, N paint, U populate. [ ] resize the brush. Space-drag or right-drag pans, the wheel zooms, F fits, Esc cancels, Delete removes.",
+        text: "Tools: V select, H pan, P spot, L quest path, K build, G region, M measure, I intent, E sculpt, N paint, U populate. , and . turn the next building. [ ] resize the brush. Space-drag or right-drag pans, the wheel zooms, F fits, Esc cancels, Delete removes.",
         wrap: true,
         color: UI.dim,
         fontSize: 10.5,
@@ -1377,6 +1736,7 @@ function renderSculptPanel(panel: string): void {
             W.slider(card, { id: "slider_canyon_width", label: `Rim to rim (${s.canyonWidthKm.toFixed(1)} km):`, value: s.canyonWidthKm, min: 0.2, max: 8, onChange: (v) => (s.canyonWidthKm = parseFloat(v) || 1.4) });
             W.slider(card, { id: "slider_canyon_depth", label: `Depth (${Math.round(s.canyonDepthM)} m):`, value: s.canyonDepthM, min: 20, max: 1500, onChange: (v) => (s.canyonDepthM = parseFloat(v) || 260) });
             W.slider(card, { id: "slider_canyon_steep", label: `Wall steepness (${Math.round(s.canyonSteepness * 100)}%):`, value: s.canyonSteepness, min: 0, max: 1, onChange: (v) => (s.canyonSteepness = parseFloat(v) || 0) });
+            W.checkbox(card, { id: "chk_canyon_river", label: "Run a river along its floor", value: s.layRiver, onChange: (v) => (s.layRiver = v) });
         }
         if (s.mode === "ridge") {
             W.slider(card, { id: "slider_ridge_width", label: `Range width (${s.ridgeWidthKm.toFixed(1)} km):`, value: s.ridgeWidthKm, min: 0.5, max: 15, onChange: (v) => (s.ridgeWidthKm = parseFloat(v) || 4) });
@@ -1386,7 +1746,15 @@ function renderSculptPanel(panel: string): void {
         if (s.mode === "grade") {
             W.slider(card, { id: "slider_grade_width", label: `Bed width (${Math.round(s.gradeWidthKm * 1000)} m):`, value: s.gradeWidthKm, min: 0.02, max: 1, onChange: (v) => (s.gradeWidthKm = parseFloat(v) || 0.12) });
             W.slider(card, { id: "slider_grade_max", label: `Steepest grade (${s.gradeMaxPercent.toFixed(0)}%):`, value: s.gradeMaxPercent, min: 1, max: 25, onChange: (v) => (s.gradeMaxPercent = parseFloat(v) || 8) });
-            W.label(card, { text: "Tip: select a road and use \"Grade terrain along it\" to grade an existing path.", wrap: true, fontSize: 10, color: UI.dim });
+            const lays = ["none", "trail", "road", "highway"] as const;
+            W.dropdown(card, {
+                id: "dropdown_grade_lay_road",
+                label: "Lay on it",
+                options: ["Nothing (grade only)", "A trail", "A road", "A highway"],
+                selectedIndex: Math.max(0, lays.indexOf(s.layRoad)),
+                onChange: (v: string) => (s.layRoad = lays[Number(v)] ?? "road"),
+            });
+            W.label(card, { text: "Roads are physical: they shorten travel times and connect places. This is how they are made by hand now (quest routes are drawn with the Quest Path tool). Select a road and use \"Grade terrain along it\" to re-grade an existing one.", wrap: true, fontSize: 10, color: UI.dim });
         }
         if (s.mode === "plateau") {
             W.slider(card, { id: "slider_plateau_feather", label: `Edge slope (${s.featherKm.toFixed(2)} km):`, value: s.featherKm, min: 0.05, max: 3, onChange: (v) => (s.featherKm = parseFloat(v) || 0.4) });
@@ -1966,6 +2334,7 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         },
     });
 
+    renderSpotTown(panel, spot);
     renderSpotStory(panel, spot);
 
     W.spacer(panel, 8);
@@ -2059,6 +2428,240 @@ function renderSpotStory(panel: string, spot: WorldSpot): void {
             selectTool("populate");
             model.selectedId = null;
         },
+    });
+}
+
+/** The Build tool's settings: what to place, its size and how it is turned. */
+function renderBuildPanel(panel: string): void {
+    W.card(panel, { id: "card_build_tool", fill: UI.card, padding: 10 }, (card) => {
+        const info = STRUCTURE_KINDS[model.buildKind];
+        W.label(card, { text: icon("buildings", `Build: ${info.label}`), bold: true, fontSize: 12, color: UI.cyan });
+        W.label(card, { text: "Plan towns and locations at the scale of buildings: footprints for level builders, not models. Zoom in close; terrain detail helps.", wrap: true, fontSize: 10.5, color: UI.dim });
+        if (isFootprint(model.buildShape)) {
+            W.segmented(card, {
+                id: "seg_build_shape",
+                label: "Shape",
+                options: FOOTPRINT_SHAPES.map((x) => (x === "rect" ? "Rect" : x === "round" ? "Round" : x)),
+                selectedIndex: Math.max(0, FOOTPRINT_SHAPES.indexOf(model.buildShape)),
+                compact: true,
+                accent: UI.cyan,
+                onChange: (v: string) => {
+                    model.buildShape = FOOTPRINT_SHAPES[Number(v)] || "rect";
+                    statusMessage = buildHint();
+                },
+            });
+            W.slider(card, { id: "slider_build_width", label: `Width (${model.buildWidthM} m):`, value: model.buildWidthM, min: 2, max: 120, onChange: (v) => (model.buildWidthM = Math.round((parseFloat(v) || 10) * 2) / 2) });
+            W.slider(card, { id: "slider_build_depth", label: `Depth (${model.buildDepthM} m):`, value: model.buildDepthM, min: 2, max: 120, onChange: (v) => (model.buildDepthM = Math.round((parseFloat(v) || 8) * 2) / 2) });
+            W.slider(card, { id: "slider_build_rotation", label: `Rotation (${model.buildRotationDeg}°):`, value: model.buildRotationDeg, min: 0, max: 345, onChange: (v) => (model.buildRotationDeg = Math.round((parseFloat(v) || 0) / 15) * 15) });
+            W.checkbox(card, { id: "chk_build_align", label: "Face the nearest street or road (within 60 m)", value: model.buildAlign, onChange: (v) => (model.buildAlign = v) });
+        } else if (isLine(model.buildShape)) {
+            W.slider(card, { id: "slider_build_line_width", label: `Width (${model.buildWidthM} m):`, value: model.buildWidthM, min: 1, max: 30, onChange: (v) => (model.buildWidthM = Math.round((parseFloat(v) || 4) * 2) / 2) });
+            W.label(card, { text: "Click along it; Enter or double-click finishes.", fontSize: 10.5, color: UI.dim });
+        } else {
+            W.label(card, { text: "Click its outline; Enter or double-click closes it.", fontSize: 10.5, color: UI.dim });
+        }
+        const near = model.world.spots.find((s) => s.id === model.selectedId) ?? (model.viewportCenter ? settlementNear(model.world, model.viewportCenter[0], model.viewportCenter[1], 3) : undefined);
+        if (near && canLayOut(near.spotType)) {
+            W.spacer(card, 4);
+            W.button(card, { id: "btn_build_layout_near", text: icon("magic-wand", `Lay out ${near.name}`), tooltip: "Draft streets, a square and buildings for this settlement from its type", accent: UI.emerald, onClick: () => layOutSpot(near) });
+        }
+    });
+}
+
+/** A settlement's plan: what is built there, laying it out, clearing it. */
+function renderSpotTown(panel: string, spot: WorldSpot): void {
+    const sum = townSummary(model.world, spot.id);
+    if (!sum.total && !canLayOut(spot.spotType)) return;
+    W.card(panel, { id: "card_spot_town", fill: UI.card, padding: 8 }, (card) => {
+        W.label(card, { text: icon("buildings", "Town plan"), bold: true, fontSize: 12, color: UI.cyan });
+        if (sum.total) {
+            W.label(card, { text: `${sum.buildings} buildings (${Math.round(sum.builtAreaM2).toLocaleString()} m² of floor plan) · ${sum.total - sum.buildings} streets, walls and open spaces`, fontSize: 11, color: UI.text, wrap: true });
+            W.label(card, { text: sum.byKind.slice(0, 8).map((k) => `${STRUCTURE_KINDS[k.kind]?.label ?? k.kind} ${k.count}`).join(" · "), fontSize: 10.5, color: UI.dim, wrap: true });
+        } else {
+            W.label(card, { text: "Nothing planned here yet. Lay it out from its type, or place buildings with Build (K).", fontSize: 10.5, color: UI.dim, wrap: true });
+        }
+        W.horizontal(card, () => {
+            if (canLayOut(spot.spotType)) {
+                W.button(card, {
+                    id: "btn_spot_layout",
+                    text: icon("magic-wand", sum.total ? "Lay out again" : "Lay out"),
+                    tooltip: `Draft a ${spot.spotType}: streets, a square, landmarks and houses${sum.total ? " (replaces what is planned here; undo brings it back)" : ""}`,
+                    accent: UI.emerald,
+                    onClick: () => {
+                        layOutSpot(spot, sum.total ? Math.floor(Math.random() * 1000) + 1 : 0);
+                        zoomToTown(spot);
+                    },
+                });
+            }
+            if (sum.total) {
+                W.button(card, { id: "btn_spot_zoom_town", text: icon("magnifying-glass-plus", "Zoom in"), onClick: () => zoomToTown(spot) });
+                W.button(card, {
+                    id: "btn_spot_clear_town",
+                    text: icon("trash", "Clear"),
+                    onClick: () => {
+                        const n = model.clearTown(spot.id);
+                        statusMessage = `Cleared ${n} structures from ${spot.name} (undo brings them back).`;
+                    },
+                });
+            }
+            W.button(card, {
+                id: "btn_spot_build_here",
+                text: icon("buildings", "Build here"),
+                onClick: () => {
+                    selectTool("build");
+                    zoomToTown(spot);
+                },
+            });
+        });
+    });
+}
+
+function renderStructureInspector(panel: string, st: WorldStructure): void {
+    const info = STRUCTURE_KINDS[st.kind];
+    W.label(panel, { text: icon("buildings", st.name || info.label), bold: true, fontSize: 13, color: UI.cyan });
+    W.label(panel, { text: structureDetail(st), fontSize: 10.5, color: UI.dim, wrap: true });
+    W.textInput(panel, { id: "edit_structure_name", label: "Name:", value: st.name ?? "", onChange: (v) => model.updateStructure(st.id, { name: v || undefined }) });
+    // Kinds of the same family: a footprint becomes another footprint, a street a wall, a plaza a field.
+    const family = (sh: StructureShape) => (isFootprint(sh) ? "footprint" : isLine(sh) ? "line" : "area");
+    const kinds = STRUCTURE_KIND_IDS.filter((k) => family(STRUCTURE_KINDS[k].shape) === family(st.shape));
+    W.dropdown(panel, {
+        id: "edit_structure_kind",
+        label: "Kind",
+        options: kinds.map((k) => STRUCTURE_KINDS[k].label),
+        selectedIndex: Math.max(0, kinds.indexOf(st.kind)),
+        onChange: (v: string) => {
+            const k = kinds[Number(v)];
+            if (k) model.updateStructure(st.id, isLine(st.shape) ? { kind: k, shape: STRUCTURE_KINDS[k].shape } : { kind: k });
+        },
+    });
+    if (isFootprint(st.shape)) {
+        W.segmented(panel, {
+            id: "edit_structure_shape",
+            options: FOOTPRINT_SHAPES.map((x) => (x === "rect" ? "Rect" : x === "round" ? "Round" : x)),
+            selectedIndex: Math.max(0, FOOTPRINT_SHAPES.indexOf(st.shape)),
+            compact: true,
+            accent: UI.cyan,
+            onChange: (v: string) => model.updateStructure(st.id, { shape: FOOTPRINT_SHAPES[Number(v)] || "rect" }),
+        });
+        W.slider(panel, { id: "edit_structure_width", label: `Width (${st.widthM} m):`, value: st.widthM, min: 2, max: 150, onChange: (v) => model.updateStructure(st.id, { widthM: Math.round((parseFloat(v) || 10) * 2) / 2 }) });
+        W.slider(panel, { id: "edit_structure_depth", label: `Depth (${st.depthM} m):`, value: st.depthM, min: 2, max: 150, onChange: (v) => model.updateStructure(st.id, { depthM: Math.round((parseFloat(v) || 8) * 2) / 2 }) });
+        W.slider(panel, { id: "edit_structure_rotation", label: `Rotation (${st.rotationDeg}°):`, value: st.rotationDeg, min: 0, max: 359, onChange: (v) => model.updateStructure(st.id, { rotationDeg: normalizeDeg(Math.round(parseFloat(v) || 0)) }) });
+        W.slider(panel, { id: "edit_structure_floors", label: `Floors (${st.floors ?? 0}):`, value: st.floors ?? 0, min: 0, max: 12, onChange: (v) => model.updateStructure(st.id, { floors: Math.round(parseFloat(v) || 0) }) });
+        W.horizontal(panel, () => {
+            W.button(panel, {
+                id: "btn_structure_face_street",
+                text: icon("arrows-clockwise", "Face the street"),
+                onClick: () => {
+                    const rot = alignToStreet(model.world, st.x, st.y, 0.12);
+                    if (rot === null) statusMessage = "No street or road within 120 m.";
+                    else model.updateStructure(st.id, { rotationDeg: rot });
+                },
+            });
+        });
+    } else if (isLine(st.shape)) {
+        W.slider(panel, { id: "edit_structure_line_width", label: `Width (${st.widthM} m):`, value: st.widthM, min: 1, max: 30, onChange: (v) => model.updateStructure(st.id, { widthM: Math.round((parseFloat(v) || 4) * 2) / 2 }) });
+    }
+    // Belongs to
+    const settlements = model.world.spots.filter((s) => canLayOut(s.spotType) || s.id === st.spotId);
+    W.dropdown(panel, {
+        id: "edit_structure_spot",
+        label: "Part of",
+        options: ["(no settlement)", ...settlements.map((s) => s.name)],
+        selectedIndex: st.spotId ? Math.max(0, settlements.findIndex((s) => s.id === st.spotId) + 1) : 0,
+        onChange: (v: string) => {
+            const i = Number(v);
+            model.updateStructure(st.id, { spotId: i === 0 ? undefined : settlements[i - 1]?.id });
+        },
+    });
+    // Who lives or works here
+    const people = model.world.codex.filter((c) => c.category === "character");
+    const occ = st.occupantCodexIds ?? [];
+    if (occ.length) {
+        for (const id of occ) {
+            W.horizontal(panel, () => {
+                W.label(panel, { text: icon("user", codexName(id)), fontSize: 11, color: UI.text });
+                W.button(panel, { id: `btn_structure_unlink_${id}`, text: icon("x", ""), tooltip: "Remove", onClick: () => model.updateStructure(st.id, { occupantCodexIds: occ.filter((x) => x !== id) }) });
+            });
+        }
+    }
+    const candidates = people.filter((c) => !occ.includes(c.id));
+    if (candidates.length) {
+        W.dropdown(panel, {
+            id: "edit_structure_add_occupant",
+            label: "Lives / works here",
+            options: ["(add a character)", ...candidates.map((c) => c.name)],
+            selectedIndex: 0,
+            onChange: (v: string) => {
+                const c = candidates[Number(v) - 1];
+                if (c) model.updateStructure(st.id, { occupantCodexIds: [...occ, c.id] });
+            },
+        });
+    }
+    W.textInput(panel, { id: "edit_structure_notes", label: "Notes (purpose, interior, owner...):", value: st.notes ?? "", multiline: true, height: 60, onChange: (v) => model.updateStructure(st.id, { notes: v || undefined }) });
+    W.spacer(panel, 6);
+    W.horizontal(panel, () => {
+        W.button(panel, {
+            id: "btn_duplicate_structure",
+            text: icon("copy", "Duplicate"),
+            onClick: () => {
+                const c = model.duplicateStructure(st.id);
+                if (c) statusMessage = `Duplicated ${structureLabel(c)}.`;
+            },
+        });
+        W.button(panel, { id: "btn_delete_structure", text: icon("trash", "Delete"), accent: UI.rose, onClick: () => deleteSelected() });
+    });
+}
+
+function renderQuestPathInspector(panel: string, qp: QuestPath): void {
+    const m = model.world.missions.find((x) => x.id === qp.missionId);
+    const color = QUEST_PATH_COLORS[m?.missionType ?? "side"];
+    W.label(panel, { text: icon("path", "Quest Path"), bold: true, fontSize: 13, color });
+    if (m) {
+        W.textInput(panel, { id: "edit_qpath_quest_title", label: "Quest:", value: m.title, onChange: (v) => model.updateMission(m.id, { title: v }) });
+        W.dropdown(panel, {
+            id: "edit_qpath_quest_type",
+            label: "Quest type",
+            options: ["Main", "Side", "Faction"],
+            selectedIndex: Math.max(0, ["main", "side", "faction"].indexOf(m.missionType)),
+            onChange: (v: string) => model.updateMission(m.id, { missionType: (["main", "side", "faction"] as const)[Number(v)] ?? "side" }),
+        });
+        const spot = (id?: string) => (id ? model.world.spots.find((s) => s.id === id)?.name : undefined);
+        W.card(panel, { id: "card_qpath_quest", fill: UI.card, padding: 8 }, (card) => {
+            W.label(card, { text: `Given at: ${spot(m.startSpotId) ?? "(not set)"}`, fontSize: 11, color: UI.text });
+            W.label(card, { text: `Objectives: ${m.objectiveSpotIds.map((id) => spot(id) ?? "?").join(" → ") || "(none yet)"}`, fontSize: 11, color: UI.text, wrap: true });
+            W.label(card, { text: `Turned in at: ${spot(m.turnInSpotId) ?? spot(m.startSpotId) ?? "(not set)"}`, fontSize: 11, color: UI.text });
+            W.horizontal(card, () => {
+                W.button(card, { id: "btn_qpath_open_quest", text: icon("sword", "Open quest"), onClick: () => openQuest(m.id) });
+                W.button(card, { id: "btn_qpath_show_quest", text: icon("map-trifold", "Show journey"), onClick: () => showQuestOnMap(m) });
+            });
+        });
+    } else {
+        W.label(panel, { text: "Its quest was deleted.", fontSize: 11, color: UI.rose });
+    }
+    W.textInput(panel, { id: "edit_qpath_name", label: "Route name:", value: qp.name, onChange: (v) => model.updateQuestPath(qp.id, { name: v }) });
+    W.card(panel, { id: "card_qpath_travel", fill: UI.card, padding: 8 }, (card) => {
+        W.label(card, { text: icon("clock", "Along this route"), bold: true, fontSize: 12, color: UI.text });
+        const foot = questPathTravel(model.world, qp.points, "foot");
+        const mount = questPathTravel(model.world, qp.points, "mount");
+        W.label(card, { text: `${foot.distanceKm} km · climb ${foot.climbM} m / descend ${foot.descentM} m`, fontSize: 11, color: UI.text });
+        W.label(card, { text: `On foot ${foot.formatted} · mounted ${mount.formatted}`, fontSize: 11, color: UI.amber });
+        if (foot.roadKm > 0) W.label(card, { text: `${foot.roadKm} km of it on roads`, fontSize: 10.5, color: UI.dim });
+        if (foot.waterKm > 0) W.label(card, { text: `${foot.waterKm} km of it crosses water - a boat, a bridge or a ford is needed`, fontSize: 10.5, color: UI.rose, wrap: true });
+        const stops = routeSpots(model.world, qp.points).stops;
+        if (stops.length) W.label(card, { text: `Passes ${stops.map((s) => s.name).join(" → ")}`, fontSize: 10.5, color: UI.dim, wrap: true });
+    });
+    W.textInput(panel, { id: "edit_qpath_notes", label: "Notes (encounters, set pieces on the way):", value: qp.notes ?? "", multiline: true, height: 60, onChange: (v) => model.updateQuestPath(qp.id, { notes: v || undefined }) });
+    W.spacer(panel, 6);
+    W.horizontal(panel, () => {
+        W.button(panel, {
+            id: "btn_qpath_add_route",
+            text: icon("plus", "Draw another route"),
+            onClick: () => {
+                model.pendingQuestId = qp.missionId;
+                selectTool("quest_path");
+            },
+        });
+        W.button(panel, { id: "btn_delete_qpath", text: icon("trash", "Delete route"), accent: UI.rose, onClick: () => deleteSelected() });
     });
 }
 
@@ -2972,6 +3575,32 @@ function renderMissionDetail(main: string): void {
     const objSpots = mission.objectiveSpotIds.map((id) => spots.find((s) => s.id === id)).filter((s): s is WorldSpot => !!s);
     const turnInSpot = spots.find((s) => s.id === mission.turnInSpotId) || startSpot;
     const analysis = analyzeQuest(model.world, mission);
+    // Quest paths: the routes drawn for this quest.
+    const routes = questPathsOf(model.world, mission.id);
+    W.card(main, { id: "card_mission_quest_paths", fill: UI.card, padding: 10 }, (card) => {
+        W.horizontal(card, () => {
+            W.label(card, { text: icon("path", `Quest paths (${routes.length})`), bold: true, fontSize: 11, color: UI.amber });
+            W.button(card, {
+                id: "btn_mission_draw_route",
+                text: icon("plus", routes.length ? "Draw another route" : "Draw its route on the map"),
+                tooltip: "Quest Path tool (L): spots the route passes become this quest's giver and objectives",
+                onClick: () => {
+                    model.activeTab = "map";
+                    model.pendingQuestId = mission.id;
+                    model.highlightedQuestId = mission.id;
+                    selectTool("quest_path");
+                },
+            });
+        });
+        for (const q of routes) {
+            const t = questPathTravel(model.world, q.points, "foot");
+            W.horizontal(card, () => {
+                W.label(card, { text: `${q.name}: ${t.distanceKm} km, ${t.formatted} on foot along the route${t.waterKm ? ` (${t.waterKm} km over water)` : ""}`, fontSize: 10.5, color: UI.text });
+                W.button(card, { id: `btn_mission_route_${q.id}`, text: icon("map-trifold", ""), tooltip: "Select it on the map", onClick: () => { model.activeTab = "map"; model.selectedId = q.id; model.highlightedQuestId = mission.id; } });
+            });
+        }
+        if (!routes.length) W.label(card, { text: "No route drawn yet: the map shows straight legs between its stops.", fontSize: 10.5, color: UI.dim });
+    });
     if (startSpot && objSpots.length > 0 && turnInSpot) {
         const routeWaypoints = [startSpot, ...objSpots, turnInSpot].map((s) => ({ x: s.x, y: s.y, elevation: s.elevation }));
         const routeFoot = calculateRouteTravelTime(routeWaypoints, "foot");
@@ -3188,6 +3817,23 @@ function renderTerrainTools(main: string): void {
         const land = t.data.filter((v) => v > t.seaLevelM).length / t.data.length;
         W.label(main, { text: `${t.cols}x${t.rows} grid · ${Math.round(stats.min)} to ${Math.round(stats.max)} m · ${Math.round(land * 100)}% land`, fontSize: 11, color: UI.text });
         W.button(main, { id: "btn_open_sculpt", text: icon("shovel", "Sculpt by hand (E)"), accent: model.activeTool === "sculpt" ? UI.amber : undefined, onClick: () => selectTool("sculpt") });
+        const cellM = Math.round((model.world.meta.worldWidthKm * 1000) / (t.cols - 1));
+        W.label(main, { text: `Resolution: one sample every ${cellM} m. A finer grid holds more sculpted detail (and saves larger); the map's surface detail setting only changes how it is drawn.`, fontSize: 10.5, color: UI.dim, wrap: true });
+        W.horizontal(main, () => {
+            for (const n of [129, 257]) {
+                W.button(main, {
+                    id: `btn_terrain_res_${n}`,
+                    text: `${n}x${n}`,
+                    accent: t.cols === n ? UI.emerald : undefined,
+                    tooltip: n > t.cols ? "Re-sample finer (bicubic): room for detail" : "Re-sample coarser: lighter saves",
+                    onClick: () => {
+                        if (t.cols === n) return;
+                        model.setTerrain(resampleTerrain(t, n, n));
+                        statusMessage = `Terrain re-sampled to ${n}x${n} (one sample every ${Math.round((model.world.meta.worldWidthKm * 1000) / (n - 1))} m). Undo restores it.`;
+                    },
+                });
+            }
+        });
         W.spacer(main, 6);
     }
 
@@ -3423,6 +4069,122 @@ function renderTerrainTools(main: string): void {
 // TAB 5: AGENT COLLABORATION, BIBLE EXPORT & REVISION DIFF REVIEW
 // =================================================================================================
 
+// =================================================================================================
+// TAB: WORLDS - new, open, save as, delete
+// =================================================================================================
+
+function renderWorldsView(main: string): void {
+    W.label(main, { text: icon("globe-hemisphere-west", "Game Worlds"), bold: true, fontSize: 16, color: UI.emerald });
+    W.label(main, { text: "Create, open and save your game worlds.", fontSize: 12, color: UI.text });
+    W.label(main, {
+        text: "Every world is saved in its own compact file: the heightfield quantized to 10 cm and delta-packed, painted layers run-length packed, everything else as plain JSON. Switching worlds saves the open one first.",
+        wrap: true,
+        fontSize: 11,
+        color: UI.dim,
+    });
+    if (!library) W.label(main, { text: "This app has no data folder, so worlds cannot be saved.", fontSize: 11, color: UI.rose });
+    W.spacer(main, 8);
+
+    // The open world.
+    W.card(main, { id: "card_worlds_current", fill: UI.card, padding: 12 }, (card) => {
+        const w = model.world;
+        W.label(card, { text: icon("map-trifold", `Open: ${w.meta.name}${model.isDirty ? " (unsaved changes)" : ""}`), bold: true, fontSize: 13, color: UI.text });
+        W.label(card, { text: `${w.meta.genre} · ${w.meta.worldWidthKm} x ${w.meta.worldHeightKm} km · ${w.spots.length} spots · ${model.structures.length} structures · ${w.missions.length} quests (${model.questPaths.length} routes) · ${w.codex.length} codex entries`, fontSize: 11, color: UI.dim, wrap: true });
+        W.textInput(card, { id: "edit_world_name", label: "Name:", value: w.meta.name, onChange: (v) => { w.meta.name = v; model.isDirty = true; } });
+        W.textInput(card, { id: "edit_world_description", label: "Description:", value: w.meta.description, multiline: true, height: 48, onChange: (v) => { w.meta.description = v; model.isDirty = true; } });
+        W.horizontal(card, () => {
+            W.button(card, { id: "btn_worlds_save", text: icon("floppy-disk", "Save"), tooltip: "Ctrl+S", accent: model.isDirty ? UI.amber : UI.emerald, onClick: () => saveWorld() });
+            W.textInput(card, { id: "edit_world_save_as", label: "Save as:", value: worldsSaveAsName, width: 180, onChange: (v) => (worldsSaveAsName = v) });
+            W.button(card, {
+                id: "btn_worlds_save_as",
+                text: icon("copy", "Save a copy"),
+                tooltip: "Saves the open world under a new name and keeps working on the copy",
+                onClick: () => {
+                    const name = worldsSaveAsName.trim() || `${model.world.meta.name} (copy)`;
+                    const before = model.world.meta.name;
+                    startWorld(copyWorld(model.world, name), "Saved a copy:");
+                    worldsSaveAsName = "";
+                    statusMessage = `Saved "${before}" as "${name}"; you are now working on the copy.`;
+                },
+            });
+        });
+    });
+    W.spacer(main, 10);
+
+    // New world.
+    W.card(main, { id: "card_worlds_new", fill: UI.card, padding: 12 }, (card) => {
+        const f = newWorldForm;
+        W.label(card, { text: icon("plus", "New world"), bold: true, fontSize: 13, color: UI.cyan });
+        W.textInput(card, { id: "edit_new_world_name", label: "Name:", value: f.name, onChange: (v) => (f.name = v) });
+        W.horizontal(card, () => {
+            W.dropdown(card, { id: "dropdown_new_world_genre", label: "Genre", options: GENRES.map((g) => g[0].toUpperCase() + g.slice(1)), selectedIndex: Math.max(0, GENRES.indexOf(f.genre)), onChange: (v: string) => (f.genre = GENRES[Number(v)] ?? "fantasy") });
+            W.dropdown(card, { id: "dropdown_new_world_landform", label: "Land", options: LANDFORMS.map((l) => l.label), selectedIndex: Math.max(0, LANDFORMS.findIndex((l) => l.id === f.landform)), onChange: (v: string) => (f.landform = LANDFORMS[Number(v)]?.id ?? "island") });
+        });
+        W.horizontal(card, () => {
+            W.numericInput(card, { id: "input_new_world_width", label: "Width (km):", value: f.widthKm, decimals: 0, step: 1, min: 1, max: 400, onChange: (v) => (f.widthKm = Math.max(1, Math.min(400, parseFloat(v) || 30))) });
+            W.numericInput(card, { id: "input_new_world_height", label: "Height (km):", value: f.heightKm, decimals: 0, step: 1, min: 1, max: 400, onChange: (v) => (f.heightKm = Math.max(1, Math.min(400, parseFloat(v) || 30))) });
+            W.numericInput(card, { id: "input_new_world_seed", label: "Seed:", value: f.seed, decimals: 0, step: 1, onChange: (v) => (f.seed = Math.round(parseFloat(v) || 1)) });
+            W.button(card, { id: "btn_new_world_seed", text: icon("shuffle", ""), tooltip: "Random seed", onClick: () => (f.seed = Math.floor(Math.random() * 100000)) });
+        });
+        W.segmented(card, {
+            id: "seg_new_world_resolution",
+            label: "Terrain grid",
+            options: ["129 (standard)", "257 (fine)"],
+            selectedIndex: f.resolution > 129 ? 1 : 0,
+            compact: true,
+            accent: UI.cyan,
+            onChange: (v: string) => (f.resolution = Number(v) === 1 ? 257 : 129),
+        });
+        W.label(card, { text: `One terrain sample every ${Math.round((f.widthKm * 1000) / (f.resolution - 1))} m.`, fontSize: 10.5, color: UI.dim });
+        W.button(card, { id: "btn_create_world", text: icon("plus", "Create world"), accent: UI.emerald, onClick: () => createNewWorld() });
+        W.spacer(card, 6);
+        W.label(card, { text: "Or start from a preset (a copy; the preset stays as it is):", fontSize: 11, color: UI.dim });
+        W.horizontal(card, () => {
+            PRESETS.forEach((p, i) => {
+                W.button(card, { id: `btn_world_from_preset_${i}`, text: icon("copy", p.label), onClick: () => startWorld(copyWorld(p.world, p.world.meta.name), "Started from preset:") });
+            });
+        });
+    });
+    W.spacer(main, 10);
+
+    // The library.
+    const worlds: WorldSummary[] = library ? library.list() : [];
+    W.label(main, { text: icon("folder-open", `Saved worlds (${worlds.length})`), bold: true, fontSize: 13, color: UI.text });
+    for (const w of worlds) {
+        const open = w.id === model.world.meta.id;
+        W.card(main, { id: `card_world_${w.id}`, fill: open ? UI.panel : UI.card, padding: 10 }, (card) => {
+            W.horizontal(card, () => {
+                W.label(card, { text: `${w.name}${open ? "  (open)" : ""}`, bold: true, fontSize: 12, color: open ? UI.emerald : UI.text });
+                W.label(card, { text: `${w.genre} · ${w.widthKm} x ${w.heightKm} km · ${w.spots} spots · ${w.structures} structures · ${w.quests} quests · ${formatBytes(w.bytes)} · saved ${new Date(w.savedAt).toLocaleString()}`, fontSize: 10.5, color: UI.dim });
+            });
+            W.horizontal(card, () => {
+                if (!open) W.button(card, { id: `btn_world_open_${w.id}`, text: icon("folder-open", "Open"), accent: UI.cyan, onClick: () => { if (openWorld(w.id)) model.activeTab = "map"; } });
+                if (worldsConfirmDelete === w.id) {
+                    W.label(card, { text: "Delete it for good?", fontSize: 11, color: UI.rose });
+                    W.button(card, {
+                        id: `btn_world_delete_yes_${w.id}`,
+                        text: icon("trash", "Delete"),
+                        accent: UI.rose,
+                        onClick: () => {
+                            library?.remove(w.id);
+                            worldsConfirmDelete = null;
+                            statusMessage = `Deleted "${w.name}".`;
+                            if (open) {
+                                // The open world keeps going in memory; saving re-creates it.
+                                model.isDirty = true;
+                                statusMessage += " It stays open; Save keeps it after all.";
+                            }
+                        },
+                    });
+                    W.button(card, { id: `btn_world_delete_no_${w.id}`, text: "Keep", onClick: () => (worldsConfirmDelete = null) });
+                } else {
+                    W.button(card, { id: `btn_world_delete_${w.id}`, text: icon("trash", "Delete"), onClick: () => (worldsConfirmDelete = w.id) });
+                }
+            });
+        });
+    }
+}
+
 function copyText(text: string, what: string): void {
     const ok = Entropy.Clipboard?.writeText(text);
     statusMessage = ok === false ? `${what} generated (${text.length} characters), but the clipboard was unavailable.` : `Copied ${what} to the clipboard (${text.length} characters).`;
@@ -3545,6 +4307,7 @@ addon.onInit(() => {
                     if (model.activeTab === "map") renderMapView(main);
                     else if (model.activeTab === "codex") renderCodexView(main);
                     else if (model.activeTab === "story") renderStoryView(main);
+                    else if (model.activeTab === "worlds") renderWorldsView(main);
                     else renderAgentView(main);
                 }
             );
@@ -3573,7 +4336,13 @@ addon.onInit(() => {
         else if (k === "v") selectTool("select");
         else if (k === "h") selectTool("pan");
         else if (k === "p") selectTool("place_spot");
-        else if (k === "l") selectTool("draw_path");
+        else if (k === "l") selectTool(model.activeTool === "quest_path" ? "select" : "quest_path");
+        else if (k === "k") selectTool(model.activeTool === "build" ? "select" : "build");
+        else if ((k === "," || k === ".") && model.activeTool === "build") {
+            model.buildRotationDeg = normalizeDeg(model.buildRotationDeg + (k === "." ? 15 : -15));
+            model.buildAlign = false;
+            statusMessage = `Next building turned to ${model.buildRotationDeg}° (facing the street is off).`;
+        }
         else if (k === "g") selectTool("draw_region");
         else if (k === "m") selectTool(model.activeTool === "measure" ? "select" : "measure");
         else if (k === "i") selectTool(model.activeTool === "intent" ? "select" : "intent");
@@ -4041,6 +4810,148 @@ addon.onInit(() => {
     // A read-only view of the planner's UI state, for tests and agents driving the app.
     addon.registerTool(
         {
+            name: "game_planner_view",
+            description: "Moves the map: center { x, y } km and zoom (screen pixels per km; ~25 shows a 30 km world, 400+ shows a town, 2000 single buildings). Optional: spotId to center on a spot, terrainDetail 0|1|2 (surface detail up close), tool (select, quest_path, build, ...).",
+            parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, zoom: { type: "number" }, spotId: { type: "string" }, terrainDetail: { type: "number" }, tool: { type: "string" } } },
+        },
+        (args: any) => {
+            const s = args?.spotId ? model.world.spots.find((p) => p.id === args.spotId) : undefined;
+            const x = s ? s.x : Number(args?.x ?? model.focus.center[0]);
+            const y = s ? s.y : Number(args?.y ?? model.focus.center[1]);
+            model.activeTab = "map";
+            model.focusOn(x, y, args?.zoom !== undefined ? Math.max(1, Number(args.zoom)) : undefined);
+            if (args?.terrainDetail !== undefined) terrainDetail = Math.max(0, Math.min(2, Number(args.terrainDetail) || 0));
+            if (args?.tool) selectTool(args.tool);
+            return { success: true, center: [x, y], zoom: model.focus.zoom ?? null, terrainDetail, activeTool: model.activeTool };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_worlds",
+            description: "The world library. action: list (saved worlds), save (the open world), new { name, genre, widthKm, heightKm, seed, landform: island|archipelago|continent|highlands|lowlands, resolution: 129|257 }, open { worldId }, save_as { name }, from_preset { preset: 0|1|2 }, delete { worldId } (not the open one).",
+            parameters: { type: "object", properties: { action: { type: "string" }, worldId: { type: "string" }, name: { type: "string" }, genre: { type: "string" }, widthKm: { type: "number" }, heightKm: { type: "number" }, seed: { type: "number" }, landform: { type: "string" }, resolution: { type: "number" }, preset: { type: "number" } }, required: ["action"] },
+        },
+        (args: any) => {
+            if (!library) return { success: false, error: "no data folder: worlds cannot be saved" };
+            const open = () => ({ id: model.world.meta.id, name: model.world.meta.name });
+            switch (args?.action) {
+                case "list":
+                    return { success: true, open: open(), worlds: library.list() };
+                case "save":
+                    saveWorld();
+                    return { success: !model.isDirty, open: open(), worlds: library.list() };
+                case "new": {
+                    Object.assign(newWorldForm, {
+                        name: String(args.name ?? "New World"),
+                        genre: GENRES.includes(args.genre) ? args.genre : "fantasy",
+                        widthKm: Number(args.widthKm) || 30,
+                        heightKm: Number(args.heightKm) || 30,
+                        seed: Math.round(Number(args.seed) || 1),
+                        landform: LANDFORMS.some((l) => l.id === args.landform) ? args.landform : "island",
+                        resolution: Number(args.resolution) >= 257 ? 257 : 129,
+                    });
+                    createNewWorld();
+                    return { success: true, open: open(), terrain: { cols: model.world.terrain!.cols, minM: model.world.terrain!.minM, maxM: model.world.terrain!.maxM }, worlds: library.list() };
+                }
+                case "open":
+                    return openWorld(String(args.worldId)) ? { success: true, open: open() } : { success: false, error: statusMessage };
+                case "save_as": {
+                    startWorld(copyWorld(model.world, String(args.name || `${model.world.meta.name} (copy)`)), "Saved a copy:");
+                    return { success: true, open: open(), worlds: library.list() };
+                }
+                case "from_preset": {
+                    const p = PRESETS[Number(args.preset) || 0] ?? PRESETS[0];
+                    startWorld(copyWorld(p.world, p.world.meta.name), "Started from preset:");
+                    return { success: true, open: open() };
+                }
+                case "delete":
+                    if (args.worldId === model.world.meta.id) return { success: false, error: "that world is open; open another first" };
+                    return { success: library.remove(String(args.worldId)), worlds: library.list() };
+                default:
+                    return { success: false, error: "action must be list, save, new, open, save_as, from_preset or delete" };
+            }
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_quest_path",
+            description: "Draws a quest path: the route a quest sends the player along. points: [[x,y],...] world km; points within 50 m of a spot pass through it. missionId: an existing quest to add the route to (it gains the giver, objectives and turn-in it lacks); omitted, a new quest is made from the route (first spot = giver, later spots = objectives, returning to the start = turn-in). Returns the quest, the route and its travel time along the drawn way.",
+            parameters: { type: "object", properties: { points: { type: "array" }, missionId: { type: "string" }, snapToSpots: { type: "boolean" } }, required: ["points"] },
+        },
+        (args: any) => {
+            const raw: [number, number][] = (args?.points ?? []).map((p: any) => [Number(p[0]), Number(p[1])] as [number, number]).filter((p: [number, number]) => p.every(Number.isFinite));
+            if (raw.length < 2) return { success: false, error: "need at least two points" };
+            if (args.missionId && !model.world.missions.some((m) => m.id === args.missionId)) return { success: false, error: `no quest ${args.missionId}` };
+            // Points near a spot land on it, as clicks on the map do.
+            const pts = raw.map((p) => {
+                const near = args.snapToSpots === false ? undefined : spotNear(model.world, p, 0.05);
+                return near ? ([near.x, near.y] as [number, number]) : p;
+            });
+            model.pendingQuestId = args.missionId ?? "new";
+            model.pendingPathPoints = pts;
+            const r = model.finishPendingQuestPath();
+            if (!r) return { success: false, error: "could not draw the route" };
+            statusMessage = `${r.created ? "Created quest" : "Added a route to"} "${r.mission.title}" (over MCP).`;
+            const travel = questPathTravel(model.world, r.questPath.points, "foot");
+            return { success: true, created: r.created, linked: r.linked, mission: r.mission, questPath: r.questPath, travel: { distanceKm: travel.distanceKm, onFoot: travel.formatted, climbM: travel.climbM, waterKm: travel.waterKm } };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_build",
+            description: "Town planning. action: place { kind, x, y (km), shape?: rect|round|L|T|U, widthM?, depthM?, rotationDeg?, faceStreet?: true, name?, spotId? } | line { kind: wall|street, points, widthM? } | area { kind: plaza|market|garden|field, points } | layout { spotId, variant? } (drafts a whole settlement from its type, replacing what is there) | clear { spotId } | list { spotId? }. Kinds: " + STRUCTURE_KIND_IDS.join(", ") + ".",
+            parameters: { type: "object", properties: { action: { type: "string" }, kind: { type: "string" }, x: { type: "number" }, y: { type: "number" }, shape: { type: "string" }, widthM: { type: "number" }, depthM: { type: "number" }, rotationDeg: { type: "number" }, faceStreet: { type: "boolean" }, name: { type: "string" }, spotId: { type: "string" }, points: { type: "array" }, variant: { type: "number" } }, required: ["action"] },
+        },
+        (args: any) => {
+            const kind = (STRUCTURE_KIND_IDS as string[]).includes(args?.kind) ? (args.kind as StructureKind) : undefined;
+            const summary = (x: WorldStructure) => ({ id: x.id, kind: x.kind, shape: x.shape, name: x.name, x: x.x, y: x.y, widthM: x.widthM, depthM: x.depthM, rotationDeg: x.rotationDeg, spotId: x.spotId, points: x.points?.length });
+            switch (args?.action) {
+                case "place": {
+                    if (!kind || !isFootprint(STRUCTURE_KINDS[kind].shape)) return { success: false, error: "kind must be a building kind (house, inn, temple, keep, tower...)" };
+                    const x = Number(args.x), y = Number(args.y);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return { success: false, error: "x and y (km) are required" };
+                    const shape = FOOTPRINT_SHAPES.includes(args.shape) ? (args.shape as StructureShape) : undefined;
+                    const rot = args.faceStreet !== false && args.rotationDeg === undefined ? alignToStreet(model.world, x, y, 0.06) ?? 0 : Number(args.rotationDeg) || 0;
+                    const st = createStructure(model.world, kind, x, y, { shape, widthM: args.widthM, depthM: args.depthM, rotationDeg: rot, name: args.name, spotId: args.spotId });
+                    model.addStructures([st]);
+                    return { success: true, structure: summary(st) };
+                }
+                case "line":
+                case "area": {
+                    const pts: [number, number][] = (args.points ?? []).map((p: any) => [Number(p[0]), Number(p[1])] as [number, number]);
+                    const fallback: StructureKind = args.action === "line" ? "street" : "plaza";
+                    const k = kind ?? fallback;
+                    const shape = STRUCTURE_KINDS[k].shape;
+                    if ((args.action === "line") !== isLine(shape) || (args.action === "area" && shape !== "area")) return { success: false, error: `${k} is not a${args.action === "line" ? " line (wall, street)" : "n area (plaza, market, garden, field)"}` };
+                    if (pts.length < (args.action === "line" ? 2 : 3)) return { success: false, error: "not enough points" };
+                    const st = createStructure(model.world, k, pts[0][0], pts[0][1], { points: pts, widthM: args.widthM, name: args.name, spotId: args.spotId });
+                    model.addStructures([st]);
+                    return { success: true, structure: summary(st) };
+                }
+                case "layout": {
+                    const spot = model.world.spots.find((p) => p.id === args.spotId);
+                    if (!spot) return { success: false, error: `no spot ${args.spotId}` };
+                    if (!canLayOut(spot.spotType)) return { success: false, error: `a ${spot.spotType} has no town layout; place buildings one by one` };
+                    layOutSpot(spot, Number(args.variant) || 0);
+                    return { success: true, summary: townSummary(model.world, spot.id), status: statusMessage };
+                }
+                case "clear":
+                    return { success: true, removed: model.clearTown(String(args.spotId)) };
+                case "list": {
+                    const list = model.structures.filter((x) => !args.spotId || x.spotId === args.spotId);
+                    return { success: true, count: list.length, structures: list.slice(0, 300).map(summary) };
+                }
+                default:
+                    return { success: false, error: "action must be place, line, area, layout, clear or list" };
+            }
+        }
+    );
+
+    addon.registerTool(
+        {
             name: "game_planner_state",
             description: "The planner's current UI state: tab, tool, selection, pending drawing points, measurement, terrain style.",
             parameters: { type: "object", properties: {} },
@@ -4069,7 +4980,15 @@ addon.onInit(() => {
             placements: model.placements.map((p) => ({ id: p.id, codexId: p.codexId, x: p.x, y: p.y, count: p.count, behavior: p.behavior })),
             terrainRange: model.world.terrain ? [model.world.terrain.minM, model.world.terrain.maxM] : null,
             canUndo: model.canUndo,
-            counts: { spots: model.world.spots.length, paths: model.world.paths.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length, intents: model.intents.length, pendingProposals: model.pendingProposals.length, placements: model.placements.length },
+            counts: { spots: model.world.spots.length, paths: model.world.paths.length, questPaths: model.questPaths.length, structures: model.structures.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length, intents: model.intents.length, pendingProposals: model.pendingProposals.length, placements: model.placements.length },
+            world: { id: model.world.meta.id, name: model.world.meta.name, widthKm: model.world.meta.worldWidthKm, heightKm: model.world.meta.worldHeightKm, dirty: model.isDirty, terrainGrid: model.world.terrain ? [model.world.terrain.cols, model.world.terrain.rows] : null },
+            library: library ? library.list().map((w) => ({ id: w.id, name: w.name, bytes: w.bytes })) : [],
+            terrainDetail,
+            buildKind: model.buildKind,
+            pendingQuestId: model.pendingQuestId,
+            questPaths: model.questPaths.map((q) => ({ id: q.id, missionId: q.missionId, points: q.points.length, stops: (q.spotIds ?? []).filter(Boolean) })),
+            missions: model.world.missions.map((m) => ({ id: m.id, title: m.title, startSpotId: m.startSpotId, objectiveSpotIds: m.objectiveSpotIds, turnInSpotId: m.turnInSpotId })),
+            structures: model.structures.map((x) => ({ id: x.id, kind: x.kind, shape: x.shape, x: x.x, y: x.y, rotationDeg: x.rotationDeg, spotId: x.spotId })),
             spots: model.world.spots.map((s) => ({ id: s.id, name: s.name, spotType: s.spotType, x: s.x, y: s.y, elevation: s.elevation, snapToGround: isSnapped(s), ground: model.elevationAt(s.x, s.y, 0) })),
             paths: model.world.paths.map((p) => ({ id: p.id, name: p.name, pathType: p.pathType, points: p.points.length })),
             regions: model.world.regions.map((r) => ({ id: r.id, name: r.name, points: r.points.length })),

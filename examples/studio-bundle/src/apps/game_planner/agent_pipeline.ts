@@ -7,6 +7,8 @@ import { extractTerrainContours } from "./terrain";
 import { evaluateIntent, intentPoints } from "./intent_model";
 import { codexMapPresence, layerCoverage, layerLabel, placementsInside } from "./planning_layers";
 import { analyzeQuest, describeObjective } from "./quest_planning";
+import { questPathTravel, questPathsOf } from "./quest_paths";
+import { STRUCTURE_KINDS, structureGeometry, townSummary } from "./town_planning";
 
 const escapeXml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -71,6 +73,15 @@ export function generateGameDesignDoc(world: GameWorld): string {
         if (s.conceptPrompt) {
             md += `- **Visual Art Prompt:** \`${s.conceptPrompt}\`\n`;
         }
+        const town = townSummary(world, s.id);
+        if (town.total) {
+            md += `- **Town plan:** ${town.buildings} buildings (${town.builtAreaM2.toLocaleString()} m² footprint): ${town.byKind.map((k) => `${STRUCTURE_KINDS[k.kind]?.label ?? k.kind} ${k.count}`).join(", ")}\n`;
+            const named = (world.structures ?? []).filter((x) => x.spotId === s.id && (x.name || x.notes || x.occupantCodexIds?.length));
+            named.forEach((x) => {
+                const who = (x.occupantCodexIds ?? []).map((id) => codex.find((c) => c.id === id)?.name).filter(Boolean).join(", ");
+                md += `  - ${x.name || STRUCTURE_KINDS[x.kind]?.label} (${STRUCTURE_KINDS[x.kind]?.label ?? x.kind}${x.floors ? `, ${x.floors} floors` : ""})${who ? ` - ${who}` : ""}${x.notes ? `: ${x.notes}` : ""}\n`;
+            });
+        }
         md += `\n`;
     });
 
@@ -126,6 +137,10 @@ export function generateGameDesignDoc(world: GameWorld): string {
         if (m.hook) md += `- **Hook:** ${m.hook}\n`;
         const name = (id?: string) => codex.find((c) => c.id === id)?.name;
         const giverSpot = spots.find((s) => s.id === m.startSpotId);
+        questPathsOf(world, m.id).forEach((q) => {
+            const t = questPathTravel(world, q.points, "foot");
+            md += `- **Route:** ${q.name}: ${t.distanceKm} km, ${t.formatted} on foot along the drawn way (climb ${t.climbM} m${t.waterKm ? `, ${t.waterKm} km over water` : ""})${q.notes ? `. ${q.notes}` : ""}\n`;
+        });
         if (m.giverCodexId || giverSpot) md += `- **Given by:** ${[name(m.giverCodexId), giverSpot ? `at ${giverSpot.name}` : ""].filter(Boolean).join(" ")}\n`;
         if (m.levelMin !== undefined || m.levelMax !== undefined) md += `- **Level:** ${m.levelMin ?? "?"}-${m.levelMax ?? "?"}\n`;
         m.objectiveSpotIds.forEach((id, k) => {
@@ -549,6 +564,25 @@ export function exportMapToSvg(world: GameWorld, width = 1200, height = 1200): s
             const strokeW = p.pathType === "highway" ? 4.5 : p.pathType === "river" ? 3.5 : 2.5;
             svg += `    <polyline points="${pts}" stroke="${strokeCol}" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round" />\n`;
         }
+    });
+    svg += `  </g>\n\n`;
+
+    // 4b. Town plans and quest routes
+    svg += `  <!-- Town plans -->\n  <g stroke="#1f1a14" stroke-width="0.4">\n`;
+    (world.structures ?? []).forEach((x) => {
+        const g = structureGeometry(x);
+        const c = STRUCTURE_KINDS[x.kind]?.color ?? [0.8, 0.7, 0.5, 1];
+        const col = `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+        const pts = g.outline.map(([px, py]) => `${toSvgX(px)},${toSvgY(py)}`).join(" ");
+        if (g.closed) svg += `    <polygon points="${pts}" fill="${col}" />\n`;
+        else svg += `    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1" />\n`;
+    });
+    svg += `  </g>\n  <!-- Quest paths -->\n  <g fill="none" stroke-dasharray="6 4">\n`;
+    (world.questPaths ?? []).forEach((q) => {
+        const m = world.missions.find((x) => x.id === q.missionId);
+        const col = m?.missionType === "main" ? "#fbbf24" : m?.missionType === "faction" ? "#a855f7" : "#38bdf8";
+        const pts = q.points.map(([px, py]) => `${toSvgX(px)},${toSvgY(py)}`).join(" ");
+        svg += `    <polyline points="${pts}" stroke="${col}" stroke-width="2.5"><title>${escapeXml(m?.title ?? q.name)}</title></polyline>\n`;
     });
     svg += `  </g>\n\n`;
 

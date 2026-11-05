@@ -7070,7 +7070,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 UiWidget::GameMap { id: map_id, config } => {
-                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapBrush, MapElevationBand, MapGhost, MapIntent, MapMarker, MapMeasure, MapOverlay, MapOverlayLayer, MapPath, MapQuestRoute, MapRegion, MapSpot};
+                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapBrush, MapBuildCursor, MapElevationBand, MapGhost, MapIntent, MapMarker, MapMeasure, MapOverlay, MapOverlayLayer, MapPath, MapQuestRoute, MapRegion, MapSpot, MapStructure};
 
                     let opts = GameMapOptions {
                         world_width_km: config.world_width_km.unwrap_or(25.0),
@@ -7106,7 +7106,24 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         focus_request: config.focus_request.unwrap_or(0),
                         focus_center: config.focus_center,
                         focus_zoom: config.focus_zoom,
+                        terrain_detail: config.terrain_detail.unwrap_or(1.0),
+                        show_structures: config.show_structures.unwrap_or(true),
+                        build_cursor: config.build_cursor.as_ref().map(|b| MapBuildCursor { parts: b.parts.clone(), outline: b.outline.clone(), color: b.color.unwrap_or([0.85, 0.7, 0.5, 1.0]) }),
                     };
+                    let structures: Vec<MapStructure> = config.structures.iter().map(|x| MapStructure {
+                        id: x.id.clone(),
+                        kind: x.kind.clone(),
+                        label: x.label.clone(),
+                        detail: x.detail.clone(),
+                        parts: x.parts.clone(),
+                        outline: x.outline.clone(),
+                        closed: x.closed,
+                        line_width_m: x.line_width_m,
+                        color: x.color.unwrap_or([0.84, 0.66, 0.48, 1.0]),
+                        anchor: x.anchor,
+                        rotation_deg: x.rotation_deg,
+                        rotatable: x.rotatable,
+                    }).collect();
                     let overlay = config.overlay.as_ref().map(|o| MapOverlay {
                         cols: o.cols,
                         rows: o.rows,
@@ -7134,6 +7151,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         points: q.points.clone(),
                         color: q.color.unwrap_or([0.98, 0.75, 0.14, 1.0]),
                         highlighted: q.highlighted,
+                        markers_only: q.markers_only,
                     }).collect();
                     let intents: Vec<MapIntent> = config.intents.iter().map(|it| MapIntent {
                         id: it.id.clone(),
@@ -7224,6 +7242,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         .overlay(overlay)
                         .markers(markers)
                         .quest_routes(quest_routes)
+                        .structures(structures)
                         .show(ui);
 
                     for event in resp.events {
@@ -7279,6 +7298,15 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             GameMapEvent::MarkerMoved { id, x, y } => {
                                 events_to_push.push(format!("MAP_MARKER_MOVE|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
+                            }
+                            GameMapEvent::StructureSelected { id } => {
+                                events_to_push.push(format!("MAP_STRUCTURE_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::StructureMoved { id, x, y } => {
+                                events_to_push.push(format!("MAP_STRUCTURE_MOVE|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
+                            }
+                            GameMapEvent::StructureRotated { id, deg, done } => {
+                                events_to_push.push(format!("MAP_STRUCTURE_ROTATE|{}|{}|{:.1}|{}", map_id, id, if deg.is_finite() { deg } else { 0.0 }, if done { 1 } else { 0 }));
                             }
                         }
                     }
