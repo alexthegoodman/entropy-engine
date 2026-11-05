@@ -445,6 +445,65 @@ pub struct MapMeasure {
     pub travel_info: String,
 }
 
+/// A design intent sketched by the designer: a pin, an area outline or a route between two places,
+/// with a live check of whether the world meets it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapIntent {
+    pub id: String,
+    pub number: u32,
+    /// "pin", "area" or "route".
+    pub shape: String,
+    /// "settle", "danger", "landmark", "connect", "pacing", "quest" or "freeform".
+    pub kind: String,
+    pub points: Vec<[f32; 2]>,
+    pub title: String,
+    /// One line: what the check found ("2 of 3 settlements").
+    pub summary: String,
+    /// "open", "claimed", "proposed", "done".
+    pub status: String,
+    /// `None` when nothing can be checked automatically.
+    pub satisfied: Option<bool>,
+    pub color: [f32; 4],
+}
+
+impl Default for MapIntent {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            number: 0,
+            shape: "pin".into(),
+            kind: "freeform".into(),
+            points: Vec::new(),
+            title: String::new(),
+            summary: String::new(),
+            status: "open".into(),
+            satisfied: None,
+            color: [0.98, 0.78, 0.3, 1.0],
+        }
+    }
+}
+
+/// A change an agent proposed, previewed on the map until the designer accepts or rejects it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapGhost {
+    /// The change's id.
+    pub id: String,
+    /// "spot", "path", "region", "move" (a spot to a new place) or "remove".
+    pub kind: String,
+    pub points: Vec<[f32; 2]>,
+    /// For a move: where the spot is now.
+    pub from: Option<[f32; 2]>,
+    pub label: String,
+    pub spot_type: Option<String>,
+    pub path_type: Option<String>,
+}
+
+impl Default for MapGhost {
+    fn default() -> Self {
+        Self { id: String::new(), kind: "spot".into(), points: Vec::new(), from: None, label: String::new(), spot_type: None, path_type: None }
+    }
+}
+
 // -------------------------------------------------------------------------------------------------
 // Options & events
 // -------------------------------------------------------------------------------------------------
@@ -481,6 +540,10 @@ pub struct GameMapOptions {
     pub measure_anchor: Option<[f32; 2]>,
     /// Bump to re-fit the view to the whole world.
     pub fit_request: u32,
+    pub show_intents: bool,
+    pub show_proposals: bool,
+    /// The proposed change (ghost) under review.
+    pub selected_change_id: Option<String>,
 }
 
 impl Default for GameMapOptions {
@@ -509,6 +572,9 @@ impl Default for GameMapOptions {
             contour_interval_m: 0.0,
             measure_anchor: None,
             fit_request: 0,
+            show_intents: true,
+            show_proposals: true,
+            selected_change_id: None,
         }
     }
 }
@@ -530,6 +596,9 @@ pub enum GameMapEvent {
     ViewportChanged { center_x: f32, center_y: f32, zoom: f32 },
     ToolChanged(String),
     BlockingModeToggled(bool),
+    IntentSelected { id: String },
+    /// A proposed change's preview was clicked.
+    GhostSelected { id: String },
 }
 
 pub struct GameMapResponse {
@@ -842,6 +911,8 @@ pub struct GameMap {
     elevation_bands: Vec<MapElevationBand>,
     terrain: Option<MapTerrain>,
     measure: Option<MapMeasure>,
+    intents: Vec<MapIntent>,
+    ghosts: Vec<MapGhost>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -850,6 +921,41 @@ enum Hover {
     Spot(usize),
     Path(usize),
     Region(usize),
+    Intent(usize),
+    Ghost(usize),
+}
+
+const GHOST_COLOR: Color32 = Color32::from_rgb(178, 150, 255);
+const ROSE: Color32 = Color32::from_rgb(244, 63, 94);
+
+/// Where an intent sits on screen this frame (shared by hit-testing and drawing).
+struct IntentGeom {
+    /// Area outline, route curve, or the pin's point.
+    pts: Vec<Pos2>,
+    /// The pin's head.
+    head: Option<Pos2>,
+    badge: Rect,
+    title: String,
+    show_summary: bool,
+}
+
+/// A gentle bow between two points, so a route reads as a journey rather than a ruler.
+fn bowed(a: Pos2, b: Pos2) -> Vec<Pos2> {
+    let mid = pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    let len = (b.x - a.x).hypot(b.y - a.y).max(1e-3);
+    let n = vec2(-(b.y - a.y) / len, (b.x - a.x) / len);
+    let c = pos2(mid.x + n.x * len * 0.16, mid.y + n.y * len * 0.16);
+    (0..=24)
+        .map(|k| {
+            let t = k as f32 / 24.0;
+            let u = 1.0 - t;
+            pos2(u * u * a.x + 2.0 * u * t * c.x + t * t * b.x, u * u * a.y + 2.0 * u * t * c.y + t * t * b.y)
+        })
+        .collect()
+}
+
+fn near_polyline(p: Pos2, pts: &[Pos2], tol: f32) -> bool {
+    pts.windows(2).any(|w| dist_to_segment(p, w[0], w[1]) <= tol)
 }
 
 impl GameMap {
@@ -863,7 +969,18 @@ impl GameMap {
             elevation_bands: Vec::new(),
             terrain: None,
             measure: None,
+            intents: Vec::new(),
+            ghosts: Vec::new(),
         }
+    }
+
+    pub fn intents(mut self, intents: Vec<MapIntent>) -> Self {
+        self.intents = intents;
+        self
+    }
+    pub fn ghosts(mut self, ghosts: Vec<MapGhost>) -> Self {
+        self.ghosts = ghosts;
+        self
     }
 
     pub fn options(mut self, options: GameMapOptions) -> Self {
@@ -1087,7 +1204,45 @@ impl GameMap {
         // -----------------------------------------------------------------------------------------
         // Hover pass: one target, spots over paths over regions.
         // -----------------------------------------------------------------------------------------
-        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "measure");
+        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "measure" | "intent");
+
+        // Intent geometry: outlines, route curves, pin heads and their badges.
+        let badge_font = FontId::proportional(10.5);
+        let intent_geoms: Vec<IntentGeom> = self
+            .intents
+            .iter()
+            .map(|it| {
+                let pts: Vec<Pos2> = it.points.iter().map(|q| w2s(q[0], q[1])).collect();
+                let selected = opts.selected_id.as_deref() == Some(it.id.as_str());
+                let mut title: String = it.title.chars().take(30).collect();
+                if it.title.chars().count() > 30 {
+                    title.push('…');
+                }
+                let title = format!("#{}  {}", it.number, title);
+                let tw = Painter::measure_text(&ctx, badge_font.clone(), &title).x;
+                let sw = if selected { Painter::measure_text(&ctx, FontId::proportional(9.5), &it.summary).x } else { 0.0 };
+                let tag = if matches!(it.status.as_str(), "proposed" | "claimed") { 16.0 } else { 0.0 };
+                let w = (tw + tag).max(sw) + 32.0;
+                let h = if selected { 34.0 } else { 20.0 };
+                match it.shape.as_str() {
+                    "route" if pts.len() >= 2 => {
+                        let curve = bowed(pts[0], pts[pts.len() - 1]);
+                        let mid = curve[curve.len() / 2];
+                        IntentGeom { badge: Rect::from_center_size(pos2(mid.x, mid.y - h * 0.5 - 6.0), vec2(w, h)), pts: curve, head: None, title, show_summary: selected }
+                    }
+                    "area" if pts.len() >= 3 => {
+                        let top = pts.iter().copied().fold(pts[0], |a, b| if b.y < a.y { b } else { a });
+                        IntentGeom { badge: Rect::from_min_size(pos2(top.x - w * 0.5, top.y - h - 8.0), vec2(w, h)), pts, head: None, title, show_summary: selected }
+                    }
+                    _ => {
+                        let p = pts.first().copied().unwrap_or(pos2(-9999.0, -9999.0));
+                        let head = pos2(p.x, p.y - 24.0);
+                        IntentGeom { badge: Rect::from_min_size(pos2(head.x + 15.0, head.y - h * 0.5), vec2(w, h)), pts, head: Some(head), title, show_summary: selected }
+                    }
+                }
+            })
+            .collect();
+        let ghost_pts = |g: &MapGhost| -> Vec<Pos2> { g.points.iter().map(|q| w2s(q[0], q[1])).collect() };
         let spot_radius = |s: &MapSpot| -> f32 {
             let base = if s.spot_type == "capital" { 12.0 } else if s.is_major { 9.5 } else { 7.5 };
             if zoom < fit_zoom * 0.8 && !s.is_major { base * 0.8 } else { base }
@@ -1095,6 +1250,50 @@ impl GameMap {
         let visible_spot = |s: &MapSpot| !(opts.blocking_mode && !s.is_major);
         let mut hover = Hover::None;
         if let Some(p) = pointer_pos.filter(|_| is_hovered && !st.is_panning) {
+            // Proposed changes first: they sit on top of everything while waiting for review.
+            if opts.show_proposals && !drawing {
+                for (i, g) in self.ghosts.iter().enumerate().rev() {
+                    let pts = ghost_pts(g);
+                    let hit = match g.kind.as_str() {
+                        "spot" | "move" => pts.first().is_some_and(|q| (q.x - p.x).hypot(q.y - p.y) <= 14.0),
+                        "path" => near_polyline(p, &pts, 7.0),
+                        "region" => {
+                            let mut closed = pts.clone();
+                            if let Some(f) = pts.first() {
+                                closed.push(*f);
+                            }
+                            near_polyline(p, &closed, 6.0) || (pts.len() >= 3 && (polygon_centroid(&pts).x - p.x).abs() < 50.0 && (polygon_centroid(&pts).y - p.y).abs() < 10.0)
+                        }
+                        _ => pts.first().is_some_and(|q| (q.x - p.x).hypot(q.y - p.y) <= 12.0) || near_polyline(p, &pts, 6.0),
+                    };
+                    if hit {
+                        hover = Hover::Ghost(i);
+                        break;
+                    }
+                }
+            }
+            if hover == Hover::None && opts.show_intents && !drawing {
+                for (i, g) in intent_geoms.iter().enumerate().rev() {
+                    let hit = g.badge.contains(p)
+                        || g.head.is_some_and(|h| (h.x - p.x).hypot(h.y - p.y) <= 13.0)
+                        || match self.intents[i].shape.as_str() {
+                            "route" => near_polyline(p, &g.pts, 7.0),
+                            "area" => {
+                                let mut closed = g.pts.clone();
+                                if let Some(f) = g.pts.first() {
+                                    closed.push(*f);
+                                }
+                                near_polyline(p, &closed, 6.0)
+                            }
+                            _ => false,
+                        };
+                    if hit {
+                        hover = Hover::Intent(i);
+                        break;
+                    }
+                }
+            }
+            if hover == Hover::None {
             for (i, s) in self.spots.iter().enumerate().rev() {
                 if !visible_spot(s) {
                     continue;
@@ -1104,6 +1303,7 @@ impl GameMap {
                     hover = Hover::Spot(i);
                     break;
                 }
+            }
             }
             if hover == Hover::None && !drawing {
                 'paths: for (i, path) in self.paths.iter().enumerate().rev() {
@@ -1164,6 +1364,8 @@ impl GameMap {
                         st.drag_moved = false;
                     }
                 }
+                ("select" | "pan", Hover::Intent(i)) => events.push(GameMapEvent::IntentSelected { id: self.intents[i].id.clone() }),
+                ("select" | "pan", Hover::Ghost(i)) => events.push(GameMapEvent::GhostSelected { id: self.ghosts[i].id.clone() }),
                 ("select", Hover::Path(i)) => events.push(GameMapEvent::PathSelected { id: self.paths[i].id.clone() }),
                 ("select", Hover::Region(i)) => events.push(GameMapEvent::RegionSelected { id: self.regions[i].id.clone() }),
                 (_, _) if is_double && drawing => events.push(GameMapEvent::MapDoubleClicked { x: at.x, y: at.y }),
@@ -1207,7 +1409,7 @@ impl GameMap {
         if is_hovered || over_hud_btn.is_some() || in_minimap {
             let cursor = if st.is_panning || st.drag_moved {
                 CursorIcon::Grabbing
-            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_)) && opts.active_tool == "select") {
+            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_) | Hover::Intent(_) | Hover::Ghost(_)) && opts.active_tool == "select") {
                 CursorIcon::PointingHand
             } else if opts.active_tool == "pan" || st.space_down {
                 CursorIcon::Grab
@@ -1525,6 +1727,129 @@ impl GameMap {
         }
 
         // -----------------------------------------------------------------------------------------
+        // 5b. Design intents: dashed outlines, journeys and pins in the kind's color, quieter once
+        //     the world meets them, each with a numbered badge saying whether it does.
+        // -----------------------------------------------------------------------------------------
+        if opts.show_intents {
+            for (i, (it, g)) in self.intents.iter().zip(intent_geoms.iter()).enumerate() {
+                let selected = opts.selected_id.as_deref() == Some(it.id.as_str());
+                let hovered = hover == Hover::Intent(i);
+                let met = it.satisfied == Some(true);
+                let base = rgba([it.color[0], it.color[1], it.color[2], 1.0]);
+                let col = if selected { ACCENT_CYAN } else if met { ACCENT_EMERALD } else { base };
+                let a_line: u8 = if selected || hovered { 255 } else if met { 150 } else { 230 };
+                let under = Color32::from_rgba_unmultiplied(8, 11, 17, if met { 70 } else { 140 });
+                match it.shape.as_str() {
+                    "area" if g.pts.len() >= 3 => {
+                        painter.add(Shape::convex_polygon(g.pts.clone(), with_alpha(col, if selected { 46 } else if met { 14 } else { 26 }), Stroke::NONE));
+                        let mut closed = g.pts.clone();
+                        closed.push(g.pts[0]);
+                        polyline(&painter, &closed, Stroke::new(if selected { 4.5 } else { 3.6 }, under));
+                        dashed_polyline(&painter, &closed, Stroke::new(if selected { 2.6 } else { 1.9 }, with_alpha(col, a_line)), 9.0, 5.0);
+                        if selected {
+                            for p in &g.pts {
+                                painter.circle_filled(*p, 3.5, ACCENT_CYAN);
+                            }
+                        }
+                    }
+                    "route" if g.pts.len() >= 2 => {
+                        polyline(&painter, &g.pts, Stroke::new(if selected { 5.0 } else { 4.2 }, under));
+                        dashed_polyline(&painter, &g.pts, Stroke::new(if selected { 2.8 } else { 2.2 }, with_alpha(col, a_line)), 8.0, 5.0);
+                        // Arrowhead at the destination.
+                        let n = g.pts.len();
+                        let (tip, prev) = (g.pts[n - 1], g.pts[n - 3]);
+                        let len = (tip.x - prev.x).hypot(tip.y - prev.y).max(1e-3);
+                        let d = vec2((tip.x - prev.x) / len, (tip.y - prev.y) / len);
+                        let nrm = vec2(-d.y, d.x);
+                        let back = pos2(tip.x - d.x * 11.0, tip.y - d.y * 11.0);
+                        painter.add(Shape::convex_polygon(vec![tip, pos2(back.x + nrm.x * 5.5, back.y + nrm.y * 5.5), pos2(back.x - nrm.x * 5.5, back.y - nrm.y * 5.5)], with_alpha(col, a_line), Stroke::new(1.0, under)));
+                        painter.circle_filled(g.pts[0], 5.0, INK);
+                        painter.circle_filled(g.pts[0], 3.5, with_alpha(col, a_line));
+                    }
+                    _ => {
+                        if let (Some(p), Some(h)) = (g.pts.first(), g.head) {
+                            painter.line_segment([*p, pos2(h.x, h.y + 8.0)], Stroke::new(3.0, under));
+                            painter.line_segment([*p, pos2(h.x, h.y + 8.0)], Stroke::new(1.6, with_alpha(col, a_line)));
+                            painter.circle_filled(*p, 3.2, INK);
+                            painter.circle_filled(*p, 2.2, col);
+                            painter.circle_filled(pos2(h.x + 1.0, h.y + 2.0), 12.0, Color32::from_rgba_unmultiplied(0, 0, 0, 90));
+                            painter.circle_filled(h, 11.5, INK);
+                            painter.circle_filled(h, 10.0, with_alpha(col, if met { 200 } else { 255 }));
+                            painter.text(h, Align2::CENTER_CENTER, format!("{}", it.number), FontId::proportional(10.5), INK);
+                            if selected || hovered {
+                                painter.circle_stroke(h, 14.0, Stroke::new(1.5, if selected { ACCENT_CYAN } else { Color32::from_white_alpha(170) }));
+                            }
+                        }
+                    }
+                }
+                // The badge: status glyph, number and title; the check's verdict when selected.
+                if g.badge.intersect(rect).is_positive() && (opts.show_labels || selected || hovered) {
+                    let (glyph_name, glyph_col) = match it.satisfied {
+                        Some(true) => ("check-circle", ACCENT_EMERALD),
+                        Some(false) => ("x-circle", if it.status == "proposed" { GHOST_COLOR } else { base }),
+                        None => ("circle-dashed", TEXT_DIM),
+                    };
+                    painter.rect_filled(g.badge, 6u8, Color32::from_rgba_unmultiplied(12, 16, 25, if met && !selected { 190 } else { 236 }));
+                    painter.rect_stroke(g.badge, 6u8, Stroke::new(if selected { 1.6 } else { 1.0 }, if selected { ACCENT_CYAN } else { with_alpha(col, if met { 120 } else { 200 }) }), StrokeKind::Middle);
+                    let row = g.badge.min.y + 10.0;
+                    painter.text(pos2(g.badge.min.x + 12.0, row), Align2::CENTER_CENTER, icon(glyph_name), FontId::proportional(12.0), glyph_col);
+                    painter.text(pos2(g.badge.min.x + 22.0, row), Align2::LEFT_CENTER, &g.title, badge_font.clone(), if met && !selected { TEXT_DIM } else { TEXT_BRIGHT });
+                    if it.status == "proposed" || it.status == "claimed" {
+                        let tag = if it.status == "proposed" { icon("robot") } else { icon("hourglass") };
+                        painter.text(pos2(g.badge.max.x - 9.0, row), Align2::CENTER_CENTER, tag, FontId::proportional(11.0), GHOST_COLOR);
+                    }
+                    if g.show_summary {
+                        painter.text(pos2(g.badge.min.x + 22.0, row + 14.0), Align2::LEFT_CENTER, &it.summary, FontId::proportional(9.5), if met { ACCENT_EMERALD } else { TEXT_DIM });
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // 5c. Proposed regions and paths (violet, dashed): what an agent would build.
+        // -----------------------------------------------------------------------------------------
+        let ghost_style = |i: usize, g: &MapGhost| -> (Color32, f32) {
+            let selected = opts.selected_change_id.as_deref() == Some(g.id.as_str());
+            if selected {
+                (ACCENT_CYAN, 1.35)
+            } else if hover == Hover::Ghost(i) {
+                (Color32::from_rgb(220, 205, 255), 1.2)
+            } else {
+                (GHOST_COLOR, 1.0)
+            }
+        };
+        if opts.show_proposals {
+            for (i, g) in self.ghosts.iter().enumerate() {
+                let pts = ghost_pts(g);
+                let (col, k) = ghost_style(i, g);
+                match g.kind.as_str() {
+                    "region" if pts.len() >= 3 => {
+                        painter.add(Shape::convex_polygon(pts.clone(), with_alpha(col, 30), Stroke::NONE));
+                        let mut closed = pts.clone();
+                        closed.push(pts[0]);
+                        polyline(&painter, &closed, Stroke::new(4.0 * k, Color32::from_rgba_unmultiplied(20, 10, 40, 120)));
+                        dashed_polyline(&painter, &closed, Stroke::new(2.0 * k, col), 6.0, 4.0);
+                        let c = polygon_centroid(&pts);
+                        text_pill(&painter, &ctx, c, Align2::CENTER_CENTER, &format!("+ {}", g.label), FontId::proportional(10.5), col, Color32::from_rgba_unmultiplied(20, 14, 38, 210));
+                    }
+                    "path" if pts.len() >= 2 => {
+                        let w = match g.path_type.as_deref() {
+                            Some("highway") => 4.2,
+                            Some("trail") => 2.2,
+                            _ => 3.2,
+                        } * zoom_scale.min(1.6);
+                        polyline(&painter, &pts, Stroke::new(w + 3.0 * k, Color32::from_rgba_unmultiplied(20, 10, 40, 150)));
+                        dashed_polyline(&painter, &pts, Stroke::new(w * k, col), 7.0, 4.0);
+                    }
+                    "remove" if pts.len() >= 2 => {
+                        dashed_polyline(&painter, &pts, Stroke::new(3.0 * k, ROSE), 5.0, 4.0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
         // 6. Spots (major first for label priority; drawn minor first so majors sit on top)
         // -----------------------------------------------------------------------------------------
         let mut order: Vec<usize> = (0..self.spots.len()).filter(|&i| visible_spot(&self.spots[i])).collect();
@@ -1589,6 +1914,58 @@ impl GameMap {
         for (p, name, col, size) in &labels {
             text_pill(&painter, &ctx, *p, Align2::CENTER_TOP, name, FontId::proportional(*size), *col, Color32::from_rgba_unmultiplied(10, 14, 22, 175));
         }
+        // Proposed spots, moves and removals, on top of the real ones.
+        if opts.show_proposals {
+            for (i, g) in self.ghosts.iter().enumerate() {
+                let pts = ghost_pts(g);
+                let (col, k) = ghost_style(i, g);
+                let Some(p) = pts.first().copied() else { continue };
+                if !rect.expand(30.0).contains(p) && g.kind != "move" {
+                    continue;
+                }
+                match g.kind.as_str() {
+                    "spot" | "move" => {
+                        if let (Some(from), "move") = (g.from, g.kind.as_str()) {
+                            let a = w2s(from[0], from[1]);
+                            polyline(&painter, &[a, p], Stroke::new(4.0, Color32::from_rgba_unmultiplied(20, 10, 40, 140)));
+                            dashed_polyline(&painter, &[a, p], Stroke::new(2.0 * k, col), 6.0, 4.0);
+                            let len = (p.x - a.x).hypot(p.y - a.y).max(1e-3);
+                            let d = vec2((p.x - a.x) / len, (p.y - a.y) / len);
+                            let nrm = vec2(-d.y, d.x);
+                            let tip = pos2(p.x - d.x * 13.0, p.y - d.y * 13.0);
+                            let back = pos2(tip.x - d.x * 9.0, tip.y - d.y * 9.0);
+                            painter.add(Shape::convex_polygon(vec![tip, pos2(back.x + nrm.x * 5.0, back.y + nrm.y * 5.0), pos2(back.x - nrm.x * 5.0, back.y - nrm.y * 5.0)], col, Stroke::NONE));
+                        }
+                        let r = 9.5 * k;
+                        painter.circle_filled(p, r + 5.0, with_alpha(col, 40));
+                        painter.circle_filled(p, r, Color32::from_rgba_unmultiplied(26, 18, 48, 235));
+                        // A dashed ring: eight arcs.
+                        for seg in 0..8 {
+                            let a0 = seg as f32 / 8.0 * std::f32::consts::TAU;
+                            let arc: Vec<Pos2> = (0..=4).map(|q| {
+                                let a = a0 + q as f32 / 4.0 * (std::f32::consts::TAU / 13.0);
+                                pos2(p.x + a.cos() * (r + 2.5), p.y + a.sin() * (r + 2.5))
+                            }).collect();
+                            polyline(&painter, &arc, Stroke::new(1.8, col));
+                        }
+                        painter.text(p, Align2::CENTER_CENTER, icon(spot_icon_name(g.spot_type.as_deref().unwrap_or("landmark"))), FontId::proportional(r * 1.1), col);
+                        let plus = pos2(p.x + r * 0.85, p.y - r * 0.85);
+                        painter.circle_filled(plus, 6.0, col);
+                        painter.text(plus, Align2::CENTER_CENTER, if g.kind == "move" { icon("arrow-right") } else { icon("plus") }, FontId::proportional(8.5), INK);
+                        if opts.show_labels {
+                            text_pill(&painter, &ctx, pos2(p.x, p.y + r + 6.0), Align2::CENTER_TOP, &g.label, FontId::proportional(10.0), col, Color32::from_rgba_unmultiplied(20, 14, 38, 215));
+                        }
+                    }
+                    "remove" => {
+                        painter.circle_stroke(p, 13.0, Stroke::new(2.0 * k, ROSE));
+                        painter.line_segment([pos2(p.x - 8.0, p.y - 8.0), pos2(p.x + 8.0, p.y + 8.0)], Stroke::new(2.4, ROSE));
+                        painter.line_segment([pos2(p.x - 8.0, p.y + 8.0), pos2(p.x + 8.0, p.y - 8.0)], Stroke::new(2.4, ROSE));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Drag tether.
         if let (Some((_, target)), Some(start)) = (&drag_preview, st.drag_start_world) {
             let a = w2s(start.x, start.y);
@@ -1604,8 +1981,9 @@ impl GameMap {
         // 7. Pending path / region with rubber band and live length
         // -----------------------------------------------------------------------------------------
         if !opts.pending_points.is_empty() {
-            let is_region = opts.pending_mode.as_deref() == Some("region") || opts.active_tool == "draw_region";
-            let accent = if is_region { ACCENT_EMERALD } else { ACCENT_CYAN };
+            let intent_mode = opts.active_tool == "intent";
+            let is_region = matches!(opts.pending_mode.as_deref(), Some("region") | Some("intent_area")) || opts.active_tool == "draw_region";
+            let accent = if intent_mode { ACCENT_AMBER } else if is_region { ACCENT_EMERALD } else { ACCENT_CYAN };
             let mut pts: Vec<Pos2> = opts.pending_points.iter().map(|p| w2s(p[0], p[1])).collect();
             let mut length_km: f32 = opts.pending_points.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
             let cursor = cursor_world.filter(|_| is_hovered);
@@ -1635,10 +2013,10 @@ impl GameMap {
                 let what = if is_region { format!("{} vertices", placed + 1) } else { format!("{:.2} km", length_km) };
                 text_halo(&painter, pos2(cp.x + 12.0, cp.y - 12.0), Align2::LEFT_CENTER, &what, FontId::proportional(10.5), TEXT_BRIGHT, HALO);
             }
-        } else if matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "place_spot") {
+        } else if matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "place_spot" | "intent") {
             if let Some(cw) = cursor_world.filter(|_| is_hovered) {
                 let cp = w2s(cw.x, cw.y);
-                let accent = if opts.active_tool == "place_spot" { ACCENT_AMBER } else { ACCENT_CYAN };
+                let accent = if matches!(opts.active_tool.as_str(), "place_spot" | "intent") { ACCENT_AMBER } else { ACCENT_CYAN };
                 painter.circle_stroke(cp, 7.0, Stroke::new(1.5, accent));
                 painter.line_segment([pos2(cp.x - 11.0, cp.y), pos2(cp.x - 4.0, cp.y)], Stroke::new(1.2, accent));
                 painter.line_segment([pos2(cp.x + 4.0, cp.y), pos2(cp.x + 11.0, cp.y)], Stroke::new(1.2, accent));
@@ -1722,6 +2100,31 @@ impl GameMap {
                     let r = &self.regions[i];
                     vec![(format!("{}  ·  {}", r.name, r.region_type), TEXT_BRIGHT, 11.5), (format!("{} vertices", r.points.len()), TEXT_DIM, 10.0)]
                 }
+                Hover::Intent(i) => {
+                    let it = &self.intents[i];
+                    let verdict = match it.satisfied {
+                        Some(true) => ("met", ACCENT_EMERALD),
+                        Some(false) => ("not met yet", rgba(it.color)),
+                        None => ("checked by hand", TEXT_DIM),
+                    };
+                    let mut l = vec![
+                        (format!("Intent #{}  ·  {}", it.number, it.kind), TEXT_BRIGHT, 11.5),
+                        (it.summary.clone(), verdict.1, 10.0),
+                    ];
+                    if it.status == "proposed" {
+                        l.push(("An agent proposed changes - review them on the map".into(), GHOST_COLOR, 9.5));
+                    }
+                    l
+                }
+                Hover::Ghost(i) => {
+                    let g = &self.ghosts[i];
+                    let what = match g.kind.as_str() {
+                        "move" => "Proposed move",
+                        "remove" => "Proposed removal",
+                        _ => "Proposed",
+                    };
+                    vec![(format!("{}: {}", what, g.label), GHOST_COLOR, 11.5), ("Click to review - accept or reject in the inspector".into(), TEXT_DIM, 9.5)]
+                }
                 Hover::None => vec![],
             };
             if !lines.is_empty() && !drawing {
@@ -1795,6 +2198,28 @@ impl GameMap {
                 let p = w2m(s.x, s.y);
                 mini.circle_filled(p, if s.is_major { 2.8 } else { 1.8 }, INK);
                 mini.circle_filled(p, if s.is_major { 2.0 } else { 1.2 }, rgba(s.color));
+            }
+            if opts.show_intents {
+                for it in &self.intents {
+                    let pts: Vec<Pos2> = it.points.iter().map(|q| w2m(q[0], q[1])).collect();
+                    let col = if it.satisfied == Some(true) { ACCENT_EMERALD } else { rgba(it.color) };
+                    if it.shape == "area" && pts.len() >= 3 {
+                        let mut closed = pts.clone();
+                        closed.push(pts[0]);
+                        dashed_polyline(&mini, &closed, Stroke::new(1.0, col), 3.0, 2.0);
+                    } else if it.shape == "route" && pts.len() >= 2 {
+                        dashed_polyline(&mini, &pts, Stroke::new(1.0, col), 3.0, 2.0);
+                    } else if let Some(p) = pts.first() {
+                        mini.circle_filled(*p, 2.6, col);
+                    }
+                }
+            }
+            if opts.show_proposals {
+                for g in &self.ghosts {
+                    if let Some(p) = g.points.first() {
+                        mini.circle_filled(w2m(p[0], p[1]), 1.8, GHOST_COLOR);
+                    }
+                }
             }
             let a = w2m(world_tl.x, world_tl.y);
             let b = w2m(world_br.x, world_br.y);
@@ -1926,6 +2351,13 @@ impl GameMap {
             "draw_region" => "Click to add vertices · double-click or Enter to close · Esc cancels",
             "measure" if opts.measure_anchor.is_some() => "Click the destination",
             "measure" => "Click the start of the measurement",
+            "intent" => match (opts.pending_mode.as_deref(), opts.pending_points.len()) {
+                (Some("intent_area"), 0) => "Intent area: click to start outlining what you want here",
+                (Some("intent_area"), _) => "Click to add vertices · Enter or double-click to close · Esc cancels",
+                (Some("intent_route"), 0) => "Intent route: click where the journey starts (snaps to spots)",
+                (Some("intent_route"), _) => "Click where the journey ends",
+                _ => "Intent pin: click the place you have in mind",
+            },
             _ => "Click to select · drag spots to move · right-drag or Space-drag to pan",
         };
         let pill_font = FontId::proportional(9.5);
@@ -1964,6 +2396,19 @@ mod tests {
             }
         }
         MapTerrain { cols: n, rows: n, data, sea_level_m: 0.0 }
+    }
+
+    #[test]
+    fn a_route_bows_between_its_ends() {
+        let (a, b) = (pos2(0.0, 0.0), pos2(100.0, 0.0));
+        let curve = bowed(a, b);
+        assert_eq!(curve.first().copied(), Some(a));
+        assert!((curve.last().unwrap().x - 100.0).abs() < 1e-3 && curve.last().unwrap().y.abs() < 1e-3);
+        // The middle sits off the straight line (by 8% of its length: half the 16% control offset).
+        let mid = curve[curve.len() / 2];
+        assert!((mid.x - 50.0).abs() < 0.5 && (mid.y.abs() - 8.0).abs() < 0.5, "{mid:?}");
+        assert!(near_polyline(mid, &curve, 0.5));
+        assert!(!near_polyline(pos2(50.0, 0.0), &curve, 3.0), "hit-testing follows the bow, not the chord");
     }
 
     #[test]

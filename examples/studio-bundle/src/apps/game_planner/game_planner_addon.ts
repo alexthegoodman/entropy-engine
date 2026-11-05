@@ -32,40 +32,57 @@ import {
     validateQuestGraph,
 } from "./story_model";
 import {
-    applyRevisionProposal,
-    createSampleAgentProposal,
     exportMapToSvg,
     exportWorldBibleJson,
     generateAgentPrompts,
     generateGameDesignDoc,
+    isProposalPending,
+    proposalGhosts,
 } from "./agent_pipeline";
+import {
+    INTENT_KINDS,
+    INTENT_KIND_INFO,
+    effectiveParams,
+    evaluateIntent,
+    generateAgentBrief,
+    intentContext,
+    intentPoints,
+    openIntents,
+    planHealth,
+    spotNear,
+} from "./intent_model";
+import { PLANNER_AGENT_NAME, draftProposalForIntent, normalizeProposalChanges } from "./planner_agent";
+import { BIOMES, PATH_DEFAULTS, PATH_TYPES, SPOT_COLORS, SPOT_TYPES, isMajorSpotType } from "./planner_defaults";
 import {
     CRIMSON_EXPANSE_PRESET,
     NEO_AETHELGARD_PRESET,
     SHATTERED_ISLES_PRESET,
 } from "./presets";
 import type {
-    BiomeType,
     CodexCategory,
     GameWorld,
+    IntentKind,
+    IntentShape,
     Mission,
-    PathType,
+    PlanIntent,
     RegionType,
+    RevisionChange,
     RevisionProposal,
     SpotType,
+    TravelMode,
     TerrainStyle,
     TravelEstimate,
     WorldPath,
     WorldRegion,
     WorldSpot,
 } from "./planner_types";
-import type { GameMapConfig, IconName, SplitConfig } from "../../addon";
+import type { GameMapConfig, IconName, MapGhostConfig, MapIntentConfig, SplitConfig } from "../../addon";
 
 // Register Addon
 const addon = Entropy.Addon.register({
     name: "game-world-planner",
-    version: "1.2.0",
-    description: "Game World Planner: orthographic topological map editor, time-to-travel calculator, procedural terrain tools, codex, story organizer, and AI agent revision pipeline.",
+    version: "1.3.0",
+    description: "Game World Planner: sketch design intents on a topographic map and let agents build them - live intent checks, previewed agent proposals you accept or reject on the map, a terrain-aware built-in planner agent and MCP tools for external agents; plus travel times, procedural terrain, codex and story.",
     author: ["Entropy Team", "Google DeepMind"],
     category: "Game Design",
     capabilities: { ui: true, needsViewport: false },
@@ -92,39 +109,12 @@ const UI = {
     violet: [0.66, 0.33, 0.97, 1] as RGBA,
 };
 
-const SPOT_TYPES: SpotType[] = ["capital", "city", "town", "village", "fortress", "dungeon", "ruin", "port", "shrine", "camp", "mine", "boss", "landmark"];
-const PATH_TYPES: PathType[] = ["highway", "road", "trail", "river", "bridge"];
-const BIOMES: BiomeType[] = ["plains", "forest", "jungle", "desert", "tundra", "volcanic", "swamp", "alpine", "coastal", "savanna", "taiga", "badlands"];
 const TERRAIN_STYLES: Array<{ id: TerrainStyle; label: string }> = [
     { id: "relief", label: "Relief" },
     { id: "heatmap", label: "Heatmap" },
     { id: "slope", label: "Slope" },
     { id: "flat", label: "Flat" },
 ];
-
-const SPOT_COLORS: Record<SpotType, RGBA> = {
-    capital: [0.98, 0.75, 0.14, 1],
-    city: [0.95, 0.62, 0.25, 1],
-    town: [0.35, 0.8, 0.5, 1],
-    village: [0.45, 0.75, 0.4, 1],
-    fortress: [0.6, 0.65, 0.75, 1],
-    dungeon: [0.95, 0.25, 0.35, 1],
-    ruin: [0.65, 0.5, 0.85, 1],
-    port: [0.22, 0.74, 0.97, 1],
-    shrine: [0.7, 0.45, 0.95, 1],
-    camp: [0.85, 0.5, 0.2, 1],
-    mine: [0.8, 0.5, 0.3, 1],
-    boss: [0.9, 0.15, 0.25, 1],
-    landmark: [0.9, 0.9, 0.95, 1],
-};
-
-const PATH_DEFAULTS: Record<PathType, { color: RGBA; width: number; surfaceQuality: number; flowSpeed: number; isMajor: boolean }> = {
-    highway: { color: [0.98, 0.75, 0.14, 1], width: 5, surfaceQuality: 0.8, flowSpeed: 0, isMajor: true },
-    road: { color: [0.85, 0.75, 0.55, 1], width: 3.5, surfaceQuality: 1.0, flowSpeed: 0, isMajor: false },
-    trail: { color: [0.65, 0.55, 0.4, 1], width: 2, surfaceQuality: 1.35, flowSpeed: 0, isMajor: false },
-    river: { color: [0.22, 0.6, 0.92, 1], width: 4.5, surfaceQuality: 1.0, flowSpeed: 1.5, isMajor: true },
-    bridge: { color: [0.8, 0.85, 0.9, 1], width: 3.5, surfaceQuality: 0.9, flowSpeed: 0, isMajor: false },
-};
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const fmtKm = (p: [number, number]) => `[${round2(p[0])}, ${round2(p[1])}] km`;
@@ -137,8 +127,25 @@ let codexSearchQuery = "";
 let codexStyleFilter = "Dark Fantasy";
 let questViewMode: "chronological" | "freeform" = "chronological";
 let lastTravelEstimate: TravelEstimate | null = null;
-let activeProposal: RevisionProposal | null = null;
 let placeSpotType: SpotType = "town";
+/** The last thing the Planner Agent said (why it had nothing to propose, or what it proposed). */
+let agentNote: { intentId: string; text: string } | null = null;
+
+const INTENT_SHAPES: Array<{ id: IntentShape; label: string }> = [
+    { id: "pin", label: "Pin" },
+    { id: "area", label: "Area" },
+    { id: "route", label: "Route" },
+];
+const TRAVEL_MODES: TravelMode[] = ["foot", "mount", "vehicle", "water", "air"];
+const INTENT_ICONS: Record<IntentKind, IconName> = {
+    settle: "house-line",
+    danger: "skull",
+    landmark: "flag",
+    connect: "path",
+    pacing: "clock",
+    quest: "sword",
+    freeform: "lightbulb",
+};
 
 // Procedural Parameters State
 let procSeed = model.world.meta.seed;
@@ -160,7 +167,7 @@ function setModel(next: PlannerModel): void {
     procSeed = model.world.meta.seed;
     procIslandMask = model.world.meta.genre === "fantasy";
     lastTravelEstimate = null;
-    activeProposal = null;
+    agentNote = null;
 }
 
 // --- Persistence ---
@@ -210,8 +217,18 @@ function loadWorld(): void {
 // --- Selection helpers ---
 
 function deleteSelected(): void {
+    if (model.selectedChangeId) {
+        decideChange(model.selectedChangeId, false);
+        return;
+    }
     const id = model.selectedId;
     if (!id) return;
+    const intent = model.intents.find((i) => i.id === id);
+    if (intent) {
+        model.deleteIntent(id);
+        statusMessage = `Deleted intent #${intent.number} "${intent.title}".`;
+        return;
+    }
     const spot = model.world.spots.find((s) => s.id === id);
     const path = model.world.paths.find((p) => p.id === id);
     const region = model.world.regions.find((r) => r.id === id);
@@ -230,6 +247,7 @@ function deleteSelected(): void {
 function selectTool(tool: typeof model.activeTool): void {
     if (tool !== "draw_path") model.cancelPendingPath();
     if (tool !== "draw_region") model.cancelPendingRegion();
+    if (tool !== "intent") model.cancelPendingIntent();
     if (tool === "measure" || model.activeTool === "measure") {
         model.clearMeasurement();
         lastTravelEstimate = null;
@@ -242,11 +260,29 @@ function selectTool(tool: typeof model.activeTool): void {
         draw_path: "Draw Path: click to add points (they snap to spots), double-click or Enter to finish.",
         draw_region: "Draw Region: click to add vertices, double-click or Enter to close it.",
         measure: "Measure: click a start point, then a destination.",
+        intent: intentToolHint(),
     };
     statusMessage = names[tool];
 }
 
+function intentToolHint(): string {
+    const kind = model.intentKind === "auto" ? "" : ` (${INTENT_KIND_INFO[model.intentKind].label})`;
+    if (model.intentShape === "pin") return `Intent${kind}: click the place you have in mind - an agent builds it.`;
+    if (model.intentShape === "route") return `Intent${kind}: click where a journey starts, then where it ends (snaps to spots).`;
+    return `Intent${kind}: outline the area you have in mind; Enter or double-click closes it.`;
+}
+
+function announceIntent(intent: PlanIntent): void {
+    const ev = evaluateIntent(model.world, intent);
+    statusMessage = `Intent #${intent.number} (${intent.kind}) sketched - ${ev.summary}. Describe it in the inspector, then let an agent draft it.`;
+}
+
 function finishDrawing(): boolean {
+    if (model.activeTool === "intent" && model.intentShape === "area" && model.pendingIntentPoints.length >= 3) {
+        const intent = model.finishPendingIntent();
+        if (intent) announceIntent(intent);
+        return true;
+    }
     if (model.activeTool === "draw_path" && model.pendingPathPoints.length >= 2) {
         const p = model.finishPendingPath();
         if (p) statusMessage = `Created ${p.pathType} "${p.name}" (${round2(pathPolylineLengthKm(p.points))} km, ${p.points.length} points).`;
@@ -261,10 +297,13 @@ function finishDrawing(): boolean {
 }
 
 function cancelAction(): void {
-    if (model.pendingPathPoints.length || model.pendingRegionPoints.length) {
+    if (model.pendingPathPoints.length || model.pendingRegionPoints.length || model.pendingIntentPoints.length) {
         model.cancelPendingPath();
         model.cancelPendingRegion();
+        model.cancelPendingIntent();
         statusMessage = "Drawing cancelled.";
+    } else if (model.selectedChangeId) {
+        model.selectedChangeId = null;
     } else if (model.measurePoints.p1) {
         model.clearMeasurement();
         lastTravelEstimate = null;
@@ -292,7 +331,7 @@ function renderHeader(tabId: string): void {
                     { id: "codex", label: icon("book-open", "Codex") },
                     { id: "story", label: icon("sword", "Story & Quests") },
                     { id: "procedural", label: icon("mountains", "Terrain & Procedural") },
-                    { id: "agent", label: icon("robot", "Agent Bible & Diff") },
+                    { id: "agent", label: icon("robot", model.pendingProposals.length ? `Agents (${model.pendingProposals.length})` : "Agents") },
                 ];
 
                 tabs.forEach((t) => {
@@ -393,7 +432,7 @@ function renderStatusBar(tabId: string): void {
         },
         undefined,
         (right: string) => {
-            const counts = `${model.world.spots.length} Spots | ${model.world.paths.length} Paths | ${model.world.regions.length} Regions | ${model.world.codex.length} Codex | ${model.world.missions.length} Quests`;
+            const counts = `${model.world.spots.length} Spots | ${model.world.paths.length} Paths | ${model.world.regions.length} Regions | ${model.world.codex.length} Codex | ${model.world.missions.length} Quests | ${model.intents.length} Intents`;
             W.label(right, { text: counts, fontSize: 11, color: UI.emerald });
         }
     );
@@ -438,6 +477,7 @@ function renderMapToolbar(canvasArea: string): void {
                     { id: "draw_path", label: icon("path", "Path"), key: "L" },
                     { id: "draw_region", label: icon("polygon", "Region"), key: "G" },
                     { id: "measure", label: icon("ruler", "Measure"), key: "M" },
+                    { id: "intent", label: icon("lightbulb", "Intent"), key: "I" },
                 ];
                 tools.forEach((t) => {
                     W.button(left, {
@@ -494,6 +534,37 @@ function renderMapToolbar(canvasArea: string): void {
                         W.button(center, { id: "btn_undo_region_pt", text: icon("arrow-counter-clockwise", "Point"), onClick: () => model.undoPendingRegionPoint() });
                         W.button(center, { id: "btn_cancel_region", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => model.cancelPendingRegion() });
                     }
+                } else if (model.activeTool === "intent") {
+                    W.segmented(center, {
+                        id: "seg_intent_shape",
+                        options: INTENT_SHAPES.map((x) => x.label),
+                        selectedIndex: Math.max(0, INTENT_SHAPES.findIndex((x) => x.id === model.intentShape)),
+                        compact: true,
+                        accent: UI.amber,
+                        onChange: (v: string) => {
+                            model.intentShape = INTENT_SHAPES[Number(v)]?.id || "area";
+                            model.cancelPendingIntent();
+                            if (model.intentKind !== "auto" && !INTENT_KIND_INFO[model.intentKind].shapes.includes(model.intentShape)) model.intentKind = "auto";
+                            statusMessage = intentToolHint();
+                        },
+                    });
+                    const kinds = INTENT_KINDS.filter((k) => INTENT_KIND_INFO[k].shapes.includes(model.intentShape));
+                    W.dropdown(center, {
+                        id: "dropdown_intent_kind",
+                        label: "Kind",
+                        options: ["Auto", ...kinds.map((k) => INTENT_KIND_INFO[k].label)],
+                        selectedIndex: model.intentKind === "auto" ? 0 : Math.max(0, kinds.indexOf(model.intentKind) + 1),
+                        onChange: (v: string) => {
+                            const i = Number(v);
+                            model.intentKind = i === 0 ? "auto" : kinds[i - 1] || "auto";
+                            statusMessage = intentToolHint();
+                        },
+                    });
+                    if (model.pendingIntentPoints.length > 0) {
+                        W.label(center, { text: `${model.pendingIntentPoints.length} pts`, fontSize: 11, color: UI.amber, bold: true });
+                        if (model.intentShape === "area") W.button(center, { id: "btn_finish_intent", text: icon("check", "Close"), tooltip: "Enter", accent: UI.emerald, onClick: () => finishDrawing() });
+                        W.button(center, { id: "btn_cancel_intent", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => model.cancelPendingIntent() });
+                    }
                 } else if (model.activeTool === "measure" && (model.measurePoints.p1 || lastTravelEstimate)) {
                     if (lastTravelEstimate) {
                         W.label(center, { text: `${lastTravelEstimate.directDistanceKm} km · ${lastTravelEstimate.summaryText}`, fontSize: 11, color: UI.amber });
@@ -510,7 +581,38 @@ function renderMapToolbar(canvasArea: string): void {
                 }
             });
         },
-        undefined
+        (right: string) => {
+            W.horizontal(right, () => {
+                const h = planHealth(model.world);
+                if (h.total) {
+                    const checked = h.met + h.unmet;
+                    W.label(right, {
+                        text: icon(h.unmet ? "target" : "check-circle", `Plan ${h.met}/${checked} met${h.manual ? ` · ${h.manual} by hand` : ""}`),
+                        fontSize: 11,
+                        bold: true,
+                        color: h.unmet ? UI.amber : UI.emerald,
+                    });
+                }
+                const pending = model.pendingProposals.length;
+                if (pending) {
+                    W.button(right, {
+                        id: "btn_review_proposals",
+                        text: icon("robot", `${pending} to review`),
+                        tooltip: "Open the agent inbox",
+                        accent: UI.violet,
+                        onClick: () => (model.activeTab = "agent"),
+                    });
+                } else if (h.unmet) {
+                    W.button(right, {
+                        id: "btn_draft_all_map",
+                        text: icon("robot", "Draft open intents"),
+                        tooltip: `Let the ${PLANNER_AGENT_NAME} propose changes for every unmet intent`,
+                        accent: UI.cyan,
+                        onClick: () => draftAllOpen(),
+                    });
+                }
+            });
+        }
     );
 
     // Second row: terrain style and layers.
@@ -540,6 +642,8 @@ function renderMapToolbar(canvasArea: string): void {
                     W.button(right, { id, text: label, accent: on ? UI.emerald : undefined, onClick: flip });
                 toggle("btn_toggle_contours", icon("mountains", "Contours"), model.showContours, () => (model.showContours = !model.showContours));
                 toggle("btn_toggle_biomes", icon("polygon", "Regions"), model.showBiomes, () => (model.showBiomes = !model.showBiomes));
+                toggle("btn_toggle_intents", icon("lightbulb", "Intents"), model.showIntents, () => (model.showIntents = !model.showIntents));
+                toggle("btn_toggle_proposals", icon("ghost", "Proposals"), model.showProposals, () => (model.showProposals = !model.showProposals));
                 toggle("btn_toggle_labels", icon("tag", "Labels"), model.showLabels, () => (model.showLabels = !model.showLabels));
                 toggle("btn_toggle_grid", icon("grid-four", "Grid"), model.showGrid, () => (model.showGrid = !model.showGrid));
                 toggle("btn_toggle_minimap", icon("map-trifold", "Overview"), model.showMinimap, () => (model.showMinimap = !model.showMinimap));
@@ -566,7 +670,7 @@ function handleMapClick(x: number, y: number): void {
     const [sx, sy] = pt;
     if (model.activeTool === "place_spot") {
         const n = model.world.spots.filter((s) => s.spotType === placeSpotType).length + 1;
-        const isMajor = placeSpotType === "capital" || placeSpotType === "city" || placeSpotType === "fortress" || placeSpotType === "port";
+        const isMajor = isMajorSpotType(placeSpotType);
         const newSpot = model.addSpot({
             name: `New ${placeSpotType[0].toUpperCase()}${placeSpotType.slice(1)} ${n}`,
             spotType: placeSpotType,
@@ -606,15 +710,106 @@ function handleMapClick(x: number, y: number): void {
             const climb = est.climbM !== undefined ? ` · climb +${est.climbM} m / -${est.descentM} m` : "";
             statusMessage = `Distance: ${est.directDistanceKm} km${climb}${est.pathFound ? " (by road)" : ""}. ${est.summaryText}`;
         }
+    } else if (model.activeTool === "intent") {
+        const intent = model.appendPendingIntentPoint(pt);
+        if (intent) {
+            announceIntent(intent);
+        } else if (model.intentShape === "route") {
+            const s = spotNear(model.world, pt);
+            statusMessage = `Journey starts at ${s ? s.name : fmtKm(pt)} - click where it ends.`;
+        } else {
+            statusMessage = `Intent area vertex #${model.pendingIntentPoints.length} - Enter or double-click to close.`;
+        }
     } else if (model.activeTool === "select") {
         model.selectedId = null;
+        model.selectedChangeId = null;
     }
+}
+
+// --- The agent loop: draft, review, decide ---
+
+/** An intent named by an agent, by `intentId` or by its `#number`. */
+function findIntentArg(args: any): PlanIntent | undefined {
+    if (args?.intentId) return model.intents.find((i) => i.id === args.intentId);
+    if (args?.intentNumber !== undefined) return model.intents.find((i) => i.number === Number(args.intentNumber));
+    return undefined;
+}
+
+/** Runs the built-in Planner Agent on one intent and files its proposal for review. */
+function draftIntent(intent: PlanIntent): RevisionProposal | null {
+    const { proposal, reason } = draftProposalForIntent(model.world, intent);
+    agentNote = { intentId: intent.id, text: reason };
+    if (!proposal) {
+        statusMessage = `${PLANNER_AGENT_NAME} on #${intent.number}: ${reason}`;
+        return null;
+    }
+    // A new draft replaces the agent's earlier, still-pending one for this intent.
+    const stale = model.world.proposals.filter((p) => p.intentId === intent.id && p.agentName === PLANNER_AGENT_NAME && isProposalPending(p));
+    stale.forEach((p) => model.decideProposal(p.id, false));
+    model.addProposal(proposal);
+    statusMessage = `${PLANNER_AGENT_NAME} proposed ${proposal.changes.length} change(s) for #${intent.number}: ${reason} Review them on the map (violet).`;
+    return proposal;
+}
+
+function draftAllOpen(): void {
+    const open = openIntents(model.world).filter((i) => i.kind !== "freeform" && !model.pendingProposals.some((p) => p.intentId === i.id));
+    let drafted = 0;
+    let changes = 0;
+    for (const intent of open) {
+        const p = draftIntent(intent);
+        if (p) {
+            drafted++;
+            changes += p.changes.length;
+        }
+    }
+    statusMessage = open.length
+        ? `${PLANNER_AGENT_NAME} drafted ${drafted} of ${open.length} open intent(s): ${changes} change(s) to review.`
+        : "No open intents to draft (freeform intents and ones already in review are left alone).";
+}
+
+function decideChange(changeId: string, accept: boolean): void {
+    const found = model.findChange(changeId);
+    if (!found) return;
+    model.decideChange(changeId, accept);
+    const left = found.proposal.changes.filter((c) => c.status === "pending").length;
+    statusMessage = `${accept ? (found.change.status === "accepted" ? "Accepted" : "Could not apply") : "Rejected"} "${found.change.title}"${left ? ` - ${left} more in this proposal` : ""}.`;
+    if (!left) {
+        const intent = found.proposal.intentId ? model.intents.find((i) => i.id === found.proposal.intentId) : undefined;
+        if (intent) statusMessage += ` Intent #${intent.number}: ${evaluateIntent(model.world, intent).summary}.`;
+    }
+}
+
+function decideProposal(proposal: RevisionProposal, accept: boolean): void {
+    const n = model.decideProposal(proposal.id, accept);
+    const intent = proposal.intentId ? model.intents.find((i) => i.id === proposal.intentId) : undefined;
+    statusMessage = `${accept ? "Accepted" : "Rejected"} ${n} change(s) from ${proposal.agentName}.${intent ? ` Intent #${intent.number}: ${evaluateIntent(model.world, intent).summary}.` : ""}`;
+}
+
+/** The intents as the map draws them, with their live checks. */
+function mapIntents(): MapIntentConfig[] {
+    return model.intents
+        .filter((i) => i.status !== "dismissed")
+        .map((i) => {
+            const ev = evaluateIntent(model.world, i);
+            return {
+                id: i.id,
+                number: i.number,
+                shape: i.shape,
+                kind: i.kind,
+                points: intentPoints(model.world, i),
+                title: i.title,
+                summary: ev.summary,
+                status: i.status,
+                satisfied: ev.satisfied,
+                color: INTENT_KIND_INFO[i.kind].color,
+            };
+        });
 }
 
 function renderMapCanvasAndToolbar(canvasArea: string): void {
     renderMapToolbar(canvasArea);
 
-    const pending = model.activeTool === "draw_path" ? model.pendingPathPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : [];
+    const pending = model.activeTool === "draw_path" ? model.pendingPathPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : model.activeTool === "intent" ? model.pendingIntentPoints : [];
     const t = model.world.terrain;
     const measuring = model.activeTool === "measure";
 
@@ -632,7 +827,25 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
         activeTool: model.activeTool,
         selectedId: model.selectedId || undefined,
         pendingPoints: pending.length ? pending : undefined,
-        pendingMode: model.activeTool === "draw_path" ? "path" : model.activeTool === "draw_region" ? "region" : undefined,
+        pendingMode: model.activeTool === "draw_path" ? "path" : model.activeTool === "draw_region" ? "region" : model.activeTool === "intent" ? `intent_${model.intentShape}` : undefined,
+        intents: mapIntents(),
+        ghosts: proposalGhosts(model.world) as MapGhostConfig[],
+        showIntents: model.showIntents,
+        showProposals: model.showProposals,
+        selectedChangeId: model.selectedChangeId || undefined,
+        onIntentSelect: (id: string) => {
+            model.selectedId = id;
+            model.selectedChangeId = null;
+            const intent = model.intents.find((i) => i.id === id);
+            if (intent) statusMessage = `Intent #${intent.number} "${intent.title}" - ${evaluateIntent(model.world, intent).summary}.`;
+        },
+        onGhostSelect: (id: string) => {
+            const found = model.findChange(id);
+            if (!found) return;
+            model.selectedChangeId = id;
+            if (found.proposal.intentId) model.selectedId = found.proposal.intentId;
+            statusMessage = `Proposed by ${found.proposal.agentName}: ${found.change.title}. Accept (A) or reject (R) it in the inspector.`;
+        },
         terrain: t ? { cols: t.cols, rows: t.rows, data: t.data, seaLevelM: t.seaLevelM } : undefined,
         terrainStyle: model.terrainStyle,
         terrainPalette: paletteForGenre(model.world.meta.genre),
@@ -681,6 +894,7 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
             : undefined,
         onSpotSelect: (id: string) => {
             model.selectedId = id;
+            model.selectedChangeId = null;
             const spot = model.world.spots.find((s) => s.id === id);
             if (spot) statusMessage = `Selected ${spot.spotType} "${spot.name}" - drag to move it.`;
         },
@@ -695,11 +909,13 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
         },
         onPathSelect: (id: string) => {
             model.selectedId = id;
+            model.selectedChangeId = null;
             const path = model.world.paths.find((p) => p.id === id);
             if (path) statusMessage = `Selected ${path.pathType} "${path.name}".`;
         },
         onRegionSelect: (id: string) => {
             model.selectedId = id;
+            model.selectedChangeId = null;
             const region = model.world.regions.find((r) => r.id === id);
             if (region) statusMessage = `Selected region "${region.name}" (${region.dominantBiome}).`;
         },
@@ -723,6 +939,12 @@ function renderInspector(panel: string): void {
     W.separator(panel);
 
     const selId = model.selectedId;
+    const intent = selId ? model.intents.find((i) => i.id === selId) : undefined;
+    if (model.selectedChangeId && !intent) {
+        const found = model.findChange(model.selectedChangeId);
+        if (found) return renderChangeReview(panel, found.proposal, found.change);
+    }
+    if (intent) return renderIntentInspector(panel, intent);
     const spot = selId ? model.world.spots.find((s) => s.id === selId) : undefined;
     const path = selId ? model.world.paths.find((p) => p.id === selId) : undefined;
     const region = selId ? model.world.regions.find((r) => r.id === selId) : undefined;
@@ -730,15 +952,15 @@ function renderInspector(panel: string): void {
     if (path) return renderPathInspector(panel, path);
     if (region) return renderRegionInspector(panel, region);
 
-    W.label(panel, { text: "No map element selected.", color: UI.dim, fontSize: 12 });
-    W.spacer(panel, 6);
+    renderPlanBoard(panel);
+    W.spacer(panel, 10);
     W.label(panel, {
-        text: "Click a spot, path or region to edit it. Tools: V select, H pan, P spot, L path, G region, M measure. Space-drag or right-drag pans, the wheel zooms, F fits the world, Esc cancels, Delete removes the selection.",
+        text: "Click a spot, path, region or intent to edit it. Tools: V select, H pan, P spot, L path, G region, M measure, I intent. Space-drag or right-drag pans, the wheel zooms, F fits the world, Esc cancels, Delete removes the selection.",
         wrap: true,
         color: UI.dim,
         fontSize: 11,
     });
-    W.spacer(panel, 12);
+    W.spacer(panel, 10);
 
     W.card(panel, { id: "card_quick_stats", fill: UI.card, padding: 10 }, (card) => {
         W.label(card, { text: "World Summary", bold: true, fontSize: 11, color: UI.emerald });
@@ -751,6 +973,239 @@ function renderInspector(panel: string): void {
             W.label(card, { text: `Terrain: ${t.cols}x${t.rows} grid, ${Math.round(t.minM)} to ${Math.round(t.maxM)} m, ${Math.round(land * 100)}% land`, fontSize: 11, color: UI.dim });
         }
         W.label(card, { text: `${model.world.spots.length} spots · ${model.world.paths.length} paths · ${model.world.regions.length} regions`, fontSize: 11, color: UI.dim });
+    });
+}
+
+// --- Intents: the plan board, the intent inspector, change review ---
+
+function statusColor(ev: { satisfied: boolean | null }): RGBA {
+    return ev.satisfied === true ? UI.emerald : ev.satisfied === false ? UI.amber : UI.dim;
+}
+
+function statusGlyph(ev: { satisfied: boolean | null }): IconName {
+    return ev.satisfied === true ? "check-circle" : ev.satisfied === false ? "x-circle" : "circle-dashed";
+}
+
+/** Every intent at a glance, with its check; the starting point when nothing is selected. */
+function renderPlanBoard(panel: string): void {
+    const live = model.intents.filter((i) => i.status !== "dismissed");
+    const h = planHealth(model.world);
+    W.card(panel, { id: "card_plan_board", fill: UI.card, padding: 10 }, (card) => {
+        W.horizontal(card, () => {
+            W.label(card, { text: icon("lightbulb", "Plan Board"), bold: true, fontSize: 12, color: UI.amber });
+            if (h.total) W.label(card, { text: `${h.score}%`, bold: true, fontSize: 12, color: h.unmet ? UI.amber : UI.emerald });
+        });
+        if (!live.length) {
+            W.label(card, {
+                text: "Sketch what you want with the Intent tool (I): pin a landmark, outline an area to settle or make dangerous, draw a route and say how long the journey should take. Agents build it; you review every change on the map.",
+                wrap: true,
+                fontSize: 11,
+                color: UI.dim,
+            });
+            W.button(card, { id: "btn_start_intent", text: icon("lightbulb", "Sketch an intent"), accent: UI.amber, onClick: () => selectTool("intent") });
+            return;
+        }
+        W.label(card, { text: `${h.met} met · ${h.unmet} unmet${h.manual ? ` · ${h.manual} checked by hand` : ""} · ${model.pendingProposals.length} proposal(s) to review`, fontSize: 10.5, color: UI.dim });
+        W.spacer(card, 4);
+        live.sort((a, b) => a.number - b.number).forEach((i) => {
+            const ev = evaluateIntent(model.world, i);
+            const review = i.status === "proposed" ? " · review" : i.status === "claimed" ? ` · ${i.claimedBy ?? "agent"} working` : "";
+            W.button(card, {
+                id: `board_intent_${i.id}`,
+                text: icon(statusGlyph(ev), `#${i.number} ${i.title}`),
+                tooltip: `${INTENT_KIND_INFO[i.kind].label}: ${ev.summary}${review}`,
+                accent: model.selectedId === i.id ? UI.cyan : undefined,
+                onClick: () => {
+                    model.selectedId = i.id;
+                    model.selectedChangeId = null;
+                },
+            });
+            W.label(card, { text: `   ${ev.summary}${review}`, fontSize: 10, color: statusColor(ev) });
+        });
+        W.spacer(card, 4);
+        W.horizontal(card, () => {
+            W.button(card, { id: "btn_draft_all_board", text: icon("robot", "Draft open intents"), accent: UI.cyan, onClick: () => draftAllOpen() });
+            W.button(card, { id: "btn_copy_brief_board", text: icon("clipboard-text", "Copy brief"), tooltip: "A Markdown work order for any agent", onClick: () => copyText(generateAgentBrief(model.world), "the Agent Brief") });
+        });
+    });
+}
+
+/** Review controls are keyed by position (proposal n, change k) so tests and scripts can reach them. */
+function renderProposalChanges(panel: string, proposal: RevisionProposal): void {
+    const pending = proposal.changes.filter((c) => c.status === "pending");
+    const n = model.world.proposals.indexOf(proposal);
+    W.card(panel, { id: `card_prop_${n}`, fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("robot", `${proposal.agentName} proposes ${proposal.changes.length} change${proposal.changes.length === 1 ? "" : "s"}`), bold: true, fontSize: 12, color: UI.violet });
+        W.label(card, { text: proposal.motivation, wrap: true, fontSize: 10.5, color: UI.dim });
+        if (pending.length > 1) {
+            W.horizontal(card, () => {
+                W.button(card, { id: `btn_accept_all_${n}`, text: icon("check", "Accept all"), accent: UI.emerald, onClick: () => decideProposal(proposal, true) });
+                W.button(card, { id: `btn_reject_all_${n}`, text: icon("x", "Reject all"), onClick: () => decideProposal(proposal, false) });
+            });
+        } else if (pending.length === 1) {
+            // One change: its own Accept/Reject below say it all; keep the ids for scripts.
+            W.horizontal(card, () => {
+                W.button(card, { id: `btn_accept_all_${n}`, text: icon("check", "Accept"), accent: UI.emerald, onClick: () => decideProposal(proposal, true) });
+                W.button(card, { id: `btn_reject_all_${n}`, text: icon("x", "Reject"), onClick: () => decideProposal(proposal, false) });
+            });
+        }
+        W.separator(card);
+        proposal.changes.forEach((c, k) => renderChangeRow(card, c, `${n}_${k}`));
+    });
+}
+
+function renderChangeRow(card: string, c: RevisionChange, key: string): void {
+    const selected = model.selectedChangeId === c.id;
+    const col = c.status === "accepted" ? UI.emerald : c.status === "rejected" ? UI.rose : selected ? UI.cyan : UI.text;
+    const mark = c.status === "accepted" ? "check" : c.status === "rejected" ? "x" : "ghost";
+    W.label(card, { text: icon(mark as IconName, c.title), bold: true, fontSize: 11, color: col });
+    if (c.summary) W.label(card, { text: c.summary, wrap: true, fontSize: 10, color: UI.dim });
+    if (c.status === "pending" && (model.findChange(c.id)?.proposal.changes.filter((x) => x.status === "pending").length ?? 0) > 1) {
+        W.horizontal(card, () => {
+            W.button(card, { id: `btn_accept_${key}`, text: icon("check", "Accept"), tooltip: "A", accent: UI.emerald, onClick: () => decideChange(c.id, true) });
+            W.button(card, { id: `btn_reject_${key}`, text: icon("x", "Reject"), tooltip: "R", onClick: () => decideChange(c.id, false) });
+            W.button(card, {
+                id: `btn_focus_${key}`,
+                text: icon("crosshair", ""),
+                tooltip: "Highlight it on the map",
+                accent: selected ? UI.cyan : undefined,
+                onClick: () => (model.selectedChangeId = selected ? null : c.id),
+            });
+        });
+    }
+    W.spacer(card, 4);
+}
+
+/** A single proposed change picked on the map (one not tied to an intent). */
+function renderChangeReview(panel: string, proposal: RevisionProposal, change: RevisionChange): void {
+    W.label(panel, { text: icon("ghost", "Proposed change"), bold: true, fontSize: 13, color: UI.violet });
+    W.spacer(panel, 4);
+    renderProposalChanges(panel, proposal);
+    W.button(panel, { id: "btn_back_to_board", text: icon("arrow-counter-clockwise", "Back to the plan"), onClick: () => (model.selectedChangeId = null) });
+    void change;
+}
+
+function renderIntentInspector(panel: string, intent: PlanIntent): void {
+    const info = INTENT_KIND_INFO[intent.kind];
+    const ev = evaluateIntent(model.world, intent);
+    const p = effectiveParams(intent);
+    W.label(panel, { text: icon(INTENT_ICONS[intent.kind], `Intent #${intent.number}`), bold: true, fontSize: 13, color: UI.amber });
+    W.label(panel, { text: icon(statusGlyph(ev), ev.satisfied === true ? "Met" : ev.satisfied === false ? "Not met yet" : "Checked by hand"), bold: true, fontSize: 12, color: statusColor(ev) });
+    W.label(panel, { text: ev.summary, fontSize: 11.5, color: statusColor(ev), wrap: true });
+    W.spacer(panel, 4);
+
+    W.textInput(panel, { id: "edit_intent_title", label: "Title:", value: intent.title, onChange: (v) => model.updateIntent(intent.id, { title: v }) });
+    W.label(panel, { text: "What you want, in your words (agents read this):", fontSize: 11, color: UI.dim });
+    W.textInput(panel, { id: "edit_intent_directive", value: intent.directive, multiline: true, height: 74, onChange: (v) => model.updateIntent(intent.id, { directive: v }) });
+    if (!intent.directive) {
+        const example = intent.kind === "settle" ? "three quiet fishing villages along this coast" : intent.kind === "danger" ? "haunted woods, danger level 8" : intent.kind === "pacing" ? "should take about 40 minutes on horseback" : intent.kind === "quest" ? "a bounty hunt in the ruins" : intent.kind === "connect" ? "join these with a trail" : "describe what should be here";
+        W.label(panel, { text: `e.g. "${example}" - counts, place types, threat levels and travel times are read from it.`, wrap: true, fontSize: 10, color: UI.dim });
+    }
+
+    const kinds = INTENT_KINDS.filter((k) => INTENT_KIND_INFO[k].shapes.includes(intent.shape));
+    W.dropdown(panel, {
+        id: "edit_intent_kind",
+        label: "Kind",
+        options: kinds.map((k) => INTENT_KIND_INFO[k].label),
+        selectedIndex: Math.max(0, kinds.indexOf(intent.kind)),
+        onChange: (v: string) => {
+            const k = kinds[Number(v)];
+            if (k) model.updateIntent(intent.id, { kind: k });
+        },
+    });
+    W.label(panel, { text: info.hint, fontSize: 10.5, color: UI.dim });
+
+    // The kind's parameters (showing what the directive implies until set explicitly).
+    const setParam = (key: string, value: unknown) => model.updateIntent(intent.id, { params: { ...intent.params, [key]: value } });
+    const spotTypeDropdown = (label: string) =>
+        W.dropdown(panel, {
+            id: "edit_intent_spot_type",
+            label,
+            options: ["Any", ...SPOT_TYPES.map((t) => t[0].toUpperCase() + t.slice(1))],
+            selectedIndex: p.spotType ? SPOT_TYPES.indexOf(p.spotType) + 1 : 0,
+            onChange: (v: string) => setParam("spotType", Number(v) === 0 ? undefined : SPOT_TYPES[Number(v) - 1]),
+        });
+    if (intent.kind === "settle") {
+        W.slider(panel, { id: "edit_intent_count", label: `How many (${p.count ?? 3}):`, value: p.count ?? 3, min: 1, max: 12, onChange: (v) => setParam("count", Math.round(parseFloat(v) || 1)) });
+        spotTypeDropdown("Place type");
+    } else if (intent.kind === "danger") {
+        W.slider(panel, { id: "edit_intent_danger", label: `Threat level (${p.dangerLevel ?? 7}/10):`, value: p.dangerLevel ?? 7, min: 1, max: 10, onChange: (v) => setParam("dangerLevel", Math.round(parseFloat(v) || 1)) });
+    } else if (intent.kind === "landmark" || intent.kind === "quest") {
+        spotTypeDropdown(intent.kind === "quest" ? "Quest site type" : "Landmark type");
+    } else if (intent.kind === "connect") {
+        W.dropdown(panel, {
+            id: "edit_intent_path_type",
+            label: "Build a",
+            options: ["Trail", "Road", "Highway"],
+            selectedIndex: ["trail", "road", "highway"].indexOf(p.pathType ?? "road"),
+            onChange: (v: string) => setParam("pathType", (["trail", "road", "highway"] as const)[Number(v)] ?? "road"),
+        });
+    } else if (intent.kind === "pacing") {
+        W.numericInput(panel, { id: "edit_intent_minutes", label: "Target (minutes):", value: p.targetMinutes ?? 60, step: 5, onChange: (v) => setParam("targetMinutes", Math.max(1, Math.round(parseFloat(v) || 1))) });
+        W.dropdown(panel, {
+            id: "edit_intent_mode",
+            label: "Travelling",
+            options: ["On foot", "Mounted", "By vehicle", "By boat", "By air"],
+            selectedIndex: Math.max(0, TRAVEL_MODES.indexOf(p.mode ?? "foot")),
+            onChange: (v: string) => setParam("mode", TRAVEL_MODES[Number(v)] ?? "foot"),
+        });
+        W.slider(panel, { id: "edit_intent_tolerance", label: `Tolerance (±${Math.round((p.tolerance ?? 0.25) * 100)}%):`, value: Math.round((p.tolerance ?? 0.25) * 100), min: 5, max: 60, onChange: (v) => setParam("tolerance", Math.round(parseFloat(v) || 25) / 100) });
+    }
+    if (intent.shape === "route") {
+        const pts = intentPoints(model.world, intent);
+        const name = (id?: string, k = 0) => (id && model.world.spots.find((s) => s.id === id)?.name) || fmtKm(pts[k]);
+        W.label(panel, { text: `From ${name(intent.fromSpotId, 0)} to ${name(intent.toSpotId, 1)}`, fontSize: 11, color: UI.dim, wrap: true });
+    }
+
+    W.dropdown(panel, {
+        id: "edit_intent_priority",
+        label: "Priority",
+        options: ["Low", "Normal", "High"],
+        selectedIndex: ["low", "normal", "high"].indexOf(intent.priority),
+        onChange: (v: string) => model.updateIntent(intent.id, { priority: (["low", "normal", "high"] as const)[Number(v)] ?? "normal" }),
+    });
+
+    W.separator(panel);
+    W.label(panel, { text: icon("robot", "Agents"), bold: true, fontSize: 12, color: UI.cyan });
+    W.button(panel, {
+        id: "btn_draft_intent",
+        text: icon("robot", intent.kind === "freeform" ? "Needs an LLM agent" : "Draft with Planner Agent"),
+        accent: intent.kind === "freeform" ? undefined : UI.cyan,
+        tooltip: intent.kind === "freeform" ? "Copy the context into an LLM agent, or let an MCP agent pick it up" : "Propose changes for this intent from the terrain",
+        onClick: () => draftIntent(intent),
+    });
+    W.button(panel, {
+        id: "btn_copy_intent_brief",
+        text: icon("clipboard-text", "Copy context for an agent"),
+        tooltip: "This intent as JSON: terrain, nearby places, acceptance criteria",
+        onClick: () => copyText(JSON.stringify(intentContext(model.world, intent), null, 2), `intent #${intent.number}'s context`),
+    });
+    if (agentNote && agentNote.intentId === intent.id) W.label(panel, { text: agentNote.text, wrap: true, fontSize: 10.5, color: UI.dim });
+    if (intent.claimedBy && intent.status === "claimed") W.label(panel, { text: `${intent.claimedBy} is working on this.`, fontSize: 10.5, color: UI.violet });
+
+    const proposals = model.world.proposals.filter((pr) => pr.intentId === intent.id);
+    const pending = proposals.filter(isProposalPending);
+    pending.forEach((pr) => renderProposalChanges(panel, pr));
+    const done = proposals.length - pending.length;
+    if (done) W.label(panel, { text: `${done} earlier proposal(s) decided.`, fontSize: 10, color: UI.dim });
+
+    W.separator(panel);
+    W.horizontal(panel, () => {
+        if (intent.status !== "done" && ev.satisfied !== true) {
+            W.button(panel, { id: "btn_intent_done", text: icon("check", "Mark done"), onClick: () => model.updateIntent(intent.id, { status: "done" }) });
+        } else if (intent.status === "done") {
+            W.button(panel, { id: "btn_intent_reopen", text: icon("arrow-counter-clockwise", "Reopen"), onClick: () => model.updateIntent(intent.id, { status: "open" }) });
+        }
+        W.button(panel, {
+            id: "btn_delete_intent",
+            text: icon("trash", "Delete"),
+            accent: UI.rose,
+            onClick: () => {
+                model.deleteIntent(intent.id);
+                statusMessage = `Deleted intent #${intent.number}.`;
+            },
+        });
+        W.button(panel, { id: "btn_intent_back", text: icon("x", "Close"), onClick: () => (model.selectedId = null) });
     });
 }
 
@@ -1898,90 +2353,72 @@ function copyText(text: string, what: string): void {
 }
 
 function renderAgentView(main: string): void {
-    W.label(main, { text: "AI Agent Collaboration & Revision Pipeline", bold: true, fontSize: 16, color: UI.cyan });
+    W.label(main, { text: "Agents: your intents in, proposals out", bold: true, fontSize: 16, color: UI.cyan });
     W.label(main, {
-        text: "Export World Bibles, vector SVG maps, GDD documentation, and review proposed AI cartographer revisions before committing.",
+        text: "You sketch what you want on the map; agents propose the changes that build it; nothing touches the world until you accept it. The built-in Planner Agent works from the terrain. External agents (Claude Code or any MCP client) read the same queue with game_planner_list_intents and answer with game_planner_propose_revision - or paste the Agent Brief into any chat.",
+        wrap: true,
         color: UI.dim,
         fontSize: 12,
     });
     W.separator(main);
 
+    const h = planHealth(model.world);
+    const open = openIntents(model.world);
+    const pending = model.pendingProposals;
+    W.horizontal(main, () => {
+        W.label(main, { text: icon(h.unmet ? "target" : "check-circle", `Plan health ${h.score}%`), bold: true, fontSize: 13, color: h.unmet ? UI.amber : UI.emerald });
+        W.label(main, { text: `${h.met} met · ${h.unmet} unmet · ${h.manual} by hand · ${pending.length} proposal(s) waiting`, fontSize: 12, color: UI.dim });
+    });
+    W.spacer(main, 6);
+    W.horizontal(main, () => {
+        W.button(main, { id: "btn_draft_all", text: icon("robot", `Draft open intents (${open.filter((i) => i.kind !== "freeform").length})`), accent: UI.cyan, onClick: () => draftAllOpen() });
+        W.button(main, { id: "btn_copy_agent_brief", text: icon("clipboard-text", "Copy Agent Brief (Markdown)"), accent: UI.amber, onClick: () => copyText(generateAgentBrief(model.world), "the Agent Brief") });
+        W.button(main, { id: "btn_to_map_intent", text: icon("lightbulb", "Sketch an intent"), onClick: () => { model.activeTab = "map"; selectTool("intent"); } });
+    });
+    W.spacer(main, 12);
+
+    // Inbox: every proposal still waiting on a decision.
+    W.label(main, { text: icon("ghost", `Inbox (${pending.length})`), bold: true, fontSize: 13, color: UI.violet });
+    if (!pending.length) {
+        W.label(main, { text: "Nothing to review. Draft an intent, or wait for an external agent's proposal.", fontSize: 11, color: UI.dim });
+    }
+    pending.forEach((pr) => {
+        const intent = pr.intentId ? model.intents.find((i) => i.id === pr.intentId) : undefined;
+        if (intent) W.label(main, { text: icon(INTENT_ICONS[intent.kind], `For intent #${intent.number} ${intent.title}`), fontSize: 11, color: UI.amber });
+        renderProposalChanges(main, pr);
+        W.spacer(main, 6);
+    });
+    W.spacer(main, 10);
+
+    // Queue: what is still asked of agents.
+    W.label(main, { text: icon("list-checks", `Open intents (${open.length})`), bold: true, fontSize: 13, color: UI.amber });
+    if (!open.length) W.label(main, { text: model.intents.length ? "Every intent is met." : "No intents yet - sketch some on the map with the Intent tool (I).", fontSize: 11, color: UI.dim });
+    open.forEach((i) => {
+        const ev = evaluateIntent(model.world, i);
+        W.card(main, { id: `card_open_${i.id}`, fill: UI.card, padding: 8 }, (card) => {
+            W.horizontal(card, () => {
+                W.label(card, { text: icon(INTENT_ICONS[i.kind], `#${i.number} ${i.title}`), bold: true, fontSize: 12, color: UI.text });
+                W.label(card, { text: `${INTENT_KIND_INFO[i.kind].label} · ${i.priority}${i.status === "claimed" ? ` · claimed by ${i.claimedBy}` : i.status === "proposed" ? " · in review" : ""}`, fontSize: 10.5, color: UI.dim });
+            });
+            if (i.directive) W.label(card, { text: `"${i.directive}"`, wrap: true, fontSize: 11, color: UI.dim });
+            W.label(card, { text: icon(statusGlyph(ev), ev.summary), fontSize: 11, color: statusColor(ev) });
+            W.horizontal(card, () => {
+                if (i.kind !== "freeform") W.button(card, { id: `btn_draft_${i.id}`, text: icon("robot", "Draft"), onClick: () => draftIntent(i) });
+                W.button(card, { id: `btn_show_${i.id}`, text: icon("map-trifold", "Show on map"), onClick: () => { model.activeTab = "map"; model.selectedId = i.id; model.selectedChangeId = null; } });
+                W.button(card, { id: `btn_brief_${i.id}`, text: icon("copy", "Copy context"), onClick: () => copyText(JSON.stringify(intentContext(model.world, i), null, 2), `intent #${i.number}'s context`) });
+            });
+            if (agentNote && agentNote.intentId === i.id) W.label(card, { text: agentNote.text, wrap: true, fontSize: 10.5, color: UI.dim });
+        });
+        W.spacer(main, 4);
+    });
+    W.spacer(main, 12);
+
+    W.label(main, { text: icon("export", "Exports"), bold: true, fontSize: 13, color: UI.text });
     W.horizontal(main, () => {
         W.button(main, { id: "btn_copy_bible_json", text: icon("clipboard-text", "Copy World Bible (JSON)"), accent: UI.emerald, onClick: () => copyText(exportWorldBibleJson(model.world), "the World Bible JSON") });
         W.button(main, { id: "btn_copy_gdd_md", text: icon("file-text", "Copy Game Design Doc (Markdown)"), accent: UI.cyan, onClick: () => copyText(generateGameDesignDoc(model.world), "the Game Design Document") });
         W.button(main, { id: "btn_export_svg_map", text: icon("file-svg", "Copy Vector SVG Map"), accent: UI.amber, onClick: () => copyText(exportMapToSvg(model.world, 1400, 1400), "the SVG map") });
-        W.button(main, {
-            id: "btn_simulate_agent_proposal",
-            text: icon("robot", "Simulate Agent Proposal"),
-            onClick: () => {
-                activeProposal = createSampleAgentProposal(model.world);
-                statusMessage = `Agent "${activeProposal.agentName}" submitted ${activeProposal.changes.length} proposed world revisions.`;
-            },
-        });
     });
-
-    W.spacer(main, 12);
-
-    if (activeProposal) {
-        const proposal = activeProposal;
-        const accepted = proposal.changes.filter((c) => c.status === "accepted");
-        W.card(main, { id: "card_revision_proposal", fill: UI.card, padding: 14 }, (card) => {
-            W.horizontal(card, () => {
-                W.label(card, { text: `Revision Proposal: ${proposal.agentName}`, bold: true, fontSize: 13, color: UI.amber });
-                W.spacer(card, 12);
-                W.button(card, {
-                    id: "btn_apply_accepted_changes",
-                    text: icon("check", `Apply Accepted (${accepted.length})`),
-                    accent: accepted.length ? UI.emerald : undefined,
-                    onClick: () => {
-                        if (!accepted.length) {
-                            statusMessage = "Accept at least one change first, or use Apply All.";
-                            return;
-                        }
-                        model.snapshot();
-                        const res = applyRevisionProposal(model.world, proposal, accepted.map((c) => c.id));
-                        statusMessage = `Committed ${res.appliedCount} accepted changes to the world.`;
-                        activeProposal = null;
-                    },
-                });
-                W.button(card, {
-                    id: "btn_apply_all_changes",
-                    text: icon("check", "Apply All"),
-                    onClick: () => {
-                        model.snapshot();
-                        const res = applyRevisionProposal(model.world, proposal, proposal.changes.filter((c) => c.status !== "rejected").map((c) => c.id));
-                        statusMessage = `Committed ${res.appliedCount} changes to the world (rejected ones skipped).`;
-                        activeProposal = null;
-                    },
-                });
-                W.button(card, {
-                    id: "btn_dismiss_proposal",
-                    text: icon("x", "Dismiss"),
-                    onClick: () => {
-                        activeProposal = null;
-                    },
-                });
-            });
-
-            W.label(card, { text: `Motivation: ${proposal.motivation}`, color: UI.dim, fontSize: 11, wrap: true });
-            W.separator(card);
-
-            proposal.changes.forEach((c) => {
-                W.horizontal(card, () => {
-                    W.label(card, { text: `[${c.changeType.toUpperCase()}] ${c.title}`, bold: true, fontSize: 12, color: UI.text });
-                    W.spacer(card, 8);
-                    W.label(card, { text: c.status.toUpperCase(), color: c.status === "accepted" ? UI.emerald : c.status === "rejected" ? UI.rose : UI.amber, fontSize: 10 });
-                });
-                W.label(card, { text: c.summary, color: UI.dim, fontSize: 11, wrap: true });
-                W.horizontal(card, () => {
-                    W.button(card, { id: `btn_accept_${c.id}`, text: "Accept", accent: c.status === "accepted" ? UI.emerald : undefined, onClick: () => { c.status = "accepted"; } });
-                    W.button(card, { id: `btn_reject_${c.id}`, text: "Reject", accent: c.status === "rejected" ? UI.rose : undefined, onClick: () => { c.status = "rejected"; } });
-                });
-                W.spacer(card, 6);
-            });
-        });
-    }
-
     W.spacer(main, 12);
 
     W.card(main, { id: "card_agent_prompts", fill: UI.card, padding: 12 }, (card) => {
@@ -2063,6 +2500,8 @@ addon.onInit(() => {
         else if (k === "l") selectTool("draw_path");
         else if (k === "g") selectTool("draw_region");
         else if (k === "m") selectTool(model.activeTool === "measure" ? "select" : "measure");
+        else if (k === "i") selectTool(model.activeTool === "intent" ? "select" : "intent");
+        else if ((k === "a" || k === "r") && model.selectedChangeId) decideChange(model.selectedChangeId, k === "a");
         else if (k === "f") model.fitRequest++;
         else if (k === "t") {
             const i = TERRAIN_STYLES.findIndex((s) => s.id === model.terrainStyle);
@@ -2182,28 +2621,142 @@ addon.onInit(() => {
 
     addon.registerTool(
         {
+            name: "game_planner_list_intents",
+            description: "The designer's design intents - what they sketched on the map and want built - with spatial context (terrain, spots inside and nearby, route ends), whether the world meets each one now, and its acceptance criteria. Unmet intents are your work queue; answer one with game_planner_propose_revision. Also returns the same as a Markdown brief.",
+            parameters: {
+                type: "object",
+                properties: {
+                    includeMet: { type: "boolean", description: "Also list intents the world already meets (default false)" },
+                },
+            },
+        },
+        (args: any) => {
+            const list = args?.includeMet ? model.intents.filter((i) => i.status !== "dismissed") : openIntents(model.world);
+            return {
+                success: true,
+                world: { name: model.world.meta.name, genre: model.world.meta.genre, widthKm: model.world.meta.worldWidthKm, heightKm: model.world.meta.worldHeightKm, seaLevelM: model.world.meta.seaLevelM },
+                health: planHealth(model.world),
+                intents: list.map((i) => intentContext(model.world, i)),
+                brief: generateAgentBrief(model.world),
+            };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_claim_intent",
+            description: "Marks an intent as being worked on by you, so the designer (and other agents) can see who has it. Call before drafting a proposal for it.",
+            parameters: {
+                type: "object",
+                properties: { intentId: { type: "string" }, intentNumber: { type: "number", description: "Or the intent's #number" }, agentName: { type: "string" } },
+                required: ["agentName"],
+            },
+        },
+        (args: any) => {
+            const intent = findIntentArg(args);
+            if (!intent) return { success: false, error: `No intent "${args.intentId ?? args.intentNumber}". Call game_planner_list_intents.` };
+            model.updateIntent(intent.id, { status: "claimed", claimedBy: String(args.agentName || "agent") });
+            statusMessage = `${intent.claimedBy} claimed intent #${intent.number} "${intent.title}".`;
+            return { success: true, intent: intentContext(model.world, intent) };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_create_intent",
+            description: "Sketches a design intent on the map, as the designer would with the Intent tool (useful when the designer describes a goal in chat). shape: pin [[x,y]], area (polygon, 3+ points) or route [[x1,y1],[x2,y2]] (ends on spots are pinned to them). kind: settle, danger, landmark, connect, pacing, quest, freeform (default from the shape and the directive's words).",
+            parameters: {
+                type: "object",
+                properties: {
+                    shape: { type: "string" },
+                    points: { type: "array", items: { type: "array", items: { type: "number" } } },
+                    kind: { type: "string" },
+                    title: { type: "string" },
+                    directive: { type: "string", description: "What the designer wants, in their words" },
+                    params: { type: "object", description: "count, spotType, dangerLevel, targetMinutes, mode, tolerance, pathType, biome" },
+                    priority: { type: "string" },
+                },
+                required: ["shape", "points"],
+            },
+        },
+        (args: any) => {
+            const shape = (["pin", "area", "route"].includes(args.shape) ? args.shape : "pin") as IntentShape;
+            const pts: [number, number][] = (Array.isArray(args.points) ? args.points : []).filter((q: any) => Array.isArray(q) && q.length >= 2).map((q: any) => [Number(q[0]), Number(q[1])]);
+            const need = shape === "area" ? 3 : shape === "route" ? 2 : 1;
+            if (pts.length < need) return { success: false, error: `A ${shape} needs at least ${need} point(s).` };
+            const kind = INTENT_KINDS.includes(args.kind) && INTENT_KIND_INFO[args.kind as IntentKind].shapes.includes(shape) ? (args.kind as IntentKind) : undefined;
+            const from = shape === "route" ? spotNear(model.world, pts[0], 0.3) : undefined;
+            const to = shape === "route" ? spotNear(model.world, pts[pts.length - 1], 0.3) : undefined;
+            const intent = model.addIntent(shape, shape === "route" ? [pts[0], pts[pts.length - 1]] : pts, {
+                kind,
+                ...(args.title ? { title: String(args.title) } : from && to ? { title: `${from.name} → ${to.name}` } : {}),
+                directive: String(args.directive || ""),
+                params: args.params && typeof args.params === "object" ? args.params : {},
+                priority: ["low", "normal", "high"].includes(args.priority) ? args.priority : "normal",
+                fromSpotId: from?.id,
+                toSpotId: to?.id,
+            });
+            announceIntent(intent);
+            return { success: true, intent: intentContext(model.world, intent) };
+        }
+    );
+
+    addon.registerTool(
+        {
             name: "game_planner_propose_revision",
-            description: "Submits an AI Agent revision proposal to the Game World Planner for user review.",
+            description: "Submits changes for the designer to review: they appear on the map as violet previews and the designer accepts or rejects each one. Pass intentId when answering an intent. Each change: { changeType: add_spot | modify_spot | delete_spot | add_path | modify_path | delete_path | add_region | modify_region | add_mission | add_codex, title?, summary?, targetId? (required to modify/delete), after: {...} }. Minimal fields are filled in (add_spot { name, spotType, x, y } gets elevation from the terrain, color, icon). Invalid changes are returned in errors and not filed.",
             parameters: {
                 type: "object",
                 properties: {
                     agentName: { type: "string" },
                     motivation: { type: "string" },
+                    intentId: { type: "string" },
+                    intentNumber: { type: "number", description: "Or the intent's #number" },
                     changes: { type: "array", items: { type: "object" } },
                 },
                 required: ["agentName", "motivation", "changes"],
             },
         },
         (args: any) => {
-            activeProposal = {
-                id: `proposal_${Date.now()}`,
-                agentName: String(args.agentName),
+            const intent = findIntentArg(args);
+            if ((args.intentId || args.intentNumber) && !intent) return { success: false, error: `No intent "${args.intentId ?? args.intentNumber}". Call game_planner_list_intents.` };
+            const { changes, errors } = normalizeProposalChanges(model.world, args.changes);
+            if (!changes.length) return { success: false, errors: errors.length ? errors : ["No changes."] };
+            const proposal = model.addProposal({
+                id: `proposal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                agentName: String(args.agentName || "Agent"),
                 timestamp: Date.now(),
-                motivation: String(args.motivation),
-                changes: (Array.isArray(args.changes) ? args.changes : []).map((c: any, i: number) => ({ id: c.id || `change_${i + 1}`, status: "pending", ...c })),
+                motivation: String(args.motivation || ""),
+                changes,
+                ...(intent ? { intentId: intent.id } : {}),
+            });
+            statusMessage = `${proposal.agentName} proposed ${changes.length} change(s)${intent ? ` for intent #${intent.number}` : ""} - review them on the map.`;
+            Entropy.UI.toast?.({ id: "planner-proposal", message: statusMessage, kind: "info", durationMs: 4000 });
+            return { success: true, proposalId: proposal.id, filed: changes.map((c) => ({ id: c.id, changeType: c.changeType, title: c.title, targetId: c.targetId })), errors };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_proposal_status",
+            description: "What the designer decided about your proposals: each change's status (pending, accepted, rejected), and the intent's check now.",
+            parameters: { type: "object", properties: { proposalId: { type: "string" } } },
+        },
+        (args: any) => {
+            const list = args?.proposalId ? model.world.proposals.filter((p) => p.id === args.proposalId) : model.world.proposals;
+            return {
+                success: true,
+                proposals: list.map((p) => {
+                    const intent = p.intentId ? model.intents.find((i) => i.id === p.intentId) : undefined;
+                    return {
+                        id: p.id,
+                        agentName: p.agentName,
+                        intentId: p.intentId,
+                        changes: p.changes.map((c) => ({ id: c.id, changeType: c.changeType, title: c.title, status: c.status })),
+                        intent: intent ? { number: intent.number, status: intent.status, evaluation: evaluateIntent(model.world, intent) } : undefined,
+                    };
+                }),
             };
-            statusMessage = `Received revision proposal from ${activeProposal.agentName}`;
-            return { success: true, proposalId: activeProposal.id };
         }
     );
 
@@ -2246,10 +2799,15 @@ addon.onInit(() => {
             pendingPathPoints: model.pendingPathPoints,
             pendingRegionPoints: model.pendingRegionPoints,
             measurePoints: model.measurePoints,
+            selectedChangeId: model.selectedChangeId,
+            pendingIntentPoints: model.pendingIntentPoints,
+            health: planHealth(model.world),
+            intents: model.intents.map((i) => ({ id: i.id, number: i.number, kind: i.kind, shape: i.shape, title: i.title, status: i.status, evaluation: evaluateIntent(model.world, i) })),
+            proposals: model.world.proposals.map((p) => ({ id: p.id, agentName: p.agentName, intentId: p.intentId, changes: p.changes.map((c) => ({ id: c.id, changeType: c.changeType, status: c.status, targetId: c.targetId })) })),
             travel: lastTravelEstimate ? { distanceKm: lastTravelEstimate.directDistanceKm, effortKm: lastTravelEstimate.distanceKm, climbM: lastTravelEstimate.climbM, summary: lastTravelEstimate.summaryText } : null,
             terrainStyle: model.terrainStyle,
             canUndo: model.canUndo,
-            counts: { spots: model.world.spots.length, paths: model.world.paths.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length },
+            counts: { spots: model.world.spots.length, paths: model.world.paths.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length, intents: model.intents.length, pendingProposals: model.pendingProposals.length },
             spots: model.world.spots.map((s) => ({ id: s.id, name: s.name, spotType: s.spotType, x: s.x, y: s.y, elevation: s.elevation })),
             paths: model.world.paths.map((p) => ({ id: p.id, name: p.name, pathType: p.pathType, points: p.points.length })),
             regions: model.world.regions.map((r) => ({ id: r.id, name: r.name, points: r.points.length })),

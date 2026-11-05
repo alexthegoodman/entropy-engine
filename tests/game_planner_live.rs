@@ -1,7 +1,8 @@
 //! The Game World Planner in the real window: tests/features/game_planner_live.feature played
 //! through startup.rs's Gherkin driver (ENTROPY_PLANNER_BDD_RESULT). Drives the map tools with real
 //! pointer input, opens the Codex and Agent tabs (whose multiline text fields used to freeze the
-//! app), runs the terrain tools, and checks what the planner reported and saved.
+//! app), sketches design intents and runs the agent loop on them (the built-in Planner Agent, and an
+//! external agent over MCP), runs the terrain tools, and checks what the planner reported and saved.
 //! On a headless Linux box run it under `xvfb-run -a`; build the bundle first
 //! (`npm run build-game-planner` in examples/studio-bundle). The pure-TypeScript tier is
 //! examples/studio-bundle/tests/game_planner.test.ts.
@@ -40,7 +41,7 @@ fn game_planner_live_feature() {
         assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     }
     let states: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter().filter(|t| t["tool"] == "game_planner_state").map(|t| &t["result"]).collect();
-    assert_eq!(states.len(), 9, "one state per checkpoint");
+    assert_eq!(states.len(), 12, "one state per checkpoint");
     let spot = |state: &serde_json::Value, id: &str| -> serde_json::Value { state["spots"].as_array().unwrap().iter().find(|s| s["id"] == id).cloned().unwrap_or_else(|| panic!("no spot {id}")) };
     let num = |v: &serde_json::Value| v.as_f64().unwrap();
 
@@ -80,13 +81,50 @@ fn game_planner_live_feature() {
     let km = num(&states[6]["travel"]["distanceKm"]);
     assert!((km - 15.12).abs() < 0.05, "distance {km}");
 
+    // An intent area sketched with real clicks, drafted by the Planner Agent and accepted: two new
+    // villages inside it, and the intent's live check now passes.
+    let farms = &states[7]["intents"][0];
+    assert_eq!(farms["kind"], "settle");
+    assert_eq!(farms["shape"], "area");
+    assert_eq!(farms["status"], "done", "{farms}");
+    assert_eq!(farms["evaluation"]["satisfied"], true, "{farms}");
+    assert_eq!(states[7]["counts"]["spots"], 8);
+    assert_eq!(states[7]["counts"]["pendingProposals"], 0);
+    assert_eq!(states[7]["health"]["met"], 1);
+
+    // A route between two spots with a four-hour target: too long now; the agent proposes a way.
+    let pacing = &states[8]["intents"][1];
+    assert_eq!(pacing["kind"], "pacing");
+    assert_eq!(pacing["evaluation"]["satisfied"], false);
+    assert_eq!(pacing["status"], "proposed");
+    let pacing_prop = &states[8]["proposals"][1];
+    assert_eq!(pacing_prop["intentId"], pacing["id"]);
+    assert_eq!(pacing_prop["changes"][0]["changeType"], "add_path");
+
+    // An external agent claimed the pinned intent by number and proposed a ruin and a codex entry
+    // (its invalid third change was reported, not filed); accepting them met the intent. The
+    // rejected pacing proposal left its intent open and the world without that path.
+    let tool = |name: &str| result["tools"].as_array().unwrap().iter().find(|t| t["tool"] == name).map(|t| t["result"].clone()).unwrap();
+    assert!(tool("game_planner_list_intents")["intents"].as_array().unwrap().len() >= 2);
+    assert_eq!(tool("game_planner_claim_intent")["intent"]["status"], "claimed");
+    let filed = tool("game_planner_propose_revision");
+    assert_eq!(filed["filed"].as_array().unwrap().len(), 2, "{filed}");
+    assert_eq!(filed["errors"].as_array().unwrap().len(), 1, "{filed}");
+    let after = &states[9];
+    assert_eq!(after["intents"][2]["status"], "done", "{}", after["intents"]);
+    assert_eq!(after["intents"][1]["status"], "open", "{}", after["intents"]);
+    assert_eq!(after["counts"]["spots"], 9);
+    assert_eq!(after["counts"]["codex"], num(&states[7]["counts"]["codex"]) as u64 + 1);
+    assert_eq!(after["counts"]["paths"], states[7]["counts"]["paths"], "the rejected trail was not built");
+    assert_eq!(after["counts"]["pendingProposals"], 0);
+
     // The terrain tools added settlements, roads, rivers and points of interest.
-    assert!(num(&states[7]["counts"]["spots"]) > 10.0, "{}", states[7]["counts"]);
-    assert!(num(&states[7]["counts"]["paths"]) > 6.0, "{}", states[7]["counts"]);
+    assert!(num(&states[10]["counts"]["spots"]) > 10.0, "{}", states[10]["counts"]);
+    assert!(num(&states[10]["counts"]["paths"]) > 6.0, "{}", states[10]["counts"]);
 
     // Switching presets loaded the Crimson Expanse.
-    assert_eq!(states[8]["counts"]["spots"], 5);
-    assert_eq!(states[8]["activeTab"], "map");
+    assert_eq!(states[11]["counts"]["spots"], 5);
+    assert_eq!(states[11]["activeTab"], "map");
 
     // What the planner saved: the world with its heightfield.
     let saved = read(&data.join("game-world-planner.json"));
@@ -94,4 +132,5 @@ fn game_planner_live_feature() {
     let (cols, rows) = (terrain["cols"].as_u64().unwrap(), terrain["rows"].as_u64().unwrap());
     assert!(cols >= 65 && rows >= 65);
     assert_eq!(terrain["data"].as_array().unwrap().len() as u64, cols * rows);
+    assert!(saved["intents"].is_array(), "worlds save their intents");
 }

@@ -7070,7 +7070,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 UiWidget::GameMap { id: map_id, config } => {
-                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapElevationBand, MapMeasure, MapPath, MapRegion, MapSpot};
+                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapElevationBand, MapGhost, MapIntent, MapMeasure, MapPath, MapRegion, MapSpot};
 
                     let opts = GameMapOptions {
                         world_width_km: config.world_width_km.unwrap_or(25.0),
@@ -7096,7 +7096,31 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         contour_interval_m: config.contour_interval_m.unwrap_or(0.0),
                         measure_anchor: config.measure_anchor,
                         fit_request: config.fit_request.unwrap_or(0),
+                        show_intents: config.show_intents.unwrap_or(true),
+                        show_proposals: config.show_proposals.unwrap_or(true),
+                        selected_change_id: config.selected_change_id.clone(),
                     };
+                    let intents: Vec<MapIntent> = config.intents.iter().map(|it| MapIntent {
+                        id: it.id.clone(),
+                        number: it.number,
+                        shape: it.shape.clone(),
+                        kind: it.kind.clone(),
+                        points: it.points.clone(),
+                        title: it.title.clone(),
+                        summary: it.summary.clone(),
+                        status: it.status.clone(),
+                        satisfied: it.satisfied,
+                        color: it.color.unwrap_or([0.98, 0.78, 0.3, 1.0]),
+                    }).collect();
+                    let ghosts: Vec<MapGhost> = config.ghosts.iter().map(|g| MapGhost {
+                        id: g.id.clone(),
+                        kind: g.kind.clone(),
+                        points: g.points.clone(),
+                        from: g.from,
+                        label: g.label.clone(),
+                        spot_type: g.spot_type.clone(),
+                        path_type: g.path_type.clone(),
+                    }).collect();
                     let terrain = config.terrain.as_ref().map(|t| crate::entropy_gui::MapTerrain {
                         cols: t.cols,
                         rows: t.rows,
@@ -7160,6 +7184,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         .elevation_bands(elevation_bands)
                         .terrain(terrain)
                         .measure(measure)
+                        .intents(intents)
+                        .ghosts(ghosts)
                         .show(ui);
 
                     for event in resp.events {
@@ -7199,6 +7225,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             GameMapEvent::BlockingModeToggled(blocking) => {
                                 events_to_push.push(format!("MAP_BLOCKING|{}|{}", map_id, blocking));
+                            }
+                            GameMapEvent::IntentSelected { id } => {
+                                events_to_push.push(format!("MAP_INTENT_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::GhostSelected { id } => {
+                                events_to_push.push(format!("MAP_GHOST_SELECT|{}|{}", map_id, id));
                             }
                         }
                     }

@@ -2262,7 +2262,7 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "game_map", config?.id);
                 ops.op_ui_widget_game_map(windowId, { ...(config || {}) }, id);
 
-                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode) {
+                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode || config?.onIntentSelect || config?.onGhostSelect) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -2290,6 +2290,10 @@ globalThis.Entropy = {
                             config.onTool(parts[2]);
                         } else if (type === "MAP_BLOCKING" && config.onBlockingMode) {
                             config.onBlockingMode(parts[2] === "true");
+                        } else if (type === "MAP_INTENT_SELECT" && config.onIntentSelect) {
+                            config.onIntentSelect(parts[2]);
+                        } else if (type === "MAP_GHOST_SELECT" && config.onGhostSelect) {
+                            config.onGhostSelect(parts[2]);
                         }
                     });
                 }

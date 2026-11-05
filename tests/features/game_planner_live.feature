@@ -3,7 +3,9 @@ Feature: The Game World Planner in the real window
   The map's tools driven with real pointer input: select and drag a spot (it lands on the ground),
   place a spot, draw a road that snaps to a town, measure between two spots, switch terrain views
   and zoom in on the contours. Then the Codex and Agent tabs, whose multiline text fields used to
-  freeze the app, and the terrain tools, whose results land back on the map. Screenshots of every
+  freeze the app, and the terrain tools, whose results land back on the map. In between, design
+  intents: an area sketched with the Intent tool and settled by the Planner Agent, a pacing route
+  whose proposal is rejected, and a pinned intent answered by an external agent over MCP. Screenshots of every
   step are kept for visual verification. Map geometry assumes the 1800x1020 window and the Shattered
   Isles preset: the 30 km world fits at 26.73 px/km around (730, 558).
 
@@ -126,6 +128,110 @@ Feature: The Game World Planner in the real window
     Then I capture "11-zoomed-contours"
     When I click "btn_fit_world"
     And I advance 3 frames
+
+  Scenario: Sketch an intent area and let the Planner Agent settle it
+    When I click "tool_intent"
+    And I set "seg_intent_shape" "1"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "530" "420"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "530" "420"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "530" "420"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "600" "405"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "600" "405"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "600" "405"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "665" "425"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "665" "425"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "665" "425"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "660" "488"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "660" "488"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "660" "488"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "560" "492"
+    And I advance 3 frames
+    Then I capture "intent-01-sketching"
+    When I send GUI pointer "down" at "560" "492"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "560" "492"
+    And I advance 3 frames
+    And I click "btn_finish_intent"
+    And I advance 3 frames
+    And I set "edit_intent_title" "The Western Farmlands"
+    And I set "edit_intent_directive" "two quiet farming villages by fresh water"
+    And I advance 3 frames
+    Then I see the label "0 of 2 villages"
+    And I capture "intent-02-sketched"
+    When I click "btn_draft_intent"
+    And I advance 5 frames
+    Then I capture "intent-03-proposed"
+    When I click "btn_accept_all_0"
+    And I advance 5 frames
+    Then I see the label "2 of 2 villages"
+    And I capture "intent-04-accepted"
+    And I call the tool "game_planner_state"
+
+  Scenario: A journey that should take four hours on foot
+    When I set "seg_intent_shape" "2"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "904" "419"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "904" "419"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "904" "419"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "957" "718"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "957" "718"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "957" "718"
+    And I advance 3 frames
+    And I set "edit_intent_minutes" "240"
+    And I advance 3 frames
+    And I click "btn_draft_intent"
+    And I advance 5 frames
+    Then I capture "intent-05-pacing-proposed"
+    And I call the tool "game_planner_state"
+    When I click "btn_reject_all_1"
+    And I advance 3 frames
+
+  Scenario: An external agent answers a pinned intent over MCP
+    When I set "seg_intent_shape" "0"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "783" "799"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "783" "799"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "783" "799"
+    And I advance 3 frames
+    And I set "edit_intent_title" "The Drowned Bell"
+    And I set "edit_intent_directive" "a ruined bell tower the tide reaches at night"
+    And I click "tool_select"
+    And I advance 3 frames
+    And I call the tool "game_planner_list_intents"
+    And I call the tool "game_planner_claim_intent" with {"intentNumber": 3, "agentName": "Claude"}
+    And I call the tool "game_planner_propose_revision" with {"agentName": "Claude", "motivation": "A drowned bell tower on the southern shore.", "intentNumber": 3, "changes": [{"changeType": "add_spot", "after": {"name": "The Drowned Bell", "spotType": "ruin", "x": 2.1, "y": -9.1, "description": "A bell tower half-sunk in the tidal flats."}}, {"changeType": "add_codex", "after": {"name": "The Bell-Keeper", "category": "character", "subtitle": "Last of the tower's wardens"}}, {"changeType": "teleport_spot"}]}
+    And I advance 5 frames
+    Then I capture "intent-06-external-proposal"
+    When I click "nav_tab_agent"
+    And I advance 5 frames
+    Then I see the label "Agents: your intents in, proposals out"
+    And I capture "intent-07-agent-inbox"
+    When I click "btn_accept_all_2"
+    And I advance 3 frames
+    And I call the tool "game_planner_state"
+    When I click "nav_tab_map"
+    And I advance 5 frames
+    Then I capture "intent-08-plan"
 
   Scenario: Codex and Agent tabs no longer freeze
     When I click "nav_tab_codex"

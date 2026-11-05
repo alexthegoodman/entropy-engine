@@ -2,8 +2,13 @@ import type {
     BiomeType,
     CodexEntry,
     GameWorld,
+    IntentKind,
+    IntentShape,
     Mission,
     PathType,
+    PlanIntent,
+    RevisionChange,
+    RevisionProposal,
     TerrainGrid,
     TerrainStyle,
     WorldPath,
@@ -12,6 +17,11 @@ import type {
 } from "./planner_types";
 import { SHATTERED_ISLES_PRESET } from "./presets";
 import { sampleSlopeDeg, sampleTerrain, terrainForWorld } from "./terrain";
+import { BIOME_COLORS } from "./planner_defaults";
+import { applyRevisionChange, isProposalPending, rejectRevisionChange } from "./agent_pipeline";
+import { createIntent, evaluateIntent, spotNear } from "./intent_model";
+
+export type PlannerTool = "select" | "pan" | "place_spot" | "draw_path" | "draw_region" | "measure" | "intent";
 
 /** The map's color theme for a genre: Mars-like worlds are arid, neon cities dark. */
 export function paletteForGenre(genre: GameWorld["meta"]["genre"]): "temperate" | "arid" | "frozen" | "neon" {
@@ -30,7 +40,7 @@ export class PlannerModel {
     world: GameWorld;
     selectedId: string | null = null;
     activeTab: "map" | "codex" | "story" | "procedural" | "agent" = "map";
-    activeTool: "select" | "pan" | "place_spot" | "draw_path" | "draw_region" | "measure" = "select";
+    activeTool: PlannerTool = "select";
     pendingPathPoints: [number, number][] = [];
     pendingRegionPoints: [number, number][] = [];
     measurePoints: { p1?: [number, number]; p2?: [number, number] } = {};
@@ -41,12 +51,22 @@ export class PlannerModel {
     /** Spot being dragged on the map (one undo step per drag). */
     draggingSpotId: string | null = null;
 
+    // Intent sketching
+    intentShape: IntentShape = "area";
+    /** "auto" lets the shape (and, later, the directive's words) decide. */
+    intentKind: IntentKind | "auto" = "auto";
+    pendingIntentPoints: [number, number][] = [];
+    /** The proposal change selected on the map (its ghost), for review in the inspector. */
+    selectedChangeId: string | null = null;
+
     // Layer and HUD visibility
     showMinimap = true;
     showGrid = true;
     showContours = true;
     showBiomes = true;
     showLabels = true;
+    showIntents = true;
+    showProposals = true;
     terrainStyle: TerrainStyle = "relief";
     /** Bumped to ask the map to fit the whole world. */
     fitRequest = 0;
@@ -64,7 +84,13 @@ export class PlannerModel {
 
     constructor(initialWorld?: GameWorld) {
         this.world = initialWorld ? JSON.parse(JSON.stringify(initialWorld)) : JSON.parse(JSON.stringify(SHATTERED_ISLES_PRESET));
+        this.world.intents ??= [];
+        this.world.proposals ??= [];
         this.ensureTerrain();
+    }
+
+    get intents(): PlanIntent[] {
+        return (this.world.intents ??= []);
     }
 
     /**
@@ -136,6 +162,7 @@ export class PlannerModel {
         this.redoStack.push(currentState);
         const prev = this.undoStack.pop()!;
         this.world = JSON.parse(prev);
+        this.world.intents ??= [];
         this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
@@ -147,6 +174,7 @@ export class PlannerModel {
         this.undoStack.push(currentState);
         const next = this.redoStack.pop()!;
         this.world = JSON.parse(next);
+        this.world.intents ??= [];
         this.lastSnapshotKey = null;
         this.isDirty = true;
         return true;
@@ -378,21 +406,7 @@ export class PlannerModel {
 
     finishPendingRegion(biomeType: BiomeType = this.pendingRegionBiome, name?: string): WorldRegion | null {
         if (this.pendingRegionPoints.length < 3) return null;
-        const biomeColors: Record<BiomeType, { fill: [number, number, number, number]; border: [number, number, number, number] }> = {
-            plains: { fill: [0.2, 0.7, 0.35, 0.22], border: [0.3, 0.85, 0.45, 0.85] },
-            forest: { fill: [0.15, 0.55, 0.25, 0.25], border: [0.2, 0.7, 0.35, 0.85] },
-            jungle: { fill: [0.1, 0.65, 0.4, 0.28], border: [0.15, 0.85, 0.5, 0.9] },
-            desert: { fill: [0.85, 0.75, 0.35, 0.25], border: [0.95, 0.85, 0.45, 0.85] },
-            tundra: { fill: [0.6, 0.75, 0.85, 0.25], border: [0.75, 0.88, 0.98, 0.85] },
-            volcanic: { fill: [0.75, 0.25, 0.15, 0.28], border: [0.95, 0.35, 0.2, 0.9] },
-            swamp: { fill: [0.3, 0.45, 0.25, 0.3], border: [0.4, 0.6, 0.35, 0.85] },
-            alpine: { fill: [0.65, 0.7, 0.8, 0.25], border: [0.8, 0.85, 0.95, 0.85] },
-            coastal: { fill: [0.2, 0.65, 0.75, 0.22], border: [0.3, 0.8, 0.9, 0.85] },
-            savanna: { fill: [0.75, 0.65, 0.25, 0.22], border: [0.88, 0.78, 0.35, 0.85] },
-            taiga: { fill: [0.2, 0.45, 0.4, 0.25], border: [0.25, 0.6, 0.55, 0.85] },
-            badlands: { fill: [0.7, 0.4, 0.25, 0.25], border: [0.85, 0.5, 0.35, 0.85] },
-        };
-        const colors = biomeColors[biomeType] || biomeColors.plains;
+        const colors = BIOME_COLORS[biomeType] || BIOME_COLORS.plains;
 
         const newRegion = this.addRegion({
             name: name || `${biomeType[0].toUpperCase()}${biomeType.slice(1)} Region ${this.world.regions.length + 1}`,
@@ -496,6 +510,153 @@ export class PlannerModel {
         this.world.missions.splice(idx, 1);
         if (this.selectedId === id) this.selectedId = null;
         return true;
+    }
+
+    // --- Design intents ---
+
+    addIntent(shape: IntentShape, points: [number, number][], opts: Parameters<typeof createIntent>[3] = {}): PlanIntent {
+        this.snapshot();
+        const intent = createIntent(this.world, shape, points, opts);
+        this.intents.push(intent);
+        this.selectedId = intent.id;
+        this.selectedChangeId = null;
+        return intent;
+    }
+
+    updateIntent(id: string, updates: Partial<PlanIntent>): boolean {
+        const intent = this.intents.find((i) => i.id === id);
+        if (!intent) return false;
+        this.snapshot(`intent:${id}:${Object.keys(updates).sort().join(",")}`);
+        Object.assign(intent, updates);
+        return true;
+    }
+
+    deleteIntent(id: string): boolean {
+        const idx = this.intents.findIndex((i) => i.id === id);
+        if (idx === -1) return false;
+        this.snapshot();
+        this.intents.splice(idx, 1);
+        // Its pending proposals go with it.
+        this.world.proposals = this.world.proposals.filter((p) => p.intentId !== id || !isProposalPending(p));
+        if (this.selectedId === id) this.selectedId = null;
+        return true;
+    }
+
+    /**
+     * Adds a point to the intent being sketched. A pin is finished by its one point, a route by its
+     * second; route ends on (or right next to) a spot are pinned to it. Returns the intent when the
+     * click finished one.
+     */
+    appendPendingIntentPoint(pt: [number, number]): PlanIntent | null {
+        const kind = this.intentKind === "auto" ? undefined : this.intentKind;
+        if (this.intentShape === "pin") {
+            return this.addIntent("pin", [pt], { kind });
+        }
+        this.pendingIntentPoints.push(pt);
+        if (this.intentShape === "route" && this.pendingIntentPoints.length >= 2) {
+            const [a, b] = this.pendingIntentPoints;
+            this.pendingIntentPoints = [];
+            if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-3) return null;
+            const from = spotNear(this.world, a);
+            const to = spotNear(this.world, b);
+            return this.addIntent("route", [a, b], { kind, fromSpotId: from?.id, toSpotId: to?.id, ...(from && to ? { title: `${from.name} → ${to.name}` } : {}) });
+        }
+        return null;
+    }
+
+    /** Closes the area being sketched (3+ points). */
+    finishPendingIntent(): PlanIntent | null {
+        if (this.intentShape !== "area" || this.pendingIntentPoints.length < 3) return null;
+        const pts = [...this.pendingIntentPoints];
+        this.pendingIntentPoints = [];
+        return this.addIntent("area", pts, { kind: this.intentKind === "auto" ? undefined : this.intentKind });
+    }
+
+    cancelPendingIntent(): void {
+        this.pendingIntentPoints = [];
+    }
+
+    // --- Proposal inbox ---
+
+    findChange(changeId: string): { proposal: RevisionProposal; change: RevisionChange } | null {
+        for (const proposal of this.world.proposals) {
+            const change = proposal.changes.find((c) => c.id === changeId);
+            if (change) return { proposal, change };
+        }
+        return null;
+    }
+
+    get pendingProposals(): RevisionProposal[] {
+        return this.world.proposals.filter(isProposalPending);
+    }
+
+    /** Files an agent's proposal for review; its intent shows as "proposed". */
+    addProposal(proposal: RevisionProposal): RevisionProposal {
+        this.snapshot();
+        this.world.proposals.push(proposal);
+        // Keep the history short: finished proposals beyond the last 30 are dropped.
+        const done = this.world.proposals.filter((p) => !isProposalPending(p));
+        if (done.length > 30) {
+            const drop = new Set(done.slice(0, done.length - 30).map((p) => p.id));
+            this.world.proposals = this.world.proposals.filter((p) => !drop.has(p.id));
+        }
+        const intent = proposal.intentId ? this.intents.find((i) => i.id === proposal.intentId) : undefined;
+        if (intent && intent.status !== "dismissed") intent.status = "proposed";
+        return proposal;
+    }
+
+    /** Accepts (applies) or rejects one change; one undo step each. */
+    decideChange(changeId: string, accept: boolean): boolean {
+        const found = this.findChange(changeId);
+        if (!found || found.change.status !== "pending") return false;
+        this.snapshot();
+        // The snapshot cloned nothing in place, so the found objects are still live.
+        if (accept) {
+            if (!applyRevisionChange(this.world, found.change, found.proposal)) {
+                found.change.status = "rejected";
+            } else {
+                found.change.status = "accepted";
+            }
+        } else {
+            rejectRevisionChange(this.world, found.change);
+        }
+        if (this.selectedChangeId === changeId) this.selectedChangeId = null;
+        this.settleProposal(found.proposal);
+        return true;
+    }
+
+    /** Accepts or rejects every pending change of a proposal, as one undo step. */
+    decideProposal(proposalId: string, accept: boolean): number {
+        const proposal = this.world.proposals.find((p) => p.id === proposalId);
+        if (!proposal) return 0;
+        const pending = proposal.changes.filter((c) => c.status === "pending");
+        if (!pending.length) return 0;
+        this.snapshot();
+        let n = 0;
+        for (const c of pending) {
+            if (accept) {
+                const ok = applyRevisionChange(this.world, c, proposal);
+                c.status = ok ? "accepted" : "rejected";
+                if (ok) n++;
+            } else {
+                rejectRevisionChange(this.world, c);
+                n++;
+            }
+        }
+        if (this.selectedChangeId && proposal.changes.some((c) => c.id === this.selectedChangeId)) this.selectedChangeId = null;
+        this.settleProposal(proposal);
+        return n;
+    }
+
+    /** When a proposal has no pending changes left, its intent is done if the world now meets it. */
+    private settleProposal(proposal: RevisionProposal): void {
+        if (isProposalPending(proposal)) return;
+        const intent = proposal.intentId ? this.intents.find((i) => i.id === proposal.intentId) : undefined;
+        if (!intent || intent.status === "dismissed") return;
+        if (this.world.proposals.some((p) => p.intentId === intent.id && isProposalPending(p))) return;
+        const accepted = proposal.changes.some((c) => c.status === "accepted");
+        const ev = evaluateIntent(this.world, intent);
+        intent.status = ev.satisfied === true || (ev.satisfied === null && accepted) ? "done" : "open";
     }
 
     // --- Settings & Measurement ---
