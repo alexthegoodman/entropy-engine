@@ -1,5 +1,8 @@
+import { sampleTerrain } from "./terrain";
 import type {
     BiomeType,
+    TerrainGrid,
+    WorldMetadata,
     PathType,
     TravelEstimate,
     TravelMode,
@@ -88,11 +91,35 @@ export function formatDuration(totalHours: number): string {
  * Calculates in-game Time-to-Travel between two world coordinates or spots.
  * Supports road path discovery, surface bonuses, and multi-modal speed estimates.
  */
+/** Climb, descent and water along the straight line from `a` to `b`, sampled every 100 m. */
+export function terrainProfile(
+    terrain: TerrainGrid,
+    meta: Pick<WorldMetadata, "worldWidthKm" | "worldHeightKm">,
+    a: [number, number],
+    b: [number, number]
+): { climbM: number; descentM: number; waterKm: number; startM: number; endM: number } {
+    const dist = euclideanDistanceKm(a, b);
+    const n = Math.max(1, Math.ceil(dist / 0.1));
+    let climb = 0, descent = 0, water = 0;
+    let prev = sampleTerrain(terrain, meta, a[0], a[1]);
+    const start = prev;
+    for (let i = 1; i <= n; i++) {
+        const f = i / n;
+        const e = sampleTerrain(terrain, meta, a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f);
+        if (e > prev) climb += e - prev;
+        else descent += prev - e;
+        if (e <= terrain.seaLevelM) water += dist / n;
+        prev = e;
+    }
+    return { climbM: Math.round(climb), descentM: Math.round(descent), waterKm: Number(water.toFixed(2)), startM: Math.round(start), endM: Math.round(prev) };
+}
+
 export function calculateTravelTime(
     from: [number, number] | WorldSpot,
     to: [number, number] | WorldSpot,
     paths: WorldPath[] = [],
-    regions: WorldRegion[] = []
+    regions: WorldRegion[] = [],
+    terrainCtx?: { terrain: TerrainGrid; meta: Pick<WorldMetadata, "worldWidthKm" | "worldHeightKm"> }
 ): TravelEstimate {
     const p1: [number, number] = Array.isArray(from) ? from : [from.x, from.y];
     const p2: [number, number] = Array.isArray(to) ? to : [to.x, to.y];
@@ -139,14 +166,20 @@ export function calculateTravelTime(
         }
     }
 
-    // Calculate elevation delta steepness penalty if spots have elevation info
-    let elevationDeltaM = 0;
-    if (!Array.isArray(from) && !Array.isArray(to)) {
-        elevationDeltaM = Math.abs(from.elevation - to.elevation);
-    }
-    if (elevationDeltaM > 200) {
-        const slopePenalty = (elevationDeltaM / 1000) * 0.35; // e.g. +35% per 1000m climb
-        terrainMult += slopePenalty;
+    // Climbing: with terrain, the real ups and downs along the way (off-road); otherwise the
+    // difference between the two spots' elevations.
+    let profile: ReturnType<typeof terrainProfile> | undefined;
+    if (terrainCtx) {
+        profile = terrainProfile(terrainCtx.terrain, terrainCtx.meta, p1, p2);
+        if (!pathFound) terrainMult += (profile.climbM / 1000) * 0.6 + (profile.descentM / 1000) * 0.2;
+    } else {
+        let elevationDeltaM = 0;
+        if (!Array.isArray(from) && !Array.isArray(to)) {
+            elevationDeltaM = Math.abs(from.elevation - to.elevation);
+        }
+        if (elevationDeltaM > 200) {
+            terrainMult += (elevationDeltaM / 1000) * 0.35; // +35% per 1000 m climb
+        }
     }
 
     const effectiveDistKm = (pathFound ? bestPathDistKm : directDistKm) * terrainMult;
@@ -182,7 +215,8 @@ export function calculateTravelTime(
         };
     });
 
-    const summaryText = `Foot: ${estimates.foot.formattedTime} | Horse: ${estimates.mount.formattedTime} | Air: ${estimates.air.formattedTime}`;
+    const crossesWater = !!profile && profile.waterKm > 0.05 && !pathFound;
+    const summaryText = `Foot: ${estimates.foot.formattedTime} | Horse: ${estimates.mount.formattedTime} | Air: ${estimates.air.formattedTime}${crossesWater ? ` | crosses ${profile!.waterKm} km of water` : ""}`;
 
     return {
         distanceKm: Number(effectiveDistKm.toFixed(2)),
@@ -191,6 +225,7 @@ export function calculateTravelTime(
         difficultyMultiplier: Number(terrainMult.toFixed(2)),
         estimates,
         summaryText,
+        ...(profile ? { climbM: profile.climbM, descentM: profile.descentM, waterKm: profile.waterKm } : {}),
     };
 }
 

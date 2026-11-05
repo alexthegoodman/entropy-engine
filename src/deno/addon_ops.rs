@@ -878,6 +878,33 @@ pub struct GameMapConfig {
     pub pending_mode: Option<String>,
     #[serde(default)]
     pub show_minimap: Option<bool>,
+    #[serde(default)]
+    pub show_labels: Option<bool>,
+    /// The world's heightfield (see `entropy_gui::MapTerrain`).
+    #[serde(default)]
+    pub terrain: Option<MapTerrainConfig>,
+    /// "relief", "heatmap", "slope" or "flat".
+    #[serde(default)]
+    pub terrain_style: Option<String>,
+    /// "temperate", "arid", "frozen" or "neon".
+    #[serde(default)]
+    pub terrain_palette: Option<String>,
+    #[serde(default)]
+    pub contour_interval_m: Option<f32>,
+    #[serde(default)]
+    pub measure_anchor: Option<[f32; 2]>,
+    #[serde(default)]
+    pub fit_request: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapTerrainConfig {
+    pub cols: usize,
+    pub rows: usize,
+    pub data: Vec<f32>,
+    #[serde(default)]
+    pub sea_level_m: f32,
 }
 
 /// `Widget.heatmap` - see `entropy_gui::HeatmapView`.

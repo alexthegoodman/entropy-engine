@@ -1,631 +1,483 @@
+// Procedural tools: everything here reads and writes the one world heightfield (`TerrainGrid`,
+// see terrain.ts), so the rivers follow the valleys you see, settlements sit on the ground they
+// were scored on and roads climb the hills that are actually there.
+
 import type {
     ContourLine,
     SpotType,
+    TerrainGrid,
     WorldMetadata,
     WorldPath,
     WorldSpot,
 } from "./planner_types";
+import {
+    PRNG,
+    chaikin,
+    computeDrainage,
+    erodeTerrain,
+    extractTerrainContours,
+    generateTerrain,
+    gridToWorld,
+    sampleSlopeDeg,
+    sampleTerrain,
+    simplifyPolyline,
+    terrainCellKm,
+    terrainFromRows,
+    terrainToRows,
+    traceRiverChannels,
+    worldToGrid,
+} from "./terrain";
 
-// Seedable PRNG (Mulberry32)
-export class PRNG {
-    private s: number;
+export { Noise2D, PRNG } from "./terrain";
 
-    constructor(seed = 1337) {
-        this.s = seed | 0;
-    }
+type Meta = Pick<WorldMetadata, "worldWidthKm" | "worldHeightKm" | "seaLevelM" | "seed">;
 
-    next(): number {
-        let t = (this.s += 0x6d2b79f5);
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    }
+const asTerrain = (grid: number[][] | TerrainGrid, seaLevelM = 0): TerrainGrid =>
+    Array.isArray(grid) ? terrainFromRows(grid, seaLevelM) : grid;
 
-    range(min: number, max: number): number {
-        return min + this.next() * (max - min);
-    }
-
-    int(min: number, max: number): number {
-        return Math.floor(this.range(min, max + 1));
-    }
-
-    pick<T>(arr: T[]): T {
-        return arr[this.int(0, arr.length - 1)];
-    }
-}
-
-// 2D Perlin / Value Noise Generator
-export class Noise2D {
-    private p: number[] = [];
-
-    constructor(seed = 42) {
-        const rng = new PRNG(seed);
-        const perm: number[] = [];
-        for (let i = 0; i < 256; i++) perm.push(i);
-        // Shuffle
-        for (let i = 255; i > 0; i--) {
-            const j = rng.int(0, i);
-            [perm[i], perm[j]] = [perm[j], perm[i]];
-        }
-        this.p = [...perm, ...perm];
-    }
-
-    private fade(t: number): number {
-        return t * t * t * (t * (t * 6 - 15) + 10);
-    }
-
-    private lerp(t: number, a: number, b: number): number {
-        return a + t * (b - a);
-    }
-
-    private grad(hash: number, x: number, y: number): number {
-        const h = hash & 3;
-        const u = h < 2 ? x : y;
-        const v = h < 2 ? y : x;
-        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
-    }
-
-    noise(x: number, y: number): number {
-        const X = Math.floor(x) & 255;
-        const Y = Math.floor(y) & 255;
-        const xf = x - Math.floor(x);
-        const yf = y - Math.floor(y);
-
-        const u = this.fade(xf);
-        const v = this.fade(yf);
-
-        const aa = this.p[this.p[X] + Y];
-        const ab = this.p[this.p[X] + Y + 1];
-        const ba = this.p[this.p[X + 1] + Y];
-        const bb = this.p[this.p[X + 1] + Y + 1];
-
-        const x1 = this.lerp(u, this.grad(aa, xf, yf), this.grad(ba, xf - 1, yf));
-        const x2 = this.lerp(u, this.grad(ab, xf, yf - 1), this.grad(bb, xf - 1, yf - 1));
-
-        return this.lerp(v, x1, x2);
-    }
-
-    fractal(x: number, y: number, octaves = 4, persistence = 0.5, lacunarity = 2.0): number {
-        let total = 0;
-        let frequency = 1;
-        let amplitude = 1;
-        let maxValue = 0;
-
-        for (let i = 0; i < octaves; i++) {
-            total += this.noise(x * frequency, y * frequency) * amplitude;
-            maxValue += amplitude;
-            amplitude *= persistence;
-            frequency *= lacunarity;
-        }
-
-        return total / maxValue;
-    }
-}
+const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
 export interface HeightfieldConfig {
     widthKm: number;
     heightKm: number;
-    resolution: number; // grid cells across
+    /** Grid vertices along each axis. */
+    resolution: number;
     seed: number;
+    /** Kept for older callers; the generator chooses its own octave counts. */
     octaves?: number;
     mountainScale?: number;
     seaLevelM?: number;
     islandMask?: boolean;
+    ruggedness?: number;
+    landBias?: number;
 }
 
 export interface HeightfieldResult {
-    grid: number[][]; // [row][col] in meters
+    terrain: TerrainGrid;
+    /** The same elevations as rows ([row][col], meters), row 0 = north. */
+    grid: number[][];
     resolution: number;
     minElevationM: number;
     maxElevationM: number;
     contours: ContourLine[];
 }
 
-/**
- * Generates procedural heightfield elevations and contour lines.
- */
+/** Generates a terrain heightfield and its contour lines. */
 export function generateHeightfield(config: HeightfieldConfig): HeightfieldResult {
-    const res = config.resolution || 48;
-    const noise = new Noise2D(config.seed);
-    const mountainNoise = new Noise2D(config.seed + 101);
-    const octaves = config.octaves || 5;
-    const maxM = config.mountainScale || 2600;
-    const seaLevel = config.seaLevelM || 0;
-    const isIsland = config.islandMask !== false;
-
-    const grid: number[][] = [];
-    let minElev = Infinity;
-    let maxElev = -Infinity;
-
-    for (let r = 0; r < res; r++) {
-        const row: number[] = [];
-        const normY = (r / (res - 1)) * 2 - 1; // -1 to +1
-
-        for (let c = 0; c < res; c++) {
-            const normX = (c / (res - 1)) * 2 - 1; // -1 to +1
-
-            // Base continental elevation noise
-            const n1 = noise.fractal(normX * 1.5, normY * 1.5, octaves, 0.52, 2.1);
-            // Sharp ridge noise for mountains
-            const n2 = Math.abs(mountainNoise.fractal(normX * 3.0, normY * 3.0, 3, 0.45, 2.0));
-
-            let heightNorm = (n1 + 1.0) * 0.5; // 0 to 1
-            // Blend mountain ridges on high elevation
-            if (heightNorm > 0.45) {
-                heightNorm += n2 * 0.55 * (heightNorm - 0.45);
-            }
-
-            // Radial island falloff mask towards edges if island mode enabled
-            if (isIsland) {
-                const distFromCenter = Math.sqrt(normX * normX + normY * normY);
-                const mask = Math.max(0, 1 - Math.pow(distFromCenter / 1.15, 2.2));
-                heightNorm *= mask;
-            }
-
-            const elevM = Math.round(seaLevel + (heightNorm - 0.28) * maxM);
-            row.push(elevM);
-
-            if (elevM < minElev) minElev = elevM;
-            if (elevM > maxElev) maxElev = elevM;
-        }
-        grid.push(row);
-    }
-
-    const contours = extractContoursFromGrid(grid, config.widthKm, config.heightKm);
-
+    const terrain = generateTerrain({
+        widthKm: config.widthKm,
+        heightKm: config.heightKm,
+        resolution: config.resolution || 129,
+        seed: config.seed,
+        mountainScale: config.mountainScale,
+        seaLevelM: config.seaLevelM,
+        islandMask: config.islandMask,
+        ruggedness: config.ruggedness,
+        landBias: config.landBias,
+    });
     return {
-        grid,
-        resolution: res,
-        minElevationM: minElev,
-        maxElevationM: maxElev,
-        contours,
+        terrain,
+        grid: terrainToRows(terrain),
+        resolution: terrain.cols,
+        minElevationM: Math.round(terrain.minM),
+        maxElevationM: Math.round(terrain.maxM),
+        contours: extractTerrainContours(terrain, { worldWidthKm: config.widthKm, worldHeightKm: config.heightKm }),
     };
 }
 
-/**
- * Extracts elevation contour lines from an elevation grid.
- */
-export function extractContoursFromGrid(
-    grid: number[][],
-    widthKm: number,
-    heightKm: number
-): ContourLine[] {
-    const res = grid.length;
-    let minElev = Infinity;
-    let maxElev = -Infinity;
-    for (let r = 0; r < res; r++) {
-        for (let c = 0; c < res; c++) {
-            const v = grid[r][c];
-            if (v < minElev) minElev = v;
-            if (v > maxElev) maxElev = v;
-        }
-    }
-
-    const contourIntervalM = 300;
-    const contours: ContourLine[] = [];
-    const halfW = widthKm * 0.5;
-    const halfH = heightKm * 0.5;
-
-    for (let targetElev = Math.max(100, Math.ceil(minElev / contourIntervalM) * contourIntervalM); targetElev <= maxElev; targetElev += contourIntervalM) {
-        // Marching segments along grid
-        const points: [number, number][] = [];
-        const stepX = widthKm / (res - 1);
-        const stepY = heightKm / (res - 1);
-
-        for (let r = 0; r < res - 1; r += 2) {
-            for (let c = 0; c < res - 1; c += 2) {
-                const e = grid[r][c];
-                if (Math.abs(e - targetElev) < contourIntervalM * 0.55) {
-                    const wx = -halfW + c * stepX;
-                    const wy = halfH - r * stepY;
-                    points.push([Number(wx.toFixed(2)), Number(wy.toFixed(2))]);
-                }
-            }
-        }
-
-        if (points.length >= 3) {
-            // Altitude color from green to gold to grey/white
-            const norm = (targetElev - 100) / (maxElev - 100 || 1);
-            let color: [number, number, number, number] = [0.3, 0.7, 0.4, 0.4];
-            if (norm > 0.7) {
-                color = [0.85, 0.9, 0.95, 0.65]; // snowy white
-            } else if (norm > 0.45) {
-                color = [0.65, 0.6, 0.55, 0.5]; // rocky grey
-            } else if (norm > 0.25) {
-                color = [0.75, 0.7, 0.4, 0.45]; // highland gold
-            }
-
-            contours.push({
-                elevation: targetElev,
-                points,
-                color,
-            });
-        }
-    }
-
-    return contours;
+/** Contour polylines (marching squares) of a row-of-rows elevation grid spanning widthKm x heightKm. */
+export function extractContoursFromGrid(grid: number[][], widthKm: number, heightKm: number, intervalM?: number): ContourLine[] {
+    return extractTerrainContours(terrainFromRows(grid), { worldWidthKm: widthKm, worldHeightKm: heightKm }, intervalM);
 }
 
 /**
- * Simulates hydraulic and thermal erosion on the heightfield.
+ * Hydraulic erosion on a row-of-rows grid. `iterations` is a strength: each unit runs 40 droplets
+ * (a visible result needs thousands). Use `erodeTerrain` directly for a `TerrainGrid`.
  */
-export function simulateErosion(
-    grid: number[][],
-    iterations = 250,
-    rainfallStrength = 0.08
-): number[][] {
-    const rows = grid.length;
-    const cols = grid[0].length;
-    // Clone grid
-    const out = grid.map((r) => [...r]);
-
-    const rng = new PRNG(8821);
-
-    for (let iter = 0; iter < iterations; iter++) {
-        // Random droplet drop position
-        let r = rng.int(2, rows - 3);
-        let c = rng.int(2, cols - 3);
-        let sediment = 0;
-
-        for (let step = 0; step < 16; step++) {
-            const currentElev = out[r][c];
-
-            // Find lowest neighbor
-            let lowestR = r;
-            let lowestC = c;
-            let lowestElev = currentElev;
-
-            const neighbors = [
-                [-1, 0], [1, 0], [0, -1], [0, 1],
-                [-1, -1], [-1, 1], [1, -1], [1, 1],
-            ];
-
-            for (const [dr, dc] of neighbors) {
-                const nr = r + dr;
-                const nc = c + dc;
-                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-                    if (out[nr][nc] < lowestElev) {
-                        lowestElev = out[nr][nc];
-                        lowestR = nr;
-                        lowestC = nc;
-                    }
-                }
-            }
-
-            const delta = currentElev - lowestElev;
-            if (delta <= 0) {
-                // Deposit sediment in local pit/basin
-                out[r][c] += Math.round(sediment * 0.7);
-                break;
-            }
-
-            // Erode portion of slope
-            const eroded = Math.min(delta * 0.45, Math.round(rainfallStrength * 40));
-            out[r][c] -= Math.round(eroded);
-            sediment += eroded;
-
-            r = lowestR;
-            c = lowestC;
-        }
-    }
-
-    return out;
+export function simulateErosion(grid: number[][], iterations = 250, rainfallStrength = 0.08): number[][] {
+    const t = terrainFromRows(grid);
+    const eroded = erodeTerrain(t, { droplets: Math.round(iterations * 40), erodeSpeed: 0.3 + rainfallStrength });
+    return terrainToRows(eroded);
 }
 
+const RIVER_NAMES = ["Silverflow", "Whispering Run", "Drakerush", "Frostmere", "Serpent's Coil", "Misty Water", "Amberwash", "Greywater", "Thornbrook", "Kingsrill"];
+
 /**
- * Procedurally generates natural river paths routing from high peaks to the sea.
+ * Rivers along the terrain's real drainage: the biggest catchments, each traced from its mouth up
+ * its main stem. Wider rivers drain more land.
  */
-export function generateRivers(
-    meta: WorldMetadata,
-    grid: number[][],
-    riverCount = 3
-): WorldPath[] {
-    const rows = grid.length;
-    const cols = grid[0].length;
-    const halfW = meta.worldWidthKm * 0.5;
-    const halfH = meta.worldHeightKm * 0.5;
-    const stepX = meta.worldWidthKm / (cols - 1);
-    const stepY = meta.worldHeightKm / (rows - 1);
-
-    const rivers: WorldPath[] = [];
-    const rng = new PRNG(meta.seed + 333);
-
-    for (let i = 0; i < riverCount; i++) {
-        // Find a high elevation starting point (mountain ridge)
-        let bestR = rng.int(5, rows - 6);
-        let bestC = rng.int(5, cols - 6);
-        let maxElev = -9999;
-
-        for (let attempt = 0; attempt < 12; attempt++) {
-            const tr = rng.int(5, rows - 6);
-            const tc = rng.int(5, cols - 6);
-            if (grid[tr][tc] > maxElev) {
-                maxElev = grid[tr][tc];
-                bestR = tr;
-                bestC = tc;
-            }
-        }
-
-        const riverPoints: [number, number][] = [];
-        let r = bestR;
-        let c = bestC;
-        const visited = new Set<string>();
-
-        for (let step = 0; step < 40; step++) {
-            const key = `${r},${c}`;
-            if (visited.has(key)) break;
-            visited.add(key);
-
-            const wx = Number((-halfW + c * stepX).toFixed(2));
-            const wy = Number((halfH - r * stepY).toFixed(2));
-            riverPoints.push([wx, wy]);
-
-            // Reached sea level or boundary
-            if (grid[r][c] <= meta.seaLevelM + 50 || r <= 1 || r >= rows - 2 || c <= 1 || c >= cols - 2) {
-                break;
-            }
-
-            // Flow to lowest neighbor
-            let lowestR = r;
-            let lowestC = c;
-            let lowestElev = grid[r][c];
-
-            const neighbors = [
-                [-1, 0], [1, 0], [0, -1], [0, 1],
-                [-1, -1], [-1, 1], [1, -1], [1, 1],
-            ];
-
-            for (const [dr, dc] of neighbors) {
-                const nr = r + dr;
-                const nc = c + dc;
-                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-                    if (grid[nr][nc] < lowestElev) {
-                        lowestElev = grid[nr][nc];
-                        lowestR = nr;
-                        lowestC = nc;
-                    }
-                }
-            }
-
-            if (lowestR === r && lowestC === c) {
-                // Dig through minor local minimum toward nearest edge
-                const dr = r > rows / 2 ? 1 : -1;
-                const dc = c > cols / 2 ? 1 : -1;
-                r = Math.max(1, Math.min(rows - 2, r + dr));
-                c = Math.max(1, Math.min(cols - 2, c + dc));
-            } else {
-                r = lowestR;
-                c = lowestC;
-            }
-        }
-
-        if (riverPoints.length >= 4) {
-            const riverNames = ["Silverflow", "Whispering Run", "Drakerush", "Frostmere River", "Serpent's Coil", "Misty Water"];
-            rivers.push({
-                id: `river_${i + 1}`,
-                name: riverNames[i % riverNames.length],
-                pathType: "river",
-                points: riverPoints,
-                width: 4.5,
-                color: [0.22, 0.74, 0.97, 1.0],
-                isMajor: true,
-                flowSpeed: 1.8,
-                surfaceQuality: 1.0,
-                description: "A wide, fast-flowing river carved through the valleys to the ocean.",
-            });
-        }
-    }
-
-    return rivers;
+export function generateRivers(meta: Meta, grid: number[][] | TerrainGrid, riverCount = 3): WorldPath[] {
+    const t = asTerrain(grid, meta.seaLevelM);
+    const channels = traceRiverChannels(t, meta, riverCount);
+    const maxDischarge = Math.max(1, ...channels.map((c) => c.discharge));
+    const rng = new PRNG((meta.seed | 0) + 333);
+    const offset = rng.int(0, RIVER_NAMES.length - 1);
+    return channels.map((ch, i) => {
+        const size = Math.sqrt(ch.discharge / maxDischarge);
+        return {
+            id: uid("river"),
+            name: RIVER_NAMES[(offset + i) % RIVER_NAMES.length],
+            pathType: "river" as const,
+            points: ch.points,
+            width: Number((2.5 + size * 4.5).toFixed(1)),
+            color: [0.22, 0.6, 0.92, 1.0] as [number, number, number, number],
+            isMajor: true,
+            flowSpeed: Number((0.8 + size * 1.6).toFixed(1)),
+            surfaceQuality: 1.0,
+            description: `Drains about ${Math.round(ch.discharge * terrainCellKm(t, meta).dx * terrainCellKm(t, meta).dy)} km² of land on its way to the sea.`,
+        };
+    });
 }
 
+// -------------------------------------------------------------------------------------------------
+// Road routing (A* over the heightfield)
+// -------------------------------------------------------------------------------------------------
+
 /**
- * Procedurally places settlements (Capital, Cities, Towns, Villages) based on geography.
+ * A road between two points that follows the land: steep slopes cost more, water is avoided,
+ * existing roads (`preferred`) are cheaper so networks share trunks. Returns km points, smoothed.
+ */
+export function routeOverTerrain(
+    t: TerrainGrid,
+    meta: Pick<WorldMetadata, "worldWidthKm" | "worldHeightKm">,
+    from: [number, number],
+    to: [number, number],
+    preferred: Set<number> = new Set()
+): [number, number][] {
+    const { cols, rows, data } = t;
+    const { dx, dy } = terrainCellKm(t, meta);
+    const clampCell = (p: [number, number]) => {
+        const [gc, gr] = worldToGrid(t, meta, p[0], p[1]);
+        return Math.min(rows - 1, Math.max(0, Math.round(gr))) * cols + Math.min(cols - 1, Math.max(0, Math.round(gc)));
+    };
+    const start = clampCell(from);
+    const goal = clampCell(to);
+    const gr = Math.floor(goal / cols);
+    const gc = goal - gr * cols;
+    const g = new Float64Array(cols * rows).fill(Infinity);
+    const came = new Int32Array(cols * rows).fill(-1);
+    const closed = new Uint8Array(cols * rows);
+    // Small binary heap keyed on f = g + h.
+    const heapK: number[] = [];
+    const heapV: number[] = [];
+    const push = (k: number, v: number) => {
+        heapK.push(k); heapV.push(v);
+        let i = heapK.length - 1;
+        while (i > 0) {
+            const p = (i - 1) >> 1;
+            if (heapK[p] <= heapK[i]) break;
+            [heapK[p], heapK[i]] = [heapK[i], heapK[p]];
+            [heapV[p], heapV[i]] = [heapV[i], heapV[p]];
+            i = p;
+        }
+    };
+    const pop = () => {
+        const top = heapV[0];
+        const lk = heapK.pop()!, lv = heapV.pop()!;
+        if (heapK.length) {
+            heapK[0] = lk; heapV[0] = lv;
+            let i = 0;
+            for (;;) {
+                const l = 2 * i + 1, r = l + 1;
+                let m = i;
+                if (l < heapK.length && heapK[l] < heapK[m]) m = l;
+                if (r < heapK.length && heapK[r] < heapK[m]) m = r;
+                if (m === i) break;
+                [heapK[m], heapK[i]] = [heapK[i], heapK[m]];
+                [heapV[m], heapV[i]] = [heapV[i], heapV[m]];
+                i = m;
+            }
+        }
+        return top;
+    };
+    const h = (i: number) => {
+        const r = Math.floor(i / cols), c = i - r * cols;
+        return Math.hypot((c - gc) * dx, (r - gr) * dy) * 0.9;
+    };
+    g[start] = 0;
+    push(h(start), start);
+    const nbrs: Array<[number, number]> = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    while (heapK.length) {
+        const i = pop();
+        if (closed[i]) continue;
+        closed[i] = 1;
+        if (i === goal) break;
+        const r = Math.floor(i / cols), c = i - r * cols;
+        for (const [dr, dc] of nbrs) {
+            const nr = r + dr, nc = c + dc;
+            if (nr < 0 || nc < 0 || nr >= rows || nc >= cols) continue;
+            const j = nr * cols + nc;
+            if (closed[j]) continue;
+            const distKm = Math.hypot(dr * dy, dc * dx);
+            const rise = Math.abs(data[j] - data[i]) / (distKm * 1000); // grade
+            let cost = distKm * (1 + rise * 28 + (rise > 0.25 ? 40 : 0));
+            if (data[j] <= t.seaLevelM) cost += distKm * 60; // bridges and fords only when they must
+            if (preferred.has(j)) cost *= 0.45;
+            const ng = g[i] + cost;
+            if (ng < g[j]) {
+                g[j] = ng;
+                came[j] = i;
+                push(ng + h(j), j);
+            }
+        }
+    }
+    const cells: number[] = [];
+    for (let cur = goal; cur >= 0; cur = came[cur]) {
+        cells.push(cur);
+        if (cur === start) break;
+    }
+    cells.reverse();
+    cells.forEach((cell) => preferred.add(cell));
+    const pts: [number, number][] = cells.map((i) => gridToWorld(t, meta, i % cols, Math.floor(i / cols)));
+    pts[0] = [from[0], from[1]];
+    pts[pts.length - 1] = [to[0], to[1]];
+    return chaikin(simplifyPolyline(pts, dx * 0.4), 2).map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]);
+}
+
+// -------------------------------------------------------------------------------------------------
+// Settlements
+// -------------------------------------------------------------------------------------------------
+
+interface SettlementDef {
+    name: string;
+    type: SpotType;
+    icon: string;
+    isMajor: boolean;
+    color: [number, number, number, number];
+    /** Where this kind of place wants to be. */
+    site: "lowland" | "coast" | "high" | "mountain" | "peak" | "remote";
+}
+
+const SETTLEMENTS: SettlementDef[] = [
+    { name: "Crown Citadel", type: "capital", icon: "crown", isMajor: true, color: [0.98, 0.75, 0.14, 1.0], site: "lowland" },
+    { name: "High Haven Port", type: "port", icon: "anchor", isMajor: true, color: [0.22, 0.74, 0.97, 1.0], site: "coast" },
+    { name: "Stonehold", type: "fortress", icon: "shield", isMajor: true, color: [0.6, 0.65, 0.75, 1.0], site: "high" },
+    { name: "Riverbend", type: "town", icon: "house", isMajor: false, color: [0.35, 0.8, 0.5, 1.0], site: "lowland" },
+    { name: "Oakhaven", type: "village", icon: "tree", isMajor: false, color: [0.45, 0.75, 0.4, 1.0], site: "lowland" },
+    { name: "Deepmine Outpost", type: "mine", icon: "pickaxe", isMajor: false, color: [0.8, 0.5, 0.3, 1.0], site: "mountain" },
+    { name: "Sunspire Shrine", type: "shrine", icon: "sun", isMajor: false, color: [0.7, 0.45, 0.95, 1.0], site: "peak" },
+    { name: "Forgotten Barrow", type: "dungeon", icon: "skull", isMajor: false, color: [0.95, 0.25, 0.35, 1.0], site: "remote" },
+];
+
+/**
+ * Places a settlement hierarchy where each kind of place belongs on this terrain - the capital on
+ * flat, well-watered lowland, the port on the coast, the fortress on high ground, the mine in the
+ * mountains - then joins them with roads routed over the land (a highway between the major hubs,
+ * local roads from each town to its nearest neighbor on the network).
  */
 export function generateSettlements(
-    meta: WorldMetadata,
-    grid: number[][],
-    rivers: WorldPath[] = []
+    meta: Meta,
+    grid: number[][] | TerrainGrid,
+    rivers: WorldPath[] = [],
+    existingSpots: Array<Pick<WorldSpot, "x" | "y">> = []
 ): { spots: WorldSpot[]; roads: WorldPath[] } {
-    const rows = grid.length;
-    const cols = grid[0].length;
-    const halfW = meta.worldWidthKm * 0.5;
-    const halfH = meta.worldHeightKm * 0.5;
-    const stepX = meta.worldWidthKm / (cols - 1);
-    const stepY = meta.worldHeightKm / (rows - 1);
+    const t = asTerrain(grid, meta.seaLevelM);
+    const { cols, rows, data } = t;
+    const sea = t.seaLevelM;
+    const maxLand = Math.max(sea + 1, t.maxM);
+    const rng = new PRNG((meta.seed | 0) + 777);
+    const drainage = computeDrainage(t);
+    const riverPts = rivers.filter((r) => r.pathType === "river").flatMap((r) => r.points);
 
-    const rng = new PRNG(meta.seed + 777);
-    const spots: WorldSpot[] = [];
+    const nearSea = new Uint8Array(cols * rows);
+    for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+            const i = r * cols + c;
+            if (data[i] <= sea) continue;
+            if (data[i - 1] <= sea || data[i + 1] <= sea || data[i - cols] <= sea || data[i + cols] <= sea) nearSea[i] = 1;
+        }
+    }
+    const placed: Array<[number, number]> = existingSpots.map((s) => [s.x, s.y]);
+    const minSpacing = Math.max(2.5, Math.min(meta.worldWidthKm, meta.worldHeightKm) / 9);
 
-    // Helper to evaluate geographic desirability (flat terrain + river proximity)
-    const scoreCell = (r: number, c: number): number => {
-        const elev = grid[r][c];
-        if (elev < meta.seaLevelM + 10 || elev > 1800) return -100; // avoid underwater and jagged peaks
-
-        // Flatness check (elevation variance around cell)
-        let variance = 0;
-        for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-                variance += Math.abs(grid[r + dr][c + dc] - elev);
+    const score = (def: SettlementDef, i: number): number => {
+        const e = data[i];
+        if (e <= sea + 2) return -Infinity;
+        const r = Math.floor(i / cols), c = i - r * cols;
+        if (r < 2 || c < 2 || r > rows - 3 || c > cols - 3) return -Infinity;
+        const [x, y] = gridToWorld(t, meta, c, r);
+        for (const [px, py] of placed) if (Math.hypot(px - x, py - y) < minSpacing) return -Infinity;
+        const slope = sampleSlopeDeg(t, meta, x, y);
+        const rel = (e - sea) / (maxLand - sea);
+        const wet = Math.log1p(drainage.accumulation[i]) + (riverPts.some(([rx, ry]) => Math.hypot(rx - x, ry - y) < 1.2) ? 3 : 0);
+        switch (def.site) {
+            case "lowland": return 40 - slope * 4 - Math.abs(rel - 0.08) * 120 + wet * 4;
+            case "coast": return nearSea[i] ? 60 - slope * 4 - rel * 80 : -Infinity;
+            case "high": return rel * 80 - slope * 1.5 + (rel > 0.75 ? -60 : 0);
+            case "mountain": return rel > 0.35 ? rel * 60 + slope * 1.5 : -Infinity;
+            case "peak": return rel * 120;
+            case "remote": {
+                let nearest = Infinity;
+                for (const [px, py] of placed) nearest = Math.min(nearest, Math.hypot(px - x, py - y));
+                return Math.min(nearest, 20) * 3 + rel * 20;
             }
         }
-        let score = 100 - variance * 0.25;
-
-        // Proximity to river bonus
-        const wx = -halfW + c * stepX;
-        const wy = halfH - r * stepY;
-        for (const river of rivers) {
-            for (const pt of river.points) {
-                const dist = Math.sqrt(Math.pow(wx - pt[0], 2) + Math.pow(wy - pt[1], 2));
-                if (dist < 2.5) {
-                    score += 45; // fresh water access
-                    break;
-                }
-            }
-        }
-
-        return score;
     };
 
-    const settlementDefs: Array<{ name: string; type: SpotType; icon: string; isMajor: boolean; color: [number, number, number, number] }> = [
-        { name: "Crown Citadel", type: "capital", icon: "crown", isMajor: true, color: [0.98, 0.75, 0.14, 1.0] },
-        { name: "High Haven Port", type: "port", icon: "anchor", isMajor: true, color: [0.22, 0.74, 0.97, 1.0] },
-        { name: "Stonehold Stronghold", type: "fortress", icon: "shield", isMajor: true, color: [0.6, 0.65, 0.75, 1.0] },
-        { name: "Riverbend Town", type: "town", icon: "house", isMajor: false, color: [0.35, 0.8, 0.5, 1.0] },
-        { name: "Oakhaven Village", type: "village", icon: "tree", isMajor: false, color: [0.45, 0.75, 0.4, 1.0] },
-        { name: "Deepmine Outpost", type: "mine", icon: "pickaxe", isMajor: false, color: [0.8, 0.5, 0.3, 1.0] },
-        { name: "Sunspire Shrine", type: "shrine", icon: "sun", isMajor: false, color: [0.7, 0.45, 0.95, 1.0] },
-        { name: "Forgotten Barrow", type: "dungeon", icon: "skull", isMajor: false, color: [0.95, 0.25, 0.35, 1.0] },
-    ];
-
-    const placedCoords: [number, number][] = [];
-
-    for (let i = 0; i < settlementDefs.length; i++) {
-        const def = settlementDefs[i];
-        let bestR = 5;
-        let bestC = 5;
-        let bestScore = -9999;
-
-        // Sample candidate positions
-        for (let attempt = 0; attempt < 25; attempt++) {
-            const r = rng.int(4, rows - 5);
-            const c = rng.int(4, cols - 5);
-            const wx = -halfW + c * stepX;
-            const wy = halfH - r * stepY;
-
-            // Enforce minimum distance from already placed settlements
-            let tooClose = false;
-            for (const pc of placedCoords) {
-                const dist = Math.sqrt(Math.pow(wx - pc[0], 2) + Math.pow(wy - pc[1], 2));
-                if (dist < 4.0) {
-                    tooClose = true;
-                    break;
-                }
-            }
-            if (tooClose) continue;
-
-            const score = scoreCell(r, c) + rng.range(-15, 15);
-            if (score > bestScore) {
-                bestScore = score;
-                bestR = r;
-                bestC = c;
+    const spots: WorldSpot[] = [];
+    for (const def of SETTLEMENTS) {
+        let best = -1;
+        let bestScore = -Infinity;
+        for (let i = 0; i < data.length; i++) {
+            const s = score(def, i);
+            if (s === -Infinity) continue;
+            const jittered = s + rng.range(-6, 6);
+            if (jittered > bestScore) {
+                bestScore = jittered;
+                best = i;
             }
         }
-
-        const wx = Number((-halfW + bestC * stepX).toFixed(2));
-        const wy = Number((halfH - bestR * stepY).toFixed(2));
-        placedCoords.push([wx, wy]);
-
+        if (best < 0) continue;
+        const [x, y] = gridToWorld(t, meta, best % cols, Math.floor(best / cols)).map((v) => Math.round(v * 100) / 100) as [number, number];
+        placed.push([x, y]);
         spots.push({
-            id: `spot_${i + 1}`,
+            id: uid("spot"),
             name: def.name,
             spotType: def.type,
-            x: wx,
-            y: wy,
-            elevation: grid[bestR][bestC],
+            x,
+            y,
+            elevation: Math.round(sampleTerrain(t, meta, x, y)),
             color: def.color,
             icon: def.icon,
-            tags: [def.type, def.isMajor ? "major-hub" : "local-point"],
+            tags: [def.type, def.isMajor ? "major-hub" : "local-point", "generated"],
             isMajor: def.isMajor,
-            description: `A vital ${def.type} strategically established on natural terrain.`,
-            loreNotes: "Documented in realm chronicles.",
-            conceptPrompt: `High fantasy landscape concept art of ${def.name}, ${def.type} overlooking hills, cinematic lighting, 8k resolution`,
+            dangerLevel: def.type === "dungeon" ? 7 : def.type === "mine" ? 4 : 1,
+            description: `A ${def.type} sited on ${def.site === "coast" ? "a sheltered stretch of coast" : def.site === "lowland" ? "flat, well-watered lowland" : def.site === "remote" ? "the far wilds" : "high ground"}.`,
+            loreNotes: "",
+            conceptPrompt: `Landscape concept art of ${def.name}, a ${def.type}, cinematic lighting, 8k`,
             linkedCodexIds: [],
             linkedMissionIds: [],
         });
     }
 
-    // Connect settlements with primary highway and regional roads
     const roads: WorldPath[] = [];
-    if (spots.length >= 3) {
-        // Highway connecting major hubs (Capital to Port to Fortress)
-        const majorSpots = spots.filter((s) => s.isMajor);
-        if (majorSpots.length >= 2) {
-            const highwayPts: [number, number][] = majorSpots.map((s) => [s.x, s.y]);
-            roads.push({
-                id: "road_highway_1",
-                name: "The King's Royal Highway",
-                pathType: "highway",
-                points: highwayPts,
-                width: 5.0,
-                color: [0.98, 0.75, 0.14, 1.0],
-                isMajor: true,
-                flowSpeed: 0,
-                surfaceQuality: 0.8,
-                description: "Paved stone highway connecting major administrative capitals and ports.",
-            });
-        }
-
-        // Secondary trade route connecting remaining towns
-        const minorSpots = spots.filter((s) => !s.isMajor);
-        if (minorSpots.length >= 2) {
-            const tradeRoutePts: [number, number][] = [
-                [spots[0].x, spots[0].y],
-                [minorSpots[0].x, minorSpots[0].y],
-                [minorSpots[1].x, minorSpots[1].y],
-            ];
-            roads.push({
-                id: "road_trade_1",
-                name: "Eastern Merchant Track",
-                pathType: "road",
-                points: tradeRoutePts,
-                width: 3.5,
-                color: [0.75, 0.65, 0.5, 1.0],
-                isMajor: false,
-                flowSpeed: 0,
-                surfaceQuality: 1.0,
-                description: "Cobblestone and packed-earth road frequented by traveling merchants.",
-            });
+    const network = new Set<number>();
+    const majors = spots.filter((s) => s.isMajor);
+    const ordered: WorldSpot[] = [];
+    if (majors.length) {
+        // Nearest-neighbor chain from the capital: a highway that visits every major hub once.
+        const remaining = [...majors];
+        ordered.push(remaining.shift()!);
+        while (remaining.length) {
+            const last = ordered[ordered.length - 1];
+            remaining.sort((a, b) => Math.hypot(a.x - last.x, a.y - last.y) - Math.hypot(b.x - last.x, b.y - last.y));
+            ordered.push(remaining.shift()!);
         }
     }
-
+    if (ordered.length >= 2) {
+        const pts: [number, number][] = [];
+        for (let i = 0; i < ordered.length - 1; i++) {
+            const leg = routeOverTerrain(t, meta, [ordered[i].x, ordered[i].y], [ordered[i + 1].x, ordered[i + 1].y], network);
+            pts.push(...(i === 0 ? leg : leg.slice(1)));
+        }
+        roads.push({
+            id: uid("road"),
+            name: "The King's Highway",
+            pathType: "highway",
+            points: pts,
+            width: 5.0,
+            color: [0.98, 0.75, 0.14, 1.0],
+            isMajor: true,
+            flowSpeed: 0,
+            surfaceQuality: 0.8,
+            description: `Paved highway joining ${ordered.map((s) => s.name).join(", ")}, graded around the steepest ground.`,
+        });
+    }
+    const connected: WorldSpot[] = ordered.length ? [...ordered] : spots.slice(0, 1);
+    for (const s of spots) {
+        if (connected.includes(s) || s.spotType === "dungeon") continue;
+        const nearest = connected.reduce((a, b) => (Math.hypot(a.x - s.x, a.y - s.y) < Math.hypot(b.x - s.x, b.y - s.y) ? a : b));
+        const pts = routeOverTerrain(t, meta, [nearest.x, nearest.y], [s.x, s.y], network);
+        const isTrail = s.spotType === "mine" || s.spotType === "shrine";
+        roads.push({
+            id: uid("road"),
+            name: `${s.name} ${isTrail ? "Trail" : "Road"}`,
+            pathType: isTrail ? "trail" : "road",
+            points: pts,
+            width: isTrail ? 2.0 : 3.5,
+            color: isTrail ? [0.65, 0.55, 0.4, 1.0] : [0.85, 0.75, 0.55, 1.0],
+            isMajor: false,
+            flowSpeed: 0,
+            surfaceQuality: isTrail ? 1.35 : 1.0,
+            description: `${isTrail ? "A switchback trail" : "A packed-earth road"} from ${nearest.name} to ${s.name}.`,
+        });
+        connected.push(s);
+    }
     return { spots, roads };
 }
 
+// -------------------------------------------------------------------------------------------------
+// Wilderness points of interest
+// -------------------------------------------------------------------------------------------------
+
+const POI_TEMPLATES: Array<{ name: string; type: SpotType; icon: string; color: [number, number, number, number]; high: boolean }> = [
+    { name: "Sunken Monolith", type: "ruin", icon: "spark", color: [0.65, 0.5, 0.85, 1.0], high: false },
+    { name: "Wyrm's Crag", type: "boss", icon: "sword", color: [0.95, 0.25, 0.35, 1.0], high: true },
+    { name: "Crystal Hollow", type: "mine", icon: "gem", color: [0.35, 0.85, 0.95, 1.0], high: true },
+    { name: "Bandit Encampment", type: "camp", icon: "tent", color: [0.85, 0.5, 0.2, 1.0], high: false },
+    { name: "Weeping Shrine", type: "shrine", icon: "sun", color: [0.7, 0.45, 0.95, 1.0], high: true },
+    { name: "Hollow Crypt", type: "dungeon", icon: "skull", color: [0.9, 0.3, 0.4, 1.0], high: false },
+];
+
 /**
- * Scatters thematic points of interest (ruins, monster dens, resource nodes).
+ * Scatters ruins, lairs, mines and camps through the wilderness: on land when there is terrain,
+ * away from existing spots, danger rising with remoteness and altitude.
  */
 export function scatterPointsOfInterest(
-    meta: WorldMetadata,
+    meta: Meta,
     existingSpots: WorldSpot[],
-    scatterCount = 4
+    scatterCount = 4,
+    terrain?: TerrainGrid
 ): WorldSpot[] {
-    const rng = new PRNG(meta.seed + 999);
-    const halfW = meta.worldWidthKm * 0.45;
-    const halfH = meta.worldHeightKm * 0.45;
-
-    const templates = [
-        { name: "Sunken Monolith", type: "ruin" as SpotType, icon: "spark", color: [0.65, 0.5, 0.85, 1.0] as [number, number, number, number] },
-        { name: "Wyrm's Crag", type: "boss" as SpotType, icon: "sword", color: [0.95, 0.25, 0.35, 1.0] as [number, number, number, number] },
-        { name: "Crystal Hollow", type: "mine" as SpotType, icon: "gem", color: [0.35, 0.85, 0.95, 1.0] as [number, number, number, number] },
-        { name: "Bandit Encampment", type: "camp" as SpotType, icon: "tent", color: [0.85, 0.5, 0.2, 1.0] as [number, number, number, number] },
-    ];
-
+    const rng = new PRNG((meta.seed | 0) + 999 + existingSpots.length * 13);
+    const halfW = meta.worldWidthKm * 0.46;
+    const halfH = meta.worldHeightKm * 0.46;
+    const placed: Array<[number, number]> = existingSpots.map((s) => [s.x, s.y]);
+    const spacing = Math.max(1.5, Math.min(meta.worldWidthKm, meta.worldHeightKm) / 14);
     const newSpots: WorldSpot[] = [];
-
     for (let i = 0; i < scatterCount; i++) {
-        const t = templates[i % templates.length];
-        const x = Number(rng.range(-halfW, halfW).toFixed(2));
-        const y = Number(rng.range(-halfH, halfH).toFixed(2));
-
+        const tpl = POI_TEMPLATES[i % POI_TEMPLATES.length];
+        let best: [number, number] | null = null;
+        let bestScore = -Infinity;
+        for (let attempt = 0; attempt < 60; attempt++) {
+            const x = rng.range(-halfW, halfW);
+            const y = rng.range(-halfH, halfH);
+            const elev = terrain ? sampleTerrain(terrain, meta, x, y) : 300;
+            if (terrain && elev <= terrain.seaLevelM + 3) continue;
+            let nearest = Infinity;
+            for (const [px, py] of placed) nearest = Math.min(nearest, Math.hypot(px - x, py - y));
+            if (nearest < spacing) continue;
+            const rel = terrain ? (elev - terrain.seaLevelM) / Math.max(1, terrain.maxM - terrain.seaLevelM) : 0.3;
+            const s = Math.min(nearest, 12) + (tpl.high ? rel * 10 : (1 - rel) * 5) + rng.range(0, 2);
+            if (s > bestScore) {
+                bestScore = s;
+                best = [x, y];
+            }
+        }
+        if (!best) best = [rng.range(-halfW, halfW), rng.range(-halfH, halfH)];
+        const [x, y] = [Math.round(best[0] * 100) / 100, Math.round(best[1] * 100) / 100];
+        placed.push([x, y]);
+        const elevation = terrain ? Math.round(sampleTerrain(terrain, meta, x, y)) : Math.round(rng.range(150, 950));
+        let nearest = Infinity;
+        for (const s of existingSpots) nearest = Math.min(nearest, Math.hypot(s.x - x, s.y - y));
+        const dangerLevel = Math.max(1, Math.min(10, Math.round(2 + Math.min(nearest, 15) / 3 + (tpl.type === "boss" ? 3 : 0) + rng.range(-1, 1))));
         newSpots.push({
-            id: `scatter_${existingSpots.length + i + 1}`,
-            name: `${t.name} #${i + 1}`,
-            spotType: t.type,
+            id: uid("poi"),
+            name: `${tpl.name}${i >= POI_TEMPLATES.length ? ` ${Math.floor(i / POI_TEMPLATES.length) + 1}` : ""}`,
+            spotType: tpl.type,
             x,
             y,
-            elevation: Math.round(rng.range(150, 950)),
-            color: t.color,
-            icon: t.icon,
-            tags: ["scattered", t.type],
+            elevation,
+            color: tpl.color,
+            icon: tpl.icon,
+            tags: ["scattered", tpl.type],
             isMajor: false,
-            dangerLevel: rng.int(1, 10),
-            description: `An isolated ${t.type} scattered throughout the wilderness.`,
+            dangerLevel,
+            description: `An isolated ${tpl.type} in the wilderness.`,
             loreNotes: "Awaiting exploration.",
             linkedCodexIds: [],
             linkedMissionIds: [],
         });
     }
-
     return newSpots;
 }

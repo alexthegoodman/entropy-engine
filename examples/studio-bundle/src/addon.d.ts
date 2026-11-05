@@ -3349,8 +3349,23 @@ export interface GameMapConfig {
   pendingPoints?: [number, number][];
   pendingMode?: string;
   showMinimap?: boolean;
+  showLabels?: boolean;
+  /** The world's heightfield: `cols` x `rows` meters, row-major, row 0 along the north edge. */
+  terrain?: { cols: number; rows: number; data: number[]; seaLevelM?: number };
+  /** "relief" (hypsometric + hillshade), "heatmap", "slope" or "flat". */
+  terrainStyle?: "relief" | "heatmap" | "slope" | "flat";
+  terrainPalette?: "temperate" | "arid" | "frozen" | "neon";
+  /** Meters between contour lines; 0 or omitted picks one from the relief. */
+  contourIntervalM?: number;
+  /** The measure tool's first point: a live ruler runs from it to the cursor. */
+  measureAnchor?: [number, number];
+  /** Bump to re-fit the view to the whole world. */
+  fitRequest?: number;
   onSpotSelect?: (id: string) => void;
+  /** Sent while a spot is dragged, each time its snapped position changes. */
   onSpotMove?: (id: string, x: number, y: number) => void;
+  /** The drag that moved a spot ended here. */
+  onSpotDragEnd?: (id: string, x: number, y: number) => void;
   onPathSelect?: (id: string) => void;
   onRegionSelect?: (id: string) => void;
   onMapClick?: (x: number, y: number) => void;

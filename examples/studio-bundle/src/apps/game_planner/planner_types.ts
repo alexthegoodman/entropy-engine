@@ -90,6 +90,22 @@ export interface ContourLine {
     color: [number, number, number, number];
 }
 
+/**
+ * The world's heightfield: `cols` x `rows` elevations in meters, row-major. Row 0 runs along the
+ * north edge (y = +H/2), column 0 along the west edge (x = -W/2); vertices span the whole world.
+ */
+export interface TerrainGrid {
+    cols: number;
+    rows: number;
+    data: number[];
+    seaLevelM: number;
+    minM: number;
+    maxM: number;
+}
+
+/** How the map paints the terrain. */
+export type TerrainStyle = "relief" | "heatmap" | "slope" | "flat";
+
 export interface TravelModeEstimate {
     mode: TravelMode;
     label: string;
@@ -100,8 +116,14 @@ export interface TravelModeEstimate {
 }
 
 export interface TravelEstimate {
+    /** Effort-weighted distance: the route (or straight line) times terrain difficulty. */
     distanceKm: number;
+    /** Straight-line distance. */
     directDistanceKm: number;
+    /** Along the straight line, when the world has terrain. */
+    climbM?: number;
+    descentM?: number;
+    waterKm?: number;
     pathFound: boolean;
     difficultyMultiplier: number;
     estimates: Record<TravelMode, TravelModeEstimate>;
@@ -204,7 +226,9 @@ export interface GameWorld {
     spots: WorldSpot[];
     paths: WorldPath[];
     regions: WorldRegion[];
+    /** Hand-drawn or legacy contour lines; when `terrain` exists the map traces its own from it. */
     contours: ContourLine[];
+    terrain?: TerrainGrid;
     codex: CodexEntry[];
     acts: StoryAct[];
     missions: Mission[];
