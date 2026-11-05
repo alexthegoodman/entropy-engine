@@ -41,7 +41,7 @@ fn game_planner_live_feature() {
         assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     }
     let states: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter().filter(|t| t["tool"] == "game_planner_state").map(|t| &t["result"]).collect();
-    assert_eq!(states.len(), 12, "one state per checkpoint");
+    assert_eq!(states.len(), 14, "one state per checkpoint");
     let spot = |state: &serde_json::Value, id: &str| -> serde_json::Value { state["spots"].as_array().unwrap().iter().find(|s| s["id"] == id).cloned().unwrap_or_else(|| panic!("no spot {id}")) };
     let num = |v: &serde_json::Value| v.as_f64().unwrap();
 
@@ -118,13 +118,44 @@ fn game_planner_live_feature() {
     assert_eq!(after["counts"]["paths"], states[7]["counts"]["paths"], "the rejected trail was not built");
     assert_eq!(after["counts"]["pendingProposals"], 0);
 
-    // The terrain tools added settlements, roads, rivers and points of interest.
-    assert!(num(&states[10]["counts"]["spots"]) > 10.0, "{}", states[10]["counts"]);
-    assert!(num(&states[10]["counts"]["paths"]) > 6.0, "{}", states[10]["counts"]);
+    // Sculpting with real clicks and drags: the canyon cut deep, the range rose, the raise brush
+    // built up the southern shore.
+    let samples: Vec<&serde_json::Value> = result["tools"].as_array().unwrap().iter().filter(|t| t["tool"] == "game_planner_sample_terrain").map(|t| &t["result"]["samples"]).collect();
+    assert_eq!(samples.len(), 2);
+    let elev = |k: usize, i: usize| num(&samples[k][i]["elevationM"]);
+    assert!(elev(0, 0) - elev(1, 0) > 100.0, "canyon: {} -> {}", elev(0, 0), elev(1, 0));
+    assert!(elev(1, 1) - elev(0, 1) > 300.0, "range: {} -> {}", elev(0, 1), elev(1, 1));
+    assert!(elev(1, 2) > elev(0, 2) + 5.0, "raise brush: {} -> {}", elev(0, 2), elev(1, 2));
+    let planned = &states[10];
+    assert!(planned["canUndo"].as_bool().unwrap());
+    // Painted forest and a painted creature are planning marks; the creature was also placed once.
+    let marks = planned["marks"].as_array().unwrap();
+    assert!(marks.iter().any(|m| m["key"] == "forest" && num(&m["areaKm2"]) > 1.0), "{marks:?}");
+    assert!(marks.iter().any(|m| m["key"].as_str().unwrap().starts_with("codex:")), "{marks:?}");
+    assert_eq!(planned["counts"]["placements"], 1, "{}", planned["counts"]);
+    // "New creature" added a bestiary entry, and that is what was placed.
+    assert_eq!(num(&planned["counts"]["codex"]), num(&states[9]["counts"]["codex"]) + 1.0);
+    assert_eq!(planned["placements"][0]["codexId"], planned["populateCodexId"]);
+    assert_ne!(planned["placements"][0]["codexId"], "codex_valerius");
+    let placed = &planned["placements"][0];
+    assert!((num(&placed["x"]) + 5.0).abs() < 0.2 && (num(&placed["y"]) + 5.0).abs() < 0.2, "{placed}");
+    // Snapped spots sit on the sculpted ground.
+    for s in planned["spots"].as_array().unwrap() {
+        if s["snapToGround"] == true {
+            assert!((num(&s["elevation"]) - num(&s["ground"])).abs() <= 1.0, "{s}");
+        }
+    }
+    // "Show on map" took the quest's journey to the map.
+    assert_eq!(states[11]["activeTab"], "map");
+    assert_eq!(states[11]["highlightedQuestId"], "mission_timber_beast");
+
+    // The terrain tools (now in the map sidebar) added settlements, roads, rivers and points of interest.
+    assert!(num(&states[12]["counts"]["spots"]) > 10.0, "{}", states[12]["counts"]);
+    assert!(num(&states[12]["counts"]["paths"]) > 6.0, "{}", states[12]["counts"]);
 
     // Switching presets loaded the Crimson Expanse.
-    assert_eq!(states[11]["counts"]["spots"], 5);
-    assert_eq!(states[11]["activeTab"], "map");
+    assert_eq!(states[13]["counts"]["spots"], 5);
+    assert_eq!(states[13]["activeTab"], "map");
 
     // What the planner saved: the world with its heightfield.
     let saved = read(&data.join("game-world-planner.json"));

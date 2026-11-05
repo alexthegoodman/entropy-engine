@@ -504,6 +504,66 @@ impl Default for MapGhost {
     }
 }
 
+/// One painted planning layer: a density (0..1) per overlay cell, drawn as a tint plus symbols.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapOverlayLayer {
+    pub key: String,
+    pub label: String,
+    pub color: [f32; 4],
+    /// "tree", "grass", "dot", "hatch", "rock", "snow", "wave", "cross", "diamond", "square",
+    /// "skull", "person" or "flag".
+    pub glyph: String,
+    pub data: Vec<f32>,
+}
+
+/// Painted planning marks (biomes, foliage, where enemies roam...) on a coarse grid of centered
+/// cells over the whole world, row 0 along the north edge. Marks are symbols, not built content.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapOverlay {
+    pub cols: usize,
+    pub rows: usize,
+    pub layers: Vec<MapOverlayLayer>,
+}
+
+impl MapOverlay {
+    fn valid(&self) -> bool {
+        self.cols >= 1 && self.rows >= 1 && self.layers.iter().all(|l| l.data.len() == self.cols * self.rows)
+    }
+}
+
+/// A codex entry placed at one spot on the map: an NPC, an enemy camp, a faction outpost.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapMarker {
+    pub id: String,
+    pub label: String,
+    /// A second tooltip line ("Enemy x4 · patrol").
+    pub detail: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: [f32; 4],
+    pub glyph: String,
+    pub count: u32,
+}
+
+/// A quest's journey: giver, objectives, turn-in, drawn as a numbered dashed route.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct MapQuestRoute {
+    pub id: String,
+    pub title: String,
+    pub points: Vec<[f32; 2]>,
+    pub color: [f32; 4],
+    pub highlighted: bool,
+}
+
+/// The paint / sculpt brush under the cursor. With `paint`, a primary drag is reported as brush
+/// strokes instead of clicks; without, the ring is only a size preview (clicks pass through).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapBrush {
+    pub radius_km: f32,
+    pub color: [f32; 4],
+    pub paint: bool,
+}
+
 // -------------------------------------------------------------------------------------------------
 // Options & events
 // -------------------------------------------------------------------------------------------------
@@ -544,6 +604,14 @@ pub struct GameMapOptions {
     pub show_proposals: bool,
     /// The proposed change (ghost) under review.
     pub selected_change_id: Option<String>,
+    pub show_marks: bool,
+    pub show_population: bool,
+    pub show_quests: bool,
+    pub brush: Option<MapBrush>,
+    /// Bump to center the view on `focus_center` (zooming to `focus_zoom` px/km when given).
+    pub focus_request: u32,
+    pub focus_center: Option<[f32; 2]>,
+    pub focus_zoom: Option<f32>,
 }
 
 impl Default for GameMapOptions {
@@ -575,6 +643,13 @@ impl Default for GameMapOptions {
             show_intents: true,
             show_proposals: true,
             selected_change_id: None,
+            show_marks: true,
+            show_population: true,
+            show_quests: true,
+            brush: None,
+            focus_request: 0,
+            focus_center: None,
+            focus_zoom: None,
         }
     }
 }
@@ -599,6 +674,11 @@ pub enum GameMapEvent {
     IntentSelected { id: String },
     /// A proposed change's preview was clicked.
     GhostSelected { id: String },
+    /// Part of a brush stroke (world km points since the last report); `done` when the button is released.
+    BrushStroke { points: Vec<[f32; 2]>, done: bool },
+    MarkerSelected { id: String },
+    /// A marker was dragged to a new place.
+    MarkerMoved { id: String, x: f32, y: f32 },
 }
 
 pub struct GameMapResponse {
@@ -630,6 +710,10 @@ pub struct GameMapState {
     pub current_pointer_world: Option<Pos2>,
     pub last_click_pos: Option<Pos2>,
     pub last_click_time: f32,
+    pub focus_request: u32,
+    pub stroke_active: bool,
+    pub stroke_last: Option<Pos2>,
+    pub dragging_marker_id: Option<String>,
 }
 
 impl Default for GameMapState {
@@ -653,6 +737,10 @@ impl Default for GameMapState {
             current_pointer_world: None,
             last_click_pos: None,
             last_click_time: 1.0,
+            focus_request: 0,
+            stroke_active: false,
+            stroke_last: None,
+            dragging_marker_id: None,
         }
     }
 }
@@ -913,11 +1001,15 @@ pub struct GameMap {
     measure: Option<MapMeasure>,
     intents: Vec<MapIntent>,
     ghosts: Vec<MapGhost>,
+    overlay: Option<MapOverlay>,
+    markers: Vec<MapMarker>,
+    quest_routes: Vec<MapQuestRoute>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Hover {
     None,
+    Marker(usize),
     Spot(usize),
     Path(usize),
     Region(usize),
@@ -958,6 +1050,88 @@ fn near_polyline(p: Pos2, pts: &[Pos2], tol: f32) -> bool {
     pts.windows(2).any(|w| dist_to_segment(p, w[0], w[1]) <= tol)
 }
 
+/// A small map symbol for a planning mark or a placed codex entry, `s` px across-ish.
+fn draw_glyph(painter: &Painter, glyph: &str, c: Pos2, s: f32, col: Color32) {
+    let ink = Color32::from_rgba_unmultiplied(10, 14, 20, (col.a() as f32 * 0.75) as u8);
+    let line = |a: Pos2, b: Pos2, w: f32| painter.line_segment([a, b], Stroke::new(w, col));
+    match glyph {
+        "tree" => {
+            let pts = vec![pos2(c.x, c.y - s * 0.62), pos2(c.x + s * 0.42, c.y + s * 0.22), pos2(c.x - s * 0.42, c.y + s * 0.22)];
+            painter.add(Shape::convex_polygon(pts, col, Stroke::new(0.6, ink)));
+            line(pos2(c.x, c.y + s * 0.22), pos2(c.x, c.y + s * 0.55), (s * 0.14).max(1.0));
+        }
+        "grass" => {
+            for dx in [-0.3f32, 0.0, 0.3] {
+                line(pos2(c.x + dx * s, c.y + s * 0.35), pos2(c.x + dx * s * 1.6, c.y - s * 0.3), (s * 0.11).max(0.9));
+            }
+        }
+        "dot" => {
+            painter.circle_filled(pos2(c.x - s * 0.25, c.y), s * 0.13 + 0.5, col);
+            painter.circle_filled(pos2(c.x + s * 0.22, c.y - s * 0.2), s * 0.11 + 0.5, col);
+            painter.circle_filled(pos2(c.x + s * 0.1, c.y + s * 0.28), s * 0.12 + 0.5, col);
+        }
+        "hatch" => {
+            for k in [-0.35f32, 0.0, 0.35] {
+                line(pos2(c.x - s * 0.45 + k * s, c.y + s * 0.4), pos2(c.x + s * 0.05 + k * s, c.y - s * 0.4), (s * 0.1).max(0.9));
+            }
+        }
+        "rock" => {
+            let pts = vec![pos2(c.x - s * 0.45, c.y + s * 0.3), pos2(c.x - s * 0.15, c.y - s * 0.32), pos2(c.x + s * 0.25, c.y - s * 0.2), pos2(c.x + s * 0.45, c.y + s * 0.3)];
+            painter.add(Shape::convex_polygon(pts, col, Stroke::new(0.6, ink)));
+        }
+        "snow" => {
+            for k in 0..3 {
+                let a = k as f32 * std::f32::consts::PI / 3.0;
+                let (dx, dy) = (a.cos() * s * 0.42, a.sin() * s * 0.42);
+                line(pos2(c.x - dx, c.y - dy), pos2(c.x + dx, c.y + dy), (s * 0.1).max(0.9));
+            }
+        }
+        "wave" => {
+            for row in [-0.2f32, 0.2] {
+                let y = c.y + row * s;
+                let pts: Vec<Pos2> = (0..=6).map(|k| pos2(c.x - s * 0.45 + k as f32 * s * 0.15, y + if k % 2 == 0 { -s * 0.08 } else { s * 0.08 })).collect();
+                polyline(painter, &pts, Stroke::new((s * 0.1).max(0.9), col));
+            }
+        }
+        "cross" => {
+            line(pos2(c.x - s * 0.35, c.y - s * 0.35), pos2(c.x + s * 0.35, c.y + s * 0.35), (s * 0.13).max(1.0));
+            line(pos2(c.x - s * 0.35, c.y + s * 0.35), pos2(c.x + s * 0.35, c.y - s * 0.35), (s * 0.13).max(1.0));
+        }
+        "square" => {
+            painter.rect_filled(Rect::from_center_size(c, vec2(s * 0.6, s * 0.6)), 1u8, col);
+        }
+        "skull" => {
+            painter.circle_filled(pos2(c.x, c.y - s * 0.08), s * 0.36, col);
+            painter.rect_filled(Rect::from_center_size(pos2(c.x, c.y + s * 0.3), vec2(s * 0.42, s * 0.22)), 1u8, col);
+            painter.circle_filled(pos2(c.x - s * 0.14, c.y - s * 0.08), s * 0.09 + 0.3, ink);
+            painter.circle_filled(pos2(c.x + s * 0.14, c.y - s * 0.08), s * 0.09 + 0.3, ink);
+        }
+        "person" => {
+            painter.circle_filled(pos2(c.x, c.y - s * 0.32), s * 0.2, col);
+            let pts = vec![pos2(c.x, c.y - s * 0.1), pos2(c.x + s * 0.34, c.y + s * 0.48), pos2(c.x - s * 0.34, c.y + s * 0.48)];
+            painter.add(Shape::convex_polygon(pts, col, Stroke::NONE));
+        }
+        "flag" => {
+            line(pos2(c.x - s * 0.3, c.y + s * 0.5), pos2(c.x - s * 0.3, c.y - s * 0.5), (s * 0.12).max(1.0));
+            let pts = vec![pos2(c.x - s * 0.3, c.y - s * 0.5), pos2(c.x + s * 0.4, c.y - s * 0.28), pos2(c.x - s * 0.3, c.y - s * 0.05)];
+            painter.add(Shape::convex_polygon(pts, col, Stroke::NONE));
+        }
+        _ => {
+            let pts = vec![pos2(c.x, c.y - s * 0.45), pos2(c.x + s * 0.35, c.y), pos2(c.x, c.y + s * 0.45), pos2(c.x - s * 0.35, c.y)];
+            painter.add(Shape::convex_polygon(pts, col, Stroke::new(0.6, ink)));
+        }
+    }
+}
+
+/// Cheap deterministic jitter in 0..1 for a cell and a slot.
+fn cell_hash(c: usize, r: usize, k: usize) -> f32 {
+    let mut h = (c as u32).wrapping_mul(73856093) ^ (r as u32).wrapping_mul(19349663) ^ (k as u32).wrapping_mul(83492791);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0x5bd1e995);
+    h ^= h >> 15;
+    (h & 0xffff) as f32 / 65535.0
+}
+
 impl GameMap {
     pub fn new(id_salt: impl std::hash::Hash) -> Self {
         Self {
@@ -971,7 +1145,23 @@ impl GameMap {
             measure: None,
             intents: Vec::new(),
             ghosts: Vec::new(),
+            overlay: None,
+            markers: Vec::new(),
+            quest_routes: Vec::new(),
         }
+    }
+
+    pub fn overlay(mut self, overlay: Option<MapOverlay>) -> Self {
+        self.overlay = overlay.filter(|o| o.valid());
+        self
+    }
+    pub fn markers(mut self, markers: Vec<MapMarker>) -> Self {
+        self.markers = markers;
+        self
+    }
+    pub fn quest_routes(mut self, routes: Vec<MapQuestRoute>) -> Self {
+        self.quest_routes = routes;
+        self
     }
 
     pub fn intents(mut self, intents: Vec<MapIntent>) -> Self {
@@ -1076,6 +1266,13 @@ impl GameMap {
         }
         let min_zoom = fit_zoom * 0.35;
         let max_zoom = 2500.0;
+        if st.focus_request != opts.focus_request {
+            st.focus_request = opts.focus_request;
+            if let Some(c) = opts.focus_center {
+                st.center = pos2(c[0], c[1]);
+                st.zoom = opts.focus_zoom.unwrap_or(st.zoom.max(fit_zoom * 2.2)).clamp(min_zoom, max_zoom);
+            }
+        }
 
         let mut events: Vec<GameMapEvent> = Vec::new();
         let (dt, pointer, scroll_y, key_events) = ctx.input(|i| (i.dt, i.pointer, i.scroll_delta.y, i.key_events.clone()));
@@ -1204,7 +1401,8 @@ impl GameMap {
         // -----------------------------------------------------------------------------------------
         // Hover pass: one target, spots over paths over regions.
         // -----------------------------------------------------------------------------------------
-        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "measure" | "intent");
+        let drawing = matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate");
+        let brush_paint = opts.brush.as_ref().is_some_and(|b| b.paint);
 
         // Intent geometry: outlines, route curves, pin heads and their badges.
         let badge_font = FontId::proportional(10.5);
@@ -1293,7 +1491,16 @@ impl GameMap {
                     }
                 }
             }
-            if hover == Hover::None {
+            if hover == Hover::None && opts.show_population && !drawing {
+                for (i, m) in self.markers.iter().enumerate().rev() {
+                    let q = w2s(m.x, m.y);
+                    if (q.x - p.x).hypot(q.y - p.y) <= 9.0 {
+                        hover = Hover::Marker(i);
+                        break;
+                    }
+                }
+            }
+            if hover == Hover::None && !brush_paint {
             for (i, s) in self.spots.iter().enumerate().rev() {
                 if !visible_spot(s) {
                     continue;
@@ -1352,7 +1559,24 @@ impl GameMap {
                 st.last_click_time = 0.0;
             }
             let at = cursor_world.unwrap_or_else(|| snap(s2w(p)));
+            if brush_paint {
+                let w = s2w(p);
+                st.stroke_active = true;
+                st.stroke_last = Some(w);
+                events.push(GameMapEvent::BrushStroke { points: vec![[w.x, w.y]], done: false });
+            } else {
             match (opts.active_tool.as_str(), hover) {
+                ("select" | "pan", Hover::Marker(i)) => {
+                    let m = &self.markers[i];
+                    events.push(GameMapEvent::MarkerSelected { id: m.id.clone() });
+                    if opts.active_tool == "select" {
+                        st.dragging_marker_id = Some(m.id.clone());
+                        st.drag_press_pos = Some(p);
+                        st.drag_start_world = Some(pos2(m.x, m.y));
+                        st.drag_last_world = Some(pos2(m.x, m.y));
+                        st.drag_moved = false;
+                    }
+                }
                 ("select", Hover::Spot(i)) | ("place_spot", Hover::Spot(i)) | ("pan", Hover::Spot(i)) => {
                     let s = &self.spots[i];
                     events.push(GameMapEvent::SpotSelected { id: s.id.clone() });
@@ -1370,6 +1594,55 @@ impl GameMap {
                 ("select", Hover::Region(i)) => events.push(GameMapEvent::RegionSelected { id: self.regions[i].id.clone() }),
                 (_, _) if is_double && drawing => events.push(GameMapEvent::MapDoubleClicked { x: at.x, y: at.y }),
                 (_, _) => events.push(GameMapEvent::MapClicked { x: at.x, y: at.y }),
+            }
+            }
+        }
+
+        // Brush strokes: report the pointer's path while the button is held, then the release.
+        if st.stroke_active {
+            let radius = opts.brush.as_ref().map_or(0.5, |b| b.radius_km);
+            if pointer.primary_down && brush_paint && !st.is_panning {
+                if let Some(p) = pointer_pos {
+                    let w = s2w(p);
+                    let moved = st.stroke_last.map_or(true, |l| (l.x - w.x).hypot(l.y - w.y) >= (radius * 0.2).max(3.0 / zoom));
+                    if moved {
+                        events.push(GameMapEvent::BrushStroke { points: vec![[w.x, w.y]], done: false });
+                        st.stroke_last = Some(w);
+                    }
+                }
+            } else {
+                events.push(GameMapEvent::BrushStroke { points: Vec::new(), done: true });
+                st.stroke_active = false;
+                st.stroke_last = None;
+            }
+        }
+
+        // Marker drag (same feel as a spot drag): one move event when it is let go.
+        let mut marker_preview: Option<(String, Pos2)> = None;
+        if let Some(drag_id) = st.dragging_marker_id.clone() {
+            if pointer.primary_down {
+                if let (Some(p), Some(press)) = (pointer_pos, st.drag_press_pos) {
+                    if !st.drag_moved && (p.x - press.x).hypot(p.y - press.y) > 4.0 {
+                        st.drag_moved = true;
+                    }
+                    if st.drag_moved {
+                        let start = st.drag_start_world.unwrap_or(pos2(0.0, 0.0));
+                        let offset = s2w(press);
+                        let raw = s2w(p);
+                        let target = snap(pos2(start.x + raw.x - offset.x, start.y + raw.y - offset.y));
+                        st.drag_last_world = Some(target);
+                        marker_preview = Some((drag_id.clone(), target));
+                    }
+                }
+            } else {
+                if st.drag_moved {
+                    if let Some(l) = st.drag_last_world {
+                        events.push(GameMapEvent::MarkerMoved { id: drag_id.clone(), x: l.x, y: l.y });
+                    }
+                }
+                st.dragging_marker_id = None;
+                st.drag_press_pos = None;
+                st.drag_moved = false;
             }
         }
 
@@ -1409,7 +1682,7 @@ impl GameMap {
         if is_hovered || over_hud_btn.is_some() || in_minimap {
             let cursor = if st.is_panning || st.drag_moved {
                 CursorIcon::Grabbing
-            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_) | Hover::Intent(_) | Hover::Ghost(_)) && opts.active_tool == "select") {
+            } else if over_hud_btn.is_some() || in_minimap || (matches!(hover, Hover::Spot(_) | Hover::Intent(_) | Hover::Ghost(_) | Hover::Marker(_)) && opts.active_tool == "select") {
                 CursorIcon::PointingHand
             } else if opts.active_tool == "pan" || st.space_down {
                 CursorIcon::Grab
@@ -1619,6 +1892,71 @@ impl GameMap {
         }
 
         // -----------------------------------------------------------------------------------------
+        // 4b. Painted planning marks: a soft tint per cell, and symbols once cells are big enough.
+        // -----------------------------------------------------------------------------------------
+        if let Some(ov) = self.overlay.as_ref().filter(|_| opts.show_marks) {
+            let cw = opts.world_width_km / ov.cols as f32;
+            let ch = opts.world_height_km / ov.rows as f32;
+            let c0 = (((vis_min_x + half_w) / cw).floor() as i64).clamp(0, ov.cols as i64 - 1) as usize;
+            let c1 = (((vis_max_x + half_w) / cw).ceil() as i64).clamp(0, ov.cols as i64 - 1) as usize;
+            let r0 = (((half_h - vis_max_y) / ch).floor() as i64).clamp(0, ov.rows as i64 - 1) as usize;
+            let r1 = (((half_h - vis_min_y) / ch).ceil() as i64).clamp(0, ov.rows as i64 - 1) as usize;
+            let cell_px = cw * zoom;
+            let mut glyph_budget: i32 = 7000;
+            for layer in &ov.layers {
+                let mut verts: Vec<Vertex> = Vec::new();
+                let mut idx: Vec<u32> = Vec::new();
+                for r in r0..=r1 {
+                    for c in c0..=c1 {
+                        let d = layer.data[r * ov.cols + c];
+                        if d <= 0.02 {
+                            continue;
+                        }
+                        let x0 = -half_w + c as f32 * cw;
+                        let y0 = half_h - r as f32 * ch;
+                        let a = w2s(x0, y0);
+                        let b = w2s(x0 + cw, y0 - ch);
+                        let col = [layer.color[0], layer.color[1], layer.color[2], (layer.color[3] * d * 0.38).min(0.5)];
+                        let base = verts.len() as u32;
+                        verts.push(Vertex::new(a.x, a.y, 0.0, col));
+                        verts.push(Vertex::new(b.x, a.y, 0.0, col));
+                        verts.push(Vertex::new(b.x, b.y, 0.0, col));
+                        verts.push(Vertex::new(a.x, b.y, 0.0, col));
+                        idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                    }
+                }
+                if !idx.is_empty() {
+                    painter.mesh(verts, idx);
+                }
+            }
+            // Symbols: denser paint, more of them; on top of every tint.
+            if cell_px >= 7.0 {
+                let gsize = (cell_px * 0.42).clamp(4.0, 11.0);
+                for (li, layer) in ov.layers.iter().enumerate() {
+                    let gcol = lighten(rgba([layer.color[0], layer.color[1], layer.color[2], 1.0]), 0.1);
+                    for r in r0..=r1 {
+                        for c in c0..=c1 {
+                            let d = layer.data[r * ov.cols + c];
+                            if d <= 0.08 || glyph_budget <= 0 {
+                                continue;
+                            }
+                            // Zoomed out: thin the symbols out so they read as a pattern.
+                            let n = if cell_px < 14.0 { usize::from(cell_hash(c, r, li) < d * 0.8) } else { 1 + (d * 2.6) as usize };
+                            for k in 0..n.min(3) {
+                                let jx = cell_hash(c, r, k * 2 + li * 7);
+                                let jy = cell_hash(r, c, k * 2 + 1 + li * 7);
+                                let wx = -half_w + (c as f32 + 0.2 + jx * 0.6) * cw;
+                                let wy = half_h - (r as f32 + 0.2 + jy * 0.6) * ch;
+                                draw_glyph(&painter, &layer.glyph, w2s(wx, wy), gsize, with_alpha(gcol, (120.0 + d * 120.0) as u8));
+                                glyph_budget -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
         // 5. Paths: casings first, then fills, so crossings merge; rivers under roads.
         // -----------------------------------------------------------------------------------------
         let zoom_scale = (zoom / fit_zoom.max(0.01)).powf(0.45).clamp(0.6, 2.6);
@@ -1723,6 +2061,49 @@ impl GameMap {
             if rect.contains(*c) && opts.show_labels {
                 let font = FontId::proportional(if zoom > fit_zoom * 1.5 { 12.5 } else { 11.0 });
                 text_pill(&painter, &ctx, *c, Align2::CENTER_CENTER, name, font, if *selected { ACCENT_CYAN } else { *col }, Color32::from_rgba_unmultiplied(10, 14, 22, 150));
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // 5a. Quest journeys: giver → objectives → turn-in, numbered; the highlighted one on top.
+        // -----------------------------------------------------------------------------------------
+        if opts.show_quests {
+            let mut routes: Vec<&MapQuestRoute> = self.quest_routes.iter().filter(|q| q.points.len() >= 2).collect();
+            routes.sort_by_key(|q| q.highlighted);
+            for q in routes {
+                let pts: Vec<Pos2> = q.points.iter().map(|p| w2s(p[0], p[1])).collect();
+                let base = rgba([q.color[0], q.color[1], q.color[2], 1.0]);
+                let (w, a) = if q.highlighted { (2.8, 255u8) } else { (1.6, 110u8) };
+                polyline(&painter, &pts, Stroke::new(w + 2.5, Color32::from_rgba_unmultiplied(8, 11, 17, if q.highlighted { 150 } else { 60 })));
+                dashed_polyline(&painter, &pts, Stroke::new(w, with_alpha(base, a)), 6.0, 5.0);
+                // Chevrons on each leg toward the next stop.
+                for wnd in pts.windows(2) {
+                    let len = (wnd[1].x - wnd[0].x).hypot(wnd[1].y - wnd[0].y);
+                    if len < 30.0 {
+                        continue;
+                    }
+                    let dir = vec2((wnd[1].x - wnd[0].x) / len, (wnd[1].y - wnd[0].y) / len);
+                    let m = pos2((wnd[0].x + wnd[1].x) * 0.5, (wnd[0].y + wnd[1].y) * 0.5);
+                    let nrm = vec2(-dir.y, dir.x);
+                    let back = pos2(m.x - dir.x * 6.0, m.y - dir.y * 6.0);
+                    let tip = pos2(m.x + dir.x * 3.0, m.y + dir.y * 3.0);
+                    painter.line_segment([pos2(back.x + nrm.x * 4.5, back.y + nrm.y * 4.5), tip], Stroke::new(w * 0.8, with_alpha(base, a)));
+                    painter.line_segment([pos2(back.x - nrm.x * 4.5, back.y - nrm.y * 4.5), tip], Stroke::new(w * 0.8, with_alpha(base, a)));
+                }
+                if q.highlighted {
+                    let last = pts.len() - 1;
+                    for (k, p) in pts.iter().enumerate() {
+                        // The giver is "!", the turn-in "?" (when it is not the giver), objectives numbered.
+                        let label = if k == 0 { "!".to_string() } else if k == last { "?".to_string() } else { format!("{}", k) };
+                        let off = pos2(p.x + 13.0, p.y - 13.0);
+                        painter.circle_filled(off, 7.5, INK);
+                        painter.circle_filled(off, 6.3, base);
+                        painter.text(off, Align2::CENTER_CENTER, label, FontId::proportional(9.0), INK);
+                    }
+                    if let Some(first) = pts.first() {
+                        text_pill(&painter, &ctx, pos2(first.x + 24.0, first.y - 13.0), Align2::LEFT_CENTER, &q.title, FontId::proportional(10.0), base, Color32::from_rgba_unmultiplied(10, 14, 22, 200));
+                    }
+                }
             }
         }
 
@@ -1966,6 +2347,41 @@ impl GameMap {
             }
         }
 
+        // -----------------------------------------------------------------------------------------
+        // 6b. Codex placements: NPCs, enemy packs, faction outposts.
+        // -----------------------------------------------------------------------------------------
+        if opts.show_population {
+            for (i, m) in self.markers.iter().enumerate() {
+                let p = match &marker_preview {
+                    Some((id, q)) if *id == m.id => w2s(q.x, q.y),
+                    _ => w2s(m.x, m.y),
+                };
+                if !rect.expand(20.0).contains(p) {
+                    continue;
+                }
+                let selected = opts.selected_id.as_deref() == Some(m.id.as_str());
+                let hovered = hover == Hover::Marker(i);
+                let col = rgba([m.color[0], m.color[1], m.color[2], 1.0]);
+                if selected {
+                    painter.circle_stroke(p, 11.5, Stroke::new(2.0, ACCENT_CYAN));
+                }
+                painter.circle_filled(p, 8.5, Color32::from_rgba_unmultiplied(8, 11, 17, 220));
+                painter.circle_stroke(p, 7.5, Stroke::new(if hovered { 2.2 } else { 1.5 }, col));
+                draw_glyph(&painter, &m.glyph, p, 9.0, col);
+                if m.count > 1 {
+                    let b = pos2(p.x + 8.0, p.y - 8.0);
+                    let txt = format!("{}", m.count);
+                    let tw = Painter::measure_text(&ctx, FontId::proportional(8.5), &txt).x;
+                    let r = Rect::from_center_size(b, vec2(tw + 7.0, 12.0));
+                    painter.rect_filled(r, 6u8, col);
+                    painter.text(b, Align2::CENTER_CENTER, txt, FontId::proportional(8.5), INK);
+                }
+                if opts.show_labels && (selected || hovered || zoom > fit_zoom * 1.6) {
+                    text_halo(&painter, pos2(p.x, p.y + 11.0), Align2::CENTER_TOP, &m.label, FontId::proportional(9.5), if selected { ACCENT_CYAN } else { lighten(col, 0.35) }, HALO);
+                }
+            }
+        }
+
         // Drag tether.
         if let (Some((_, target)), Some(start)) = (&drag_preview, st.drag_start_world) {
             let a = w2s(start.x, start.y);
@@ -1981,9 +2397,17 @@ impl GameMap {
         // 7. Pending path / region with rubber band and live length
         // -----------------------------------------------------------------------------------------
         if !opts.pending_points.is_empty() {
-            let intent_mode = opts.active_tool == "intent";
-            let is_region = matches!(opts.pending_mode.as_deref(), Some("region") | Some("intent_area")) || opts.active_tool == "draw_region";
+            let intent_mode = opts.active_tool == "intent" || opts.active_tool == "sculpt";
+            let is_region = matches!(opts.pending_mode.as_deref(), Some("region") | Some("intent_area") | Some("sculpt_area")) || opts.active_tool == "draw_region";
             let accent = if intent_mode { ACCENT_AMBER } else if is_region { ACCENT_EMERALD } else { ACCENT_CYAN };
+            // A line stroke's width, shown along the course.
+            if let Some(b) = opts.brush.as_ref().filter(|_| opts.pending_mode.as_deref() == Some("sculpt_line")) {
+                let mut course: Vec<Pos2> = opts.pending_points.iter().map(|p| w2s(p[0], p[1])).collect();
+                if let Some(cw) = cursor_world.filter(|_| is_hovered) {
+                    course.push(w2s(cw.x, cw.y));
+                }
+                polyline(&painter, &course, Stroke::new((b.radius_km * 2.0 * zoom).max(2.0), rgba([b.color[0], b.color[1], b.color[2], 0.18])));
+            }
             let mut pts: Vec<Pos2> = opts.pending_points.iter().map(|p| w2s(p[0], p[1])).collect();
             let mut length_km: f32 = opts.pending_points.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
             let cursor = cursor_world.filter(|_| is_hovered);
@@ -2013,7 +2437,18 @@ impl GameMap {
                 let what = if is_region { format!("{} vertices", placed + 1) } else { format!("{:.2} km", length_km) };
                 text_halo(&painter, pos2(cp.x + 12.0, cp.y - 12.0), Align2::LEFT_CENTER, &what, FontId::proportional(10.5), TEXT_BRIGHT, HALO);
             }
-        } else if matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "place_spot" | "intent") {
+        }
+        if let (Some(b), Some(cw)) = (opts.brush.as_ref(), st.current_pointer_world.filter(|_| is_hovered && !st.space_down)) {
+            let cp = w2s(cw.x, cw.y);
+            let col = rgba([b.color[0], b.color[1], b.color[2], 1.0]);
+            let r = (b.radius_km * zoom).max(3.0);
+            painter.circle_stroke(cp, r + 1.0, Stroke::new(3.0, Color32::from_rgba_unmultiplied(8, 11, 17, 120)));
+            painter.circle_stroke(cp, r, Stroke::new(1.6, with_alpha(col, 230)));
+            if st.stroke_active {
+                painter.circle_filled(cp, r, with_alpha(col, 26));
+            }
+            painter.circle_filled(cp, 2.0, col);
+        } else if opts.pending_points.is_empty() && matches!(opts.active_tool.as_str(), "draw_path" | "draw_region" | "place_spot" | "intent" | "sculpt" | "populate") {
             if let Some(cw) = cursor_world.filter(|_| is_hovered) {
                 let cp = w2s(cw.x, cw.y);
                 let accent = if matches!(opts.active_tool.as_str(), "place_spot" | "intent") { ACCENT_AMBER } else { ACCENT_CYAN };
@@ -2116,6 +2551,10 @@ impl GameMap {
                     }
                     l
                 }
+                Hover::Marker(i) => {
+                    let m = &self.markers[i];
+                    vec![(m.label.clone(), rgba([m.color[0], m.color[1], m.color[2], 1.0]), 11.5), (m.detail.clone(), TEXT_DIM, 10.0)]
+                }
                 Hover::Ghost(i) => {
                     let g = &self.ghosts[i];
                     let what = match g.kind.as_str() {
@@ -2142,6 +2581,22 @@ impl GameMap {
                 painter.rect_stroke(tip, 5u8, Stroke::new(1.0, BORDER_COLOR), StrokeKind::Middle);
                 for (k, (t, c, s)) in lines.iter().enumerate() {
                     painter.text(pos2(origin.x + 10.0, origin.y + 12.0 + k as f32 * 15.0), Align2::LEFT_CENTER, t, FontId::proportional(*s), *c);
+                }
+            }
+        }
+
+        // What is painted under the cursor, while painting.
+        if let (Some(ov), Some(cw), true) = (self.overlay.as_ref(), st.current_pointer_world, matches!(opts.active_tool.as_str(), "paint" | "populate") && is_hovered && !st.is_panning) {
+            let c = ((cw.x + half_w) / (opts.world_width_km / ov.cols as f32)).floor();
+            let r = ((half_h - cw.y) / (opts.world_height_km / ov.rows as f32)).floor();
+            if c >= 0.0 && r >= 0.0 && (c as usize) < ov.cols && (r as usize) < ov.rows {
+                let k = r as usize * ov.cols + c as usize;
+                let mut here: Vec<(f32, &MapOverlayLayer)> = ov.layers.iter().map(|l| (l.data[k], l)).filter(|(d, _)| *d > 0.02).collect();
+                here.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                if !here.is_empty() {
+                    let text = here.iter().take(4).map(|(d, l)| format!("{} {:.0}%", l.label, d * 100.0)).collect::<Vec<_>>().join("  ·  ");
+                    let p = w2s(cw.x, cw.y);
+                    text_pill(&painter, &ctx, pos2(p.x + 16.0, p.y + 20.0), Align2::LEFT_CENTER, &text, FontId::proportional(10.0), TEXT_BRIGHT, PANEL_BG);
                 }
             }
         }
@@ -2198,6 +2653,11 @@ impl GameMap {
                 let p = w2m(s.x, s.y);
                 mini.circle_filled(p, if s.is_major { 2.8 } else { 1.8 }, INK);
                 mini.circle_filled(p, if s.is_major { 2.0 } else { 1.2 }, rgba(s.color));
+            }
+            if opts.show_population {
+                for m in &self.markers {
+                    mini.circle_filled(w2m(m.x, m.y), 1.6, rgba([m.color[0], m.color[1], m.color[2], 1.0]));
+                }
             }
             if opts.show_intents {
                 for it in &self.intents {
@@ -2351,6 +2811,15 @@ impl GameMap {
             "draw_region" => "Click to add vertices · double-click or Enter to close · Esc cancels",
             "measure" if opts.measure_anchor.is_some() => "Click the destination",
             "measure" => "Click the start of the measurement",
+            "sculpt" => match (opts.pending_mode.as_deref(), opts.pending_points.len()) {
+                (Some("sculpt_line"), 0) => "Click along the course · Enter applies · Esc cancels",
+                (Some("sculpt_line"), _) => "Click to add points · Enter or double-click applies · Esc cancels",
+                (Some("sculpt_area"), 0) => "Outline the area to level",
+                (Some("sculpt_area"), _) => "Click to add vertices · Enter or double-click levels it",
+                _ => "Drag to sculpt · [ ] brush size · right-drag pans",
+            },
+            "paint" => "Drag to paint planning marks · right-drag pans",
+            "populate" => "Click to place · drag to paint where they roam",
             "intent" => match (opts.pending_mode.as_deref(), opts.pending_points.len()) {
                 (Some("intent_area"), 0) => "Intent area: click to start outlining what you want here",
                 (Some("intent_area"), _) => "Click to add vertices · Enter or double-click to close · Esc cancels",
@@ -2396,6 +2865,22 @@ mod tests {
             }
         }
         MapTerrain { cols: n, rows: n, data, sea_level_m: 0.0 }
+    }
+
+    #[test]
+    fn overlays_must_cover_the_grid_and_jitter_stays_in_the_cell() {
+        let layer = |n: usize| MapOverlayLayer { key: "forest".into(), label: "Forest".into(), color: [0.2, 0.6, 0.3, 0.9], glyph: "tree".into(), data: vec![0.5; n] };
+        assert!(MapOverlay { cols: 4, rows: 3, layers: vec![layer(12)] }.valid());
+        assert!(!MapOverlay { cols: 4, rows: 3, layers: vec![layer(11)] }.valid());
+        // A malformed overlay is dropped rather than indexed out of bounds.
+        assert!(GameMap::new("t").overlay(Some(MapOverlay { cols: 4, rows: 3, layers: vec![layer(5)] })).overlay.is_none());
+        for c in 0..20 {
+            for r in 0..20 {
+                let h = cell_hash(c, r, 3);
+                assert!((0.0..=1.0).contains(&h));
+            }
+        }
+        assert_ne!(cell_hash(1, 2, 0), cell_hash(2, 1, 0));
     }
 
     #[test]

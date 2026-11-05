@@ -3351,6 +3351,37 @@ export interface MapGhostConfig {
   pathType?: string;
 }
 
+export type MapGlyph = "tree" | "grass" | "dot" | "hatch" | "rock" | "snow" | "wave" | "cross" | "diamond" | "square" | "skull" | "person" | "flag";
+
+/** Painted planning marks: a density (0..1) per cell of a coarse world grid, row 0 north. Drawn as a tint and symbols. */
+export interface MapOverlayConfig {
+  cols: number;
+  rows: number;
+  layers: Array<{ key: string; label?: string; color?: [number, number, number, number]; glyph?: MapGlyph; data: number[] }>;
+}
+
+/** A codex entry placed on the map: an NPC, an enemy pack, a faction outpost. */
+export interface MapMarkerConfig {
+  id: string;
+  label: string;
+  /** Second tooltip line. */
+  detail?: string;
+  x: number;
+  y: number;
+  color?: [number, number, number, number];
+  glyph?: MapGlyph;
+  count?: number;
+}
+
+/** A quest's journey (giver, objectives, turn-in) drawn as a numbered dashed route. */
+export interface MapQuestRouteConfig {
+  id: string;
+  title: string;
+  points: [number, number][];
+  color?: [number, number, number, number];
+  highlighted?: boolean;
+}
+
 export interface GameMapConfig {
   id?: string;
   worldWidthKm?: number;
@@ -3395,6 +3426,26 @@ export interface GameMapConfig {
   showProposals?: boolean;
   /** The proposed change under review (drawn highlighted). */
   selectedChangeId?: string;
+  /** Painted planning marks (biomes, foliage, enemy territory). */
+  overlay?: MapOverlayConfig;
+  /** Codex placements. */
+  markers?: MapMarkerConfig[];
+  /** Quest journeys; the highlighted one is numbered. */
+  questRoutes?: MapQuestRouteConfig[];
+  showMarks?: boolean;
+  showPopulation?: boolean;
+  showQuests?: boolean;
+  /** A brush ring under the cursor. With `paint`, a primary drag is reported through onBrushStroke instead of clicks. */
+  brush?: { radiusKm: number; color?: [number, number, number, number]; paint?: boolean };
+  /** Bump to center the view on `focusCenter` (at `focusZoom` px/km when given). */
+  focusRequest?: number;
+  focusCenter?: [number, number];
+  focusZoom?: number;
+  /** Part of a brush stroke (points since the last call, world km); `done` when the button is released. */
+  onBrushStroke?: (points: [number, number][], done: boolean) => void;
+  onMarkerSelect?: (id: string) => void;
+  /** A marker was dragged to (x, y). */
+  onMarkerMove?: (id: string, x: number, y: number) => void;
   onIntentSelect?: (id: string) => void;
   onGhostSelect?: (changeId: string) => void;
   onSpotSelect?: (id: string) => void;

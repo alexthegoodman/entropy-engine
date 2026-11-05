@@ -595,7 +595,7 @@ export function draftProposalForIntent(world: GameWorld, intent: PlanIntent, age
 // -------------------------------------------------------------------------------------------------
 
 const CHANGE_TYPES: RevisionChangeType[] = ["add_spot", "modify_spot", "delete_spot", "add_path", "modify_path", "delete_path", "add_region", "modify_region", "add_mission", "add_codex"];
-const CODEX_CATEGORIES: CodexCategory[] = ["character", "power", "weapon", "faction", "lore"];
+const CODEX_CATEGORIES: CodexCategory[] = ["character", "creature", "power", "weapon", "faction", "lore"];
 
 const isPoint = (p: any) => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]));
 

@@ -34,6 +34,14 @@ function defaultAttributesForCategory(category: CodexCategory): Record<string, s
                 Archetype: "Warrior",
                 Morality: "Neutral Good",
             };
+        case "creature":
+            return {
+                Threat: "Common",
+                Level: 8,
+                Behavior: "Pack hunter",
+                Habitat: "Forest",
+                Weakness: "Fire",
+            };
         case "power":
             return {
                 School: "Elemental",
@@ -90,6 +98,8 @@ export function generateConceptImagePrompt(
     switch (category) {
         case "character":
             return `Character concept portrait of ${name}, ${subtitle}. ${description.slice(0, 120)}. Highly detailed character design, full body presentation, ${style}, 8k resolution`;
+        case "creature":
+            return `Creature design sheet of ${name}, ${subtitle}. ${description.slice(0, 120)}. Anatomy turnaround, menacing pose in its habitat, ${style}`;
         case "power":
             return `Dynamic spell visual effect of ${name}, ${subtitle}. Magical energy radiating and distorting spacetime, particulate embers, vibrant luminous runes, ${style}`;
         case "weapon":

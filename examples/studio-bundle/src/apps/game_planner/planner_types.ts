@@ -55,6 +55,12 @@ export interface WorldSpot {
     conceptImageUrl?: string;
     linkedCodexIds: string[];
     linkedMissionIds: string[];
+    /**
+     * Snap to landscape: the spot sits on the ground, so its elevation follows the terrain when the
+     * spot moves or the terrain is sculpted. Off for a sky citadel or a tower top whose elevation is
+     * authored. Older saves have no flag; they are treated as snapped.
+     */
+    snapToGround?: boolean;
 }
 
 export interface WorldPath {
@@ -80,8 +86,60 @@ export interface WorldRegion {
     isMajor: boolean;
     dominantBiome: BiomeType;
     dangerLevel: number; // 1 to 10
+    /** A faction codex entry that holds this region. */
     controllingFactionId?: string;
     description: string;
+    /** The region's biome and regional plan (all optional). */
+    plan?: RegionPlan;
+}
+
+/** What a region is meant to feel and play like: notes for art, audio and encounter design. */
+export interface RegionPlan {
+    climate?: string;
+    flora?: string;
+    fauna?: string;
+    resources?: string;
+    /** Mood, light, weather, music. */
+    mood?: string;
+    /** The level range the region is balanced for. */
+    levelMin?: number;
+    levelMax?: number;
+    notes?: string;
+}
+
+// -------------------------------------------------------------------------------------------------
+// Planning marks: painted, not built. A brush marks where forest, farmland, snow, enemies or NPCs
+// should be; the map draws the marks as symbols, and regions report what was painted inside them.
+// -------------------------------------------------------------------------------------------------
+
+export type MarkGlyph = "tree" | "grass" | "dot" | "hatch" | "rock" | "snow" | "wave" | "cross" | "diamond" | "square" | "skull" | "person" | "flag";
+
+/**
+ * A coarse grid of painted densities (0..1) over the whole world, one array per layer. Cells are
+ * centered: cell (c, r) covers x in [-W/2 + c*W/cols, -W/2 + (c+1)*W/cols], row 0 along the north
+ * edge. Layer keys are a mark id ("forest") or "codex:<entryId>" for painted enemies, NPCs and
+ * factions.
+ */
+export interface PlanningOverlay {
+    cols: number;
+    rows: number;
+    layers: Record<string, number[]>;
+}
+
+export type PlacementBehavior = "static" | "wander" | "patrol" | "guard" | "ambush" | "spawner" | "vendor" | "quest_giver";
+
+/** A codex entry put on the map at one place: a named NPC, a camp of enemies, a faction outpost. */
+export interface CodexPlacement {
+    id: string;
+    codexId: string;
+    x: number;
+    y: number;
+    /** How many (an enemy pack, a garrison); 1 for a named character. */
+    count: number;
+    behavior: PlacementBehavior;
+    levelMin?: number;
+    levelMax?: number;
+    notes: string;
 }
 
 export interface ContourLine {
@@ -130,7 +188,8 @@ export interface TravelEstimate {
     summaryText: string;
 }
 
-export type CodexCategory = "character" | "power" | "weapon" | "faction" | "lore";
+/** character = NPCs and named people; creature = enemies and wildlife (the bestiary). */
+export type CodexCategory = "character" | "creature" | "power" | "weapon" | "faction" | "lore";
 
 export interface CodexEntry {
     id: string;
@@ -170,6 +229,44 @@ export interface Mission {
     rewardItems: string[];
     status: MissionStatus;
     milestoneName?: string;
+
+    // --- Optional planning detail: none of it is required; the analysis uses what is there. ---
+    /** Who gives the quest (a character codex entry), not only where. */
+    giverCodexId?: string;
+    /** Why the player should care, in one or two lines. */
+    hook?: string;
+    /** The level range the quest is tuned for. */
+    levelMin?: number;
+    levelMax?: number;
+    /** What happens at each objective spot, keyed by spot id. */
+    objectiveDetails?: Record<string, QuestObjectiveDetail>;
+    /** Codex items, powers or weapons the quest grants. */
+    rewardCodexIds?: string[];
+    /** Standing gained or lost with factions. */
+    reputation?: Array<{ factionId: string; amount: number }>;
+    /** Endings or choices, each unlocking its own follow-ups. */
+    outcomes?: QuestOutcome[];
+}
+
+export type ObjectiveAction = "go" | "talk" | "defeat" | "collect" | "escort" | "defend" | "investigate" | "deliver" | "use";
+
+export interface QuestObjectiveDetail {
+    action: ObjectiveAction;
+    /** The NPC to talk to, the creature to defeat, the item to collect... */
+    targetCodexId?: string;
+    count?: number;
+    optional?: boolean;
+    /** Designer estimate of time spent there; defaults by action. */
+    minutes?: number;
+    note?: string;
+}
+
+export interface QuestOutcome {
+    id: string;
+    label: string;
+    /** Quests this ending opens up (in addition to those listing this quest as a prerequisite). */
+    unlocksMissionIds: string[];
+    consequence?: string;
 }
 
 export interface StoryChapter {
@@ -201,6 +298,18 @@ export type RevisionChangeType =
     | "add_mission"
     | "add_codex"
     | "adjust_landscape";
+
+/** How the Sculpt tool shapes the ground. Brushes are dragged; lines and areas are clicked out. */
+export type SculptMode =
+    | "raise"
+    | "lower"
+    | "smooth"
+    | "flatten"
+    | "roughen"
+    | "canyon"
+    | "ridge"
+    | "grade"
+    | "plateau";
 
 export interface RevisionChange {
     id: string;
@@ -322,4 +431,8 @@ export interface GameWorld {
     proposals: RevisionProposal[];
     /** Design intents sketched on the map (older saves have none). */
     intents?: PlanIntent[];
+    /** Painted planning marks: biomes, foliage, enemies, NPCs (older saves have none). */
+    overlay?: PlanningOverlay;
+    /** Codex entries placed on the map: NPCs, enemy camps, faction outposts. */
+    placements?: CodexPlacement[];
 }

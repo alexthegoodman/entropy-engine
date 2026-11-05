@@ -5,6 +5,8 @@ import type {
 } from "./planner_types";
 import { extractTerrainContours } from "./terrain";
 import { evaluateIntent, intentPoints } from "./intent_model";
+import { codexMapPresence, layerCoverage, layerLabel, placementsInside } from "./planning_layers";
+import { analyzeQuest, describeObjective } from "./quest_planning";
 
 const escapeXml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -38,7 +40,25 @@ export function generateGameDesignDoc(world: GameWorld): string {
         md += `### 2.${idx + 1} ${r.name} (${r.regionType.toUpperCase()})\n`;
         md += `- **Dominant Biome:** ${r.dominantBiome}\n`;
         md += `- **Danger Level:** ${r.dangerLevel}/10\n`;
-        md += `- **Description:** ${r.description}\n\n`;
+        const faction = r.controllingFactionId ? codex.find((c) => c.id === r.controllingFactionId) : undefined;
+        if (faction) md += `- **Held by:** ${faction.name}\n`;
+        md += `- **Description:** ${r.description}\n`;
+        const plan = r.plan ?? {};
+        const planRows: Array<[string, string | undefined]> = [
+            ["Climate", plan.climate],
+            ["Flora", plan.flora],
+            ["Fauna", plan.fauna],
+            ["Resources", plan.resources],
+            ["Mood", plan.mood],
+            ["Levels", plan.levelMin !== undefined || plan.levelMax !== undefined ? `${plan.levelMin ?? "?"}-${plan.levelMax ?? "?"}` : undefined],
+            ["Notes", plan.notes],
+        ];
+        planRows.filter(([, v]) => v).forEach(([k, v]) => (md += `- **${k}:** ${v}\n`));
+        const painted = r.points.length >= 3 ? layerCoverage(world.overlay, meta, r.points).slice(0, 6) : [];
+        if (painted.length) md += `- **Painted:** ${painted.map((c) => `${layerLabel(world, c.key)} ${Math.round(c.share * 100)}%`).join(", ")}\n`;
+        const placed = r.points.length >= 3 ? placementsInside(world, r.points) : [];
+        if (placed.length) md += `- **Population:** ${placed.map((p) => `${codex.find((c) => c.id === p.codexId)?.name ?? "?"} x${p.count} (${p.behavior})`).join(", ")}\n`;
+        md += `\n`;
     });
 
     md += `## 3. Atlas of Locations (Points of Interest)\n\n`;
@@ -61,7 +81,7 @@ export function generateGameDesignDoc(world: GameWorld): string {
     md += `\n`;
 
     md += `## 5. Codex Database\n\n`;
-    const categories = ["character", "power", "weapon", "faction", "lore"] as const;
+    const categories = ["character", "creature", "power", "weapon", "faction", "lore"] as const;
     categories.forEach((cat) => {
         const entries = codex.filter((c) => c.category === cat);
         if (entries.length > 0) {
@@ -74,6 +94,14 @@ export function generateGameDesignDoc(world: GameWorld): string {
                     .join(" | ");
                 if (attrs) md += `\n*Attributes:* ${attrs}\n`;
                 if (e.conceptImagePrompt) md += `\n*Visual Prompt:* \`${e.conceptImagePrompt}\`\n`;
+                const where = codexMapPresence(world, e);
+                const bits = [
+                    where.spots.length ? `at ${where.spots.map((s) => s.name).join(", ")}` : "",
+                    where.placements.length ? `${where.placements.reduce((n, p) => n + p.count, 0)} placed` : "",
+                    where.paintedKm2 ? `painted over ${where.paintedKm2} km²` : "",
+                    where.regions.length ? `in ${where.regions.map((r) => r.name).join(", ")}` : "",
+                ].filter(Boolean);
+                if (bits.length) md += `\n*On the map:* ${bits.join("; ")}\n`;
                 md += `\n`;
             });
         }
@@ -95,10 +123,27 @@ export function generateGameDesignDoc(world: GameWorld): string {
     missions.forEach((m) => {
         md += `#### Quest: ${m.title} [${m.missionType.toUpperCase()}]\n`;
         md += `${m.description}\n`;
-        md += `- **Reward:** ${m.rewardXp} XP\n`;
+        if (m.hook) md += `- **Hook:** ${m.hook}\n`;
+        const name = (id?: string) => codex.find((c) => c.id === id)?.name;
+        const giverSpot = spots.find((s) => s.id === m.startSpotId);
+        if (m.giverCodexId || giverSpot) md += `- **Given by:** ${[name(m.giverCodexId), giverSpot ? `at ${giverSpot.name}` : ""].filter(Boolean).join(" ")}\n`;
+        if (m.levelMin !== undefined || m.levelMax !== undefined) md += `- **Level:** ${m.levelMin ?? "?"}-${m.levelMax ?? "?"}\n`;
+        m.objectiveSpotIds.forEach((id, k) => {
+            md += `  ${k + 1}. ${describeObjective(world, spots.find((s) => s.id === id), m.objectiveDetails?.[id])}\n`;
+        });
+        const rewards = [`${m.rewardXp} XP`, ...(m.rewardCodexIds ?? []).map((id) => name(id)).filter(Boolean), ...(m.rewardItems ?? [])];
+        md += `- **Reward:** ${rewards.join(", ")}\n`;
+        if (m.reputation?.length) md += `- **Standing:** ${m.reputation.map((r) => `${name(r.factionId) ?? "?"} ${r.amount >= 0 ? "+" : ""}${r.amount}`).join(", ")}\n`;
         if (m.prerequisiteMissionIds.length > 0) {
-            md += `- **Prerequisites:** ${m.prerequisiteMissionIds.join(", ")}\n`;
+            md += `- **Prerequisites:** ${m.prerequisiteMissionIds.map((id) => missions.find((x) => x.id === id)?.title ?? id).join(", ")}\n`;
         }
+        (m.outcomes ?? []).forEach((o) => {
+            const opens = o.unlocksMissionIds.map((id) => missions.find((x) => x.id === id)?.title).filter(Boolean);
+            md += `- **Outcome - ${o.label}:** ${o.consequence ?? ""}${opens.length ? ` Opens: ${opens.join(", ")}.` : ""}\n`;
+        });
+        const a = analyzeQuest(world, m);
+        if (a.stops.length >= 2) md += `- **Estimate:** ${a.summary}\n`;
+        a.issues.filter((i) => i.severity === "warn").forEach((i) => (md += `- ⚠ ${i.text}\n`));
         md += `\n`;
     });
 
