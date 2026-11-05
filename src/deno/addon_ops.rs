@@ -848,6 +848,72 @@ pub struct MapGhostConfig {
     pub path_type: Option<String>,
 }
 
+/// Painted planning marks (see `entropy_gui::MapOverlay`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapOverlayConfig {
+    pub cols: usize,
+    pub rows: usize,
+    #[serde(default)]
+    pub layers: Vec<MapOverlayLayerConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapOverlayLayerConfig {
+    pub key: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub glyph: String,
+    pub data: Vec<f32>,
+}
+
+/// A codex entry placed on the map (see `entropy_gui::MapMarker`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapMarkerConfig {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub detail: String,
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub glyph: String,
+    #[serde(default)]
+    pub count: Option<u32>,
+}
+
+/// A quest journey drawn on the map (see `entropy_gui::MapQuestRoute`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapQuestRouteConfig {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    pub points: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub highlighted: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapBrushConfig {
+    pub radius_km: f32,
+    #[serde(default)]
+    pub color: Option<[f32; 4]>,
+    #[serde(default)]
+    pub paint: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MapElevationBandConfig {
@@ -947,6 +1013,26 @@ pub struct GameMapConfig {
     pub show_proposals: Option<bool>,
     #[serde(default)]
     pub selected_change_id: Option<String>,
+    #[serde(default)]
+    pub overlay: Option<MapOverlayConfig>,
+    #[serde(default)]
+    pub markers: Vec<MapMarkerConfig>,
+    #[serde(default)]
+    pub quest_routes: Vec<MapQuestRouteConfig>,
+    #[serde(default)]
+    pub show_marks: Option<bool>,
+    #[serde(default)]
+    pub show_population: Option<bool>,
+    #[serde(default)]
+    pub show_quests: Option<bool>,
+    #[serde(default)]
+    pub brush: Option<MapBrushConfig>,
+    #[serde(default)]
+    pub focus_request: Option<u32>,
+    #[serde(default)]
+    pub focus_center: Option<[f32; 2]>,
+    #[serde(default)]
+    pub focus_zoom: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

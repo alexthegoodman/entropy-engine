@@ -1,6 +1,7 @@
 import type {
     BiomeType,
     CodexEntry,
+    CodexPlacement,
     GameWorld,
     IntentKind,
     IntentShape,
@@ -20,8 +21,13 @@ import { sampleSlopeDeg, sampleTerrain, terrainForWorld } from "./terrain";
 import { BIOME_COLORS } from "./planner_defaults";
 import { applyRevisionChange, isProposalPending, rejectRevisionChange } from "./agent_pipeline";
 import { createIntent, evaluateIntent, spotNear } from "./intent_model";
+import { SCULPT_INFO, applyBrushStroke, applyShapeStroke, defaultSculptSettings, type SculptSettings } from "./terrain_sculpt";
+import { emptyOverlay, paintStroke, pruneCodexReferences, type PaintOptions } from "./planning_layers";
 
-export type PlannerTool = "select" | "pan" | "place_spot" | "draw_path" | "draw_region" | "measure" | "intent";
+export type PlannerTool = "select" | "pan" | "place_spot" | "draw_path" | "draw_region" | "measure" | "intent" | "sculpt" | "paint" | "populate";
+
+/** Whether a spot sits on the ground (its elevation follows the terrain). Older saves: yes. */
+export const isSnapped = (s: Pick<WorldSpot, "snapToGround">) => s.snapToGround !== false;
 
 /** The map's color theme for a genre: Mars-like worlds are arid, neon cities dark. */
 export function paletteForGenre(genre: GameWorld["meta"]["genre"]): "temperate" | "arid" | "frozen" | "neon" {
@@ -39,7 +45,7 @@ export function paletteForGenre(genre: GameWorld["meta"]["genre"]): "temperate" 
 export class PlannerModel {
     world: GameWorld;
     selectedId: string | null = null;
-    activeTab: "map" | "codex" | "story" | "procedural" | "agent" = "map";
+    activeTab: "map" | "codex" | "story" | "agent" = "map";
     activeTool: PlannerTool = "select";
     pendingPathPoints: [number, number][] = [];
     pendingRegionPoints: [number, number][] = [];
@@ -59,6 +65,37 @@ export class PlannerModel {
     /** The proposal change selected on the map (its ghost), for review in the inspector. */
     selectedChangeId: string | null = null;
 
+    // Terrain sculpting
+    sculpt: SculptSettings = defaultSculptSettings();
+    /** Points of a canyon / range / road bed / plateau being clicked out. */
+    pendingSculptPoints: [number, number][] = [];
+    /** A brush stroke is in progress (one undo step for the whole drag). */
+    private strokeOpen = false;
+    /** flatten: the height picked where the stroke started. */
+    private strokeTargetM: number | null = null;
+    private strokeSeed = 1;
+
+    // Painting planning marks and population
+    /** A mark id ("forest") or a codex layer ("codex:<id>"). */
+    paintKey = "forest";
+    paintRadiusKm = 1.0;
+    paintStrength = 0.6;
+    paintErase = false;
+    /** Painting a surface mark thins the others under it. */
+    paintExclusive = true;
+    /** Confine painting to this region's outline. */
+    paintClipRegionId: string | null = null;
+    /** Populate: the codex entry being placed or painted. */
+    populateCodexId: string | null = null;
+    /** The placement selected on the map. */
+    selectedPlacementId: string | null = null;
+
+    // Story on the map
+    /** The quest whose route the map highlights. */
+    highlightedQuestId: string | null = null;
+    /** Ask the map to center on a place: bump `seq`. */
+    focus: { seq: number; center: [number, number]; zoom?: number } = { seq: 0, center: [0, 0] };
+
     // Layer and HUD visibility
     showMinimap = true;
     showGrid = true;
@@ -67,6 +104,9 @@ export class PlannerModel {
     showLabels = true;
     showIntents = true;
     showProposals = true;
+    showMarks = true;
+    showPopulation = true;
+    showQuests = true;
     terrainStyle: TerrainStyle = "relief";
     /** Bumped to ask the map to fit the whole world. */
     fitRequest = 0;
@@ -93,6 +133,10 @@ export class PlannerModel {
         return (this.world.intents ??= []);
     }
 
+    get placements(): CodexPlacement[] {
+        return (this.world.placements ??= []);
+    }
+
     /**
      * A world without a heightfield (a preset, an older save) gets one generated from its seed and
      * fitted to its spots' elevations; its old hand-drawn contour sketches are dropped, since the
@@ -105,14 +149,160 @@ export class PlannerModel {
         this.world.contours = [];
     }
 
-    /** Replaces the heightfield (one undo step) and re-reads every spot's elevation from it. */
+    /**
+     * Replaces the heightfield (one undo step) and re-reads the elevation of every spot that snaps
+     * to the landscape; spots with an authored elevation keep it.
+     */
     setTerrain(terrain: TerrainGrid, resampleSpots = true): void {
         this.snapshot();
         this.world.terrain = terrain;
         this.world.contours = [];
-        if (resampleSpots) {
-            for (const s of this.world.spots) s.elevation = Math.round(sampleTerrain(terrain, this.world.meta, s.x, s.y));
+        if (resampleSpots) this.resampleSnappedSpots();
+    }
+
+    /** Puts every snapped spot back on the ground. */
+    resampleSnappedSpots(): void {
+        const t = this.world.terrain;
+        if (!t) return;
+        for (const s of this.world.spots) {
+            if (isSnapped(s)) s.elevation = Math.round(sampleTerrain(t, this.world.meta, s.x, s.y));
         }
+    }
+
+    // --- Terrain sculpting ---
+
+    get sculptKind(): "brush" | "line" | "area" {
+        return SCULPT_INFO[this.sculpt.mode].kind;
+    }
+
+    /**
+     * Applies part of a brush stroke. The first call of a stroke takes the undo snapshot (and, for
+     * flatten with Snap to Landscape, picks the level under the first point); `done` ends it and puts
+     * snapped spots back on the ground.
+     */
+    sculptBrush(points: [number, number][], done: boolean): void {
+        this.ensureTerrain();
+        const t = this.world.terrain!;
+        if (!this.strokeOpen && points.length) {
+            this.snapshot();
+            this.strokeOpen = true;
+            this.strokeSeed = (this.strokeSeed * 1103515245 + 12345) & 0x7fffffff;
+            this.strokeTargetM = this.sculpt.snapToLandscape ? sampleTerrain(t, this.world.meta, points[0][0], points[0][1]) : this.sculpt.targetM;
+        }
+        if (points.length && this.strokeOpen) {
+            this.world.terrain = applyBrushStroke(t, this.world.meta, points, {
+                mode: this.sculpt.mode,
+                radiusKm: this.sculpt.radiusKm,
+                strength: this.sculpt.strength,
+                targetM: this.strokeTargetM ?? undefined,
+                seed: this.strokeSeed,
+            });
+            this.world.contours = [];
+        }
+        if (done) {
+            if (this.strokeOpen) this.resampleSnappedSpots();
+            this.strokeOpen = false;
+            this.strokeTargetM = null;
+        }
+    }
+
+    /** Carves, raises, grades or levels along the clicked-out points (one undo step). */
+    sculptShape(points: [number, number][] = this.pendingSculptPoints): boolean {
+        const need = this.sculptKind === "area" ? 3 : 2;
+        if (points.length < need) return false;
+        this.ensureTerrain();
+        this.snapshot();
+        this.strokeSeed = (this.strokeSeed * 1103515245 + 12345) & 0x7fffffff;
+        this.world.terrain = applyShapeStroke(this.world.terrain!, this.world.meta, points, this.sculpt, this.strokeSeed);
+        this.world.contours = [];
+        this.resampleSnappedSpots();
+        this.pendingSculptPoints = [];
+        return true;
+    }
+
+    // --- Planning marks & population ---
+
+    ensureOverlay() {
+        const m = this.world.meta;
+        const o = this.world.overlay;
+        if (!o || !o.cols || !o.rows || !o.layers) this.world.overlay = emptyOverlay(m.worldWidthKm, m.worldHeightKm);
+        return this.world.overlay!;
+    }
+
+    /** Paints a layer along a stroke; the first call of a stroke takes the undo snapshot. */
+    paint(key: string, points: [number, number][], done: boolean, opts: Partial<PaintOptions> = {}): number {
+        let changed = 0;
+        if (points.length) {
+            if (!this.strokeOpen) {
+                this.snapshot();
+                this.strokeOpen = true;
+            }
+            const clip = this.paintClipRegionId ? this.world.regions.find((r) => r.id === this.paintClipRegionId)?.points : undefined;
+            changed = paintStroke(this.ensureOverlay(), this.world.meta, key, points, {
+                radiusKm: this.paintRadiusKm,
+                strength: this.paintStrength,
+                erase: this.paintErase,
+                clip,
+                exclusive: this.paintExclusive,
+                ...opts,
+            });
+        }
+        if (done) this.strokeOpen = false;
+        return changed;
+    }
+
+    /** Runs an edit to the overlay as one undo step. */
+    editOverlay<T>(fn: (o: NonNullable<GameWorld["overlay"]>) => T): T {
+        this.snapshot();
+        return fn(this.ensureOverlay());
+    }
+
+    addPlacement(p: CodexPlacement): CodexPlacement {
+        this.snapshot();
+        this.placements.push(p);
+        this.selectedPlacementId = p.id;
+        this.selectedId = p.id;
+        return p;
+    }
+
+    updatePlacement(id: string, updates: Partial<CodexPlacement>): boolean {
+        const p = this.placements.find((x) => x.id === id);
+        if (!p) return false;
+        this.snapshot(`placement:${id}:${Object.keys(updates).sort().join(",")}`);
+        Object.assign(p, updates);
+        return true;
+    }
+
+    deletePlacement(id: string): boolean {
+        const idx = this.placements.findIndex((x) => x.id === id);
+        if (idx === -1) return false;
+        this.snapshot();
+        this.placements.splice(idx, 1);
+        if (this.selectedPlacementId === id) this.selectedPlacementId = null;
+        if (this.selectedId === id) this.selectedId = null;
+        return true;
+    }
+
+    /** Links a codex entry and a spot both ways (or unlinks them). */
+    linkCodexSpot(codexId: string, spotId: string, link = true): boolean {
+        const c = this.world.codex.find((x) => x.id === codexId);
+        const s = this.world.spots.find((x) => x.id === spotId);
+        if (!c || !s) return false;
+        this.snapshot();
+        c.linkedSpotIds ??= [];
+        s.linkedCodexIds ??= [];
+        c.linkedSpotIds = c.linkedSpotIds.filter((x) => x !== spotId);
+        s.linkedCodexIds = s.linkedCodexIds.filter((x) => x !== codexId);
+        if (link) {
+            c.linkedSpotIds.push(spotId);
+            s.linkedCodexIds.push(codexId);
+        }
+        return true;
+    }
+
+    /** Centers the map on a place (and zooms in, if asked). */
+    focusOn(x: number, y: number, zoom?: number): void {
+        this.focus = { seq: this.focus.seq + 1, center: [x, y], zoom };
     }
 
     /** Ground elevation (meters) at a world position, or `fallback` without terrain. */
@@ -185,7 +375,7 @@ export class PlannerModel {
     addSpot(spot: Omit<WorldSpot, "id"> & { id?: string }): WorldSpot {
         this.snapshot();
         const id = spot.id || `spot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        const newSpot: WorldSpot = { ...spot, id };
+        const newSpot: WorldSpot = { snapToGround: true, ...spot, id };
         this.world.spots.push(newSpot);
         this.selectedId = id;
         return newSpot;
@@ -197,9 +387,11 @@ export class PlannerModel {
         this.snapshot(`spot:${id}:${Object.keys(updates).sort().join(",")}`);
         const moved = updates.x !== undefined || updates.y !== undefined;
         this.world.spots[idx] = { ...this.world.spots[idx], ...updates };
-        // Moving a spot puts it on the ground at its new place (unless an elevation was given too).
-        if (moved && updates.elevation === undefined && this.world.terrain) {
-            const s = this.world.spots[idx];
+        // A snapped spot stays on the ground: moving it (or switching the snap on) re-reads the
+        // ground; an explicit elevation switches the snap off.
+        const s = this.world.spots[idx];
+        if (updates.elevation !== undefined && updates.snapToGround === undefined) s.snapToGround = false;
+        if ((moved || updates.snapToGround === true) && updates.elevation === undefined && this.world.terrain && isSnapped(s)) {
             s.elevation = this.elevationAt(s.x, s.y, s.elevation);
         }
         return true;
@@ -215,7 +407,7 @@ export class PlannerModel {
         this.snapshot(this.draggingSpotId === id ? `drag:${id}` : undefined);
         spot.x = this.snapCoordinate(xKm);
         spot.y = this.snapCoordinate(yKm);
-        spot.elevation = this.elevationAt(spot.x, spot.y, spot.elevation);
+        if (isSnapped(spot)) spot.elevation = this.elevationAt(spot.x, spot.y, spot.elevation);
         return true;
     }
 
@@ -256,6 +448,7 @@ export class PlannerModel {
             if (m.startSpotId === id) delete m.startSpotId;
             if (m.turnInSpotId === id) delete m.turnInSpotId;
             m.objectiveSpotIds = m.objectiveSpotIds.filter((sid) => sid !== id);
+            if (m.objectiveDetails) delete m.objectiveDetails[id];
         });
 
         return true;
@@ -467,6 +660,18 @@ export class PlannerModel {
         this.snapshot();
         this.world.codex.splice(idx, 1);
         if (this.selectedId === id) this.selectedId = null;
+        // Its placements and painted presence go with it; links to it are dropped.
+        pruneCodexReferences(this.world);
+        for (const s of this.world.spots) s.linkedCodexIds = (s.linkedCodexIds ?? []).filter((x) => x !== id);
+        for (const r of this.world.regions) if (r.controllingFactionId === id) delete r.controllingFactionId;
+        for (const m of this.world.missions) {
+            if (m.giverCodexId === id) delete m.giverCodexId;
+            m.requiredCodexIds = (m.requiredCodexIds ?? []).filter((x) => x !== id);
+            if (m.rewardCodexIds) m.rewardCodexIds = m.rewardCodexIds.filter((x) => x !== id);
+            if (m.reputation) m.reputation = m.reputation.filter((r) => r.factionId !== id);
+            for (const d of Object.values(m.objectiveDetails ?? {})) if (d.targetCodexId === id) delete d.targetCodexId;
+        }
+        if (this.populateCodexId === id) this.populateCodexId = null;
         return true;
     }
 
@@ -509,6 +714,12 @@ export class PlannerModel {
         this.snapshot();
         this.world.missions.splice(idx, 1);
         if (this.selectedId === id) this.selectedId = null;
+        for (const m of this.world.missions) {
+            m.prerequisiteMissionIds = m.prerequisiteMissionIds.filter((x) => x !== id);
+            for (const o of m.outcomes ?? []) o.unlocksMissionIds = o.unlocksMissionIds.filter((x) => x !== id);
+        }
+        for (const act of this.world.acts) for (const ch of act.chapters) ch.missionIds = ch.missionIds.filter((x) => x !== id);
+        if (this.highlightedQuestId === id) this.highlightedQuestId = null;
         return true;
     }
 

@@ -2262,7 +2262,7 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "game_map", config?.id);
                 ops.op_ui_widget_game_map(windowId, { ...(config || {}) }, id);
 
-                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode || config?.onIntentSelect || config?.onGhostSelect) {
+                if (config?.onSpotSelect || config?.onSpotMove || config?.onSpotDragEnd || config?.onPathSelect || config?.onRegionSelect || config?.onMapClick || config?.onMapDoubleClick || config?.onPointAdd || config?.onMeasure || config?.onViewport || config?.onTool || config?.onBlockingMode || config?.onIntentSelect || config?.onGhostSelect || config?.onBrushStroke || config?.onMarkerSelect || config?.onMarkerMove) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -2294,6 +2294,13 @@ globalThis.Entropy = {
                             config.onIntentSelect(parts[2]);
                         } else if (type === "MAP_GHOST_SELECT" && config.onGhostSelect) {
                             config.onGhostSelect(parts[2]);
+                        } else if (type === "MAP_BRUSH" && config.onBrushStroke) {
+                            const pts = (parts[3] || "").split(";").filter(Boolean).map((q) => q.split(",").map(Number));
+                            config.onBrushStroke(pts, parts[2] === "1");
+                        } else if (type === "MAP_MARKER_SELECT" && config.onMarkerSelect) {
+                            config.onMarkerSelect(parts[2]);
+                        } else if (type === "MAP_MARKER_MOVE" && config.onMarkerMove) {
+                            config.onMarkerMove(parts[2], parseFloat(parts[3]), parseFloat(parts[4]));
                         }
                     });
                 }

@@ -1,6 +1,6 @@
 /// <reference path="../../addon.d.ts" />
 
-import { PlannerModel, paletteForGenre } from "./planner_model";
+import { PlannerModel, isSnapped, paletteForGenre } from "./planner_model";
 import {
     calculateRouteTravelTime,
     calculateTravelTime,
@@ -52,6 +52,47 @@ import {
     spotNear,
 } from "./intent_model";
 import { PLANNER_AGENT_NAME, draftProposalForIntent, normalizeProposalChanges } from "./planner_agent";
+import {
+    AREA_MODES,
+    BRUSH_MODES,
+    LINE_MODES,
+    SCULPT_INFO,
+    carveCanyon,
+    circlePolygon,
+    flattenArea,
+    gradeAlongPath,
+    meanHeightInside,
+} from "./terrain_sculpt";
+import {
+    CODEX_MAP_STYLE,
+    MARKS,
+    MARK_BY_ID,
+    PLACEABLE_CATEGORIES,
+    PLACEMENT_BEHAVIORS,
+    clearInside,
+    codexLayerKey,
+    codexMapPresence,
+    createPlacement,
+    fillPolygon,
+    isCodexLayer,
+    layerCoverage,
+    layerLabel,
+    layerStyle,
+    nearestSpot,
+    placementsInside,
+    populationAt,
+    regionsAt,
+    suggestBiome,
+} from "./planning_layers";
+import {
+    ACTION_INFO,
+    OBJECTIVE_ACTIONS,
+    analyzeQuest,
+    comfortableDanger,
+    questStops,
+    targetCategoriesFor,
+} from "./quest_planning";
+import { formatDuration } from "./travel_calculator";
 import { BIOMES, PATH_DEFAULTS, PATH_TYPES, SPOT_COLORS, SPOT_TYPES, isMajorSpotType } from "./planner_defaults";
 import {
     CRIMSON_EXPANSE_PRESET,
@@ -60,14 +101,21 @@ import {
 } from "./presets";
 import type {
     CodexCategory,
+    CodexEntry,
+    CodexPlacement,
     GameWorld,
     IntentKind,
     IntentShape,
     Mission,
     PlanIntent,
+    ObjectiveAction,
+    PlacementBehavior,
+    QuestObjectiveDetail,
+    RegionPlan,
     RegionType,
     RevisionChange,
     RevisionProposal,
+    SculptMode,
     SpotType,
     TravelMode,
     TerrainStyle,
@@ -76,13 +124,13 @@ import type {
     WorldRegion,
     WorldSpot,
 } from "./planner_types";
-import type { GameMapConfig, IconName, MapGhostConfig, MapIntentConfig, SplitConfig } from "../../addon";
+import type { GameMapConfig, IconName, MapGhostConfig, MapIntentConfig, MapMarkerConfig, MapOverlayConfig, MapQuestRouteConfig, SplitConfig } from "../../addon";
 
 // Register Addon
 const addon = Entropy.Addon.register({
     name: "game-world-planner",
-    version: "1.3.0",
-    description: "Game World Planner: sketch design intents on a topographic map and let agents build them - live intent checks, previewed agent proposals you accept or reject on the map, a terrain-aware built-in planner agent and MCP tools for external agents; plus travel times, procedural terrain, codex and story.",
+    version: "1.4.0",
+    description: "Game World Planner: sketch design intents on a topographic map and let agents build them - live intent checks, previewed agent proposals you accept or reject on the map, a terrain-aware built-in planner agent and MCP tools for external agents; terrain sculpting (canyons, mountain ranges, road beds, plateaus), painted biome and population plans tied to regions and the codex, quests planned on the map; plus travel times, procedural terrain, codex and story.",
     author: ["Entropy Team", "Google DeepMind"],
     category: "Game Design",
     capabilities: { ui: true, needsViewport: false },
@@ -130,6 +178,24 @@ let lastTravelEstimate: TravelEstimate | null = null;
 let placeSpotType: SpotType = "town";
 /** The last thing the Planner Agent said (why it had nothing to propose, or what it proposed). */
 let agentNote: { intentId: string; text: string } | null = null;
+/** Populate: points of the current press, until it is clearly a drag (paint) rather than a click (place). */
+let populateStroke: { points: [number, number][]; painting: boolean } | null = null;
+/** The paint stroke in progress changed this many cells. */
+let paintStrokeCells = 0;
+
+const SCULPT_MODES: SculptMode[] = [...BRUSH_MODES, ...LINE_MODES, ...AREA_MODES];
+const SCULPT_COLORS: Record<SculptMode, RGBA> = {
+    raise: [0.98, 0.75, 0.14, 1],
+    lower: [0.22, 0.74, 0.97, 1],
+    smooth: [0.66, 0.85, 0.95, 1],
+    flatten: [0.2, 0.83, 0.6, 1],
+    roughen: [0.85, 0.6, 0.4, 1],
+    canyon: [0.95, 0.45, 0.3, 1],
+    ridge: [0.98, 0.75, 0.14, 1],
+    grade: [0.85, 0.75, 0.55, 1],
+    plateau: [0.2, 0.83, 0.6, 1],
+};
+const MISSION_COLORS: Record<string, RGBA> = { main: [0.98, 0.75, 0.14, 1], side: [0.22, 0.74, 0.97, 1], faction: [0.66, 0.33, 0.97, 1] };
 
 const INTENT_SHAPES: Array<{ id: IntentShape; label: string }> = [
     { id: "pin", label: "Pin" },
@@ -159,6 +225,7 @@ let procCarveRivers = true;
 let procScatterCount = 6;
 let procIslandMask = true;
 let procFitSpots = true;
+let padRadiusKm = 0.5;
 
 function setModel(next: PlannerModel): void {
     const fit = model.fitRequest + 1;
@@ -168,6 +235,7 @@ function setModel(next: PlannerModel): void {
     procIslandMask = model.world.meta.genre === "fantasy";
     lastTravelEstimate = null;
     agentNote = null;
+    populateStroke = null;
 }
 
 // --- Persistence ---
@@ -223,6 +291,12 @@ function deleteSelected(): void {
     }
     const id = model.selectedId;
     if (!id) return;
+    const placement = model.placements.find((p) => p.id === id);
+    if (placement) {
+        model.deletePlacement(id);
+        statusMessage = `Removed ${codexName(placement.codexId)} from the map.`;
+        return;
+    }
     const intent = model.intents.find((i) => i.id === id);
     if (intent) {
         model.deleteIntent(id);
@@ -248,6 +322,8 @@ function selectTool(tool: typeof model.activeTool): void {
     if (tool !== "draw_path") model.cancelPendingPath();
     if (tool !== "draw_region") model.cancelPendingRegion();
     if (tool !== "intent") model.cancelPendingIntent();
+    if (tool !== "sculpt") model.pendingSculptPoints = [];
+    if (tool === "populate" && !model.populateCodexId) model.populateCodexId = placeableCodex()[0]?.id ?? null;
     if (tool === "measure" || model.activeTool === "measure") {
         model.clearMeasurement();
         lastTravelEstimate = null;
@@ -261,8 +337,94 @@ function selectTool(tool: typeof model.activeTool): void {
         draw_region: "Draw Region: click to add vertices, double-click or Enter to close it.",
         measure: "Measure: click a start point, then a destination.",
         intent: intentToolHint(),
+        sculpt: sculptHint(),
+        paint: `Paint: drag to mark ${layerLabel(model.world, model.paintKey)} - planning marks only, nothing is built.`,
+        populate: populateHint(),
     };
     statusMessage = names[tool];
+}
+
+function sculptHint(): string {
+    const info = SCULPT_INFO[model.sculpt.mode];
+    return `Sculpt (${info.label}): ${info.how}`;
+}
+
+function populateHint(): string {
+    const c = model.world.codex.find((e) => e.id === model.populateCodexId);
+    if (!c) return "Populate: add a character or creature to the Codex first, then place or paint it here.";
+    return `Populate (${c.name}): click to place ${CODEX_MAP_STYLE[c.category].noun === "enemy" ? "a pack" : "them"}, drag to paint where they roam.`;
+}
+
+function codexName(id?: string): string {
+    return (id && model.world.codex.find((c) => c.id === id)?.name) || "(missing codex entry)";
+}
+
+/** Codex entries that can go on the map, enemies and NPCs first. */
+function placeableCodex(): CodexEntry[] {
+    const rank = (c: CodexEntry) => PLACEABLE_CATEGORIES.indexOf(c.category);
+    return model.world.codex.filter((c) => rank(c) >= 0).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+function codexOptionLabel(c: CodexEntry): string {
+    return `${c.name} (${CODEX_MAP_STYLE[c.category]?.noun ?? c.category})`;
+}
+
+/** Applies the clicked-out canyon / range / road bed / plateau. */
+function finishSculptShape(): boolean {
+    const n = model.pendingSculptPoints.length;
+    const label = SCULPT_INFO[model.sculpt.mode].label;
+    if (!model.sculptShape()) return false;
+    const t = model.world.terrain!;
+    statusMessage = `${label} applied along ${n} points. Terrain now ${Math.round(t.minM)} to ${Math.round(t.maxM)} m; snapped spots re-read their ground.`;
+    return true;
+}
+
+/** Brush strokes from the map: sculpt, paint, or populate (click = place, drag = paint). */
+function handleBrushStroke(points: [number, number][], done: boolean): void {
+    if (model.activeTool === "sculpt") {
+        model.sculptBrush(points, done);
+        if (done) statusMessage = `${SCULPT_INFO[model.sculpt.mode].label}: stroke applied (one undo step).`;
+        return;
+    }
+    if (model.activeTool === "paint") {
+        paintStrokeCells += model.paint(model.paintKey, points, done);
+        if (done) {
+            statusMessage = `${model.paintErase ? "Erased" : "Painted"} ${layerLabel(model.world, model.paintKey)} (${paintStrokeCells} cells)${model.paintClipRegionId ? " inside the region" : ""}.`;
+            paintStrokeCells = 0;
+        }
+        return;
+    }
+    if (model.activeTool !== "populate") return;
+    const codex = model.world.codex.find((c) => c.id === model.populateCodexId);
+    if (!codex) {
+        if (done) statusMessage = populateHint();
+        return;
+    }
+    const key = codexLayerKey(codex.id);
+    populateStroke ??= { points: [], painting: false };
+    const st = populateStroke;
+    if (st.painting) {
+        model.paint(key, points, false, { exclusive: false });
+    } else {
+        st.points.push(...points);
+        const [x0, y0] = st.points[0] ?? [0, 0];
+        const spread = Math.max(0, ...st.points.map(([x, y]) => Math.hypot(x - x0, y - y0)));
+        if (spread > Math.max(0.25, model.paintRadiusKm * 0.4)) {
+            st.painting = true;
+            model.paint(key, st.points, false, { exclusive: false });
+        }
+    }
+    if (!done) return;
+    if (st.painting) {
+        model.paint(key, [], true);
+        statusMessage = `Painted where ${codex.name} ${codex.category === "creature" ? "roams" : "can be found"}.`;
+    } else if (st.points.length) {
+        const [x, y] = st.points[0];
+        const p = model.addPlacement(createPlacement(codex, model.snapCoordinate(x), model.snapCoordinate(y)));
+        const near = nearestSpot(model.world, p.x, p.y, 1.0);
+        statusMessage = `Placed ${codex.name}${p.count > 1 ? ` x${p.count}` : ""} at ${fmtKm([p.x, p.y])}${near ? `, by ${near.name}` : ""}. Edit it in the inspector.`;
+    }
+    populateStroke = null;
 }
 
 function intentToolHint(): string {
@@ -278,6 +440,7 @@ function announceIntent(intent: PlanIntent): void {
 }
 
 function finishDrawing(): boolean {
+    if (model.activeTool === "sculpt" && model.sculptKind !== "brush") return finishSculptShape();
     if (model.activeTool === "intent" && model.intentShape === "area" && model.pendingIntentPoints.length >= 3) {
         const intent = model.finishPendingIntent();
         if (intent) announceIntent(intent);
@@ -297,10 +460,11 @@ function finishDrawing(): boolean {
 }
 
 function cancelAction(): void {
-    if (model.pendingPathPoints.length || model.pendingRegionPoints.length || model.pendingIntentPoints.length) {
+    if (model.pendingPathPoints.length || model.pendingRegionPoints.length || model.pendingIntentPoints.length || model.pendingSculptPoints.length) {
         model.cancelPendingPath();
         model.cancelPendingRegion();
         model.cancelPendingIntent();
+        model.pendingSculptPoints = [];
         statusMessage = "Drawing cancelled.";
     } else if (model.selectedChangeId) {
         model.selectedChangeId = null;
@@ -310,8 +474,11 @@ function cancelAction(): void {
         statusMessage = "Ruler cleared.";
     } else if (model.activeTool !== "select") {
         selectTool("select");
+    } else if (model.highlightedQuestId && !model.selectedId) {
+        model.highlightedQuestId = null;
     } else {
         model.selectedId = null;
+        model.selectedPlacementId = null;
     }
 }
 
@@ -330,7 +497,6 @@ function renderHeader(tabId: string): void {
                     { id: "map", label: icon("map-trifold", "Map") },
                     { id: "codex", label: icon("book-open", "Codex") },
                     { id: "story", label: icon("sword", "Story & Quests") },
-                    { id: "procedural", label: icon("mountains", "Terrain & Procedural") },
                     { id: "agent", label: icon("robot", model.pendingProposals.length ? `Agents (${model.pendingProposals.length})` : "Agents") },
                 ];
 
@@ -478,6 +644,9 @@ function renderMapToolbar(canvasArea: string): void {
                     { id: "draw_region", label: icon("polygon", "Region"), key: "G" },
                     { id: "measure", label: icon("ruler", "Measure"), key: "M" },
                     { id: "intent", label: icon("lightbulb", "Intent"), key: "I" },
+                    { id: "sculpt", label: icon("shovel", "Sculpt"), key: "E" },
+                    { id: "paint", label: icon("paint-brush", "Paint"), key: "N" },
+                    { id: "populate", label: icon("users", "Populate"), key: "U" },
                 ];
                 tools.forEach((t) => {
                     W.button(left, {
@@ -565,6 +734,49 @@ function renderMapToolbar(canvasArea: string): void {
                         if (model.intentShape === "area") W.button(center, { id: "btn_finish_intent", text: icon("check", "Close"), tooltip: "Enter", accent: UI.emerald, onClick: () => finishDrawing() });
                         W.button(center, { id: "btn_cancel_intent", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => model.cancelPendingIntent() });
                     }
+                } else if (model.activeTool === "sculpt") {
+                    W.dropdown(center, {
+                        id: "dropdown_sculpt_mode",
+                        label: "Mode",
+                        options: SCULPT_MODES.map((m) => SCULPT_INFO[m].label),
+                        selectedIndex: Math.max(0, SCULPT_MODES.indexOf(model.sculpt.mode)),
+                        onChange: (v: string) => {
+                            model.sculpt.mode = SCULPT_MODES[Number(v)] || "raise";
+                            model.pendingSculptPoints = [];
+                            statusMessage = sculptHint();
+                        },
+                    });
+                    if (model.pendingSculptPoints.length > 0) {
+                        W.label(center, { text: `${model.pendingSculptPoints.length} pts`, fontSize: 11, color: UI.amber, bold: true });
+                        W.button(center, { id: "btn_apply_sculpt", text: icon("check", "Apply"), tooltip: "Enter", accent: UI.emerald, onClick: () => finishSculptShape() });
+                        W.button(center, { id: "btn_cancel_sculpt", text: icon("x", "Cancel"), tooltip: "Esc", onClick: () => (model.pendingSculptPoints = []) });
+                    }
+                } else if (model.activeTool === "paint") {
+                    const keys = paintKeys();
+                    W.dropdown(center, {
+                        id: "dropdown_paint_mark",
+                        label: "Mark",
+                        options: keys.map((k) => layerLabel(model.world, k)),
+                        selectedIndex: Math.max(0, keys.indexOf(model.paintKey)),
+                        onChange: (v: string) => {
+                            model.paintKey = keys[Number(v)] || "forest";
+                            statusMessage = `Painting ${layerLabel(model.world, model.paintKey)}.`;
+                        },
+                    });
+                    W.button(center, { id: "btn_paint_erase", text: icon("eraser", "Erase"), accent: model.paintErase ? UI.rose : undefined, onClick: () => (model.paintErase = !model.paintErase) });
+                } else if (model.activeTool === "populate") {
+                    const entries = placeableCodex();
+                    W.dropdown(center, {
+                        id: "dropdown_populate_codex",
+                        label: "Who",
+                        options: entries.length ? entries.map(codexOptionLabel) : ["(no characters or creatures yet)"],
+                        selectedIndex: Math.max(0, entries.findIndex((c) => c.id === model.populateCodexId)),
+                        onChange: (v: string) => {
+                            model.populateCodexId = entries[Number(v)]?.id ?? null;
+                            statusMessage = populateHint();
+                        },
+                    });
+                    W.button(center, { id: "btn_populate_erase", text: icon("eraser", "Erase paint"), accent: model.paintErase ? UI.rose : undefined, onClick: () => (model.paintErase = !model.paintErase) });
                 } else if (model.activeTool === "measure" && (model.measurePoints.p1 || lastTravelEstimate)) {
                     if (lastTravelEstimate) {
                         W.label(center, { text: `${lastTravelEstimate.directDistanceKm} km · ${lastTravelEstimate.summaryText}`, fontSize: 11, color: UI.amber });
@@ -642,11 +854,25 @@ function renderMapToolbar(canvasArea: string): void {
                     W.button(right, { id, text: label, accent: on ? UI.emerald : undefined, onClick: flip });
                 toggle("btn_toggle_contours", icon("mountains", "Contours"), model.showContours, () => (model.showContours = !model.showContours));
                 toggle("btn_toggle_biomes", icon("polygon", "Regions"), model.showBiomes, () => (model.showBiomes = !model.showBiomes));
+                toggle("btn_toggle_marks", icon("tree", "Marks"), model.showMarks, () => (model.showMarks = !model.showMarks));
+                toggle("btn_toggle_population", icon("users", "Population"), model.showPopulation, () => (model.showPopulation = !model.showPopulation));
+                toggle("btn_toggle_quests", icon("sword", "Quests"), model.showQuests, () => (model.showQuests = !model.showQuests));
                 toggle("btn_toggle_intents", icon("lightbulb", "Intents"), model.showIntents, () => (model.showIntents = !model.showIntents));
                 toggle("btn_toggle_proposals", icon("ghost", "Proposals"), model.showProposals, () => (model.showProposals = !model.showProposals));
                 toggle("btn_toggle_labels", icon("tag", "Labels"), model.showLabels, () => (model.showLabels = !model.showLabels));
                 toggle("btn_toggle_grid", icon("grid-four", "Grid"), model.showGrid, () => (model.showGrid = !model.showGrid));
                 toggle("btn_toggle_minimap", icon("map-trifold", "Overview"), model.showMinimap, () => (model.showMinimap = !model.showMinimap));
+                W.button(right, {
+                    id: "btn_world_panel",
+                    text: icon("mountains", "World"),
+                    tooltip: "Clear the selection: the sidebar shows the plan, terrain and procedural tools",
+                    accent: !model.selectedId ? UI.cyan : undefined,
+                    onClick: () => {
+                        model.selectedId = null;
+                        model.selectedChangeId = null;
+                        model.selectedPlacementId = null;
+                    },
+                });
                 W.button(right, {
                     id: "btn_fit_world",
                     text: icon("corners-out", "Fit"),
@@ -710,6 +936,10 @@ function handleMapClick(x: number, y: number): void {
             const climb = est.climbM !== undefined ? ` · climb +${est.climbM} m / -${est.descentM} m` : "";
             statusMessage = `Distance: ${est.directDistanceKm} km${climb}${est.pathFound ? " (by road)" : ""}. ${est.summaryText}`;
         }
+    } else if (model.activeTool === "sculpt") {
+        if (model.sculptKind === "brush") return;
+        model.pendingSculptPoints.push(pt);
+        statusMessage = `${SCULPT_INFO[model.sculpt.mode].label} point #${model.pendingSculptPoints.length} - Enter or double-click to apply.`;
     } else if (model.activeTool === "intent") {
         const intent = model.appendPendingIntentPoint(pt);
         if (intent) {
@@ -723,7 +953,90 @@ function handleMapClick(x: number, y: number): void {
     } else if (model.activeTool === "select") {
         model.selectedId = null;
         model.selectedChangeId = null;
+        model.selectedPlacementId = null;
     }
+}
+
+/** Mark ids, then the codex layers already painted. */
+function paintKeys(): string[] {
+    const painted = Object.keys(model.world.overlay?.layers ?? {}).filter(isCodexLayer);
+    const keys = [...MARKS.map((m) => m.id), ...painted];
+    if (!keys.includes(model.paintKey)) keys.push(model.paintKey);
+    return keys;
+}
+
+/** The painted overlay as the map draws it. */
+function mapOverlay(): MapOverlayConfig | undefined {
+    const o = model.world.overlay;
+    if (!o || !Object.keys(o.layers).length) return undefined;
+    return {
+        cols: o.cols,
+        rows: o.rows,
+        layers: Object.entries(o.layers).map(([key, data]) => {
+            const st = layerStyle(model.world, key);
+            return { key, label: layerLabel(model.world, key), color: st.color, glyph: st.glyph, data };
+        }),
+    };
+}
+
+function placementDetail(p: CodexPlacement): string {
+    const c = model.world.codex.find((e) => e.id === p.codexId);
+    const noun = c ? CODEX_MAP_STYLE[c.category].noun : "entry";
+    const lv = p.levelMin !== undefined || p.levelMax !== undefined ? ` · lv ${p.levelMin ?? "?"}-${p.levelMax ?? "?"}` : "";
+    return `${noun}${p.count > 1 ? ` x${p.count}` : ""} · ${p.behavior.replace("_", " ")}${lv}${p.notes ? ` · ${p.notes.slice(0, 40)}` : ""}`;
+}
+
+function mapMarkers(): MapMarkerConfig[] {
+    return model.placements.map((p) => {
+        const c = model.world.codex.find((e) => e.id === p.codexId);
+        const st = CODEX_MAP_STYLE[c?.category ?? "lore"];
+        return { id: p.id, label: c?.name ?? "?", detail: placementDetail(p), x: p.x, y: p.y, color: st.color, glyph: st.glyph, count: p.count };
+    });
+}
+
+function mapQuestRoutes(): MapQuestRouteConfig[] {
+    return model.world.missions
+        .filter((m) => model.showQuests || m.id === model.highlightedQuestId)
+        .map((m) => ({ m, stops: questStops(model.world, m) }))
+        .filter(({ stops }) => stops.length >= 2)
+        .map(({ m, stops }) => ({
+            id: m.id,
+            title: m.title,
+            points: stops.map((s) => [s.x, s.y] as [number, number]),
+            color: MISSION_COLORS[m.missionType] ?? UI.amber,
+            highlighted: m.id === model.highlightedQuestId,
+        }));
+}
+
+/** The brush ring for the active tool, if it has one. */
+function mapBrush(): GameMapConfig["brush"] {
+    if (model.activeTool === "sculpt") {
+        const kind = model.sculptKind;
+        const s = model.sculpt;
+        const radius = kind === "brush" ? s.radiusKm : s.mode === "canyon" ? s.canyonWidthKm / 2 : s.mode === "ridge" ? s.ridgeWidthKm / 2 : s.mode === "grade" ? s.gradeWidthKm / 2 + Math.max(0.15, s.gradeWidthKm) : s.featherKm;
+        return { radiusKm: radius, color: SCULPT_COLORS[s.mode], paint: kind === "brush" };
+    }
+    if (model.activeTool === "paint") return { radiusKm: model.paintRadiusKm, color: model.paintErase ? UI.rose : layerStyle(model.world, model.paintKey).color, paint: true };
+    if (model.activeTool === "populate") {
+        const c = model.world.codex.find((e) => e.id === model.populateCodexId);
+        return { radiusKm: model.paintRadiusKm, color: model.paintErase ? UI.rose : CODEX_MAP_STYLE[c?.category ?? "creature"].color, paint: true };
+    }
+    return undefined;
+}
+
+/** Shows a quest's journey on the map. */
+function showQuestOnMap(m: Mission): void {
+    model.activeTab = "map";
+    model.highlightedQuestId = m.id;
+    model.selectedId = null;
+    const stops = questStops(model.world, m);
+    if (stops.length) {
+        const xs = stops.map((s) => s.x);
+        const ys = stops.map((s) => s.y);
+        const span = Math.max(1.5, Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+        model.focusOn((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, Math.max(8, Math.min(120, 700 / span)));
+    }
+    statusMessage = `Showing "${m.title}" on the map: ${analyzeQuest(model.world, m).summary}. Esc hides it.`;
 }
 
 // --- The agent loop: draft, review, decide ---
@@ -809,7 +1122,7 @@ function mapIntents(): MapIntentConfig[] {
 function renderMapCanvasAndToolbar(canvasArea: string): void {
     renderMapToolbar(canvasArea);
 
-    const pending = model.activeTool === "draw_path" ? model.pendingPathPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : model.activeTool === "intent" ? model.pendingIntentPoints : [];
+    const pending = model.activeTool === "draw_path" ? model.pendingPathPoints : model.activeTool === "draw_region" ? model.pendingRegionPoints : model.activeTool === "intent" ? model.pendingIntentPoints : model.activeTool === "sculpt" ? model.pendingSculptPoints : [];
     const t = model.world.terrain;
     const measuring = model.activeTool === "measure";
 
@@ -827,7 +1140,30 @@ function renderMapCanvasAndToolbar(canvasArea: string): void {
         activeTool: model.activeTool,
         selectedId: model.selectedId || undefined,
         pendingPoints: pending.length ? pending : undefined,
-        pendingMode: model.activeTool === "draw_path" ? "path" : model.activeTool === "draw_region" ? "region" : model.activeTool === "intent" ? `intent_${model.intentShape}` : undefined,
+        pendingMode: model.activeTool === "draw_path" ? "path" : model.activeTool === "draw_region" ? "region" : model.activeTool === "intent" ? `intent_${model.intentShape}` : model.activeTool === "sculpt" ? `sculpt_${model.sculptKind}` : undefined,
+        overlay: mapOverlay(),
+        markers: mapMarkers(),
+        questRoutes: mapQuestRoutes(),
+        showMarks: model.showMarks,
+        showPopulation: model.showPopulation,
+        showQuests: true,
+        brush: mapBrush(),
+        focusRequest: model.focus.seq,
+        focusCenter: model.focus.center,
+        focusZoom: model.focus.zoom,
+        onBrushStroke: (points: [number, number][], done: boolean) => handleBrushStroke(points, done),
+        onMarkerSelect: (id: string) => {
+            model.selectedId = id;
+            model.selectedPlacementId = id;
+            model.selectedChangeId = null;
+            const p = model.placements.find((x) => x.id === id);
+            if (p) statusMessage = `Selected ${codexName(p.codexId)} (${placementDetail(p)}) - drag to move.`;
+        },
+        onMarkerMove: (id: string, x: number, y: number) => {
+            model.updatePlacement(id, { x: Number(x.toFixed(4)), y: Number(y.toFixed(4)) });
+            const p = model.placements.find((q) => q.id === id);
+            if (p) statusMessage = `Moved ${codexName(p.codexId)} to ${fmtKm([p.x, p.y])}.`;
+        },
         intents: mapIntents(),
         ghosts: proposalGhosts(model.world) as MapGhostConfig[],
         showIntents: model.showIntents,
@@ -944,24 +1280,45 @@ function renderInspector(panel: string): void {
         const found = model.findChange(model.selectedChangeId);
         if (found) return renderChangeReview(panel, found.proposal, found.change);
     }
+    // The painting and sculpting tools keep their settings on top, whatever is selected.
+    if (["sculpt", "paint", "populate"].includes(model.activeTool)) {
+        if (model.activeTool === "sculpt") renderSculptPanel(panel);
+        else if (model.activeTool === "paint") renderPaintPanel(panel);
+        else renderPopulatePanel(panel);
+        W.spacer(panel, 8);
+    }
     if (intent) return renderIntentInspector(panel, intent);
+    const placement = selId ? model.placements.find((p) => p.id === selId) : undefined;
     const spot = selId ? model.world.spots.find((s) => s.id === selId) : undefined;
     const path = selId ? model.world.paths.find((p) => p.id === selId) : undefined;
     const region = selId ? model.world.regions.find((r) => r.id === selId) : undefined;
+    if (placement) return renderPlacementInspector(panel, placement);
     if (spot) return renderSpotInspector(panel, spot);
     if (path) return renderPathInspector(panel, path);
     if (region) return renderRegionInspector(panel, region);
+    renderWorldPanel(panel);
+}
+
+/** Nothing selected: the active tool's settings, the plan, terrain & procedural tools, the world. */
+function renderWorldPanel(panel: string): void {
+    const quest = model.highlightedQuestId ? model.world.missions.find((m) => m.id === model.highlightedQuestId) : undefined;
+    if (quest) {
+        renderQuestMapCard(panel, quest);
+        W.spacer(panel, 8);
+    }
 
     renderPlanBoard(panel);
-    W.spacer(panel, 10);
+    W.spacer(panel, 8);
     W.label(panel, {
-        text: "Click a spot, path, region or intent to edit it. Tools: V select, H pan, P spot, L path, G region, M measure, I intent. Space-drag or right-drag pans, the wheel zooms, F fits the world, Esc cancels, Delete removes the selection.",
+        text: "Tools: V select, H pan, P spot, L path, G region, M measure, I intent, E sculpt, N paint, U populate. [ ] resize the brush. Space-drag or right-drag pans, the wheel zooms, F fits, Esc cancels, Delete removes.",
         wrap: true,
         color: UI.dim,
-        fontSize: 11,
+        fontSize: 10.5,
     });
-    W.spacer(panel, 10);
-
+    W.spacer(panel, 6);
+    W.collapsingHeader(panel, icon("mountains", "Terrain & Procedural"), (sec) => renderTerrainTools(sec), "sec_terrain_tools", true);
+    W.collapsingHeader(panel, icon("tree", "Planning marks & population"), (sec) => renderMarksSummary(sec), "sec_marks_summary", false);
+    W.spacer(panel, 6);
     W.card(panel, { id: "card_quick_stats", fill: UI.card, padding: 10 }, (card) => {
         W.label(card, { text: "World Summary", bold: true, fontSize: 11, color: UI.emerald });
         W.label(card, { text: `Name: ${model.world.meta.name}`, fontSize: 11, color: UI.text });
@@ -972,7 +1329,255 @@ function renderInspector(panel: string): void {
             const land = t.data.filter((v) => v > t.seaLevelM).length / t.data.length;
             W.label(card, { text: `Terrain: ${t.cols}x${t.rows} grid, ${Math.round(t.minM)} to ${Math.round(t.maxM)} m, ${Math.round(land * 100)}% land`, fontSize: 11, color: UI.dim });
         }
-        W.label(card, { text: `${model.world.spots.length} spots · ${model.world.paths.length} paths · ${model.world.regions.length} regions`, fontSize: 11, color: UI.dim });
+        W.label(card, { text: `${model.world.spots.length} spots · ${model.world.paths.length} paths · ${model.world.regions.length} regions · ${model.placements.length} placed`, fontSize: 11, color: UI.dim });
+    });
+}
+
+function renderSculptPanel(panel: string): void {
+    const s = model.sculpt;
+    const info = SCULPT_INFO[s.mode];
+    W.card(panel, { id: "card_sculpt", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("shovel", `Sculpt: ${info.label}`), bold: true, fontSize: 12, color: UI.amber });
+        W.label(card, { text: info.how, wrap: true, fontSize: 10.5, color: UI.dim });
+        const modeRow = (modes: SculptMode[], key: string) =>
+            W.horizontal(card, () => {
+                modes.forEach((m) =>
+                    W.button(card, {
+                        id: `btn_sculpt_${m}`,
+                        text: SCULPT_INFO[m].label,
+                        accent: s.mode === m ? UI.amber : undefined,
+                        onClick: () => {
+                            s.mode = m;
+                            model.pendingSculptPoints = [];
+                            statusMessage = sculptHint();
+                        },
+                    })
+                );
+                void key;
+            });
+        modeRow(BRUSH_MODES.slice(0, 3), "brush1");
+        modeRow(BRUSH_MODES.slice(3), "brush2");
+        modeRow(LINE_MODES.slice(0, 2), "line1");
+        modeRow([...LINE_MODES.slice(2), ...AREA_MODES], "line2");
+        W.spacer(card, 4);
+        if (info.kind === "brush") {
+            W.slider(card, { id: "slider_sculpt_radius", label: `Brush radius (${s.radiusKm.toFixed(2)} km):`, value: s.radiusKm, min: 0.1, max: 6, onChange: (v) => (s.radiusKm = parseFloat(v) || 1) });
+            W.slider(card, { id: "slider_sculpt_strength", label: `Strength (${Math.round(s.strength * 100)}%):`, value: s.strength, min: 0.05, max: 1, onChange: (v) => (s.strength = parseFloat(v) || 0.5) });
+        }
+        if (s.mode === "flatten" || s.mode === "plateau") {
+            W.checkbox(card, {
+                id: "chk_sculpt_snap",
+                label: s.mode === "flatten" ? "Snap to landscape: level to the ground where the stroke starts" : "Snap to landscape: level to the mean ground inside",
+                value: s.snapToLandscape,
+                onChange: (v) => (s.snapToLandscape = v),
+            });
+            if (!s.snapToLandscape) W.numericInput(card, { id: "input_sculpt_target", label: "Level to (m):", value: s.targetM, onChange: (v) => (s.targetM = parseFloat(v) || 0) });
+        }
+        if (s.mode === "canyon") {
+            W.slider(card, { id: "slider_canyon_width", label: `Rim to rim (${s.canyonWidthKm.toFixed(1)} km):`, value: s.canyonWidthKm, min: 0.2, max: 8, onChange: (v) => (s.canyonWidthKm = parseFloat(v) || 1.4) });
+            W.slider(card, { id: "slider_canyon_depth", label: `Depth (${Math.round(s.canyonDepthM)} m):`, value: s.canyonDepthM, min: 20, max: 1500, onChange: (v) => (s.canyonDepthM = parseFloat(v) || 260) });
+            W.slider(card, { id: "slider_canyon_steep", label: `Wall steepness (${Math.round(s.canyonSteepness * 100)}%):`, value: s.canyonSteepness, min: 0, max: 1, onChange: (v) => (s.canyonSteepness = parseFloat(v) || 0) });
+        }
+        if (s.mode === "ridge") {
+            W.slider(card, { id: "slider_ridge_width", label: `Range width (${s.ridgeWidthKm.toFixed(1)} km):`, value: s.ridgeWidthKm, min: 0.5, max: 15, onChange: (v) => (s.ridgeWidthKm = parseFloat(v) || 4) });
+            W.slider(card, { id: "slider_ridge_height", label: `Peak height added (${Math.round(s.ridgeHeightM)} m):`, value: s.ridgeHeightM, min: 50, max: 4000, onChange: (v) => (s.ridgeHeightM = parseFloat(v) || 1400) });
+            W.slider(card, { id: "slider_ridge_rough", label: `Peaks & spurs (${Math.round(s.ridgeRoughness * 100)}%):`, value: s.ridgeRoughness, min: 0, max: 1, onChange: (v) => (s.ridgeRoughness = parseFloat(v) || 0) });
+        }
+        if (s.mode === "grade") {
+            W.slider(card, { id: "slider_grade_width", label: `Bed width (${Math.round(s.gradeWidthKm * 1000)} m):`, value: s.gradeWidthKm, min: 0.02, max: 1, onChange: (v) => (s.gradeWidthKm = parseFloat(v) || 0.12) });
+            W.slider(card, { id: "slider_grade_max", label: `Steepest grade (${s.gradeMaxPercent.toFixed(0)}%):`, value: s.gradeMaxPercent, min: 1, max: 25, onChange: (v) => (s.gradeMaxPercent = parseFloat(v) || 8) });
+            W.label(card, { text: "Tip: select a road and use \"Grade terrain along it\" to grade an existing path.", wrap: true, fontSize: 10, color: UI.dim });
+        }
+        if (s.mode === "plateau") {
+            W.slider(card, { id: "slider_plateau_feather", label: `Edge slope (${s.featherKm.toFixed(2)} km):`, value: s.featherKm, min: 0.05, max: 3, onChange: (v) => (s.featherKm = parseFloat(v) || 0.4) });
+        }
+        if (info.kind !== "brush") {
+            W.label(card, { text: model.pendingSculptPoints.length ? `${model.pendingSculptPoints.length} point(s) - Enter applies.` : "Click on the map to start.", fontSize: 10.5, color: UI.amber });
+        }
+        const snappedOff = model.world.spots.filter((x) => !isSnapped(x)).length;
+        W.label(card, { text: `Spots that snap to the landscape follow the edit${snappedOff ? `; ${snappedOff} with an authored elevation keep theirs` : ""}. Every stroke is one undo step.`, wrap: true, fontSize: 10, color: UI.dim });
+    });
+}
+
+function renderPaintPanel(panel: string): void {
+    W.card(panel, { id: "card_paint", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("paint-brush", "Paint planning marks"), bold: true, fontSize: 12, color: UI.emerald });
+        W.label(card, { text: "Marks plan what grows or lies where - they are drawn as symbols, never built. Regions read what is painted inside them.", wrap: true, fontSize: 10.5, color: UI.dim });
+        for (let i = 0; i < MARKS.length; i += 3) {
+            W.horizontal(card, () => {
+                MARKS.slice(i, i + 3).forEach((m) =>
+                    W.button(card, {
+                        id: `btn_mark_${m.id}`,
+                        text: m.label,
+                        tooltip: m.hint,
+                        accent: model.paintKey === m.id ? m.color : undefined,
+                        onClick: () => {
+                            model.paintKey = m.id;
+                            model.paintErase = false;
+                        },
+                    })
+                );
+            });
+        }
+        renderBrushControls(card);
+        W.checkbox(card, { id: "chk_paint_exclusive", label: "Replace other surface marks under the brush", value: model.paintExclusive, onChange: (v) => (model.paintExclusive = v) });
+    });
+}
+
+function renderBrushControls(card: string): void {
+    W.slider(card, { id: "slider_paint_radius", label: `Brush radius (${model.paintRadiusKm.toFixed(2)} km):`, value: model.paintRadiusKm, min: 0.1, max: 6, onChange: (v) => (model.paintRadiusKm = parseFloat(v) || 1) });
+    W.slider(card, { id: "slider_paint_strength", label: `Strength (${Math.round(model.paintStrength * 100)}%):`, value: model.paintStrength, min: 0.05, max: 1, onChange: (v) => (model.paintStrength = parseFloat(v) || 0.6) });
+    W.checkbox(card, { id: "chk_paint_erase", label: "Erase", value: model.paintErase, onChange: (v) => (model.paintErase = v) });
+    const regions = model.world.regions.filter((r) => r.points.length >= 3);
+    W.dropdown(card, {
+        id: "dropdown_paint_clip",
+        label: "Only inside",
+        options: ["(anywhere)", ...regions.map((r) => r.name)],
+        selectedIndex: model.paintClipRegionId ? Math.max(0, regions.findIndex((r) => r.id === model.paintClipRegionId) + 1) : 0,
+        onChange: (v: string) => (model.paintClipRegionId = regions[Number(v) - 1]?.id ?? null),
+    });
+}
+
+function renderPopulatePanel(panel: string): void {
+    const c = model.world.codex.find((e) => e.id === model.populateCodexId);
+    W.card(panel, { id: "card_populate", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("users", "Populate from the Codex"), bold: true, fontSize: 12, color: UI.rose });
+        W.label(card, { text: "Click to place a codex entry (a named NPC, a pack of enemies, an outpost); drag to paint where it roams or can be found. Quests check their targets against this.", wrap: true, fontSize: 10.5, color: UI.dim });
+        const entries = placeableCodex();
+        if (!entries.length) {
+            W.label(card, { text: "The Codex has no characters or creatures yet.", fontSize: 11, color: UI.amber });
+        }
+        entries.slice(0, 18).forEach((e) =>
+            W.button(card, {
+                id: `btn_populate_${e.id}`,
+                text: icon(CODEX_ICONS[e.category], `${e.name} · ${CODEX_MAP_STYLE[e.category].noun}`),
+                accent: model.populateCodexId === e.id ? CODEX_MAP_STYLE[e.category].color : undefined,
+                onClick: () => {
+                    model.populateCodexId = e.id;
+                    statusMessage = populateHint();
+                },
+            })
+        );
+        W.button(card, {
+            id: "btn_new_creature",
+            text: icon("plus", "New creature"),
+            onClick: () => {
+                const e = createCodexEntry("New Creature", "creature", "Wild beast", "A creature of the wilds.", model.world.meta.genre);
+                model.addCodexEntry(e);
+                model.selectedId = null;
+                model.populateCodexId = e.id;
+                statusMessage = `Created "${e.name}" in the Codex - name it there; place or paint it here.`;
+            },
+        });
+        renderBrushControls(card);
+        if (c) {
+            const where = codexMapPresence(model.world, c);
+            W.label(card, { text: `${c.name}: ${where.placements.length} placement(s), painted over ${where.paintedKm2} km²${where.regions.length ? ` · in ${where.regions.map((r) => r.name).join(", ")}` : ""}`, wrap: true, fontSize: 10.5, color: UI.dim });
+        }
+    });
+}
+
+function renderMarksSummary(sec: string): void {
+    const cov = layerCoverage(model.world.overlay, model.world.meta);
+    if (!cov.length && !model.placements.length) {
+        W.label(sec, { text: "Nothing painted or placed yet. Use Paint (N) for biomes and surface marks, Populate (U) for enemies and NPCs from the Codex.", wrap: true, fontSize: 10.5, color: UI.dim });
+        return;
+    }
+    cov.forEach((c) => W.label(sec, { text: `${layerLabel(model.world, c.key)}: ${c.areaKm2} km² (${Math.round(c.share * 100)}% of the world)`, fontSize: 10.5, color: UI.text }));
+    if (model.placements.length) {
+        W.spacer(sec, 4);
+        W.label(sec, { text: `${model.placements.length} placement(s):`, fontSize: 10.5, color: UI.dim });
+        model.placements.slice(0, 30).forEach((p) =>
+            W.button(sec, {
+                id: `btn_goto_place_${p.id}`,
+                text: `${codexName(p.codexId)} · ${placementDetail(p)}`,
+                onClick: () => {
+                    model.selectedId = p.id;
+                    model.selectedPlacementId = p.id;
+                    model.focusOn(p.x, p.y);
+                },
+            })
+        );
+    }
+}
+
+/** A codex entry placed on the map. */
+function renderPlacementInspector(panel: string, p: CodexPlacement): void {
+    const c = model.world.codex.find((e) => e.id === p.codexId);
+    const st = CODEX_MAP_STYLE[c?.category ?? "lore"];
+    W.label(panel, { text: icon(CODEX_ICONS[c?.category ?? "lore"], c?.name ?? "(missing codex entry)"), bold: true, fontSize: 13, color: st.color });
+    if (c) W.label(panel, { text: `${c.subtitle} · ${st.noun}`, fontSize: 11, color: UI.dim, wrap: true });
+    const entries = placeableCodex();
+    W.dropdown(panel, {
+        id: "edit_place_codex",
+        label: "Codex entry",
+        options: entries.map(codexOptionLabel),
+        selectedIndex: Math.max(0, entries.findIndex((e) => e.id === p.codexId)),
+        onChange: (v: string) => {
+            const e = entries[Number(v)];
+            if (e) model.updatePlacement(p.id, { codexId: e.id });
+        },
+    });
+    W.horizontal(panel, () => {
+        W.numericInput(panel, { id: "edit_place_x", label: "X (km):", value: p.x, speed: 0.05, onChange: (v) => model.updatePlacement(p.id, { x: parseFloat(v) || 0 }) });
+        W.numericInput(panel, { id: "edit_place_y", label: "Y (km):", value: p.y, speed: 0.05, onChange: (v) => model.updatePlacement(p.id, { y: parseFloat(v) || 0 }) });
+    });
+    W.numericInput(panel, { id: "edit_place_count", label: "How many:", value: p.count, min: 1, onChange: (v) => model.updatePlacement(p.id, { count: Math.max(1, Math.round(parseFloat(v) || 1)) }) });
+    W.dropdown(panel, {
+        id: "edit_place_behavior",
+        label: "Behavior",
+        options: PLACEMENT_BEHAVIORS.map((b) => b.replace("_", " ")),
+        selectedIndex: Math.max(0, PLACEMENT_BEHAVIORS.indexOf(p.behavior)),
+        onChange: (v: string) => model.updatePlacement(p.id, { behavior: (PLACEMENT_BEHAVIORS[Number(v)] || "static") as PlacementBehavior }),
+    });
+    W.horizontal(panel, () => {
+        W.numericInput(panel, { id: "edit_place_lvmin", label: "Level from:", value: p.levelMin ?? 0, min: 0, onChange: (v) => model.updatePlacement(p.id, { levelMin: parseInt(v, 10) || undefined }) });
+        W.numericInput(panel, { id: "edit_place_lvmax", label: "to:", value: p.levelMax ?? 0, min: 0, onChange: (v) => model.updatePlacement(p.id, { levelMax: parseInt(v, 10) || undefined }) });
+    });
+    W.textInput(panel, { id: "edit_place_notes", label: "Notes (schedule, loot, dialogue...):", value: p.notes, multiline: true, height: 60, onChange: (v) => model.updatePlacement(p.id, { notes: v }) });
+
+    W.card(panel, { id: "card_place_context", fill: UI.card, padding: 8 }, (card) => {
+        W.label(card, { text: "Where it is", bold: true, fontSize: 11, color: UI.emerald });
+        const near = nearestSpot(model.world, p.x, p.y, 2.0);
+        if (near) W.label(card, { text: `Near ${near.name} (${(Math.hypot(near.x - p.x, near.y - p.y) * 1000).toFixed(0)} m)`, fontSize: 11, color: UI.text });
+        const regs = regionsAt(model.world, p.x, p.y);
+        if (regs.length) W.label(card, { text: `In ${regs.map((r) => `${r.name} (danger ${r.dangerLevel})`).join(", ")}`, fontSize: 11, color: UI.dim, wrap: true });
+        W.label(card, { text: `Ground: ${model.elevationAt(p.x, p.y)} m`, fontSize: 11, color: UI.dim });
+        const quests = c ? codexMapPresence(model.world, c).missions : [];
+        quests.forEach((mid) => {
+            const m = model.world.missions.find((x) => x.id === mid);
+            if (m) W.button(card, { id: `btn_place_quest_${m.id}`, text: icon("sword", m.title), onClick: () => openQuest(m.id) });
+        });
+    });
+    W.spacer(panel, 6);
+    W.horizontal(panel, () => {
+        if (c) W.button(panel, { id: "btn_place_open_codex", text: icon("book-open", "Open in Codex"), onClick: () => openCodex(c.id) });
+        W.button(panel, { id: "btn_delete_placement", text: icon("trash", "Remove"), accent: UI.rose, onClick: () => deleteSelected() });
+    });
+}
+
+function openCodex(id: string): void {
+    model.activeTab = "codex";
+    model.selectedId = id;
+}
+
+function openQuest(id: string): void {
+    model.activeTab = "story";
+    model.selectedId = id;
+}
+
+/** The quest whose journey the map shows, with its planning check. */
+function renderQuestMapCard(panel: string, m: Mission): void {
+    const a = analyzeQuest(model.world, m);
+    W.card(panel, { id: "card_quest_on_map", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("sword", m.title), bold: true, fontSize: 12, color: MISSION_COLORS[m.missionType] ?? UI.amber });
+        W.label(card, { text: a.summary, wrap: true, fontSize: 10.5, color: UI.text });
+        a.stops.forEach((s, k) => W.label(card, { text: `${k === 0 ? "!" : k === a.stops.length - 1 ? "?" : String(k)}  ${s.name}`, fontSize: 10.5, color: UI.dim }));
+        a.issues.slice(0, 5).forEach((i) => W.label(card, { text: `${i.severity === "warn" ? "⚠" : "·"} ${i.text}`, wrap: true, fontSize: 10, color: i.severity === "warn" ? UI.amber : UI.dim }));
+        W.horizontal(card, () => {
+            W.button(card, { id: "btn_quest_open_story", text: icon("book-open", "Open quest"), onClick: () => openQuest(m.id) });
+            W.button(card, { id: "btn_quest_hide", text: icon("x", "Hide"), onClick: () => (model.highlightedQuestId = null) });
+        });
     });
 }
 
@@ -1247,12 +1852,26 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         });
     });
 
-    W.numericInput(panel, {
-        id: "edit_spot_elevation",
-        label: "Elevation (m):",
-        value: spot.elevation,
-        onChange: (v) => model.updateSpot(spot.id, { elevation: parseFloat(v) || 0 }),
+    const snapped = isSnapped(spot);
+    W.checkbox(panel, {
+        id: "edit_spot_snap",
+        label: "Snap to landscape (elevation follows the ground)",
+        value: snapped,
+        onChange: (v) => {
+            model.updateSpot(spot.id, { snapToGround: v });
+            statusMessage = v ? `"${spot.name}" sits on the ground now and follows terrain edits.` : `"${spot.name}" keeps its own elevation (a tower top, a sky citadel...).`;
+        },
     });
+    if (snapped) {
+        W.label(panel, { text: `Elevation: ${spot.elevation} m (on the ground)`, fontSize: 11, color: UI.text });
+    } else {
+        W.numericInput(panel, {
+            id: "edit_spot_elevation",
+            label: "Elevation (m):",
+            value: spot.elevation,
+            onChange: (v) => model.updateSpot(spot.id, { elevation: parseFloat(v) || 0, snapToGround: false }),
+        });
+    }
     if (model.world.terrain) {
         const ground = model.elevationAt(spot.x, spot.y);
         const slope = model.slopeAt(spot.x, spot.y);
@@ -1260,15 +1879,31 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         W.label(panel, {
             text: `Ground here: ${ground} m, slope ${slope.toFixed(0)}°${Math.abs(off) > 5 ? ` (spot is ${off > 0 ? "+" : ""}${off} m off the ground)` : ""}`,
             fontSize: 11,
-            color: Math.abs(off) > 5 ? UI.amber : UI.dim,
+            color: Math.abs(off) > 5 ? UI.amber : slope > 12 ? UI.amber : UI.dim,
         });
         if (Math.abs(off) > 5) {
             W.button(panel, {
                 id: "btn_spot_to_ground",
                 text: icon("mountains", "Put on the ground"),
-                onClick: () => model.updateSpot(spot.id, { elevation: ground }),
+                onClick: () => model.updateSpot(spot.id, { elevation: ground, snapToGround: true }),
             });
         }
+        // A flat footprint for the settlement or building.
+        W.horizontal(panel, () => {
+            W.slider(panel, { id: "slider_pad_radius", label: `Pad (${Math.round(padRadiusKm * 1000)} m):`, value: padRadiusKm, min: 0.05, max: 3, onChange: (v) => (padRadiusKm = parseFloat(v) || 0.5) });
+            W.button(panel, {
+                id: "btn_spot_pad",
+                text: icon("selection", "Level ground here"),
+                tooltip: "Flatten a building pad around the spot (its own elevation, or the mean ground when snapped)",
+                onClick: () => {
+                    const t = model.world.terrain!;
+                    const pad = circlePolygon(spot.x, spot.y, padRadiusKm);
+                    const level = snapped ? meanHeightInside(t, model.world.meta, pad) ?? ground : spot.elevation;
+                    model.setTerrain(flattenArea(t, model.world.meta, pad, { targetM: level, featherKm: Math.max(0.15, padRadiusKm * 0.8) }));
+                    statusMessage = `Levelled a ${Math.round(padRadiusKm * 2000)} m pad at ${Math.round(level)} m for "${spot.name}".`;
+                },
+            });
+        });
     }
 
     W.slider(panel, {
@@ -1331,6 +1966,8 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         },
     });
 
+    renderSpotStory(panel, spot);
+
     W.spacer(panel, 8);
     W.horizontal(panel, () => {
         W.button(panel, {
@@ -1363,6 +2000,65 @@ function renderSpotInspector(panel: string, spot: WorldSpot): void {
         tooltip: "Delete",
         accent: UI.rose,
         onClick: () => deleteSelected(),
+    });
+}
+
+/** The codex, quests and population tied to a spot. */
+function renderSpotStory(panel: string, spot: WorldSpot): void {
+    W.separator(panel);
+    W.label(panel, { text: icon("book-open", "Story & Codex here"), bold: true, fontSize: 12, color: UI.cyan });
+    const linked = (spot.linkedCodexIds ?? []).map((id) => model.world.codex.find((c) => c.id === id)).filter((c): c is CodexEntry => !!c);
+    linked.forEach((c) =>
+        W.horizontal(panel, () => {
+            W.button(panel, { id: `btn_spot_codex_${c.id}`, text: icon(CODEX_ICONS[c.category], c.name), onClick: () => openCodex(c.id) });
+            W.button(panel, { id: `btn_spot_unlink_${c.id}`, text: icon("x", ""), tooltip: "Unlink", onClick: () => model.linkCodexSpot(c.id, spot.id, false) });
+        })
+    );
+    const linkable = model.world.codex.filter((c) => !linked.includes(c));
+    if (linkable.length) {
+        W.dropdown(panel, {
+            id: "add_spot_codex",
+            label: "Link codex",
+            options: ["Choose an entry...", ...linkable.map((c) => `${c.name} (${c.category})`)],
+            selectedIndex: 0,
+            onChange: (v: string) => {
+                const c = linkable[Number(v) - 1];
+                if (c) {
+                    model.linkCodexSpot(c.id, spot.id, true);
+                    statusMessage = `Linked "${c.name}" to "${spot.name}".`;
+                }
+            },
+        });
+    }
+    const roles = model.world.missions
+        .map((m) => {
+            const r: string[] = [];
+            if (m.startSpotId === spot.id) r.push("given here");
+            if (m.objectiveSpotIds.includes(spot.id)) r.push("objective");
+            if (m.turnInSpotId === spot.id) r.push("turned in here");
+            return { m, r };
+        })
+        .filter((x) => x.r.length);
+    if (roles.length) {
+        W.label(panel, { text: "Quests:", fontSize: 11, color: UI.dim });
+        roles.forEach(({ m, r }) =>
+            W.horizontal(panel, () => {
+                W.button(panel, { id: `btn_spot_quest_${m.id}`, text: icon("sword", `${m.title} · ${r.join(", ")}`), onClick: () => openQuest(m.id) });
+                W.button(panel, { id: `btn_spot_quest_map_${m.id}`, text: icon("path", ""), tooltip: "Show its journey on the map", accent: model.highlightedQuestId === m.id ? UI.amber : undefined, onClick: () => (model.highlightedQuestId = model.highlightedQuestId === m.id ? null : m.id) });
+            })
+        );
+    }
+    const who = populationAt(model.world, spot.x, spot.y, 0.8);
+    if (who.length) {
+        W.label(panel, { text: `Who's here: ${who.map((w) => `${w.codex.name}${w.count > 1 ? ` x${w.count}` : ""}${w.painted ? " (roams)" : ""}`).join(", ")}`, wrap: true, fontSize: 11, color: UI.dim });
+    }
+    W.button(panel, {
+        id: "btn_spot_populate",
+        text: icon("users", "Place someone here"),
+        onClick: () => {
+            selectTool("populate");
+            model.selectedId = null;
+        },
     });
 }
 
@@ -1458,6 +2154,38 @@ function renderPathInspector(panel: string, path: WorldPath): void {
         W.label(card, { text: `Foot: ${travelFoot.formattedDuration} · Horse: ${travelHorse.formattedDuration}`, fontSize: 11, color: UI.dim });
     });
 
+    if (t && path.points.length >= 2) {
+        W.horizontal(panel, () => {
+            if (path.pathType !== "river") {
+                W.button(panel, {
+                    id: "btn_path_grade",
+                    text: icon("road-horizon", "Grade terrain along it"),
+                    tooltip: `Cut and fill an even bed (max ${model.sculpt.gradeMaxPercent}% grade) under the ${path.pathType}`,
+                    onClick: () => {
+                        const widthKm = Math.max(0.03, path.width * 0.012);
+                        model.setTerrain(gradeAlongPath(t, model.world.meta, path.points, { widthKm, maxGrade: model.sculpt.gradeMaxPercent / 100 }));
+                        statusMessage = `Graded a ${Math.round(widthKm * 1000)} m bed under "${path.name}" (max ${model.sculpt.gradeMaxPercent}% grade).`;
+                    },
+                });
+            }
+            W.button(panel, {
+                id: "btn_path_canyon",
+                text: icon("mountains", path.pathType === "river" ? "Carve a canyon for it" : "Sink it into a cutting"),
+                tooltip: `Canyon settings from the Sculpt tool: ${model.sculpt.canyonWidthKm} km wide, ${model.sculpt.canyonDepthM} m deep`,
+                onClick: () => {
+                    const river = path.pathType === "river";
+                    model.setTerrain(carveCanyon(t, model.world.meta, path.points, {
+                        widthKm: river ? model.sculpt.canyonWidthKm : Math.max(0.1, path.width * 0.03),
+                        depthM: river ? model.sculpt.canyonDepthM : 25,
+                        steepness: model.sculpt.canyonSteepness,
+                        downhill: river,
+                    }));
+                    statusMessage = `Carved along "${path.name}".`;
+                },
+            });
+        });
+    }
+
     W.spacer(panel, 8);
     W.horizontal(panel, () => {
         W.button(panel, {
@@ -1538,6 +2266,17 @@ function renderRegionInspector(panel: string, region: WorldRegion): void {
         onChange: (v) => model.updateRegion(region.id, { description: v }),
     });
 
+    const factions = model.world.codex.filter((c) => c.category === "faction");
+    W.dropdown(panel, {
+        id: "edit_region_faction",
+        label: "Held by",
+        options: ["(no faction)", ...factions.map((f) => f.name)],
+        selectedIndex: region.controllingFactionId ? Math.max(0, factions.findIndex((f) => f.id === region.controllingFactionId) + 1) : 0,
+        onChange: (v: string) => model.updateRegion(region.id, { controllingFactionId: factions[Number(v) - 1]?.id }),
+    });
+
+    renderRegionPlan(panel, region);
+
     W.card(panel, { id: "card_region_stats", fill: UI.card, padding: 8 }, (card) => {
         W.label(card, { text: "Region Metrics", bold: true, fontSize: 11, color: UI.emerald });
         W.label(card, { text: `Area: ${polygonAreaKm2(region.points).toFixed(1)} km² · ${region.points.length} vertices`, fontSize: 11, color: UI.text });
@@ -1577,6 +2316,8 @@ function renderRegionInspector(panel: string, region: WorldRegion): void {
         }
     });
 
+    renderRegionMarks(panel, region);
+
     W.spacer(panel, 8);
     W.horizontal(panel, () => {
         W.button(panel, {
@@ -1596,12 +2337,102 @@ function renderRegionInspector(panel: string, region: WorldRegion): void {
     });
 }
 
+/** The region's biome and regional plan: optional notes for art, audio and encounters. */
+function renderRegionPlan(panel: string, region: WorldRegion): void {
+    W.collapsingHeader(
+        panel,
+        icon("leaf", "Biome & regional plan"),
+        (sec) => {
+            const plan = region.plan ?? {};
+            const set = (k: keyof RegionPlan, v: string | number | undefined) => {
+                const current = model.world.regions.find((r) => r.id === region.id)?.plan ?? {};
+                model.updateRegion(region.id, { plan: { ...current, [k]: v === "" ? undefined : v } });
+            };
+            const field = (k: keyof RegionPlan, label: string, hint: string) =>
+                W.textInput(sec, { id: `edit_region_plan_${k}`, label: plan[k] ? label : `${label} (${hint})`, value: String(plan[k] ?? ""), onChange: (v) => set(k, v) });
+            field("climate", "Climate:", "temperate, arid, monsoon, permafrost...");
+            field("flora", "Flora:", "what grows here");
+            field("fauna", "Fauna:", "wildlife, beasts");
+            field("resources", "Resources:", "ore, timber, herbs...");
+            field("mood", "Mood / light / music:", "misty dawns, low strings");
+            W.horizontal(sec, () => {
+                W.numericInput(sec, { id: "edit_region_plan_lvmin", label: "Levels from:", value: plan.levelMin ?? 0, min: 0, onChange: (v) => set("levelMin", parseInt(v, 10) || undefined) });
+                W.numericInput(sec, { id: "edit_region_plan_lvmax", label: "to:", value: plan.levelMax ?? 0, min: 0, onChange: (v) => set("levelMax", parseInt(v, 10) || undefined) });
+            });
+            W.textInput(sec, { id: "edit_region_plan_notes", label: "Notes:", value: plan.notes ?? "", multiline: true, height: 60, onChange: (v) => set("notes", v) });
+        },
+        `sec_region_plan_${region.id}`,
+        true
+    );
+}
+
+/** What is painted and placed inside a region, and tools to paint it. */
+function renderRegionMarks(panel: string, region: WorldRegion): void {
+    if (region.points.length < 3) return;
+    W.card(panel, { id: "card_region_marks", fill: UI.card, padding: 8 }, (card) => {
+        W.label(card, { text: icon("tree", "Painted & populated"), bold: true, fontSize: 11, color: UI.emerald });
+        const cov = layerCoverage(model.world.overlay, model.world.meta, region.points);
+        if (!cov.length) W.label(card, { text: "Nothing painted inside yet.", fontSize: 10.5, color: UI.dim });
+        cov.slice(0, 8).forEach((c) => W.label(card, { text: `${layerLabel(model.world, c.key)}: ${Math.round(c.share * 100)}% (${c.areaKm2} km²)`, fontSize: 10.5, color: isCodexLayer(c.key) ? UI.rose : UI.text }));
+        const sug = suggestBiome(model.world.overlay, model.world.meta, region.points);
+        if (sug && sug.biome !== region.dominantBiome) {
+            W.button(card, {
+                id: "btn_region_apply_biome",
+                text: icon("leaf", `Paint says ${sug.biome} (${Math.round(sug.share * 100)}% ${sug.mark.label.toLowerCase()}) - use it`),
+                onClick: () => model.updateRegion(region.id, { dominantBiome: sug.biome }),
+            });
+        }
+        const placed = placementsInside(model.world, region.points);
+        if (placed.length) {
+            W.label(card, { text: `Placed: ${placed.map((p) => `${codexName(p.codexId)}${p.count > 1 ? ` x${p.count}` : ""}`).join(", ")}`, wrap: true, fontSize: 10.5, color: UI.dim });
+        }
+        const quests = model.world.missions.filter((m) =>
+            m.objectiveRegionIds?.includes(region.id) ||
+            [m.startSpotId, m.turnInSpotId, ...m.objectiveSpotIds].some((id) => {
+                const s = model.world.spots.find((x) => x.id === id);
+                return s && regionsAt(model.world, s.x, s.y).some((r) => r.id === region.id);
+            })
+        );
+        quests.forEach((m) => W.button(card, { id: `btn_region_quest_${m.id}`, text: icon("sword", m.title), onClick: () => openQuest(m.id) }));
+        const mark = MARK_BY_ID[model.paintKey] ? model.paintKey : "forest";
+        W.horizontal(card, () => {
+            W.button(card, {
+                id: "btn_region_fill_mark",
+                text: icon("paint-brush", `Fill with ${MARK_BY_ID[mark].label}`),
+                onClick: () => {
+                    const n = model.editOverlay((o) => fillPolygon(o, model.world.meta, mark, region.points, 1));
+                    statusMessage = `Filled "${region.name}" with ${MARK_BY_ID[mark].label} (${n} cells).`;
+                },
+            });
+            W.button(card, {
+                id: "btn_region_clear_marks",
+                text: icon("eraser", "Clear"),
+                onClick: () => {
+                    const n = model.editOverlay((o) => clearInside(o, model.world.meta, region.points));
+                    statusMessage = `Cleared ${n} painted cells in "${region.name}".`;
+                },
+            });
+        });
+        W.button(card, {
+            id: "btn_region_paint_inside",
+            text: icon("paint-brush", "Paint inside this region"),
+            tooltip: "The Paint tool, confined to this outline",
+            onClick: () => {
+                model.paintClipRegionId = region.id;
+                selectTool("paint");
+                model.selectedId = null;
+            },
+        });
+    });
+}
+
 // =================================================================================================
 // TAB 2: CODEX (CHARACTERS, POWERS, WEAPONS, FACTIONS, LORE)
 // =================================================================================================
 
 const CODEX_ICONS: Record<CodexCategory, IconName> = {
     character: "user",
+    creature: "paw-print",
     power: "lightning",
     weapon: "sword",
     faction: "shield-star",
@@ -1641,13 +2472,14 @@ function renderCodexList(side: string): void {
     const categories: Array<{ id: CodexCategory | "all"; label: string }> = [
         { id: "all", label: "All" },
         { id: "character", label: "Characters" },
+        { id: "creature", label: "Bestiary" },
         { id: "power", label: "Powers" },
         { id: "weapon", label: "Weapons" },
         { id: "faction", label: "Factions" },
         { id: "lore", label: "Lore" },
     ];
 
-    for (const row of [categories.slice(0, 3), categories.slice(3)]) {
+    for (const row of [categories.slice(0, 4), categories.slice(4)]) {
         W.horizontal(side, () => {
             row.forEach((c) => {
                 W.button(side, {
@@ -1752,6 +2584,8 @@ function renderCodexDetail(main: string): void {
         });
     });
 
+    renderCodexOnMap(main, entry);
+
     W.separator(main);
     W.label(main, { text: "AI Concept Art Generator", bold: true, fontSize: 12, color: UI.cyan });
 
@@ -1818,6 +2652,83 @@ function renderCodexDetail(main: string): void {
             },
         });
     });
+}
+
+/** Where a codex entry is on the map, and the ways to put it there. */
+function renderCodexOnMap(main: string, entry: CodexEntry): void {
+    W.separator(main);
+    W.label(main, { text: icon("map-trifold", "On the map"), bold: true, fontSize: 12, color: UI.emerald });
+    const where = codexMapPresence(model.world, entry);
+    const placeable = PLACEABLE_CATEGORIES.includes(entry.category);
+    W.card(main, { id: "card_codex_map", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, {
+            text: `${where.spots.length} linked spot(s) · ${where.placements.length} placement(s) (${where.placements.reduce((n, p) => n + p.count, 0)} total) · painted over ${where.paintedKm2} km² · ${where.missions.length} quest(s)`,
+            fontSize: 11,
+            color: UI.text,
+            wrap: true,
+        });
+        if (where.regions.length) W.label(card, { text: `Found in: ${where.regions.map((r) => r.name).join(", ")}`, fontSize: 11, color: UI.dim, wrap: true });
+        where.spots.forEach((s) =>
+            W.horizontal(card, () => {
+                W.button(card, { id: `btn_codex_spot_${s.id}`, text: icon("map-pin", s.name), onClick: () => showOnMap(s.id, s.x, s.y) });
+                W.button(card, { id: `btn_codex_unlink_${s.id}`, text: icon("x", ""), tooltip: "Unlink", onClick: () => model.linkCodexSpot(entry.id, s.id, false) });
+            })
+        );
+        const linkable = model.world.spots.filter((s) => !where.spots.includes(s));
+        if (linkable.length) {
+            W.dropdown(card, {
+                id: "add_codex_spot",
+                label: "Link to spot",
+                options: ["Choose a spot...", ...linkable.map((s) => `${s.name} (${s.spotType})`)],
+                selectedIndex: 0,
+                onChange: (v: string) => {
+                    const s = linkable[Number(v) - 1];
+                    if (s) {
+                        model.linkCodexSpot(entry.id, s.id, true);
+                        statusMessage = `Linked "${entry.name}" to "${s.name}".`;
+                    }
+                },
+            });
+        }
+        where.placements.slice(0, 12).forEach((p) => W.button(card, { id: `btn_codex_place_${p.id}`, text: icon(CODEX_ICONS[entry.category], `${placementDetail(p)} at ${fmtKm([p.x, p.y])}`), onClick: () => showOnMap(p.id, p.x, p.y) }));
+        where.missions.forEach((mid) => {
+            const m = model.world.missions.find((x) => x.id === mid);
+            if (m) W.button(card, { id: `btn_codex_quest_${m.id}`, text: icon("sword", m.title), onClick: () => openQuest(m.id) });
+        });
+        if (placeable) {
+            W.horizontal(card, () => {
+                W.button(card, {
+                    id: "btn_codex_place",
+                    text: icon("map-pin", "Place on map"),
+                    accent: UI.cyan,
+                    onClick: () => {
+                        model.activeTab = "map";
+                        model.selectedId = null;
+                        model.populateCodexId = entry.id;
+                        selectTool("populate");
+                    },
+                });
+                W.button(card, {
+                    id: "btn_codex_paint",
+                    text: icon("paint-brush", "Paint where it roams"),
+                    onClick: () => {
+                        model.activeTab = "map";
+                        model.selectedId = null;
+                        model.populateCodexId = entry.id;
+                        selectTool("populate");
+                        statusMessage = `Drag on the map to paint where ${entry.name} ${entry.category === "creature" ? "roams" : "can be found"}.`;
+                    },
+                });
+            });
+        }
+    });
+}
+
+function showOnMap(id: string, x: number, y: number): void {
+    model.activeTab = "map";
+    model.selectedId = id;
+    if (model.placements.some((p) => p.id === id)) model.selectedPlacementId = id;
+    model.focusOn(x, y);
 }
 
 // =================================================================================================
@@ -1992,14 +2903,53 @@ function renderMissionDetail(main: string): void {
     W.label(main, { text: `Objectives (${mission.objectiveSpotIds.length}):`, fontSize: 11, color: UI.text, bold: true });
     mission.objectiveSpotIds.forEach((sid, k) => {
         const s = spots.find((sp) => sp.id === sid);
+        const d = mission.objectiveDetails?.[sid];
+        const setDetail = (u: Partial<QuestObjectiveDetail>) => {
+            const cur = model.world.missions.find((m) => m.id === mission.id);
+            if (!cur) return;
+            const prev = cur.objectiveDetails?.[sid] ?? { action: "go" as ObjectiveAction };
+            model.updateMission(mission.id, { objectiveDetails: { ...(cur.objectiveDetails ?? {}), [sid]: { ...prev, ...u } } });
+        };
         W.horizontal(main, () => {
-            W.label(main, { text: `${k + 1}. ${s ? s.name : "(missing spot)"}`, fontSize: 11, color: UI.dim });
+            W.label(main, { text: `${k + 1}. ${s ? s.name : "(missing spot)"}`, fontSize: 11, color: UI.text, bold: true });
+            W.dropdown(main, {
+                id: `edit_obj_action_${k}`,
+                label: "",
+                options: OBJECTIVE_ACTIONS.map((a) => ACTION_INFO[a].label),
+                selectedIndex: Math.max(0, OBJECTIVE_ACTIONS.indexOf(d?.action ?? "go")),
+                onChange: (v: string) => setDetail({ action: OBJECTIVE_ACTIONS[Number(v)] || "go" }),
+            });
+            const cats = targetCategoriesFor(d?.action ?? "go");
+            if (cats.length) {
+                const targets = model.world.codex.filter((c) => cats.includes(c.category));
+                W.dropdown(main, {
+                    id: `edit_obj_target_${k}`,
+                    label: "",
+                    options: ["(whom / what)", ...targets.map((c) => c.name)],
+                    selectedIndex: d?.targetCodexId ? Math.max(0, targets.findIndex((c) => c.id === d.targetCodexId) + 1) : 0,
+                    onChange: (v: string) => setDetail({ targetCodexId: targets[Number(v) - 1]?.id }),
+                });
+            }
+            if (d && (d.action === "defeat" || d.action === "collect")) {
+                W.numericInput(main, { id: `edit_obj_count_${k}`, label: "x", value: d.count ?? 1, min: 1, onChange: (v) => setDetail({ count: Math.max(1, parseInt(v, 10) || 1) }) });
+            }
+            W.checkbox(main, { id: `edit_obj_optional_${k}`, label: "optional", value: !!d?.optional, onChange: (v) => setDetail({ optional: v }) });
             W.button(main, {
                 id: `btn_remove_objective_${k}`,
                 text: icon("x", "Remove"),
-                onClick: () => model.updateMission(mission.id, { objectiveSpotIds: mission.objectiveSpotIds.filter((_, i) => i !== k) }),
+                onClick: () => {
+                    const details = { ...(mission.objectiveDetails ?? {}) };
+                    delete details[sid];
+                    model.updateMission(mission.id, { objectiveSpotIds: mission.objectiveSpotIds.filter((_, i) => i !== k), objectiveDetails: details });
+                },
             });
         });
+        if (d && d.action !== "go") {
+            W.horizontal(main, () => {
+                W.textInput(main, { id: `edit_obj_note_${k}`, label: "     Note:", value: d.note ?? "", onChange: (v) => setDetail({ note: v }) });
+                W.numericInput(main, { id: `edit_obj_minutes_${k}`, label: "Minutes there:", value: d.minutes ?? 0, min: 0, tooltip: "0 = estimate from the action", onChange: (v) => setDetail({ minutes: parseFloat(v) || undefined }) });
+            });
+        }
     });
     const addable = spots.filter((s) => !mission.objectiveSpotIds.includes(s.id));
     if (addable.length) {
@@ -2021,19 +2971,27 @@ function renderMissionDetail(main: string): void {
     const startSpot = spots.find((s) => s.id === mission.startSpotId);
     const objSpots = mission.objectiveSpotIds.map((id) => spots.find((s) => s.id === id)).filter((s): s is WorldSpot => !!s);
     const turnInSpot = spots.find((s) => s.id === mission.turnInSpotId) || startSpot;
+    const analysis = analyzeQuest(model.world, mission);
     if (startSpot && objSpots.length > 0 && turnInSpot) {
         const routeWaypoints = [startSpot, ...objSpots, turnInSpot].map((s) => ({ x: s.x, y: s.y, elevation: s.elevation }));
         const routeFoot = calculateRouteTravelTime(routeWaypoints, "foot");
         const routeHorse = calculateRouteTravelTime(routeWaypoints, "mount");
         W.card(main, { id: "card_mission_route", fill: UI.card, padding: 10 }, (card) => {
-            W.label(card, { text: "Quest Journey Estimate", bold: true, fontSize: 11, color: UI.amber });
+            W.horizontal(card, () => {
+                W.label(card, { text: "Quest Journey Estimate", bold: true, fontSize: 11, color: UI.amber });
+                W.button(card, { id: "btn_mission_show_map", text: icon("map-trifold", "Show on map"), accent: UI.amber, onClick: () => showQuestOnMap(mission) });
+            });
             W.label(card, { text: `${startSpot.name} → ${objSpots.map((s) => s.name).join(" → ")} → ${turnInSpot.name}`, fontSize: 11, color: UI.text, wrap: true });
             W.label(card, { text: `Total distance: ${routeFoot.distanceKm} km`, fontSize: 11, color: UI.text });
-            W.label(card, { text: `On foot: ${routeFoot.formattedDuration} · Mounted: ${routeHorse.formattedDuration}`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Straight line - on foot: ${routeFoot.formattedDuration} · Mounted: ${routeHorse.formattedDuration}`, fontSize: 11, color: UI.dim });
+            W.label(card, { text: `Over the terrain and roads: ${analysis.summary}`, fontSize: 11, color: UI.text, wrap: true });
+            analysis.legs.forEach((l) => W.label(card, { text: `   ${l.from} → ${l.to}: ${l.distanceKm} km, ${formatDuration(l.minutes / 60)}${l.byRoad ? " by road" : " cross-country"}`, fontSize: 10.5, color: UI.dim }));
         });
     } else {
         W.label(main, { text: "Set a quest giver and at least one objective to estimate the journey.", fontSize: 11, color: UI.dim });
     }
+
+    renderQuestPlanning(main, mission, analysis);
 
     W.separator(main);
     W.label(main, { text: "Prerequisite quests", bold: true, fontSize: 12, color: UI.cyan });
@@ -2081,8 +3039,134 @@ function renderMissionDetail(main: string): void {
     });
 }
 
+/** Optional planning detail and the planning check, for a quest. */
+function renderQuestPlanning(main: string, mission: Mission, analysis: ReturnType<typeof analyzeQuest>): void {
+    const fresh = () => model.world.missions.find((m) => m.id === mission.id) ?? mission;
+    W.collapsingHeader(
+        main,
+        icon("sliders", "Planning details (optional)"),
+        (sec) => {
+            const chars = model.world.codex.filter((c) => c.category === "character");
+            W.dropdown(sec, {
+                id: "edit_mission_giver_codex",
+                label: "Given by (character)",
+                options: ["(nobody in particular)", ...chars.map((c) => c.name)],
+                selectedIndex: mission.giverCodexId ? Math.max(0, chars.findIndex((c) => c.id === mission.giverCodexId) + 1) : 0,
+                onChange: (v: string) => model.updateMission(mission.id, { giverCodexId: chars[Number(v) - 1]?.id }),
+            });
+            W.textInput(sec, { id: "edit_mission_hook", label: "Hook (why the player cares):", value: mission.hook ?? "", onChange: (v) => model.updateMission(mission.id, { hook: v || undefined }) });
+            W.horizontal(sec, () => {
+                W.numericInput(sec, { id: "edit_mission_lvmin", label: "Level from:", value: mission.levelMin ?? 0, min: 0, onChange: (v) => model.updateMission(mission.id, { levelMin: parseInt(v, 10) || undefined }) });
+                W.numericInput(sec, { id: "edit_mission_lvmax", label: "to:", value: mission.levelMax ?? 0, min: 0, onChange: (v) => model.updateMission(mission.id, { levelMax: parseInt(v, 10) || undefined }) });
+            });
+
+            // Rewards from the codex.
+            const rewards = mission.rewardCodexIds ?? [];
+            rewards.forEach((id, k) =>
+                W.horizontal(sec, () => {
+                    W.label(sec, { text: `Reward: ${codexName(id)}`, fontSize: 11, color: UI.dim });
+                    W.button(sec, { id: `btn_remove_reward_${k}`, text: icon("x", ""), onClick: () => model.updateMission(mission.id, { rewardCodexIds: rewards.filter((_, i) => i !== k) }) });
+                })
+            );
+            const rewardable = model.world.codex.filter((c) => ["weapon", "power", "lore"].includes(c.category) && !rewards.includes(c.id));
+            if (rewardable.length) {
+                W.dropdown(sec, {
+                    id: "add_mission_reward",
+                    label: "Grants",
+                    options: ["Choose an item or power...", ...rewardable.map((c) => `${c.name} (${c.category})`)],
+                    selectedIndex: 0,
+                    onChange: (v: string) => {
+                        const c = rewardable[Number(v) - 1];
+                        if (c) model.updateMission(mission.id, { rewardCodexIds: [...rewards, c.id] });
+                    },
+                });
+            }
+
+            // Faction standing.
+            const rep = mission.reputation ?? [];
+            rep.forEach((r, k) =>
+                W.horizontal(sec, () => {
+                    W.label(sec, { text: `Standing with ${codexName(r.factionId)}:`, fontSize: 11, color: UI.dim });
+                    W.numericInput(sec, {
+                        id: `edit_rep_${k}`,
+                        label: "",
+                        value: r.amount,
+                        onChange: (v) => model.updateMission(mission.id, { reputation: (fresh().reputation ?? []).map((x, i) => (i === k ? { ...x, amount: parseInt(v, 10) || 0 } : x)) }),
+                    });
+                    W.button(sec, { id: `btn_remove_rep_${k}`, text: icon("x", ""), onClick: () => model.updateMission(mission.id, { reputation: rep.filter((_, i) => i !== k) }) });
+                })
+            );
+            const factions = model.world.codex.filter((c) => c.category === "faction" && !rep.some((r) => r.factionId === c.id));
+            if (factions.length) {
+                W.dropdown(sec, {
+                    id: "add_mission_rep",
+                    label: "Affects standing with",
+                    options: ["Choose a faction...", ...factions.map((f) => f.name)],
+                    selectedIndex: 0,
+                    onChange: (v: string) => {
+                        const f = factions[Number(v) - 1];
+                        if (f) model.updateMission(mission.id, { reputation: [...rep, { factionId: f.id, amount: 10 }] });
+                    },
+                });
+            }
+
+            // Outcomes and what they open.
+            W.label(sec, { text: "Outcomes / choices:", fontSize: 11, color: UI.text, bold: true });
+            const outcomes = mission.outcomes ?? [];
+            outcomes.forEach((o, k) => {
+                const setO = (u: Partial<typeof o>) => model.updateMission(mission.id, { outcomes: (fresh().outcomes ?? []).map((x, i) => (i === k ? { ...x, ...u } : x)) });
+                W.horizontal(sec, () => {
+                    W.textInput(sec, { id: `edit_outcome_label_${k}`, label: `${k + 1}.`, value: o.label, onChange: (v) => setO({ label: v }) });
+                    W.button(sec, { id: `btn_remove_outcome_${k}`, text: icon("x", ""), onClick: () => model.updateMission(mission.id, { outcomes: outcomes.filter((_, i) => i !== k) }) });
+                });
+                W.textInput(sec, { id: `edit_outcome_consequence_${k}`, label: "     Consequence:", value: o.consequence ?? "", onChange: (v) => setO({ consequence: v || undefined }) });
+                o.unlocksMissionIds.forEach((mid, j) =>
+                    W.horizontal(sec, () => {
+                        W.label(sec, { text: `     Opens: ${model.world.missions.find((m) => m.id === mid)?.title ?? "(missing quest)"}`, fontSize: 10.5, color: UI.dim });
+                        W.button(sec, { id: `btn_remove_unlock_${k}_${j}`, text: icon("x", ""), onClick: () => setO({ unlocksMissionIds: o.unlocksMissionIds.filter((_, i) => i !== j) }) });
+                    })
+                );
+                const openable = model.world.missions.filter((m) => m.id !== mission.id && !o.unlocksMissionIds.includes(m.id));
+                if (openable.length) {
+                    W.dropdown(sec, {
+                        id: `add_outcome_unlock_${k}`,
+                        label: "     Opens",
+                        options: ["Choose a quest...", ...openable.map((m) => m.title)],
+                        selectedIndex: 0,
+                        onChange: (v: string) => {
+                            const m = openable[Number(v) - 1];
+                            if (m) setO({ unlocksMissionIds: [...o.unlocksMissionIds, m.id] });
+                        },
+                    });
+                }
+            });
+            W.button(sec, {
+                id: "btn_add_outcome",
+                text: icon("plus", "Add an outcome"),
+                onClick: () => model.updateMission(mission.id, { outcomes: [...outcomes, { id: `outcome_${Date.now()}_${outcomes.length}`, label: outcomes.length ? "Alternative ending" : "Success", unlocksMissionIds: [] }] }),
+            });
+        },
+        "sec_mission_planning",
+        false
+    );
+
+    W.card(main, { id: "card_mission_check", fill: UI.card, padding: 10 }, (card) => {
+        W.label(card, { text: icon("list-checks", "Planning check"), bold: true, fontSize: 11, color: UI.cyan });
+        const lv = mission.levelMax ?? mission.levelMin;
+        const bits = [
+            analysis.stops.length >= 2 ? analysis.summary : "",
+            analysis.peakDanger ? `objective danger up to ${analysis.peakDanger}${lv !== undefined ? ` (comfortable for level ${lv}: ~${comfortableDanger(lv)})` : ""}` : "",
+            analysis.chainDepth ? `${analysis.chainDepth} quest(s) deep in its chain` : "can be started right away",
+            analysis.unlocks.length ? `unlocks ${analysis.unlocks.map((m) => m.title).join(", ")}` : "",
+        ].filter(Boolean);
+        W.label(card, { text: bits.join(" · "), wrap: true, fontSize: 10.5, color: UI.text });
+        if (!analysis.issues.length) W.label(card, { text: icon("check", "Nothing to flag."), fontSize: 10.5, color: UI.emerald });
+        analysis.issues.forEach((i) => W.label(card, { text: `${i.severity === "warn" ? "⚠" : "·"} ${i.text}`, wrap: true, fontSize: 10.5, color: i.severity === "warn" ? UI.amber : UI.dim }));
+    });
+}
+
 // =================================================================================================
-// TAB 4: TERRAIN & PROCEDURAL TOOLS
+// TERRAIN & PROCEDURAL TOOLS (the map sidebar, when nothing is selected)
 // =================================================================================================
 
 function requireTerrain() {
@@ -2090,40 +3174,27 @@ function requireTerrain() {
     return model.world.terrain!;
 }
 
-function renderProceduralView(main: string): void {
-    W.label(main, { text: "Terrain & Procedural Tools", bold: true, fontSize: 16, color: UI.emerald });
+function renderTerrainTools(main: string): void {
     W.label(main, {
-        text: "Every tool here works on the world's one heightfield: rivers follow its drainage, settlements are scored on it, roads are routed over it, and spots read their elevation from it.",
+        text: "Every tool works on the world's one heightfield: rivers follow its drainage, settlements are scored on it, roads are routed over it, snapped spots read their elevation from it. Hand edits: the Sculpt tool (E).",
         color: UI.dim,
-        fontSize: 12,
+        fontSize: 10.5,
         wrap: true,
     });
-    W.separator(main);
 
     const t = model.world.terrain;
     if (t) {
         const stats = terrainStats(t.data);
         const land = t.data.filter((v) => v > t.seaLevelM).length / t.data.length;
-        W.card(main, { id: "card_terrain_stats", fill: UI.card, padding: 10 }, (card) => {
-            W.horizontal(card, () => {
-                W.label(card, { text: `Current terrain: ${t.cols}x${t.rows} grid · ${Math.round(stats.min)} to ${Math.round(stats.max)} m · ${Math.round(land * 100)}% land`, fontSize: 12, color: UI.text });
-                W.spacer(card, 12);
-                W.button(card, {
-                    id: "btn_view_on_map",
-                    text: icon("map-trifold", "View on Map"),
-                    onClick: () => {
-                        model.activeTab = "map";
-                    },
-                });
-            });
-        });
-        W.spacer(main, 10);
+        W.label(main, { text: `${t.cols}x${t.rows} grid · ${Math.round(stats.min)} to ${Math.round(stats.max)} m · ${Math.round(land * 100)}% land`, fontSize: 11, color: UI.text });
+        W.button(main, { id: "btn_open_sculpt", text: icon("shovel", "Sculpt by hand (E)"), accent: model.activeTool === "sculpt" ? UI.amber : undefined, onClick: () => selectTool("sculpt") });
+        W.spacer(main, 6);
     }
 
     // 1. Heightfield
     W.card(main, { id: "card_proc_heightfield", fill: UI.card, padding: 12 }, (card) => {
-        W.label(card, { text: "1. Terrain Heightfield", bold: true, fontSize: 13, color: UI.text });
-        W.label(card, { text: "Domain-warped fractal landmass with ridged mountain ranges, beaches and continental shelves.", color: UI.dim, fontSize: 11 });
+        W.label(card, { text: "1. Terrain Heightfield", bold: true, fontSize: 12, color: UI.text });
+        W.label(card, { text: "Domain-warped fractal landmass with ridged mountain ranges, beaches and continental shelves.", color: UI.dim, fontSize: 10.5, wrap: true });
         W.horizontal(card, () => {
             W.numericInput(card, {
                 id: "input_proc_seed",
@@ -2140,6 +3211,8 @@ function renderProceduralView(main: string): void {
                     procSeed = Math.floor(Math.random() * 99999) + 1;
                 },
             });
+        });
+        W.horizontal(card, () => {
             W.numericInput(card, {
                 id: "input_mountain_scale",
                 label: "Highest peak (m):",
@@ -2225,7 +3298,7 @@ function renderProceduralView(main: string): void {
 
     // 2. Erosion
     W.card(main, { id: "card_proc_erosion", fill: UI.card, padding: 12 }, (card) => {
-        W.label(card, { text: "2. Hydraulic Erosion", bold: true, fontSize: 13, color: UI.text });
+        W.label(card, { text: "2. Hydraulic Erosion", bold: true, fontSize: 12, color: UI.text });
         W.label(card, { text: "Rain droplets run downhill, cutting gullies where they speed up and laying sediment where they slow down. Run it more than once for older, softer land.", color: UI.dim, fontSize: 11, wrap: true });
         W.slider(card, {
             id: "slider_erosion_iters",
@@ -2255,8 +3328,8 @@ function renderProceduralView(main: string): void {
 
     // 3. Rivers
     W.card(main, { id: "card_proc_rivers", fill: UI.card, padding: 12 }, (card) => {
-        W.label(card, { text: "3. Rivers from Drainage", bold: true, fontSize: 13, color: UI.text });
-        W.label(card, { text: "Fills pits, routes every cell's water downhill, and traces the biggest catchments from source to sea.", color: UI.dim, fontSize: 11, wrap: true });
+        W.label(card, { text: "3. Rivers from Drainage", bold: true, fontSize: 12, color: UI.text });
+        W.label(card, { text: "Fills pits, routes every cell's water downhill, and traces the biggest catchments from source to sea.", color: UI.dim, fontSize: 10.5, wrap: true });
         W.slider(card, {
             id: "slider_river_count",
             label: `Rivers (${procRiverCount}):`,
@@ -2286,7 +3359,10 @@ function renderProceduralView(main: string): void {
                 // Replace rivers traced earlier, keep hand-drawn ones.
                 model.world.paths = model.world.paths.filter((p) => !(p.pathType === "river" && p.id.startsWith("river_")));
                 rivers.forEach((r) => model.world.paths.push(r));
-                if (procCarveRivers && rivers.length) model.world.terrain = carveRivers(terrain, model.world.meta, rivers);
+                if (procCarveRivers && rivers.length) {
+                    model.world.terrain = carveRivers(terrain, model.world.meta, rivers);
+                    model.resampleSnappedSpots();
+                }
                 statusMessage = rivers.length ? `Traced ${rivers.length} rivers to the sea.` : "No catchment was large enough for a river; try more land or more relief.";
             },
         });
@@ -2296,7 +3372,7 @@ function renderProceduralView(main: string): void {
 
     // 4. Settlements
     W.card(main, { id: "card_proc_towns", fill: UI.card, padding: 12 }, (card) => {
-        W.label(card, { text: "4. Settlements & Roads", bold: true, fontSize: 13, color: UI.text });
+        W.label(card, { text: "4. Settlements & Roads", bold: true, fontSize: 12, color: UI.text });
         W.label(card, { text: "Places a capital on flat, watered lowland, a port on the coast, a fortress on high ground, mines in the mountains; roads are routed around steep ground and water.", color: UI.dim, fontSize: 11, wrap: true });
         W.button(card, {
             id: "btn_generate_settlements",
@@ -2317,7 +3393,7 @@ function renderProceduralView(main: string): void {
 
     // 5. Scatter
     W.card(main, { id: "card_proc_scatter", fill: UI.card, padding: 12 }, (card) => {
-        W.label(card, { text: "5. Wilderness Points of Interest", bold: true, fontSize: 13, color: UI.text });
+        W.label(card, { text: "5. Wilderness Points of Interest", bold: true, fontSize: 12, color: UI.text });
         W.label(card, { text: "Ruins, lairs, mines, shrines and camps on open land, away from existing spots; danger grows with remoteness.", color: UI.dim, fontSize: 11, wrap: true });
         W.slider(card, {
             id: "slider_scatter_count",
@@ -2452,6 +3528,7 @@ addon.onInit(() => {
             renderHeader(tabId);
 
             const ownScroll = model.activeTab === "map" || model.activeTab === "codex" || model.activeTab === "story";
+            if ((model.activeTab as string) === "procedural") model.activeTab = "map";
             W.split(
                 tabId,
                 {
@@ -2461,14 +3538,13 @@ addon.onInit(() => {
                     reserveBottom: 26,
                     minHeight: 650,
                     mainPadding: ownScroll ? 0 : 16,
-                    // The procedural and agent pages are taller than the window; they scroll here.
+                    // The agent page is taller than the window; it scrolls here.
                     scrollMain: !ownScroll,
                 } as SplitConfig,
                 (main: string) => {
                     if (model.activeTab === "map") renderMapView(main);
                     else if (model.activeTab === "codex") renderCodexView(main);
                     else if (model.activeTab === "story") renderStoryView(main);
-                    else if (model.activeTab === "procedural") renderProceduralView(main);
                     else renderAgentView(main);
                 }
             );
@@ -2501,6 +3577,14 @@ addon.onInit(() => {
         else if (k === "g") selectTool("draw_region");
         else if (k === "m") selectTool(model.activeTool === "measure" ? "select" : "measure");
         else if (k === "i") selectTool(model.activeTool === "intent" ? "select" : "intent");
+        else if (k === "e") selectTool(model.activeTool === "sculpt" ? "select" : "sculpt");
+        else if (k === "n") selectTool(model.activeTool === "paint" ? "select" : "paint");
+        else if (k === "u") selectTool(model.activeTool === "populate" ? "select" : "populate");
+        else if (k === "[" || k === "]") {
+            const f = k === "]" ? 1.25 : 0.8;
+            if (model.activeTool === "sculpt") model.sculpt.radiusKm = Math.min(6, Math.max(0.1, model.sculpt.radiusKm * f));
+            else model.paintRadiusKm = Math.min(6, Math.max(0.1, model.paintRadiusKm * f));
+        }
         else if ((k === "a" || k === "r") && model.selectedChangeId) decideChange(model.selectedChangeId, k === "a");
         else if (k === "f") model.fitRequest++;
         else if (k === "t") {
@@ -2530,7 +3614,8 @@ addon.onInit(() => {
                 codexCount: model.world.codex.length,
                 missionsCount: model.world.missions.length,
                 terrain: t ? { cols: t.cols, rows: t.rows, minM: t.minM, maxM: t.maxM, seaLevelM: t.seaLevelM } : null,
-                world: { ...model.world, terrain: undefined },
+                marks: layerCoverage(model.world.overlay, model.world.meta).map((c) => ({ key: c.key, label: layerLabel(model.world, c.key), areaKm2: c.areaKm2 })),
+                world: { ...model.world, terrain: undefined, overlay: undefined },
             };
         }
     );
@@ -2552,6 +3637,175 @@ addon.onInit(() => {
             return {
                 success: true,
                 samples: pts.map(([x, y]) => ({ x, y, elevationM: model.elevationAt(Number(x), Number(y), 0), slopeDeg: Number(model.slopeAt(Number(x), Number(y)).toFixed(1)) })),
+            };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_sculpt_terrain",
+            description: "Edits the terrain. Line modes follow `points` (a polyline, km): canyon (carve; widthKm, depthM, steepness 0..1 - the floor runs downhill from the first point), ridge (a mountain range; widthKm, heightM, roughness 0..1), grade (a road bed; widthKm, maxGradePercent). Area mode: plateau (level the polygon; targetM or the mean ground, featherKm). Brush modes dab along the points: raise, lower, smooth, flatten (targetM), roughen (radiusKm, strength 0..1). One undo step; spots that snap to the landscape follow.",
+            parameters: {
+                type: "object",
+                properties: {
+                    mode: { type: "string" },
+                    points: { type: "array", items: { type: "array", items: { type: "number" } } },
+                    widthKm: { type: "number" },
+                    depthM: { type: "number" },
+                    heightM: { type: "number" },
+                    steepness: { type: "number" },
+                    roughness: { type: "number" },
+                    maxGradePercent: { type: "number" },
+                    targetM: { type: "number" },
+                    featherKm: { type: "number" },
+                    radiusKm: { type: "number" },
+                    strength: { type: "number" },
+                },
+                required: ["mode", "points"],
+            },
+        },
+        (args: any) => {
+            const mode = String(args.mode) as SculptMode;
+            if (!SCULPT_MODES.includes(mode)) return { success: false, error: `Unknown mode "${args.mode}". Use one of ${SCULPT_MODES.join(", ")}.` };
+            const pts: [number, number][] = (Array.isArray(args.points) ? args.points : []).filter((q: any) => Array.isArray(q) && q.length >= 2).map((q: any) => [Number(q[0]), Number(q[1])]);
+            const saved = { ...model.sculpt };
+            const s = model.sculpt;
+            s.mode = mode;
+            const num = (v: any, d: number) => (v === undefined || v === null || isNaN(Number(v)) ? d : Number(v));
+            s.canyonWidthKm = num(args.widthKm, s.canyonWidthKm);
+            s.canyonDepthM = num(args.depthM, s.canyonDepthM);
+            s.canyonSteepness = num(args.steepness, s.canyonSteepness);
+            s.ridgeWidthKm = num(args.widthKm, s.ridgeWidthKm);
+            s.ridgeHeightM = num(args.heightM, s.ridgeHeightM);
+            s.ridgeRoughness = num(args.roughness, s.ridgeRoughness);
+            s.gradeWidthKm = num(args.widthKm, s.gradeWidthKm);
+            s.gradeMaxPercent = num(args.maxGradePercent, s.gradeMaxPercent);
+            s.featherKm = num(args.featherKm, s.featherKm);
+            s.radiusKm = num(args.radiusKm, s.radiusKm);
+            s.strength = num(args.strength, s.strength);
+            if (args.targetM !== undefined) {
+                s.targetM = Number(args.targetM);
+                s.snapToLandscape = false;
+            }
+            let ok = true;
+            if (SCULPT_INFO[mode].kind === "brush") {
+                if (!pts.length) ok = false;
+                else {
+                    model.sculptBrush(pts, false);
+                    model.sculptBrush([], true);
+                }
+            } else {
+                ok = model.sculptShape(pts);
+            }
+            model.sculpt = { ...saved };
+            if (!ok) return { success: false, error: `${mode} needs ${SCULPT_INFO[mode].kind === "area" ? "3+" : SCULPT_INFO[mode].kind === "line" ? "2+" : "1+"} points.` };
+            const t = model.world.terrain!;
+            statusMessage = `An agent sculpted the terrain (${SCULPT_INFO[mode].label}).`;
+            return { success: true, terrain: { minM: t.minM, maxM: t.maxM }, samples: pts.slice(0, 20).map(([x, y]) => ({ x, y, elevationM: model.elevationAt(x, y, 0) })) };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_paint_marks",
+            description: `Paints planning marks (not built content) along a stroke of points, or fills a polygon with fill: true. mark: one of ${MARKS.map((m) => m.id).join(", ")}; or codexId to paint where a codex entry (enemy, NPC, faction) roams. radiusKm (default 1), strength 0..1, erase.`,
+            parameters: {
+                type: "object",
+                properties: {
+                    mark: { type: "string" },
+                    codexId: { type: "string" },
+                    points: { type: "array", items: { type: "array", items: { type: "number" } } },
+                    radiusKm: { type: "number" },
+                    strength: { type: "number" },
+                    erase: { type: "boolean" },
+                    fill: { type: "boolean" },
+                },
+                required: ["points"],
+            },
+        },
+        (args: any) => {
+            const key = args.codexId ? codexLayerKey(String(args.codexId)) : String(args.mark || "");
+            if (args.codexId && !model.world.codex.some((c) => c.id === args.codexId)) return { success: false, error: `No codex entry "${args.codexId}".` };
+            if (!args.codexId && !MARK_BY_ID[key]) return { success: false, error: `Unknown mark "${args.mark}". Use one of ${MARKS.map((m) => m.id).join(", ")}, or a codexId.` };
+            const pts: [number, number][] = (Array.isArray(args.points) ? args.points : []).filter((q: any) => Array.isArray(q) && q.length >= 2).map((q: any) => [Number(q[0]), Number(q[1])]);
+            let cells = 0;
+            if (args.fill) {
+                if (pts.length < 3) return { success: false, error: "fill needs a polygon of 3+ points." };
+                cells = model.editOverlay((o) => fillPolygon(o, model.world.meta, key, pts, args.erase ? 0 : Math.min(1, Math.max(0.05, Number(args.strength ?? 1)))));
+            } else {
+                cells = model.paint(key, pts, true, { radiusKm: Number(args.radiusKm ?? 1), strength: Number(args.strength ?? 0.7), erase: !!args.erase, clip: undefined, exclusive: false });
+            }
+            return { success: true, cellsChanged: cells, coverage: layerCoverage(model.world.overlay, model.world.meta).find((c) => c.key === key) ?? null };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_place_codex",
+            description: "Places a codex entry on the map at one spot: a named NPC, a pack of enemies, a faction outpost. count, behavior (static, wander, patrol, guard, ambush, spawner, vendor, quest_giver), levelMin, levelMax, notes.",
+            parameters: {
+                type: "object",
+                properties: {
+                    codexId: { type: "string" },
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    count: { type: "number" },
+                    behavior: { type: "string" },
+                    levelMin: { type: "number" },
+                    levelMax: { type: "number" },
+                    notes: { type: "string" },
+                },
+                required: ["codexId", "x", "y"],
+            },
+        },
+        (args: any) => {
+            const c = model.world.codex.find((e) => e.id === args.codexId);
+            if (!c) return { success: false, error: `No codex entry "${args.codexId}".` };
+            const opts: Partial<CodexPlacement> = {};
+            if (args.count !== undefined) opts.count = Math.max(1, Math.round(Number(args.count)));
+            if (PLACEMENT_BEHAVIORS.includes(args.behavior)) opts.behavior = args.behavior;
+            if (args.levelMin !== undefined) opts.levelMin = Number(args.levelMin);
+            if (args.levelMax !== undefined) opts.levelMax = Number(args.levelMax);
+            if (args.notes) opts.notes = String(args.notes);
+            const p = model.addPlacement(createPlacement(c, Number(args.x), Number(args.y), opts));
+            return { success: true, placement: p };
+        }
+    );
+
+    addon.registerTool(
+        {
+            name: "game_planner_quest_plan",
+            description: "Reads (and optionally updates) a quest's planning detail, then returns its planning check: journey over terrain and roads, time at objectives, danger vs level, whether named enemies/NPCs are placed where needed, story order. update may set giverCodexId, hook, levelMin, levelMax, objectiveDetails ({ [spotId]: { action, targetCodexId, count, optional, minutes, note } }, merged), rewardCodexIds, reputation, outcomes.",
+            parameters: {
+                type: "object",
+                properties: { missionId: { type: "string" }, update: { type: "object" } },
+                required: ["missionId"],
+            },
+        },
+        (args: any) => {
+            const m = model.world.missions.find((x) => x.id === args.missionId);
+            if (!m) return { success: false, error: `No quest "${args.missionId}".` };
+            const u = args.update && typeof args.update === "object" ? args.update : null;
+            if (u) {
+                const allowed = ["giverCodexId", "hook", "levelMin", "levelMax", "rewardCodexIds", "reputation", "outcomes"];
+                const patch: Partial<Mission> = {};
+                for (const k of allowed) if (k in u) (patch as any)[k] = u[k];
+                if (u.objectiveDetails && typeof u.objectiveDetails === "object") {
+                    const merged: Record<string, QuestObjectiveDetail> = { ...(m.objectiveDetails ?? {}) };
+                    for (const [sid, d] of Object.entries(u.objectiveDetails as Record<string, any>)) {
+                        const action = OBJECTIVE_ACTIONS.includes(d?.action) ? d.action : merged[sid]?.action ?? "go";
+                        merged[sid] = { ...(merged[sid] ?? {}), ...d, action };
+                    }
+                    patch.objectiveDetails = merged;
+                }
+                model.updateMission(m.id, patch);
+            }
+            const fresh = model.world.missions.find((x) => x.id === m.id)!;
+            const a = analyzeQuest(model.world, fresh);
+            return {
+                success: true,
+                mission: fresh,
+                analysis: { summary: a.summary, travelMinutes: a.travelMinutes, activityMinutes: a.activityMinutes, totalMinutes: a.totalMinutes, peakDanger: a.peakDanger, chainDepth: a.chainDepth, unlocks: a.unlocks.map((x) => x.id), legs: a.legs, issues: a.issues },
             };
         }
     );
@@ -2806,9 +4060,17 @@ addon.onInit(() => {
             proposals: model.world.proposals.map((p) => ({ id: p.id, agentName: p.agentName, intentId: p.intentId, changes: p.changes.map((c) => ({ id: c.id, changeType: c.changeType, status: c.status, targetId: c.targetId })) })),
             travel: lastTravelEstimate ? { distanceKm: lastTravelEstimate.directDistanceKm, effortKm: lastTravelEstimate.distanceKm, climbM: lastTravelEstimate.climbM, summary: lastTravelEstimate.summaryText } : null,
             terrainStyle: model.terrainStyle,
+            sculptMode: model.sculpt.mode,
+            pendingSculptPoints: model.pendingSculptPoints,
+            paintKey: model.paintKey,
+            populateCodexId: model.populateCodexId,
+            highlightedQuestId: model.highlightedQuestId,
+            marks: layerCoverage(model.world.overlay, model.world.meta).map((c) => ({ key: c.key, areaKm2: c.areaKm2 })),
+            placements: model.placements.map((p) => ({ id: p.id, codexId: p.codexId, x: p.x, y: p.y, count: p.count, behavior: p.behavior })),
+            terrainRange: model.world.terrain ? [model.world.terrain.minM, model.world.terrain.maxM] : null,
             canUndo: model.canUndo,
-            counts: { spots: model.world.spots.length, paths: model.world.paths.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length, intents: model.intents.length, pendingProposals: model.pendingProposals.length },
-            spots: model.world.spots.map((s) => ({ id: s.id, name: s.name, spotType: s.spotType, x: s.x, y: s.y, elevation: s.elevation })),
+            counts: { spots: model.world.spots.length, paths: model.world.paths.length, regions: model.world.regions.length, codex: model.world.codex.length, missions: model.world.missions.length, intents: model.intents.length, pendingProposals: model.pendingProposals.length, placements: model.placements.length },
+            spots: model.world.spots.map((s) => ({ id: s.id, name: s.name, spotType: s.spotType, x: s.x, y: s.y, elevation: s.elevation, snapToGround: isSnapped(s), ground: model.elevationAt(s.x, s.y, 0) })),
             paths: model.world.paths.map((p) => ({ id: p.id, name: p.name, pathType: p.pathType, points: p.points.length })),
             regions: model.world.regions.map((r) => ({ id: r.id, name: r.name, points: r.points.length })),
             status: statusMessage,

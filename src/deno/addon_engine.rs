@@ -7070,7 +7070,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
 
                 UiWidget::GameMap { id: map_id, config } => {
-                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapElevationBand, MapGhost, MapIntent, MapMeasure, MapPath, MapRegion, MapSpot};
+                    use crate::entropy_gui::{GameMap, GameMapEvent, GameMapOptions, MapBrush, MapElevationBand, MapGhost, MapIntent, MapMarker, MapMeasure, MapOverlay, MapOverlayLayer, MapPath, MapQuestRoute, MapRegion, MapSpot};
 
                     let opts = GameMapOptions {
                         world_width_km: config.world_width_km.unwrap_or(25.0),
@@ -7099,7 +7099,42 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         show_intents: config.show_intents.unwrap_or(true),
                         show_proposals: config.show_proposals.unwrap_or(true),
                         selected_change_id: config.selected_change_id.clone(),
+                        show_marks: config.show_marks.unwrap_or(true),
+                        show_population: config.show_population.unwrap_or(true),
+                        show_quests: config.show_quests.unwrap_or(true),
+                        brush: config.brush.as_ref().map(|b| MapBrush { radius_km: b.radius_km, color: b.color.unwrap_or([0.98, 0.78, 0.3, 1.0]), paint: b.paint }),
+                        focus_request: config.focus_request.unwrap_or(0),
+                        focus_center: config.focus_center,
+                        focus_zoom: config.focus_zoom,
                     };
+                    let overlay = config.overlay.as_ref().map(|o| MapOverlay {
+                        cols: o.cols,
+                        rows: o.rows,
+                        layers: o.layers.iter().map(|l| MapOverlayLayer {
+                            key: l.key.clone(),
+                            label: l.label.clone(),
+                            color: l.color.unwrap_or([0.8, 0.8, 0.8, 0.8]),
+                            glyph: l.glyph.clone(),
+                            data: l.data.clone(),
+                        }).collect(),
+                    });
+                    let markers: Vec<MapMarker> = config.markers.iter().map(|m| MapMarker {
+                        id: m.id.clone(),
+                        label: m.label.clone(),
+                        detail: m.detail.clone(),
+                        x: m.x,
+                        y: m.y,
+                        color: m.color.unwrap_or([0.9, 0.9, 0.9, 1.0]),
+                        glyph: m.glyph.clone(),
+                        count: m.count.unwrap_or(1),
+                    }).collect();
+                    let quest_routes: Vec<MapQuestRoute> = config.quest_routes.iter().map(|q| MapQuestRoute {
+                        id: q.id.clone(),
+                        title: q.title.clone(),
+                        points: q.points.clone(),
+                        color: q.color.unwrap_or([0.98, 0.75, 0.14, 1.0]),
+                        highlighted: q.highlighted,
+                    }).collect();
                     let intents: Vec<MapIntent> = config.intents.iter().map(|it| MapIntent {
                         id: it.id.clone(),
                         number: it.number,
@@ -7186,6 +7221,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         .measure(measure)
                         .intents(intents)
                         .ghosts(ghosts)
+                        .overlay(overlay)
+                        .markers(markers)
+                        .quest_routes(quest_routes)
                         .show(ui);
 
                     for event in resp.events {
@@ -7231,6 +7269,16 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             GameMapEvent::GhostSelected { id } => {
                                 events_to_push.push(format!("MAP_GHOST_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::BrushStroke { points, done } => {
+                                let pts: Vec<String> = points.iter().map(|p| format!("{:.4},{:.4}", p[0], p[1])).collect();
+                                events_to_push.push(format!("MAP_BRUSH|{}|{}|{}", map_id, if done { 1 } else { 0 }, pts.join(";")));
+                            }
+                            GameMapEvent::MarkerSelected { id } => {
+                                events_to_push.push(format!("MAP_MARKER_SELECT|{}|{}", map_id, id));
+                            }
+                            GameMapEvent::MarkerMoved { id, x, y } => {
+                                events_to_push.push(format!("MAP_MARKER_MOVE|{}|{}|{:.4}|{:.4}", map_id, id, x, y));
                             }
                         }
                     }

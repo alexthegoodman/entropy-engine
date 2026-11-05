@@ -5,7 +5,10 @@ Feature: The Game World Planner in the real window
   and zoom in on the contours. Then the Codex and Agent tabs, whose multiline text fields used to
   freeze the app, and the terrain tools, whose results land back on the map. In between, design
   intents: an area sketched with the Intent tool and settled by the Planner Agent, a pacing route
-  whose proposal is rejected, and a pinned intent answered by an external agent over MCP. Screenshots of every
+  whose proposal is rejected, and a pinned intent answered by an external agent over MCP. Then the
+  planning tools: a canyon and a mountain range sculpted with real clicks, a raise brush dragged,
+  forest painted as planning marks, a creature placed and painted, and a quest shown on the map.
+  The terrain tools live in the map sidebar when nothing is selected. Screenshots of every
   step are kept for visual verification. Map geometry assumes the 1800x1020 window and the Shattered
   Isles preset: the 30 km world fits at 26.73 px/km around (730, 558).
 
@@ -233,6 +236,125 @@ Feature: The Game World Planner in the real window
     And I advance 5 frames
     Then I capture "intent-08-plan"
 
+  Scenario: Sculpt a canyon and a mountain range, paint the woods, populate them, show a quest
+    When I call the tool "game_planner_sample_terrain" with {"points": [[-2.8, -2.8], [6.5, 1.8], [-3, -8.75]]}
+    And I click "tool_sculpt"
+    And I set "dropdown_sculpt_mode" "5"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "690" "545"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "690" "545"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "690" "545"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "655" "633"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "655" "633"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "655" "633"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "583" "732"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "583" "732"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "583" "732"
+    And I advance 3 frames
+    Then I capture "plan-01-canyon-drawn"
+    When I click "btn_apply_sculpt"
+    And I advance 3 frames
+    And I set "dropdown_sculpt_mode" "6"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "837" "491"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "837" "491"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "837" "491"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "904" "510"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "904" "510"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "904" "510"
+    And I advance 8 frames
+    And I send GUI pointer "up" at "971" "531"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "971" "531"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "971" "531"
+    And I advance 3 frames
+    And I click "btn_apply_sculpt"
+    And I advance 3 frames
+    And I set "dropdown_sculpt_mode" "0"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "676" "785"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "676" "785"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "650" "792"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "623" "799"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "623" "799"
+    And I advance 3 frames
+    Then I capture "plan-02-sculpted"
+    When I click "tool_paint"
+    And I click "btn_mark_forest"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "489" "558"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "489" "558"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "510" "585"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "530" "611"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "550" "638"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "570" "665"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "570" "665"
+    And I advance 3 frames
+    Then I capture "plan-03-painted-forest"
+    When I click "tool_populate"
+    And I advance 2 frames
+    And I click "btn_new_creature"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "596" "692"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "596" "692"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "596" "692"
+    And I advance 3 frames
+    And I click "tool_populate"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "516" "692"
+    And I advance 2 frames
+    And I send GUI pointer "down" at "516" "692"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "543" "712"
+    And I advance 2 frames
+    And I send GUI pointer "move" at "570" "732"
+    And I advance 2 frames
+    And I send GUI pointer "up" at "570" "732"
+    And I advance 3 frames
+    Then I capture "plan-04-populated"
+    And I call the tool "game_planner_sample_terrain" with {"points": [[-2.8, -2.8], [6.5, 1.8], [-3, -8.75]]}
+    And I call the tool "game_planner_state"
+    When I click "tool_select"
+    And I click "nav_tab_story"
+    And I advance 3 frames
+    And I click "mission_btn_mission_timber_beast"
+    And I advance 3 frames
+    Then I see the label "Quest Journey Estimate"
+    And I capture "plan-05-quest-detail"
+    When I click "btn_mission_show_map"
+    And I advance 8 frames
+    Then I capture "plan-06-quest-on-map"
+    And I call the tool "game_planner_state"
+    When I click "btn_quest_hide"
+    And I click "btn_fit_world"
+    And I advance 3 frames
+
   Scenario: Codex and Agent tabs no longer freeze
     When I click "nav_tab_codex"
     And I advance 5 frames
@@ -249,9 +371,11 @@ Feature: The Game World Planner in the real window
     Then I see the label "System Prompts for AI Game Masters & Roleplay Agents"
     And I capture "13-agent"
 
-  Scenario: Terrain tools land back on the map
-    When I click "nav_tab_procedural"
+  Scenario: Terrain tools in the map sidebar land back on the map
+    When I click "nav_tab_map"
+    And I click "btn_world_panel"
     And I advance 5 frames
+    Then I see the label "1. Terrain Heightfield"
     And I click "btn_simulate_erosion"
     And I advance 3 frames
     And I click "btn_generate_rivers"
