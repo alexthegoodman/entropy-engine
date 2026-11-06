@@ -95,6 +95,18 @@ describe("the ground up close", () => {
         expect(ground.sample(house.x, house.y).surface!.occupied).toBe("building");
     });
 
+    it("lays streets over a plaza, not in a trench under it", () => {
+        const areas = world.structures!.filter((s) => s.shape === "area");
+        expect(areas.length).toBeGreaterThan(0);
+        for (const a of areas) {
+            const pad = ground.padHeight(a.id)!;
+            // The middle of a square is on its surface, streets crossing it or not.
+            const pts = a.points ?? [[a.x, a.y]];
+            const cx = pts.reduce((t, p) => t + p[0], 0) / pts.length, cy = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+            expect(Math.abs(ground.heightAt(cx, cy) - pad)).toBeLessThan(0.6);
+        }
+    });
+
     it("lays road beds and keeps them clear", () => {
         const road = world.paths.find((p) => p.pathType === "road" || p.pathType === "highway");
         if (!road) return;

@@ -153,20 +153,11 @@ export class Ground {
         const cell = this.index.get(this.key(x, y));
         const p: P = [x, y];
         if (cell) {
-            for (const a of cell.areas) {
-                if (x < a.bbox[0] || x > a.bbox[2] || y < a.bbox[1] || y > a.bbox[3]) continue;
-                let d = Infinity;
-                for (const poly of a.polys) d = Math.min(d, distToPolyKm(p, poly));
-                if (d > a.marginKm) continue;
-                const w = 1 - smooth01(d / a.marginKm);
-                const target = a.height + a.slope[0] * (x - a.center[0]) + a.slope[1] * (y - a.center[1]);
-                h = h + (target - h) * w;
-                reliefKeep = Math.min(reliefKeep, 1 - w);
-                if (d === 0) {
-                    occupied = a.kind === "pad" ? "building" : "area";
-                    if (a.surface && w >= surfaceW) { surfaceKey = a.surface; surfaceW = 1; }
-                } else if (a.surface && w * 0.6 > surfaceW) { surfaceKey = a.surface; surfaceW = w * 0.6; }
-            }
+            const ar = this.applyAreas(x, y, h, cell.areas);
+            h = ar.h;
+            reliefKeep = ar.reliefKeep;
+            if (ar.occupied) occupied = ar.occupied;
+            if (ar.surfaceKey) { surfaceKey = ar.surfaceKey; surfaceW = ar.surfaceW; }
             const nearest = this.nearest;
             nearest.clear();
             for (const { line, i } of cell.segs) {
@@ -279,9 +270,40 @@ export class Ground {
         return [x0 - padKm, y0 - padKm, x1 + padKm, y1 + padKm];
     }
 
+    /** Blends `h` toward the pads and areas around (x, y): what the plan levels. */
+    private applyAreas(x: number, y: number, h: number, areas: AreaFeature[]): { h: number; reliefKeep: number; occupied: SurfaceSample["occupied"]; surfaceKey: string | null; surfaceW: number } {
+        let reliefKeep = 1, surfaceW = 0;
+        let surfaceKey: string | null = null;
+        let occupied: SurfaceSample["occupied"] = null;
+        const p: P = [x, y];
+        for (const a of areas) {
+            if (x < a.bbox[0] || x > a.bbox[2] || y < a.bbox[1] || y > a.bbox[3]) continue;
+            let d = Infinity;
+            for (const poly of a.polys) d = Math.min(d, distToPolyKm(p, poly));
+            if (d > a.marginKm) continue;
+            const w = 1 - smooth01(d / a.marginKm);
+            const target = a.height + a.slope[0] * (x - a.center[0]) + a.slope[1] * (y - a.center[1]);
+            h = h + (target - h) * w;
+            reliefKeep = Math.min(reliefKeep, 1 - w);
+            if (d === 0) {
+                occupied = a.kind === "pad" ? "building" : "area";
+                if (a.surface && w >= surfaceW) { surfaceKey = a.surface; surfaceW = 1; }
+            } else if (a.surface && w * 0.6 > surfaceW) { surfaceKey = a.surface; surfaceW = w * 0.6; }
+        }
+        return { h, reliefKeep, occupied, surfaceKey, surfaceW };
+    }
+
+    /** The plan's ground without roads and relief: the heightfield with pads and areas leveled. */
+    private leveledHeight(x: number, y: number): number {
+        const h = this.baseHeight(x, y);
+        const cell = this.index.get(this.key(x, y));
+        return cell ? this.applyAreas(x, y, h, cell.areas).h : h;
+    }
+
     /** Elevations along a line, smoothed so a road bed doesn't follow every bump. */
     private lineHeights(points: P[]): number[] {
-        const raw = points.map(([x, y]) => this.baseHeight(x, y));
+        // Roads run over the plan's leveled ground: across a plaza, not in a trench under it.
+        const raw = points.map(([x, y]) => this.leveledHeight(x, y));
         const out = raw.slice();
         for (let pass = 0; pass < 3; pass++) {
             for (let i = 1; i < out.length - 1; i++) out[i] = (out[i - 1] + out[i] * 2 + out[i + 1]) / 4;
@@ -318,12 +340,15 @@ export class Ground {
 
     private buildFeatures(): void {
         const w = this.world;
+        // Pads and areas first: roads and streets are laid over the ground they level.
+        const lines = (w.structures ?? []).filter((s) => s.shape === "street" || s.shape === "wall");
+        for (const s of w.structures ?? []) if (s.shape !== "street" && s.shape !== "wall") this.addStructure(s);
+        for (const s of lines) this.addStructure(s);
         for (const p of w.paths) {
             const kind = p.pathType === "river" ? "river" : "road";
             const width = p.pathType === "river" ? PATH_WIDTH_M.river * Math.max(0.4, (p.width || 4.5) / 4.5) : PATH_WIDTH_M[p.pathType] ?? 6;
             this.addLine(kind, p.pathType === "river" ? "water" : p.pathType === "bridge" ? "road" : p.pathType, p.points, width);
         }
-        for (const s of w.structures ?? []) this.addStructure(s);
     }
 
     private addStructure(s: WorldStructure): void {

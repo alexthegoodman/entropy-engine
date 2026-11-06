@@ -7,6 +7,8 @@ building by building, NPCs and creatures, painted forests and fields, quests). T
 **the same world file** in 3D, up close, with every planned thing standing as a Mesha model, and
 is where a level designer refines it before handing it off.
 
+![The sample world's capital, every planned building a Mesha model](../public/game-detailer-capital-live.png)
+
 The 3D work stays out of the Planner on purpose: the Planner stays a fast, orthographic, map-first
 tool; the Detailer is a 3D level editor.
 
@@ -78,6 +80,8 @@ biggest settlement.
   (`detail_scatter.ts`). Each 128 m tile grows from its own seed, so a tile always grows the same
   plants, in the viewport and in the export.
 
+![Woods painted in the Planner, grown here, with a pack of creatures placed from the codex](../public/game-detailer-woods-live.png)
+
 Everything is drawn with Mesha's own viewport shader (`detail_shader.ts` derives it), so a model
 looks in the level exactly as it does in Mesha; the Detailer adds the ground and water surfaces,
 a breeze in leaves and grass, and lighting from Mesha's studio presets (Daylight, Warm evening,
@@ -101,6 +105,8 @@ Gallery night, Ashen dusk...).
 | Scatter | World > Scatter: per mark on/off and per hectare |
 | Sites | Go to > Save this view as a site; the export details around each |
 | Undo / redo | Ctrl+Z / Ctrl+Y (one gesture is one step) |
+
+![A prop selected, its Mesha controls in the inspector, warm evening light](../public/game-detailer-warm-live.png)
 
 ## Export: a package for any engine, or an AI agent
 
