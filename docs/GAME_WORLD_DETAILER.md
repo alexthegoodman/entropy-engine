@@ -50,6 +50,20 @@ possible:
 - `addon.IO.storeOf(name)`: another addon's store, only for names the addon lists in
   `sharedStores` when it registers (`Addon.register({ ..., sharedStores: ["game-world-planner", "Mesha"] })`).
 
+### In the Creative Suite
+
+The Detailer is also a tab of the Creative Suite (`npm run build-creative-suite`, then
+`cargo run --bin example -- creative-suite`), next to Mesha and the Planner on the taskbar. There
+every app's store is a folder under the suite's one data folder (`../cc-manager`), so the Planner,
+the Detailer and Mesha share worlds and presets with no linked store. `build-creative-suite` also
+bundles the model worker (`dist/game_detailer_worker.js`).
+
+The engine has one camera, orbit control, sun and gizmo. Mesha and the Detailer each call
+`claimView` (`apps/shared_view.ts`) at the top of their `onUpdate`, which only runs for the active
+tab: on the first frame back after the other one had the view, an app puts back its own camera,
+orbit control, lighting and gizmo. Tiling Mesha and the Detailer side by side is untested: with
+one camera, at most one of them can be framed right.
+
 ## What it shows
 
 Open a world (the toolbar's world list is the Planner's library; with an empty library, **Create a

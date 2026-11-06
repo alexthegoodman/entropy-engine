@@ -121,7 +121,8 @@ it("keeps meshes resident during move and rotation and restores the gesture with
 
         // Adjusting sensitivity uses the current panned focus and never moves the camera.
         const speed = api.Controls.enable.mock.lastCall[1].zoomSpeed;
-        api.Camera.getTransform = () => [[8, 4, 9], [6, 2, 7]];
+        // The orbit control holds the focus; the native camera read gives a direction, not a target.
+        (api.Controls as any)._state = { format: "orbit", position: [8, 4, 9], target: [6, 2, 7], options: { addonName: "Mesha" } };
         api.Camera.setTransform.mockClear();
         renderToolbar();
         expect(zoomKnob).toMatchObject({ id: "mesha-zoom-strength", value: 1, min: 0.1, max: 3, defaultValue: 1 });

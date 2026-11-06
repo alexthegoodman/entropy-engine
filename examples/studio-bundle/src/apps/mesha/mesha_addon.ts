@@ -21,9 +21,11 @@ import { contactShadowMap } from "./mesha_raster";
 import { MESHA_SHADER, STUDIO_PRESETS, STUDIO_FLOATS, ITEM_FLOATS, packStudio } from "./mesha_shader";
 import { dynamicOf, type Simulator } from "./mesha_dynamics";
 import type { IconName } from "../../icon_names";
+import { claimView, orbitView, seedOrbit } from "../shared_view";
 
+const APP = "Mesha";
 const addon = Entropy.Addon.register({
-    name: "Mesha",
+    name: APP,
     version: "0.1.0",
     description: "Procedural objects you shape with meaningful controls, vary, compose and export",
     author: ["Entropy Team", "Claude"],
@@ -391,9 +393,30 @@ function applyStudio(): void {
 // --- Camera --------------------------------------------------------------------------------------
 
 let orbitTarget: Vec3 = [0, 0.45, 0];
+/** The camera as it last was here: in the Creative Suite the Game World Detailer has it in between (shared_view.ts). */
+let lastView: { pos: Vec3; target: Vec3 } = { pos: [1.7, 1.25, 2.3], target: orbitTarget };
+/** Frames to wait after taking the view back before trusting native camera reads (they lag). */
+let viewSettle = 0;
 
-function enableOrbit(target: Vec3): void {
+/** `pos`, when the camera was just moved there: the control can't read that move from the native camera yet. */
+function enableOrbit(target: Vec3, pos?: Vec3): void {
     addon.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.005, zoomSpeed: baseZoomSpeed * zoomStrength, invertX: true });
+    if (pos) seedOrbit(pos, target);
+}
+
+/** Back from another app's 3D view: Mesha's camera, control, light and gizmo. */
+function takeView(): void {
+    const { pos, target } = lastView;
+    orbitTarget = target;
+    Entropy.Camera.setTransform(pos, target);
+    enableOrbit(target, pos);
+    applyStudio();
+    Entropy.setGameMode(false);
+    // The engine has one gizmo: hiding clears whichever app's is up; ours comes back if something is selected.
+    Entropy.Gizmo.hide(gizmoId ?? "");
+    gizmoId = null;
+    syncGizmo();
+    viewSettle = 2;
 }
 
 function sceneBounds(onlySelected: boolean): Bounds | null {
@@ -424,9 +447,10 @@ function frame(onlySelected = true, zoom = 1, focus?: number): void {
     const wide = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]) > 2 * (b.max[1] - b.min[1]) ? 1.25 : 1;
     const d = (r * (onlySelected ? 2.9 : 2.3) * wide) / Math.max(1, zoom) + 0.2;
     orbitTarget = c;
-    Entropy.Camera.setTransform([c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d], c);
+    const p: Vec3 = [c[0] + dir[0] * d, c[1] + dir[1] * d, c[2] + dir[2] * d];
+    Entropy.Camera.setTransform(p, c);
     baseZoomSpeed = Math.max(0.2, r);
-    enableOrbit(c);
+    enableOrbit(c, p);
 }
 
 // --- Picking & moving ----------------------------------------------------------------------------
@@ -791,7 +815,8 @@ function renderToolbar(): void {
             onChange: v => {
                 zoomStrength = Math.max(0.1, Math.min(3, Number(v)));
                 // Use the camera's current target so adjusting after a pan preserves the view.
-                enableOrbit(Entropy.Camera.getTransform()[1]);
+                const view = orbitView(APP);
+                enableOrbit(view?.target ?? orbitTarget, view?.pos);
                 saveSession();
             },
         });
@@ -1258,8 +1283,8 @@ addon.onInit(() => {
     Entropy.setGameMode(false); // the gizmo renders only outside game mode
     const restored = loadSession();
     applyStudio();
-    Entropy.Camera.setTransform([1.7, 1.25, 2.3], orbitTarget);
-    enableOrbit(orbitTarget);
+    Entropy.Camera.setTransform(lastView.pos, orbitTarget);
+    enableOrbit(orbitTarget, lastView.pos);
     setupUI();
     registerTools();
     if (restored) { statusMessage = "Welcome back."; pendingFrame = 3; pendingFrameAll = true; syncGizmo(); }
@@ -1271,6 +1296,7 @@ addon.onInit(() => {
 
 // addon.onUpdatePlus("Global", () => {
 addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
+    claimView(APP, takeView);
     if (gizmoId && pointerHeld) {
         const s = Entropy.Gizmo.getState(gizmoId);
         if (s?.isActive) gizmoWasActive = true;
@@ -1294,6 +1320,9 @@ addon.onUpdate(() => { // runs onUpdate for this addon only (see pipeline.rs)
     if (pendingFrame > 0 && --pendingFrame === 0) { frame(!pendingFrameAll, pendingZoom, pendingFocus); pendingFrameAll = false; pendingZoom = 1; pendingFocus = undefined; }
     if (sceneDirty && !pointerHeld) regenerateScene();
     if (!pointerHeld) commitEdit();
+    const view = orbitView(APP);
+    if (view) lastView = view;
+    if (viewSettle > 0) { viewSettle--; return; }
     // Haze and the floor's fade follow the camera's focus distance (orbiting, zooming, framing).
     const [camPos, camTarget] = Entropy.Camera.getTransform();
     const focus = Math.hypot(camPos[0] - camTarget[0], camPos[1] - camTarget[1], camPos[2] - camTarget[2]);

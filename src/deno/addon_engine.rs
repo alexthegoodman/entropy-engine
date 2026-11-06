@@ -4317,6 +4317,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             ("CC Manager", "kanban", egui::Color32::from_rgb(130, 220, 110))
         } else if addon_name.to_lowercase().contains("mesha") || title.to_lowercase().contains("shapes") || title.to_lowercase().contains("mesha") {
             ("Mesha", "shapes", egui::Color32::from_rgb(175, 150, 255))
+        // Before the Planner: "Game World Detailer" would match its "game world" too.
+        } else if addon_name.to_lowercase().contains("detailer") || title.to_lowercase().contains("detailer") {
+            ("Game World Detailer", "mountains", egui::Color32::from_rgb(110, 205, 160))
         } else if addon_name.to_lowercase().contains("game_planner") || addon_name.to_lowercase().contains("game-planner") || title.to_lowercase().contains("world planner") || title.to_lowercase().contains("game world") || title.to_lowercase().contains("game planner") {
             ("Game World Planner", "map-trifold", egui::Color32::from_rgb(52, 211, 153))
         } else if addon_name.to_lowercase().contains("terminal") || title.to_lowercase().contains("terminal") {

@@ -448,7 +448,8 @@ All studio-bundle examples share one binary - pass the example's name as an arg:
 ```bash
 cd examples/studio-bundle/
 
-// DAW, Guitar Tabs, Mesha, and CC Manager in one taskbar; floating windows follow their app
+// DAW, Guitar Tabs, Mesha, CC Manager, Terminal, Game World Planner and Game World Detailer in one
+// taskbar; floating windows follow their app, and Mesha and the Detailer each keep their own 3D view
 npm run build-creative-suite
 cargo run --bin example --release -- creative-suite
 

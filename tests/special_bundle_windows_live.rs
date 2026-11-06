@@ -48,4 +48,7 @@ fn special_bundle_windows_follow_taskbar_selection() {
     assert!(center_luma("02-mesha") > 60.0, "Mesha scene did not render on selection");
     assert!(center_luma("05-mesha-restored") > 60.0, "Mesha scene did not render after returning");
     assert!(center_luma("03-cc-manager") < 40.0, "Mesha scene leaked into CC Manager");
+    // The Detailer moved the shared camera to its capital; Mesha takes its own view back.
+    let (before, after) = (center_luma("05-mesha-restored"), center_luma("07-mesha-after-detailer"));
+    assert!(after > 60.0 && (after - before).abs() < 15.0, "Mesha's view changed after the Detailer: {before:.1} -> {after:.1}");
 }

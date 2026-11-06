@@ -45,15 +45,17 @@ import { chooseLod, drawDistance, tileResolution, maybeVisible, budgetLods, pack
 import { buildPackage, type ExportProgress, type ArchiveEntry } from "./detail_export";
 import { FITTED_PARAMS, DEFAULT_SCATTER, choice } from "./detail_models";
 import { createSampleWorld } from "./detail_sample";
+import { claimView, orbitView, seedOrbit } from "../shared_view";
 import type { IconName } from "../../icon_names";
 
+const APP = "game-world-detailer";
 const PLANNER_STORE = "game-world-planner";
 const MESHA_STORE = "Mesha";
 const SAVED_BY = "game-world-detailer";
 const WORKER_SCRIPT = "examples/studio-bundle/dist/game_detailer_worker.js";
 
 const addon = Entropy.Addon.register({
-    name: "game-world-detailer",
+    name: APP,
     version: "0.1.0",
     description: "Game World Detailer: the Game World Planner's worlds in 3D, every planned thing a Mesha model you can choose, shape, vary, move and turn; scatter from painted marks; props; one-click export of models (GLB), scene, heightmaps, materials and lore for any engine or AI agent.",
     author: ["Entropy Team", "Claude"],
@@ -533,10 +535,11 @@ let zoomSpeed = 2;
 let camPos: V3 = [120, 120, 120];
 let camTarget: V3 = [0, 0, 0];
 
+/** In the Creative Suite the orbit control can be Mesha's: then this app's camera is the one it last had. */
 function cameraNow(): { pos: V3; target: V3 } {
-    const st = (Entropy.Controls as unknown as { _state?: { format: string; position: V3; target: V3 } })._state;
-    if (st?.format === "orbit" && st.position && st.target) return { pos: [...st.position] as V3, target: [...st.target] as V3 };
-    return { pos: camPos, target: camTarget };
+    const v = orbitView(APP);
+    if (v) { camPos = v.pos; camTarget = v.target; }
+    return { pos: [...camPos], target: [...camTarget] };
 }
 
 /** Puts the camera at `pos` looking at `target`, and the orbit control around `target`. */
@@ -544,15 +547,18 @@ function setCamera(pos: V3, target: V3): void {
     camPos = pos; camTarget = target;
     Entropy.Camera.setTransform(pos, target);
     addon.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.02, zoomSpeed, invertX: true });
-    // The control seeded itself from the native camera, which hasn't taken this move yet: seed it here.
-    const st = (Entropy.Controls as unknown as { _state?: Record<string, any> })._state;
-    if (st) {
-        const dx = pos[0] - target[0], dy = pos[1] - target[1], dz = pos[2] - target[2];
-        st.position = [...pos];
-        st.distance = Math.max(0.001, Math.hypot(dx, dy, dz));
-        st.yaw = Math.atan2(dz, dx);
-        st.pitch = Math.asin(Math.max(-1, Math.min(1, dy / st.distance)));
-    }
+    seedOrbit(pos, target);
+}
+
+/** Back from another app's 3D view (the Creative Suite's Mesha): this app's camera, control, light and gizmo. */
+function takeView(): void {
+    setCamera([...camPos], [...camTarget]);
+    applyLighting();
+    Entropy.setGameMode(false);
+    // The engine has one gizmo: hiding clears whichever app's is up; ours comes back if something is selected.
+    Entropy.Gizmo.hide(gizmoId ?? "");
+    gizmoId = null;
+    syncGizmo();
 }
 
 /** Moves the render origin so the camera works near (0, 0): float precision on big worlds. */
@@ -1509,6 +1515,7 @@ addon.onUpdate(() => {
     const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 1 / 60;
     lastFrame = now;
     clock += dt;
+    claimView(APP, takeView);
     if (!world) return;
     if (gizmoId && pointerHeld) { const s = Entropy.Gizmo.getState(gizmoId); if (s?.isActive) gizmoWasActive = true; }
     moveCamera(dt);

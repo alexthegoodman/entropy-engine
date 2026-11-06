@@ -36,3 +36,23 @@ Feature: Floating windows follow the selected taskbar app
     And I advance 3 frames
     Then I see the label "Library"
     And I capture "05-mesha-restored"
+
+    When I send the widget event "TAB_SELECT|Game World Detailer"
+    And I advance 6 frames
+    Then I see the label "No world open"
+    And I do not see the label "Library"
+    When I click "gd-sample"
+    And I advance 8 frames
+    Then I do not see the label "No world open"
+    And I capture "06-detailer"
+
+    When I send the widget event "TAB_SELECT|Mesha"
+    And I advance 6 frames
+    Then I see the label "Library"
+    And I see the label "Properties"
+    And I capture "07-mesha-after-detailer"
+
+    When I send the widget event "TAB_SELECT|Game World Planner"
+    And I advance 6 frames
+    Then I do not see the label "Library"
+    And I capture "08-planner"
