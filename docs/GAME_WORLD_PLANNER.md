@@ -289,6 +289,16 @@ proposals build both. Existing roads and rivers are selected and edited as befor
 | `game_planner_build` | `place` a building, a `line` (wall, street), an `area` (plaza, field...), `layout` a settlement, `clear` it, `list` |
 | `game_planner_view` | center and zoom the map, set the surface detail, pick a tool |
 
+## Detailing in 3D: the Game World Detailer
+
+The [Game World Detailer](GAME_WORLD_DETAILER.md) opens these same world files in 3D with every
+planned thing as a Mesha model. The Planner keeps the Detailer's section (`world.detail`) untouched
+and watches the open world's file: when the Detailer saves (a building moved or turned, an NPC
+moved, a model chosen), the Planner takes it in, or, with unsaved edits of its own, merges it with
+them field by field (`world_sync.ts`); conflicts keep the Planner's value and the status line says
+so. Every save first takes in what the Detailer saved since. Files record who saved them
+(`savedBy`).
+
 ## Code
 
 - `examples/studio-bundle/src/apps/game_planner/intent_model.ts` - intents, directive parsing, live
@@ -299,6 +309,7 @@ proposals build both. Existing roads and rivers are selected and edited as befor
 - `.../terrain_sculpt.ts` - brushes, canyons, mountain ranges, road beds, plateaus.
 - `.../planning_layers.ts` - painted marks, codex placements, region and codex map summaries.
 - `.../quest_planning.ts` - quest objective detail and the planning check.
+- `.../world_sync.ts` - noticing the Detailer's saves and the three-way merge.
 - `.../world_store.ts` - the world file format (terrain and paint encodings), the library, new worlds.
 - `.../town_planning.ts` - structure kinds and footprints, street alignment, laying out a settlement.
 - `.../quest_paths.ts` - quests from drawn routes, travel along a route.

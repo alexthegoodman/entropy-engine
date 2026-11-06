@@ -473,6 +473,15 @@ cargo run --bin example --release -- canvas-surface-demo
 npm run build-mesha
 cargo run --bin example --release -- mesha
 
+// plan a game world from above: terrain, roads, towns building by building, quests (Game World Planner)
+npm run build-game-planner
+cargo run --bin example --release -- game-planner
+
+// detail the same world in 3D with Mesha models, then export it for any engine or AI agent
+// (Game World Detailer; shares the Planner's world files and Mesha's presets, see docs/GAME_WORLD_DETAILER.md)
+npm run build-game-detailer
+cargo run --bin example --release -- game-detailer
+
 // quadtree planets you walk on, a ship to fly between them, and the real Earth (QuadPlanet)
 npm run build-quadplanet
 cargo run --bin example --release -- quadplanet

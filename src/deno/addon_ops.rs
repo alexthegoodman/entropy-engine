@@ -3906,6 +3906,109 @@ pub fn op_model_export_glb(
     }
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct ArchiveEntryMeta {
+    pub name: String,
+    pub len: usize,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveArchiveResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub error: Option<String>,
+    /// Bytes written (the compressed archive).
+    pub bytes: u64,
+}
+
+/// Builds a deflated .zip from addon-supplied entries in memory. Names are relative paths with
+/// forward slashes; anything absolute or climbing out (`..`) is refused.
+pub fn build_zip(entries: &[ArchiveEntryMeta], data: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Write as _;
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated).large_file(data.len() > u32::MAX as usize / 2);
+        let mut offset = 0usize;
+        for e in entries {
+            let name = e.name.trim();
+            if name.is_empty() || name.starts_with('/') || name.contains('\\') || name.split('/').any(|s| s == ".." || s.is_empty()) {
+                return Err(format!("bad archive entry name \"{}\"", e.name));
+            }
+            let bytes = data.get(offset..offset + e.len).ok_or_else(|| format!("archive data too short for \"{}\"", e.name))?;
+            offset += e.len;
+            zip.start_file(name, options).map_err(|err| err.to_string())?;
+            zip.write_all(bytes).map_err(|err| err.to_string())?;
+        }
+        zip.finish().map_err(|err| err.to_string())?;
+    }
+    Ok(cursor.into_inner())
+}
+
+/// `Entropy.IO.saveArchive`: a Save As dialog (or `path`, ending .zip, with no dialog) and a
+/// deflated zip of the entries. Entry bytes arrive concatenated in one zero-copy buffer, like
+/// op_model_export_glb's textures.
+#[op2]
+#[serde]
+pub fn op_io_save_archive(
+    #[serde] entries: Vec<ArchiveEntryMeta>,
+    #[buffer] data: &[u8],
+    #[string] suggested_name: String,
+    #[string] path: String,
+) -> SaveArchiveResult {
+    let fail = |e: String| SaveArchiveResult { success: false, path: None, error: Some(e), bytes: 0 };
+    let file_path = if path.is_empty() {
+        rfd::FileDialog::new().add_filter("Zip archive", &["zip"]).set_file_name(&suggested_name).save_file()
+    } else if !path.to_ascii_lowercase().ends_with(".zip") {
+        return fail("Archive path must end in .zip".to_string());
+    } else {
+        let explicit = std::path::PathBuf::from(path);
+        if let Some(parent) = explicit.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return fail(format!("Couldn't create {}: {e}", parent.display()));
+            }
+        }
+        Some(explicit)
+    };
+    let Some(output_path) = file_path else { return fail("Export cancelled".to_string()) };
+    let bytes = match build_zip(&entries, data) {
+        Ok(b) => b,
+        Err(e) => return fail(e),
+    };
+    match crate::helpers::addon_store::write_atomic(&output_path, &bytes) {
+        Ok(_) => SaveArchiveResult { success: true, path: Some(output_path.display().to_string()), error: None, bytes: bytes.len() as u64 },
+        Err(e) => fail(format!("Write failed: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    #[test]
+    fn builds_a_zip_that_reads_back() {
+        let entries = vec![
+            ArchiveEntryMeta { name: "scene.json".into(), len: 2 },
+            ArchiveEntryMeta { name: "models/a.glb".into(), len: 3 },
+        ];
+        let bytes = build_zip(&entries, b"{}abc").unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(zip.len(), 2);
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("scene.json").unwrap(), &mut s).unwrap();
+        assert_eq!(s, "{}");
+        assert_eq!(zip.by_name("models/a.glb").unwrap().size(), 3);
+    }
+
+    #[test]
+    fn refuses_names_that_climb_out() {
+        let entries = vec![ArchiveEntryMeta { name: "../evil".into(), len: 0 }];
+        assert!(build_zip(&entries, b"").is_err());
+        assert!(build_zip(&[ArchiveEntryMeta { name: "a".into(), len: 9 }], b"x").is_err());
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderPatternWavResult {

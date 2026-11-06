@@ -106,6 +106,24 @@ async fn main() {
                 .with_title("Game World Planner")
                 .with_window_size(1800.0, 1020.0)
                 .with_data_dir(env::var("ENTROPY_PLANNER_BDD_DATA").unwrap_or_else(|_| "../game-planner-data".to_string())),
+            // The Game World Detailer works on the Planner's own world files: same data folder,
+            // so a world saved in either app opens in the other. Mesha's store is linked to
+            // Mesha's own data folder, so presets designed in Mesha are offered here and presets
+            // saved here show up in Mesha.
+            Some("game-detailer") => {
+                let data = env::var("ENTROPY_DETAILER_BDD_DATA")
+                    .or_else(|_| env::var("ENTROPY_PLANNER_BDD_DATA"))
+                    .unwrap_or_else(|_| "../game-planner-data".to_string());
+                let mesha = env::var("ENTROPY_MESHA_BDD_DATA").unwrap_or_else(|_| "../mesha-data".to_string());
+                entropy_engine::EntropyApp::new()
+                    .with_bundle("examples/studio-bundle/dist/game_detailer.js")
+                    .with_hot_reload(true)
+                    .with_title("Game World Detailer")
+                    .with_window_size(1800.0, 1020.0)
+                    .with_glass_blur(true)
+                    .with_data_dir(data)
+                    .with_linked_store("Mesha", std::path::Path::new(&mesha).join("Mesha"))
+            }
             Some("game2d") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/game2d.js")
                 .with_title("Entropy 2D Arena")

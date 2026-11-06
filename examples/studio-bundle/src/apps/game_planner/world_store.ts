@@ -252,6 +252,8 @@ export interface WorldFile {
     format: typeof WORLD_FORMAT;
     version: number;
     savedAt: number;
+    /** The app that wrote the file ("game-world-planner", "game-world-detailer"); both open the same worlds. */
+    savedBy?: string;
     world: Omit<GameWorld, "terrain" | "overlay"> & { terrain?: EncodedTerrain; overlay?: EncodedOverlay };
 }
 
@@ -260,12 +262,13 @@ function compactReplacer(_key: string, v: unknown): unknown {
     return typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 1e4) / 1e4 : v;
 }
 
-export function serializeWorld(world: GameWorld, savedAt = Date.now()): string {
+export function serializeWorld(world: GameWorld, savedAt = Date.now(), savedBy?: string): string {
     const { terrain, overlay, ...rest } = world;
     const file: WorldFile = {
         format: WORLD_FORMAT,
         version: WORLD_FORMAT_VERSION,
         savedAt,
+        ...(savedBy ? { savedBy } : {}),
         world: {
             ...rest,
             ...(terrain && terrain.data?.length === terrain.cols * terrain.rows ? { terrain: encodeTerrain(terrain) } : {}),
@@ -394,8 +397,8 @@ export class WorldLibrary {
         return this.store.read(worldFileName(id)) !== null;
     }
 
-    save(world: GameWorld, savedAt = Date.now()): WorldSummary {
-        const text = serializeWorld(world, savedAt);
+    save(world: GameWorld, savedAt = Date.now(), savedBy?: string): WorldSummary {
+        const text = serializeWorld(world, savedAt, savedBy);
         this.store.write(worldFileName(world.meta.id), text);
         const summary = summarize(world, text.length, savedAt);
         const index = this.list().filter((s) => s.id !== world.meta.id);

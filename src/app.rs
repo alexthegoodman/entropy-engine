@@ -24,6 +24,7 @@ pub struct EntropyApp {
     hot_reload: bool,
     art_assets_dir: Option<PathBuf>,
     glass_blur: bool,
+    linked_stores: Vec<(String, PathBuf)>,
 }
 
 impl EntropyApp {
@@ -40,6 +41,7 @@ impl EntropyApp {
             hot_reload: false,
             art_assets_dir: None,
             glass_blur: false,
+            linked_stores: Vec::new(),
         }
     }
 
@@ -133,8 +135,21 @@ impl EntropyApp {
         self
     }
 
+    /// Shares another app's document store: `addon.IO.store` (and `IO.storeOf`) for the addon
+    /// named `addon_name` reads and writes `dir` instead of `<data_dir>/<addon_name>/`. The Game
+    /// World Detailer links Mesha's store to Mesha's own data folder, so presets saved in either
+    /// app show up in the other. An addon reaches a store not its own only through `IO.storeOf`,
+    /// and only for names it lists in `sharedStores` when it registers.
+    pub fn with_linked_store(mut self, addon_name: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
+        self.linked_stores.push((addon_name.into(), dir.into()));
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
+        for (name, dir) in &self.linked_stores {
+            crate::helpers::addon_store::link_store(name, dir.clone())?;
+        }
 
         crate::startup::run_with_config(crate::startup::RunConfig {
             game_mode: true,
