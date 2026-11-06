@@ -439,6 +439,12 @@ export interface GameWorld {
     questPaths?: QuestPath[];
     /** Buildings, walls, streets and plazas planned in towns and locations (older saves have none). */
     structures?: WorldStructure[];
+    /**
+     * The Game World Detailer's part of the world: which Mesha model stands for each planned
+     * thing, hand-placed props, scatter, ground materials, lighting (see
+     * apps/game_detailer/detail_types.ts). The Planner never edits it, only keeps it.
+     */
+    detail?: Record<string, unknown>;
 }
 
 // -------------------------------------------------------------------------------------------------

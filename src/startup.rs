@@ -213,6 +213,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real video export demo is running in test mode"
         || text == "the real Mesha app is running in test mode"
         || text == "the real Game World Planner is running in test mode"
+        || text == "the real Game World Detailer is running in test mode"
         || text == "the real QuadPlanet app is running in test mode"
         || text == "the real Allegiance game is running in test mode"
         || text == "the real Abyss game is running in test mode"
@@ -339,7 +340,9 @@ impl BrowserBddDriver {
         let media = !daw && !canvas && !launcher && !sheet && !ml && std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some();
         // The Game World Planner rides Mesha's run shape (tool replies in the result, the same budget).
         let planner = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_PLANNER_BDD_RESULT").is_some();
-        let mesha = planner || (!daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some());
+        // The Game World Detailer too: tool replies in the result, captures, Mesha's budget.
+        let detailer = !daw && !canvas && !launcher && !sheet && !ml && !media && !planner && std::env::var_os("ENTROPY_DETAILER_BDD_RESULT").is_some();
+        let mesha = planner || detailer || (!daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some());
         // Allegiance (a game on QuadPlanet's Earth) rides QuadPlanet's run: keys, MCP tools, captures.
         let allegiance = std::env::var_os("ENTROPY_ALLEGIANCE_BDD_RESULT").is_some();
         // The Abyss rides the same run (keys, MCP tools, captures) with its own feature.
@@ -363,6 +366,8 @@ impl BrowserBddDriver {
             "ENTROPY_MEDIA_BDD_RESULT"
         } else if planner {
             "ENTROPY_PLANNER_BDD_RESULT"
+        } else if detailer {
+            "ENTROPY_DETAILER_BDD_RESULT"
         } else if mesha {
             "ENTROPY_MESHA_BDD_RESULT"
         } else if quadplanet && allegiance {
@@ -384,6 +389,12 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_PLANNER_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/game_planner_live.feature"),
+            }
+        } else if detailer {
+            // ENTROPY_DETAILER_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
+            match std::env::var("ENTROPY_DETAILER_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/game_detailer_live.feature"),
             }
         } else if mesha {
             // ENTROPY_MESHA_BDD_FEATURE: "human" plays the people feature, "scene" the procedural scene
@@ -530,7 +541,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { std::env::var("ENTROPY_BDD_BUDGET_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900) } else if self.daw || self.mesha { 240 } else if self.canvas || self.launcher || self.tabs { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.quadplanet { std::env::var("ENTROPY_BDD_BUDGET_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(900) } else if self.daw || self.mesha { std::env::var("ENTROPY_BDD_BUDGET_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(240) } else if self.canvas || self.launcher || self.tabs { 120 } else if self.sheet || self.ml || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

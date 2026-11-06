@@ -25,6 +25,8 @@ const bundles = [
   ["doc-editor-demo", "src/apps/doc_editor_demo_addon.ts", "doc_editor_demo.js"],
   ["fft-river", "src/apps/fft_river_water_addon.ts", "fft_river.js"],
   ["fft-water", "src/apps/fft_water_addon.ts", "fft_water.js"],
+  ["game-detailer", "src/apps/game_detailer/game_detailer_addon.ts", "game_detailer.js"],
+  ["game-detailer-worker", "src/apps/game_detailer/detail_worker.ts", "game_detailer_worker.js"],
   ["game2d", "src/games/game2d/index.ts", "game2d.js"],
   ["guitar-tabs", "src/apps/tabs/tabs_addon.ts", "guitar_tabs.js"],
   ["html-ui-demo", "src/apps/html_ui_demo_addon.ts", "html_ui_demo.js"],

@@ -398,6 +398,32 @@ export class PlannerModel {
         this.isDirty = true;
     }
 
+    /**
+     * Takes in the world as another app (the Game World Detailer) left it on disk, or a merge of
+     * that with this app's unsaved edits. One undo step, so it can be taken back; the selection
+     * is dropped if what it pointed at is gone.
+     */
+    adoptWorld(next: GameWorld, dirty: boolean): void {
+        this.undoStack.push(JSON.stringify(this.world));
+        if (this.undoStack.length > this.maxHistory) this.undoStack.shift();
+        this.redoStack = [];
+        this.lastSnapshotKey = null;
+        this.world = JSON.parse(JSON.stringify(next));
+        this.world.intents ??= [];
+        this.world.proposals ??= [];
+        this.world.questPaths ??= [];
+        this.world.structures ??= [];
+        this.ensureTerrain();
+        const ids = new Set<string>([
+            ...this.world.spots.map((x) => x.id), ...this.world.paths.map((x) => x.id), ...this.world.regions.map((x) => x.id),
+            ...this.structures.map((x) => x.id), ...(this.world.placements ?? []).map((x) => x.id), ...this.questPaths.map((x) => x.id),
+            ...this.intents.map((x) => x.id), ...this.world.codex.map((x) => x.id), ...this.world.missions.map((x) => x.id),
+        ]);
+        if (this.selectedId && !ids.has(this.selectedId)) this.selectedId = null;
+        if (this.selectedPlacementId && !ids.has(this.selectedPlacementId)) this.selectedPlacementId = null;
+        this.isDirty = dirty;
+    }
+
     undo(): boolean {
         if (this.undoStack.length === 0) return false;
         const currentState = JSON.stringify(this.world);

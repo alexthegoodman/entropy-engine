@@ -245,3 +245,11 @@ orbits, middle-drag pans, the wheel zooms, and F frames the selection. Full rota
 save/load, duplication, undo/redo and GLB export. The Placement Turn control sets an upright yaw.
 Object geometry stays resident during transforms; picking geometry and contact shadows refresh
 at the end of a drag. Procedural parameter changes still rebuild the affected object.
+
+### Mesha in game worlds
+
+The [Game World Detailer](GAME_WORLD_DETAILER.md) stands Mesha objects in the Game World Planner's
+worlds: every building, landmark and NPC is a library object with its parameters, shaped with the
+same controls and Variation. Presets are shared both ways through Mesha's store
+(`presets/<objectId>.json`): a preset saved in Mesha is offered in the Detailer, and one saved in
+the Detailer appears in Mesha's preset list.

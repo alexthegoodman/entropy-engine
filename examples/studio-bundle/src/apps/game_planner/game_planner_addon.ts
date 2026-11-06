@@ -30,6 +30,7 @@ import {
     type Landform,
     type WorldSummary,
 } from "./world_store";
+import { WorldFileWatcher, cloneWorld, mergeWorlds } from "./world_sync";
 import { QUEST_PATH_COLORS, questPathTravel, questPathsOf, routeSpots } from "./quest_paths";
 import {
     FOOTPRINT_SHAPES,
@@ -207,6 +208,11 @@ let model = new PlannerModel();
 let statusMessage = "Welcome to Game World Planner. Open a world, start a new one, or begin from a preset.";
 /** The saved-worlds library (`<data>/game-world-planner/worlds/`); null when the app has no data folder. */
 let library: WorldLibrary | null = null;
+/** The open world's file, watched for saves by the Game World Detailer (which edits the same files). */
+let watcher: WorldFileWatcher | null = null;
+/** The open world as it is on disk (last opened, saved or taken in): the base of a three-way merge. */
+let syncBase: GameWorld | null = null;
+const SAVED_BY = "game-world-planner";
 /** Surface detail when zoomed in: 0 off, 1 normal, 2 high. A view setting, kept with the app settings. */
 let terrainDetail = 1;
 let showStructures = true;
@@ -315,10 +321,44 @@ function formatBytes(n: number): string {
     return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
+/** Starts watching the open world's file; `base` is the world as it is on disk. */
+function trackOnDisk(base: GameWorld, savedAt = -1): void {
+    syncBase = cloneWorld(base);
+    if (!library) return;
+    if (!watcher) watcher = new WorldFileWatcher(addon.IO.store, base.meta.id);
+    watcher.watch(base.meta.id, savedAt);
+}
+
+/**
+ * The Detailer (or anything else) saved the open world: take its version in. With no unsaved
+ * edits here that is the file as it is; with some, a three-way merge keeps both sides' changes.
+ * `force` checks now, whatever the poll interval (before saving).
+ */
+function syncFromDisk(force = false): void {
+    if (!watcher || !library || watcher.worldId !== model.world.meta.id) return;
+    const change = watcher.poll(Date.now(), force);
+    if (!change || change.world.meta.id !== model.world.meta.id) return;
+    const who = change.savedBy === "game-world-detailer" ? "Game World Detailer" : "another app";
+    if (!model.isDirty || !syncBase) {
+        model.adoptWorld(change.world, false);
+        statusMessage = `Updated from the ${who}.`;
+    } else {
+        const { world, report } = mergeWorlds(syncBase, model.world, change.world);
+        model.adoptWorld(world, true);
+        statusMessage = `Merged ${report.incoming} change(s) from the ${who} into your unsaved edits` + (report.conflicts.length ? ` (${report.conflicts.length} conflict(s) kept yours: ${report.conflicts.slice(0, 3).join(", ")})` : ".");
+    }
+    syncBase = cloneWorld(change.world);
+    Entropy.UI.toast?.({ id: "planner-sync", message: statusMessage, kind: "info", durationMs: 3500 });
+}
+
 function saveWorld(): void {
     try {
         if (!library) throw new Error("this app has no data folder to save into");
-        const info = library.save(model.world);
+        // Someone else may have saved since: take their changes in first, so this save keeps them.
+        syncFromDisk(true);
+        const savedAt = Date.now();
+        const info = library.save(model.world, savedAt, SAVED_BY);
+        trackOnDisk(model.world, savedAt);
         model.isDirty = false;
         saveSettings();
         statusMessage = `Saved "${model.world.meta.name}" (${formatBytes(info.bytes)}).`;
@@ -358,6 +398,7 @@ function openWorld(id: string): boolean {
         if (id !== model.world.meta.id) saveIfDirty();
         setModel(new PlannerModel(w));
         model.isDirty = false;
+        trackOnDisk(w);
         saveSettings();
         statusMessage = `Opened "${model.world.meta.name}" (${model.world.spots.length} spots, ${model.world.missions.length} quests, ${model.structures.length} structures).`;
         return true;
@@ -4287,6 +4328,8 @@ addon.onInit(() => {
         title: icon("map-trifold", "Game World Planner"),
         scroll: false,
         onRender: () => {
+            // A cheap folder listing every ~1.2 s: did the Detailer save this world?
+            syncFromDisk();
             renderHeader(tabId);
 
             const ownScroll = model.activeTab === "map" || model.activeTab === "codex" || model.activeTab === "story";

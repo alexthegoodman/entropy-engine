@@ -1559,6 +1559,51 @@ globalThis.Entropy = {
                         list: (path = "") => ops.op_addon_store_list(metadata.name, path),
                         remove: (path) => ops.op_addon_store_remove(metadata.name, path),
                     },
+                    // Another addon's store, for apps that share files (the Game World Detailer
+                    // edits the Planner's worlds and Mesha's presets). Only names the addon listed
+                    // in `sharedStores` when it registered; anything else throws.
+                    storeOf: (name) => {
+                        const allowed = name === metadata.name || (Array.isArray(metadata.sharedStores) && metadata.sharedStores.includes(name));
+                        if (!allowed) throw new Error(`"${metadata.name}" did not ask to share the "${name}" store (list it in sharedStores)`);
+                        return {
+                            read: (path) => ops.op_addon_store_read(name, path) ?? null,
+                            write: (path, text) => ops.op_addon_store_write(name, path, text),
+                            list: (path = "") => ops.op_addon_store_list(name, path),
+                            remove: (path) => ops.op_addon_store_remove(name, path),
+                        };
+                    },
+                    // Writes a .zip of `entries` ({ name, data: Uint8Array | string }) through a Save
+                    // As dialog, or straight to `options.path` (ending .zip). Entries are deflated.
+                    saveArchive: (entries, suggestedName, options) => {
+                        let total = 0;
+                        // UTF-8 by hand: the addon runtime has no TextEncoder.
+                        const utf8 = (text) => {
+                            const out = [];
+                            for (let i = 0; i < text.length; i++) {
+                                let c = text.charCodeAt(i);
+                                if (c >= 0xd800 && c < 0xdc00 && i + 1 < text.length) {
+                                    const d = text.charCodeAt(i + 1);
+                                    if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+                                }
+                                if (c < 0x80) out.push(c);
+                                else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+                                else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+                                else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+                            }
+                            return Uint8Array.from(out);
+                        };
+                        const bytes = entries.map(e => typeof e.data === "string" ? utf8(e.data) : e.data);
+                        for (const b of bytes) total += b.length;
+                        const data = new Uint8Array(total);
+                        let off = 0;
+                        for (const b of bytes) { data.set(b, off); off += b.length; }
+                        return ops.op_io_save_archive(
+                            entries.map((e, i) => ({ name: e.name, len: bytes[i].length })),
+                            data,
+                            suggestedName || "export.zip",
+                            (options && options.path) || ""
+                        );
+                    },
                     load: () => {
                         const json = ops.op_addon_load_data(metadata.name);
                         if (!json || json === "") return null;

@@ -39,11 +39,36 @@ fn valid_segment(segment: &str, allow_space: bool) -> bool {
         && segment.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') || (allow_space && c == ' '))
 }
 
+/// Stores that live somewhere other than `<data_dir>/<addon>/`: an app that shares another app's
+/// files (the Game World Detailer reading Mesha's presets from Mesha's own data folder) links the
+/// store by name once at startup (`EntropyApp::with_linked_store`). Process-wide and set before
+/// any addon runs, so it is a plain map behind a lock.
+static LINKED_STORES: std::sync::RwLock<Option<std::collections::HashMap<String, PathBuf>>> = std::sync::RwLock::new(None);
+
+/// Points the store named `addon_name` at `dir` instead of `<data_dir>/<addon_name>/`.
+pub fn link_store(addon_name: &str, dir: PathBuf) -> Result<(), String> {
+    if !valid_segment(addon_name, true) {
+        return Err(format!("\"{addon_name}\" cannot be used as a storage folder name"));
+    }
+    let mut map = LINKED_STORES.write().map_err(|_| "linked stores lock poisoned".to_string())?;
+    map.get_or_insert_with(Default::default).insert(addon_name.to_string(), dir);
+    Ok(())
+}
+
+/// Where a linked store lives, if `addon_name` was linked.
+pub fn linked_store(addon_name: &str) -> Option<PathBuf> {
+    LINKED_STORES.read().ok()?.as_ref()?.get(addon_name).cloned()
+}
+
 /// The folder an addon's store lives in. Addon names come from `Entropy.Addon.register` and may
 /// hold spaces ("Canvas Surfaces"), so spaces are allowed here but not in the paths beneath it.
+/// A store linked with [`link_store`] lives where it was linked.
 pub fn addon_root(data_dir: &Path, addon_name: &str) -> Result<PathBuf, String> {
     if !valid_segment(addon_name, true) {
         return Err(format!("\"{addon_name}\" cannot be used as a storage folder name"));
+    }
+    if let Some(dir) = linked_store(addon_name) {
+        return Ok(dir);
     }
     Ok(data_dir.join(addon_name))
 }
@@ -159,6 +184,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("entropy-addon-store-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[test]
+    fn a_linked_store_lives_where_it_was_linked() {
+        let data = temp_root("linked-data");
+        let elsewhere = temp_root("linked-elsewhere").join("Mesha");
+        link_store("Linked Test Store", elsewhere.clone()).unwrap();
+        assert_eq!(addon_root(&data, "Linked Test Store").unwrap(), elsewhere);
+        assert_eq!(addon_root(&data, "Unlinked Store").unwrap(), data.join("Unlinked Store"));
+        assert!(link_store("../escape", elsewhere).is_err());
     }
 
     #[test]

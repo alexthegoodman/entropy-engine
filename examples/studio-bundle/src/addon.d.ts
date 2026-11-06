@@ -209,6 +209,9 @@ export interface AddonMetadata {
     /** Set to false to give this addon's tab the full work area instead of splitting it with the 3D viewport (e.g. non-visual tools like the DAW). Defaults to true. */
     needsViewport?: boolean;
   }
+  /** Other addons' document stores this addon may open with `IO.storeOf(name)` (the Game World
+   * Detailer lists "game-world-planner" and "Mesha" to share their files). */
+  sharedStores?: string[];
   [key: string]: unknown;
 }
 
@@ -992,6 +995,13 @@ export interface ScopedAPI {
      * no `..`); anything else throws. Writes are atomic: a crash mid-write leaves the previous file.
      * Every call throws when the app has no data folder (`EntropyApp::with_data_dir`). */
     store: AddonStore;
+    /** Another addon's document store, by its registered name; only names listed in this addon's
+     * `sharedStores` (anything else throws). The app may link a store to another folder
+     * (`EntropyApp::with_linked_store`), so two apps can share one. */
+    storeOf: (addonName: string) => AddonStore;
+    /** Writes a deflated .zip of `entries` through a Save As dialog, or to `options.path` (ending
+     * .zip) without one. Entry names are relative paths with forward slashes. */
+    saveArchive: (entries: Array<{ name: string; data: Uint8Array | string }>, suggestedName?: string, options?: { path?: string }) => { success: boolean; path: string | null; error: string | null; bytes: number };
   };
   Scripts: {
     list: () => Promise<string[]>;

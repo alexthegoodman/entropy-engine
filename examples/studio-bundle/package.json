@@ -69,7 +69,10 @@
     "typecheck": "tsc --noEmit",
     "build-game-planner": "npm run ensure-dist && deno bundle src/apps/game_planner/game_planner_addon.ts --output dist/game_planner.js",
     "test:game-planner": "vitest run tests/game_planner.test.ts tests/game_planner_terrain.test.ts tests/game_planner_intents.test.ts tests/game_planner_planning.test.ts tests/game_planner_worlds.test.ts tests/game_planner_towns_quests.test.ts",
-    "typecheck:game-planner": "tsc --project tsconfig.game_planner.json --noEmit"
+    "typecheck:game-planner": "tsc --project tsconfig.game_planner.json --noEmit",
+    "build-game-detailer": "npm run ensure-dist && deno bundle src/apps/game_detailer/game_detailer_addon.ts --output dist/game_detailer.js && deno bundle src/apps/game_detailer/detail_worker.ts --output dist/game_detailer_worker.js",
+    "test:game-detailer": "vitest run tests/game_detailer.test.ts tests/game_detailer_export.test.ts tests/world_sync.test.ts",
+    "typecheck:game-detailer": "tsc --project tsconfig.game_detailer.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

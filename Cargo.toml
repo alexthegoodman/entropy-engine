@@ -352,6 +352,8 @@ deno_error = "0.5.5"
 # deno_core = "0.382.0"
 # deno_error = "0.7.3"
 rfd = "0.17.2"
+# The Game World Detailer's export package (Entropy.IO.saveArchive). Already in the lockfile.
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 # Hosts real VST3 plugins (src/audio/vst3.rs). default-features off: no cpal backend (rodio owns
 # our audio output) and no process-isolation helper binary. Its own directory scan misses the
 # single-file .vst3 layout Windows installers use, so scanning is done in src/audio/vst3.rs.
