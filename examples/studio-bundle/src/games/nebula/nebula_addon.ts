@@ -87,9 +87,9 @@ function readInput(): NkInput {
     const kx = (key("ArrowRight") ? 1 : 0) - (key("ArrowLeft") ? 1 : 0), ky = (key("ArrowUp") ? 1 : 0) - (key("ArrowDown") ? 1 : 0);
     const input: NkInput = {
         thrust: clamp((key("w") ? 1 : 0) - (key("s") ? 1 : 0) + L[1], -1, 1),
-        strafe: clamp((key("d") ? 1 : 0) - (key("a") ? 1 : 0) + L[0], -1, 1),
+        strafe: -clamp((key("d") ? 1 : 0) - (key("a") ? 1 : 0) + L[0], -1, 1),
         lift: (key(" ") || controller.held.has("South") ? 1 : 0) - (key("Control") || controller.held.has("East") ? 1 : 0),
-        turnX: clamp(kx + R[0], -1, 1),
+        turnX: -clamp(kx + R[0], -1, 1),
         turnY: clamp(ky + R[1], -1, 1),
         fire: fireHeld || controller.held.has("RightTrigger2") || controller.held.has("RightTrigger"),
         surge: key("Shift") || controller.held.has("LeftTrigger2") || controller.held.has("LeftTrigger"),
@@ -100,7 +100,7 @@ function readInput(): NkInput {
         decoy: tapped("f") || padPressed.has("DPadLeft"),
         flare: tapped("r") || padPressed.has("North"),
         tribute: tapped("g") || padPressed.has("DPadRight"),
-        lookYaw: -mdx * 0.0035,
+        lookYaw: mdx * 0.0035,
         lookPitch: -mdy * 0.0035,
     };
     if (scripted) {
