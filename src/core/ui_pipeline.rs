@@ -98,9 +98,7 @@ impl UiPipeline {
                 polygon.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &polygon.bind_group, &[]);
                 render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &polygon.vertex_buffer, &polygon.index_buffer, polygon.indices.len());
             }
         }
 
@@ -112,18 +110,14 @@ impl UiPipeline {
                     text_item.background_polygon.transform.update_uniform_buffer(queue);
                     render_pass.set_bind_group(1, &text_item.background_polygon.bind_group, &[]);
                     render_pass.set_bind_group(3, &text_item.background_polygon.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, text_item.background_polygon.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(text_item.background_polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.draw_indexed(0..text_item.background_polygon.indices.len() as u32, 0, 0..1);
+                    draw_ui_geometry(render_pass, &text_item.background_polygon.vertex_buffer, &text_item.background_polygon.index_buffer, text_item.background_polygon.indices.len());
                 }
 
                 // Text
                 text_item.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &text_item.bind_group, &[]);
                 render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(text_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &text_item.vertex_buffer, &text_item.index_buffer, text_item.indices.len());
             }
         }
 
@@ -133,9 +127,7 @@ impl UiPipeline {
                 image_item.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &image_item.bind_group, &[]);
                 render_pass.set_bind_group(3, &image_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, image_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(image_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..image_item.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &image_item.vertex_buffer, &image_item.index_buffer, image_item.indices.len());
             }
         }
 
@@ -146,17 +138,13 @@ impl UiPipeline {
                 mini_map.background.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &mini_map.background.bind_group, &[]);
                 render_pass.set_bind_group(3, &mini_map.background.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, mini_map.background.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mini_map.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mini_map.background.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &mini_map.background.vertex_buffer, &mini_map.background.index_buffer, mini_map.background.indices.len());
 
                 // Player Marker
                 mini_map.player_marker.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &mini_map.player_marker.bind_group, &[]);
                 render_pass.set_bind_group(3, &mini_map.player_marker.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, mini_map.player_marker.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mini_map.player_marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mini_map.player_marker.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &mini_map.player_marker.vertex_buffer, &mini_map.player_marker.index_buffer, mini_map.player_marker.indices.len());
 
                 // NPC Markers
                 for (id, marker) in &mini_map.npc_markers {
@@ -164,9 +152,7 @@ impl UiPipeline {
                         marker.transform.update_uniform_buffer(queue);
                         render_pass.set_bind_group(1, &marker.bind_group, &[]);
                         render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+                        draw_ui_geometry(render_pass, &marker.vertex_buffer, &marker.index_buffer, marker.indices.len());
                     }
                 }
 
@@ -176,9 +162,7 @@ impl UiPipeline {
                         marker.transform.update_uniform_buffer(queue);
                         render_pass.set_bind_group(1, &marker.bind_group, &[]);
                         render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+                        draw_ui_geometry(render_pass, &marker.vertex_buffer, &marker.index_buffer, marker.indices.len());
                     }
                 }
             }
@@ -204,9 +188,7 @@ impl UiPipeline {
                 polygon.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &polygon.bind_group, &[]);
                 render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &polygon.vertex_buffer, &polygon.index_buffer, polygon.indices.len());
             }
         }
 
@@ -218,18 +200,14 @@ impl UiPipeline {
                     text_item.background_polygon.transform.update_uniform_buffer(queue);
                     render_pass.set_bind_group(1, &text_item.background_polygon.bind_group, &[]);
                     render_pass.set_bind_group(3, &text_item.background_polygon.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, text_item.background_polygon.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(text_item.background_polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.draw_indexed(0..text_item.background_polygon.indices.len() as u32, 0, 0..1);
+                    draw_ui_geometry(render_pass, &text_item.background_polygon.vertex_buffer, &text_item.background_polygon.index_buffer, text_item.background_polygon.indices.len());
                 }
 
                 // Text
                 text_item.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &text_item.bind_group, &[]);
                 render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(text_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &text_item.vertex_buffer, &text_item.index_buffer, text_item.indices.len());
             }
         }
 
@@ -239,9 +217,7 @@ impl UiPipeline {
                 image_item.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &image_item.bind_group, &[]);
                 render_pass.set_bind_group(3, &image_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, image_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(image_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..image_item.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &image_item.vertex_buffer, &image_item.index_buffer, image_item.indices.len());
             }
         }
 
@@ -253,10 +229,25 @@ impl UiPipeline {
                 video_item.transform.update_uniform_buffer(queue);
                 render_pass.set_bind_group(1, &video_item.bind_group, &[]);
                 render_pass.set_bind_group(3, &video_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, video_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(video_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..video_item.indices.len() as u32, 0, 0..1);
+                draw_ui_geometry(render_pass, &video_item.vertex_buffer, &video_item.index_buffer, video_item.indices.len());
             }
         }
     }
+}
+
+/// Binds and draws one UI item's geometry, skipping items that tessellated to
+/// nothing (e.g. a bar resized to zero width). Their buffers are zero-sized, and
+/// wgpu panics on `slice(..)` of an empty buffer.
+fn draw_ui_geometry<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    vertex_buffer: &'rp wgpu::Buffer,
+    index_buffer: &'rp wgpu::Buffer,
+    index_count: usize,
+) {
+    if index_count == 0 || vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+        return;
+    }
+    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+    render_pass.draw_indexed(0..index_count as u32, 0, 0..1);
 }
