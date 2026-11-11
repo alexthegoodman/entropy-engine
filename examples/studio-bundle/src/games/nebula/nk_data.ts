@@ -169,7 +169,10 @@ export const isHostileStanding = (standing: number): boolean => standing <= -15;
 
 // --- Creatures --------------------------------------------------------------------------------------
 
-export type SpeciesId = "skimmer" | "gnawer" | "manta" | "warden" | "quill" | "pyre" | "spire" | "medusa" | "cantor" | "drifter" | "marauder" | "rival" | "thrall" | "leviathan" | "envoy";
+export type SpeciesId = "skimmer" | "gnawer" | "manta" | "warden" | "quill" | "pyre" | "spire" | "medusa" | "cantor" | "drifter" | "marauder" | "rival" | "thrall" | "leviathan" | "envoy" | "lurker" | "splitter" | "prism" | "wraith";
+/** What sets a creature apart from a plain brute: hides until close, splits when broken, turns
+ *  single bolts back, or folds space to reach you. */
+export type Trait = "ambush" | "split" | "reflect" | "blink";
 export type Attack = "none" | "ram" | "bolt" | "sting";
 /** prey flees; herd keeps to its own; civil minds its business; predator hunts what is smaller; soldier fights its government's enemies. */
 export type Temper = "prey" | "herd" | "civil" | "predator" | "soldier";
@@ -179,7 +182,7 @@ export interface Species {
     name: string;
     faction: FactionId;
     /** How it is drawn (nebula_addon.ts builds each from spheres, cones and light). */
-    shape: "eel" | "crab" | "manta" | "nebula" | "wasp" | "brute" | "spire" | "jelly" | "husk" | "whale" | "envoy";
+    shape: "eel" | "crab" | "manta" | "nebula" | "wasp" | "brute" | "spire" | "jelly" | "husk" | "whale" | "envoy" | "urchin" | "blob" | "prism" | "wraith";
     /** Radius in units of the region's own radius. */
     size: number;
     hp: number;
@@ -195,6 +198,9 @@ export interface Species {
     menace: boolean;
     color: RGB;
     lore: string;
+    trait?: Trait;
+    /** How to beat it, for the Field Guide (with {control} names). */
+    tip?: string;
 }
 
 export const SPECIES: Record<SpeciesId, Species> = {
@@ -213,7 +219,25 @@ export const SPECIES: Record<SpeciesId, Species> = {
     thrall: { id: "thrall", name: "Thrall", faction: "hollow", shape: "husk", size: 1, hp: 95, power: 16, speed: 3.3, sight: 40, attack: "ram", temper: "soldier", menace: true, color: [1, 0.32, 0.45], lore: "The burnt-out husk of a creature that crossed a horizon and was sent back." },
     leviathan: { id: "leviathan", name: "Leviathan", faction: "wild", shape: "whale", size: 3, hp: 420, power: 26, speed: 1.5, sight: 30, attack: "ram", temper: "herd", menace: false, color: [0.6, 0.75, 1], lore: "Star-whales older than the governments. They do not take sides." },
     envoy: { id: "envoy", name: "Envoy", faction: "concord", shape: "envoy", size: 0.9, hp: 200, power: 0, speed: 0.6, sight: 30, attack: "none", temper: "civil", menace: false, color: [1, 1, 1], lore: "The voice of a government: it speaks edicts and accepts tribute." },
+    lurker: { id: "lurker", name: "Lurker", faction: "wild", shape: "urchin", size: 0.65, hp: 60, power: 18, speed: 6.5, sight: 9, attack: "ram", temper: "predator", menace: true, color: [0.55, 0.5, 0.75], trait: "ambush", lore: "Spined ambushers that lie dark among the rubble and strike whatever drifts too close.", tip: "Lurkers hide until you are close. {attune} shows them, and the Pulse {pulse} flushes them out." },
+    splitter: { id: "splitter", name: "Splitter", faction: "wild", shape: "blob", size: 0.8, hp: 70, power: 9, speed: 2.4, sight: 22, attack: "ram", temper: "predator", menace: true, color: [0.6, 1, 0.55], trait: "split", lore: "A cell of living plasma. Break it and it becomes two.", tip: "Splitters burst into two smaller ones. Shardfall ({blast} to switch) catches both halves at once." },
+    prism: { id: "prism", name: "Glass Sentinel", faction: "ember", shape: "prism", size: 1, hp: 120, power: 11, speed: 1.6, sight: 34, attack: "bolt", temper: "soldier", menace: true, color: [1, 0.75, 0.45], trait: "reflect", lore: "Faceted guardians cut from star-glass: they turn a single bolt straight back at whoever threw it.", tip: "Glass Sentinels turn the Lance and Seekers back at you. Break them with Sunthread or Shardfall ({blast} to switch), the Pulse or Starfire." },
+    wraith: { id: "wraith", name: "Hollow Wraith", faction: "hollow", shape: "wraith", size: 0.85, hp: 75, power: 12, speed: 2.8, sight: 44, attack: "sting", temper: "soldier", menace: true, color: [0.95, 0.35, 0.6], trait: "blink", lore: "A shade of the Hollow Court that folds space in short, cruel steps.", tip: "Wraiths fold space to appear beside you, then sting. Keep moving, and Pulse {pulse} them off when they land." },
 };
+
+// --- Variants ----------------------------------------------------------------------------------------
+
+/** A twist on an ordinary hunter: more of them appear the deeper into the kingdom you go. */
+export type AffixId = "swift" | "armored" | "volatile" | "vampiric";
+export const AFFIXES: Record<AffixId, { name: string; text: string; color: RGB }> = {
+    swift: { name: "Swift", text: "Half again as fast.", color: [0.5, 0.95, 1] },
+    armored: { name: "Armoured", text: "Nearly twice as hard to break, a little slower.", color: [0.75, 0.78, 0.85] },
+    volatile: { name: "Volatile", text: "Bursts when it dies: do not finish it at close range.", color: [1, 0.6, 0.15] },
+    vampiric: { name: "Vampiric", text: "Heals itself on what it strikes.", color: [1, 0.2, 0.3] },
+};
+export const AFFIX_IDS = Object.keys(AFFIXES) as AffixId[];
+/** The chance a plain hunter in a region of `tier` carries an affix. */
+export const affixChance = (tier: number): number => Math.max(0, Math.min(0.3, (tier - 1) * 0.03));
 
 // --- Facets (perks) and abilities --------------------------------------------------------------------
 
@@ -306,7 +330,7 @@ export interface HoleSpec {
     hunts?: number;
 }
 
-export type GoalDef =
+export type GoalDef = ({ how?: string }) & (
     | { id: string; type: "absorb"; kind: BodyKind | "any"; count: number; text: string; optional?: boolean }
     | { id: string; type: "mine"; keys?: string[]; kind?: BodyKind; count?: number; text: string; optional?: boolean }
     | { id: string; type: "clear"; group?: string; text: string; optional?: boolean }
@@ -316,7 +340,7 @@ export type GoalDef =
     | { id: string; type: "lure"; hole: string; to: string; after?: string[]; text: string; optional?: boolean }
     | { id: string; type: "sling"; hole: string; text: string; optional?: boolean }
     | { id: string; type: "standing"; factions: number; text: string; optional?: boolean }
-    | { id: string; type: "tribute"; faction: FactionId; text: string; optional?: boolean };
+    | { id: string; type: "tribute"; faction: FactionId; text: string; optional?: boolean });
 
 export interface RegionDef {
     id: string;
@@ -392,9 +416,10 @@ export const REGIONS: RegionDef[] = [
             { species: "skimmer", count: 6, at: [70, 0, 90], spread: 14, group: "pests" },
             { species: "gnawer", count: 3, near: "cinder", spread: 12, group: "pests" },
             { key: "envoy", species: "envoy", faction: "concord", name: "Envoy Halcyon", near: "aurel", spread: 9 },
+            { species: "splitter", count: 2, at: [70, 0, 96], spread: 12, group: "pests" },
         ],
         goals: [
-            { id: "defend", type: "defend", group: "shoal", waves: [{ species: "quill", count: 4 }, { species: "quill", count: 5 }, { species: "pyre", count: 2, boss: 1.15 }], text: "Defend the manta shoal from the Ember raid" },
+            { id: "defend", type: "defend", group: "shoal", waves: [{ species: "quill", count: 4 }, { species: "quill", count: 5 }, { species: "pyre", count: 2, boss: 1.15 }], text: "Defend the manta shoal from the Ember raid", how: "Ember raiders come in waves to the manta shoal (marked). Fly there and break each wave with {fire} before it reaches the mantas." },
             { id: "mine", type: "mine", keys: ["cinder", "brine"], text: "Mine the barren worlds Cinder and Brine" },
             { id: "candle", type: "mine", keys: ["candle"], text: "Consume the Old Candle - your first star" },
             { id: "pests", type: "clear", group: "pests", text: "Clear the ring of pests", optional: true },
@@ -420,9 +445,10 @@ export const REGIONS: RegionDef[] = [
             { key: "vash", species: "rival", name: "Vash", boss: 1.35, near: "murk", spread: 14, group: "vash" },
             { species: "marauder", count: 5, near: "floe", spread: 16, group: "outlaws" },
             { species: "skimmer", count: 7, at: [-60, 0, 150], spread: 16, group: "outlaws" },
+            { species: "lurker", count: 3, near: "floe", spread: 9, group: "outlaws" },
         ],
         goals: [
-            { id: "toll", type: "tribute", faction: "drift", text: "Pay the Tollkeeper's tribute (or don't)", optional: true },
+            { id: "toll", type: "tribute", faction: "drift", text: "Pay the Tollkeeper's tribute (or don't)", optional: true, how: "Fly close to Tollkeeper Osk and press {tribute} to pay a twentieth of your mass. Or keep it: the Drift only grumbles." },
             { id: "vash", type: "defeat", key: "vash", text: "Defeat the rival cloud Vash" },
             { id: "gale", type: "mine", keys: ["gale", "floe"], text: "Mine the worlds Gale and Floe" },
             { id: "outlaws", type: "clear", group: "outlaws", text: "Clear the eddies of outlaws" },
@@ -447,11 +473,12 @@ export const REGIONS: RegionDef[] = [
             { species: "marauder", count: 8, at: [-10, 0, 150], spread: 24, group: "marauders" },
             { species: "skimmer", count: 6, near: "opal", spread: 14, group: "marauders" },
             { species: "leviathan", count: 1, at: [90, 20, 180], name: "Old Rill" },
+            { species: "lurker", count: 2, near: "opal", spread: 12, group: "marauders" },
         ],
         holes: [{ key: "sump", name: "the Sump", at: [10, 0, 110], size: 2.4 }],
         goals: [
-            { id: "sling", type: "sling", hole: "sump", text: "Slingshot around the Sump without crossing its horizon" },
-            { id: "feed", type: "feed", hole: "sump", count: 4, bait: "marauder", text: "Trick 4 Marauders into the Sump (keep it between you and them)" },
+            { id: "sling", type: "sling", hole: "sump", text: "Slingshot around the Sump without crossing its horizon", how: "Fly fast past the Sump, close enough that the ERGOSPHERE warning shows, and on out the far side. Never touch the black core. Hold {stride} for speed." },
+            { id: "feed", type: "feed", hole: "sump", count: 4, bait: "marauder", text: "Trick 4 Marauders into the Sump (keep it between you and them)", how: "Hit a Marauder with {fire} so the pack hunts you, then fly round so the Sump lies between you and them. They chase in a straight line and fall in. Stay outside the warning ring yourself." },
             { id: "bruin", type: "mine", keys: ["bruin", "opal"], text: "Consume the brown dwarf Bruin and the giant Opal" },
             { id: "clear", type: "clear", group: "marauders", text: "Clear the Bazaar of Marauders" },
         ],
@@ -476,6 +503,7 @@ export const REGIONS: RegionDef[] = [
             { species: "quill", count: 8, at: [0, 0, 100], spread: 30, group: "legion" },
             { species: "pyre", count: 4, at: [20, 0, 160], spread: 26, group: "legion" },
             { species: "warden", count: 3, at: [-30, 10, 40], spread: 10 },
+            { species: "prism", count: 3, at: [-20, 0, 130], spread: 24, group: "legion" },
         ],
         goals: [
             { id: "spires", type: "clear", group: "spires", text: "Break the three Forge Spires" },
@@ -502,6 +530,7 @@ export const REGIONS: RegionDef[] = [
             { species: "pyre", count: 3, near: "throne", spread: 22, group: "court" },
             { species: "quill", count: 6, at: [0, 0, 90], spread: 30, group: "court" },
             { species: "spire", count: 2, near: "vassal", spread: 9, group: "court" },
+            { species: "prism", count: 2, near: "throne", spread: 26, group: "court" },
         ],
         goals: [
             { id: "vassals", type: "mine", keys: ["vassal", "slag"], text: "Consume the vassal stars Vassal and Slag (grow before you face the Regent)" },
@@ -528,11 +557,12 @@ export const REGIONS: RegionDef[] = [
             { key: "envoy", species: "envoy", faction: "synod", name: "Mother of Tides", at: [-12, 4, 44] },
             { species: "thrall", count: 7, at: [30, 0, 190], spread: 26, group: "husks" },
             { species: "rival", count: 2, at: [90, 0, 80], spread: 20, group: "husks" },
+            { species: "wraith", count: 3, at: [40, 0, 170], spread: 24, group: "husks" },
         ],
         holes: [{ key: "cantor", name: "the Cantor", at: [20, 0, 150], size: 2.2, hunts: 1.15 }],
         rift: { at: [-10, 30, 250], size: 7 },
         goals: [
-            { id: "lure", type: "lure", hole: "cantor", to: "rift", text: "Lure the Cantor into the Rift (it follows mass: yours, or what you Shed)" },
+            { id: "lure", type: "lure", hole: "cantor", to: "rift", text: "Lure the Cantor into the Rift (it follows mass: yours, or what you Shed)", how: "The Cantor drifts toward the biggest mass it feels: you. Let it come, then fly past the Rift (marked) so the Rift is between you and it; it follows you in. {decoy} sheds a knot of mass it will chase instead." },
             { id: "husks", type: "clear", group: "husks", text: "Clear the Deeps of Thralls and rivals" },
             { id: "stars", type: "mine", keys: ["psalm", "vesper"], text: "Consume the stars Psalm and Vesper" },
         ],
@@ -555,13 +585,15 @@ export const REGIONS: RegionDef[] = [
             { species: "rival", count: 3, at: [-40, 0, 170], spread: 30, group: "tide" },
             { species: "medusa", count: 8, at: [-50, 10, 50], spread: 20 },
             { species: "leviathan", count: 2, at: [110, 30, 210], spread: 30 },
+            { species: "splitter", count: 4, at: [-20, 0, 150], spread: 30, group: "tide" },
+            { species: "wraith", count: 2, at: [20, 0, 200], spread: 30, group: "tide" },
         ],
         holes: [
             { key: "dirge", name: "Dirge", at: [-50, 0, 210], size: 2.4, hunts: 1.2 },
             { key: "knell", name: "Knell", at: [60, 0, 230], size: 3.2 },
         ],
         goals: [
-            { id: "merge", type: "lure", hole: "dirge", to: "knell", text: "Lead Dirge into Knell and let them merge" },
+            { id: "merge", type: "lure", hole: "dirge", to: "knell", text: "Lead Dirge into Knell and let them merge", how: "Dirge hunts you; Knell stays put. Fly round to the far side of Knell and wait: Dirge comes straight at you, through Knell, and the two become one. Back away from the wave." },
             { id: "tide", type: "clear", group: "tide", text: "Clear the Drowned Suns of the Hollow's tide" },
             { id: "stars", type: "mine", keys: ["azure", "cobalt"], text: "Consume the blue giants Azure and Cobalt" },
         ],
@@ -586,6 +618,8 @@ export const REGIONS: RegionDef[] = [
             { species: "rival", count: 5, at: [0, 0, 150], spread: 60, group: "claimants" },
             { species: "marauder", count: 8, at: [0, 0, 100], spread: 50, group: "claimants" },
             { species: "warden", count: 4, at: [-20, 10, 40], spread: 14 },
+            { species: "lurker", count: 4, at: [0, 0, 130], spread: 60, group: "claimants" },
+            { species: "splitter", count: 3, at: [40, 0, 180], spread: 40, group: "claimants" },
         ],
         goals: [
             { id: "claimants", type: "clear", group: "claimants", text: "Leave no other claimant standing" },
@@ -616,9 +650,10 @@ export const REGIONS: RegionDef[] = [
             { species: "cantor", count: 3, at: [-34, -8, 204], spread: 8 },
             { species: "pyre", count: 3, at: [34, -8, 204], spread: 8 },
             { species: "thrall", count: 12, at: [0, 30, 260], spread: 40, group: "assassins" },
+            { species: "wraith", count: 4, at: [0, 20, 240], spread: 30, group: "assassins" },
         ],
         goals: [
-            { id: "standing", type: "standing", factions: 3, text: "Be Favoured by three governments (tribute: G near an envoy)" },
+            { id: "standing", type: "standing", factions: 3, text: "Be Favoured by three governments (tribute near an envoy)", how: "Fly to each envoy (marked) and press {tribute}: each gift is a twentieth of your mass and +12 standing. Favoured is 25. Don't break their laws." },
             { id: "assassins", type: "clear", group: "assassins", text: "Destroy the Hollow's assassins" },
             { id: "stars", type: "mine", keys: ["tithe", "levy"], text: "Consume the stars Tithe and Levy" },
         ],
@@ -639,6 +674,7 @@ export const REGIONS: RegionDef[] = [
             { species: "thrall", count: 16, at: [0, 0, 170], spread: 60, group: "court" },
             { key: "seneschal", species: "thrall", name: "the Seneschal", boss: 2.2, at: [0, 10, 240], group: "court" },
             { species: "rival", count: 3, faction: "hollow", at: [40, 0, 120], spread: 30, group: "court" },
+            { species: "wraith", count: 4, at: [-20, 0, 200], spread: 40, group: "court" },
         ],
         holes: [
             { key: "reef1", name: "the First Reef", at: [-30, 0, 120], size: 2 },
@@ -648,7 +684,7 @@ export const REGIONS: RegionDef[] = [
         goals: [
             { id: "seneschal", type: "defeat", key: "seneschal", text: "Destroy the Seneschal of the Hollow Court" },
             { id: "court", type: "clear", group: "court", text: "Clear the Shallows of the outer court" },
-            { id: "feed", type: "feed", hole: "reef2", count: 5, bait: "thrall", text: "Send 5 Thralls back across the Second Reef's horizon" },
+            { id: "feed", type: "feed", hole: "reef2", count: 5, bait: "thrall", text: "Send 5 Thralls back across the Second Reef's horizon", how: "Thralls hunt you in straight lines. Fly so the Second Reef lies between you and them, and they fall across its horizon." },
             { id: "stars", type: "mine", keys: ["rust", "garnet"], text: "Consume the red supergiants Rust and Garnet" },
         ],
         reward: { concord: 10, synod: 10, drift: 10 },
@@ -667,13 +703,14 @@ export const REGIONS: RegionDef[] = [
         ],
         creatures: [
             { species: "thrall", count: 10, at: [0, 0, 150], spread: 60, group: "husks" },
+            { species: "wraith", count: 3, at: [0, 10, 230], spread: 40, group: "husks" },
         ],
         holes: [{ key: "king", name: "the Hollow King", at: [0, 0, 210], size: 5, hunts: 0.8 }],
         rift: { at: [0, -40, 60], size: 12 },
         spawner: { hole: "king", species: "thrall", every: 16, cap: 8 },
         goals: [
             { id: "anchors", type: "mine", keys: ["anchor1", "anchor2", "anchor3"], text: "Consume the three Anchor stars that feed the King" },
-            { id: "king", type: "lure", hole: "king", to: "rift", after: ["anchors"], text: "Starved, the King will follow any mass: lead it into the White Rift" },
+            { id: "king", type: "lure", hole: "king", to: "rift", after: ["anchors"], text: "Starved, the King will follow any mass: lead it into the White Rift", how: "With its Anchors gone the Rift opens. The King hunts the biggest mass near it and ignores what you Shed: let it follow you, then pass the White Rift so it lies between you and the King." },
         ],
         reward: { concord: 40, drift: 40, synod: 40, ember: 40 },
     },
@@ -703,3 +740,146 @@ export function garble(text: string, fluency: number, seed: number): string {
     }
     return out;
 }
+
+// --- Blasts: what {fire} throws ---------------------------------------------------------------------
+
+export type BlastId = "lance" | "shard" | "beam" | "seeker";
+export interface Blast { id: BlastId; name: string; level: number; cost: number; cooldown: number; text: string; color: RGB }
+export const BLASTS: Record<BlastId, Blast> = {
+    lance: { id: "lance", name: "Lance", level: 1, cost: 4, cooldown: 0.22, color: [0.9, 0.97, 1], text: "One quick, far-reaching bolt that finds what is under the reticle." },
+    shard: { id: "shard", name: "Shardfall", level: 2, cost: 8, cooldown: 0.55, color: [0.6, 1, 0.75], text: "A close spray of seven shards: deadly near, useless far. Shreds packs and Splitters." },
+    beam: { id: "beam", name: "Sunthread", level: 5, cost: 18, cooldown: 0, color: [1, 0.85, 0.45], text: "Hold for a continuous ray that burns the first thing it touches. Drinks charge fast; glass cannot turn it." },
+    seeker: { id: "seeker", name: "Seekers", level: 8, cost: 12, cooldown: 1, color: [0.85, 0.6, 1], text: "Three slow motes of light that hunt the nearest enemy on their own. Fire and keep flying." },
+};
+export const BLAST_IDS = Object.keys(BLASTS) as BlastId[];
+
+// --- Forms: the kind of nebula you become ---------------------------------------------------------
+
+/** The level a nebula is wide enough to choose its form at. */
+export const FORM_LEVEL = 7;
+export type FormId = "emission" | "reflection" | "dark" | "planetary";
+export interface Form { id: FormId; name: string; text: string; perks: string[]; palette: { core: RGB; mid: RGB; edge: RGB } }
+export const FORMS: Record<FormId, Form> = {
+    emission: {
+        id: "emission", name: "Emission Nebula", text: "Hot gas lit from within: you burn.",
+        perks: ["+20% damage from every blast", "Starfire recharges 30% sooner", "Siphoning a star fills your charge"],
+        palette: { core: [1, 0.92, 0.85], mid: [1, 0.3, 0.42], edge: [0.85, 0.12, 0.35] },
+    },
+    reflection: {
+        id: "reflection", name: "Reflection Nebula", text: "Cold dust that throws back the light of others.",
+        perks: ["+15% cohesion", "A quarter of the bolts that strike you are turned back on whoever threw them"],
+        palette: { core: [0.88, 0.95, 1], mid: [0.3, 0.55, 1], edge: [0.2, 0.3, 0.85] },
+    },
+    dark: {
+        id: "dark", name: "Dark Nebula", text: "A cloud so thick it swallows light.",
+        perks: ["The Veil costs less than half as much, and siphoning does not lift it", "Hunters see you from 20% less far", "Shed recharges twice as fast"],
+        palette: { core: [0.75, 0.62, 0.55], mid: [0.32, 0.18, 0.22], edge: [0.14, 0.08, 0.16] },
+    },
+    planetary: {
+        id: "planetary", name: "Planetary Nebula", text: "The bright shell of a dying star's breath.",
+        perks: ["The Pulse reaches 40% farther and knits 10 cohesion", "Motes and essence fall to you from 50% farther"],
+        palette: { core: [0.85, 1, 0.95], mid: [0.2, 0.95, 0.75], edge: [0.15, 0.55, 0.95] },
+    },
+};
+export const FORM_IDS = Object.keys(FORMS) as FormId[];
+
+// --- Grace and Ruin --------------------------------------------------------------------------------
+
+/** Where your deeds have left you, from -100 (Ruin) to 100 (Grace). */
+export function alignmentTier(a: number): string {
+    if (a >= 60) return "Radiant";
+    if (a >= 20) return "Gracious";
+    if (a > -20) return "Unshaped";
+    if (a > -60) return "Shadowed";
+    return "Ruinous";
+}
+/** What Grace and Ruin give: cohesion knits faster with Grace, blasts bite harder with Ruin. */
+export const graceKnit = (a: number): number => 1 + Math.max(0, a) / 100 * 0.8;
+export const ruinDamage = (a: number): number => 1 + Math.max(0, -a) / 100 * 0.25;
+
+// --- Controls: the names a lesson uses, for whichever device you hold -------------------------------
+
+export type Device = "keys" | "pad";
+export const BINDINGS: Record<string, { keys: string; pad: string; what: string }> = {
+    steer: { keys: "MOUSE / ARROWS", pad: "RIGHT STICK", what: "Steer" },
+    move: { keys: "W A S D", pad: "LEFT STICK", what: "Fly and strafe" },
+    rise: { keys: "SPACE", pad: "A", what: "Rise" },
+    sink: { keys: "CTRL", pad: "B", what: "Sink" },
+    stride: { keys: "SHIFT", pad: "LT or L3", what: "Lightstride (fly fast)" },
+    fire: { keys: "LEFT MOUSE", pad: "RT", what: "Fire your blast" },
+    blast: { keys: "1-4 or WHEEL", pad: "LB / RB", what: "Change blast" },
+    siphon: { keys: "E", pad: "X", what: "Siphon a world or star" },
+    pulse: { keys: "Q", pad: "R3", what: "Pulse" },
+    flare: { keys: "R", pad: "Y", what: "Starfire" },
+    attune: { keys: "T", pad: "D-PAD UP", what: "Attune (see lightwaves)" },
+    veil: { keys: "C", pad: "D-PAD DOWN", what: "Veil" },
+    decoy: { keys: "F", pad: "D-PAD LEFT", what: "Shed" },
+    tribute: { keys: "G", pad: "D-PAD RIGHT", what: "Tribute / spare" },
+    chart: { keys: "M", pad: "START", what: "Star Chart (fold)" },
+    codex: { keys: "TAB", pad: "BACK", what: "Codex (facets, form)" },
+    guide: { keys: "H", pad: "HOLD BACK", what: "Field Guide (next tip)" },
+};
+/** The key or button for a control, as a lesson shows it. */
+export const bindingOf = (id: string, device: Device): string => BINDINGS[id] ? BINDINGS[id][device] : id.toUpperCase();
+/** Replaces {control} in a lesson with its key or button, and {name}-style values from `vars`. */
+export function controlText(text: string, device: Device, vars: Record<string, string> = {}): string {
+    return text.replace(/\{(\w+)\}/g, (_, k: string) => (k in vars ? vars[k] : BINDINGS[k] ? `[${BINDINGS[k][device]}]` : `{${k}}`));
+}
+
+// --- The Field Guide --------------------------------------------------------------------------------
+
+export interface Lesson { title: string; text: string }
+/** Every new thing the game asks of you, explained the first time you meet it. */
+export const LESSONS: Record<string, Lesson> = {
+    fly: { title: "FLYING", text: "{steer} to turn, {move} to fly. {rise} and {sink} to climb and dive. Hold {stride} to Lightstride: the longer you hold it, the faster you go." },
+    feed: { title: "FEEDING", text: "You grow by eating. Fly into motes and any rubble less than half your size; motes drift to you from close by." },
+    siphon: { title: "SIPHONING", text: "Worlds too big to swallow are drunk. Come close, put the reticle on one, and hold {siphon}. The reticle says when you are in reach." },
+    combat: { title: "FIGHTING", text: "Red names are hostile. {fire} throws your blast at whatever is under the reticle; it costs charge, which refills on its own. Cohesion is your life." },
+    blasts: { title: "BLASTS", text: "You know more than one blast now: {blast} to choose. Each suits a different foe - the Codex {codex} says which." },
+    "blast:shard": { title: "SHARDFALL", text: "A close spray of seven shards. Get near, then {fire}: it shreds packs and Splitters, but is useless at range." },
+    "blast:beam": { title: "SUNTHREAD", text: "Hold {fire} for a continuous ray that burns the first thing it touches. It drinks charge fast, and glass cannot turn it back." },
+    "blast:seeker": { title: "SEEKERS", text: "{fire} looses three motes that hunt the nearest enemy on their own. Good when foes are fast, or behind you." },
+    "ability:pulse": { title: "THE PULSE", text: "{pulse} throws a shell of light: it strikes and throws back everything hostile near you, and blows away incoming bolts." },
+    "ability:veil": { title: "THE VEIL", text: "{veil} goes dark: hunters see you from a quarter as far. It drinks charge, and acting (firing, siphoning, striding) lifts it." },
+    "ability:decoy": { title: "SHED", text: "{decoy} casts off a knot of your own mass behind you. Hunters chase it, and wandering black holes prefer it to you." },
+    "ability:flare": { title: "STARFIRE", text: "{flare} pours out the light of the stars you have eaten in a long burning cone ahead of you. Aim, then press it." },
+    "goal:absorb": { title: "GATHERING", text: "Motes are the bright specks of light. Fly through them; they fall to you from close by." },
+    "goal:mine": { title: "MINING A WORLD", text: "Fly to the marked world, aim at it and hold {siphon} until nothing is left. Bigger worlds take longer; grow first if one is slow." },
+    "goal:clear": { title: "CLEARING A REGION", text: "Destroy every creature of the group: the nearest is marked. Use {fire}, and {pulse} when they swarm you." },
+    "goal:defeat": { title: "A CHAMPION", text: "A named foe, much stronger than its kind. Wear it down from range; when it yields you will have a choice to make." },
+    "goal:defend": { title: "DEFENDING", text: "Raiders come in waves for the creatures you protect. Meet each wave (marked RAIDERS) before it arrives, and break it." },
+    "goal:feed": { title: "TRICKING HUNTERS", text: "Hunters fly straight at you and never look where they are going. Get them chasing you, then keep the black hole between you and them: they fall in." },
+    "goal:lure": { title: "LEADING A BLACK HOLE", text: "A wandering hole drifts toward the biggest mass it feels. Let it see you, then fly so its destination lies between you and it, and keep ahead." },
+    "goal:sling": { title: "SLINGSHOT", text: "Dip fast into a black hole's ergosphere - the ring where the warning shows - and fly out the far side. It flings you on, faster. Never touch the core." },
+    "goal:standing": { title: "STANDING", text: "Governments judge you by tribute, by the laws you keep and by whom you kill. Press {tribute} beside an envoy to give a twentieth of your mass." },
+    "goal:tribute": { title: "TRIBUTE", text: "Fly close to an envoy and press {tribute} to give a twentieth of your mass for their favour." },
+    facets: { title: "FACET POINTS", text: "Every level gives you a facet point. Open the Codex {codex} and spend it on Density, Radiance, Reach and more." },
+    hole: { title: "BLACK HOLES", text: "A black hole cannot be eaten. Its pull grows steeply as you near, and its horizon tears a third of you away. No lightwave crosses its shadow." },
+    star: { title: "STARS FLARE", text: "A star throws flares while you siphon it. When FLARE flashes on screen, hold {stride} to ride through it unhurt." },
+    law: { title: "LIVING WORLDS", text: "Worlds that 'carry life' are under a government's law. Feeding on one is a crime, and a deed of Ruin: its soldiers will hunt you." },
+    lightwaves: { title: "LIGHTWAVES", text: "Creatures speak in light; what reaches you is shown at the right. {attune} lets you see the waves. Foreign tongues come clear as you listen." },
+    fold: { title: "FOLDING", text: "This region is yours. Open the Star Chart {chart} and choose the next region to fold there - in a moment, in any galaxy." },
+    forms: { title: "CHOOSE YOUR FORM", text: "You are wide enough to choose what kind of nebula you are: Emission, Reflection, Dark or Planetary. Open the Codex {codex} to choose." },
+    yield: { title: "MERCY OR HUNGER", text: "{name} yields. Press {tribute} near it to spare it (Grace) - or strike it again to devour it (Ruin). Either way the fight is won." },
+    deeds: { title: "GRACE AND RUIN", text: "What you do shapes what you become. Mercy, tribute and defending the weak bring Grace; crimes and devouring bring Ruin. Your light shows which." },
+    dispersed: { title: "COHESION", text: "Cohesion only knits while you are fed and unhurt for a few seconds. Keep eating, keep moving, and Pulse what crowds you." },
+    affix: { title: "VARIANTS", text: "Some hunters are Swift, Armoured, Volatile or Vampiric: the first word of the name says which. Never finish a Volatile one up close." },
+    "species:lurker": { title: "LURKERS", text: "Lurkers hide until you are close. {attune} shows them, and the Pulse {pulse} flushes them out." },
+    "species:splitter": { title: "SPLITTERS", text: "Splitters burst into two smaller ones when broken. Shardfall ({blast} to switch) catches both halves at once." },
+    "species:prism": { title: "GLASS SENTINELS", text: "Glass turns the Lance and Seekers straight back at you. Use Sunthread or Shardfall ({blast}), the Pulse, or Starfire." },
+    "species:wraith": { title: "HOLLOW WRAITHS", text: "Wraiths fold space to appear beside you, then sting. Keep moving, and Pulse {pulse} them away when they land." },
+};
+
+/** How to do a goal of each type, shown beneath it (a goal's own `how` comes first). */
+export const GOAL_HOW: Record<string, string> = {
+    absorb: "Fly through the bright motes; they drift to you from close by.",
+    mine: "Fly to the marked world, aim at it and hold {siphon} until it is gone.",
+    clear: "Hunt them down with {fire}; the nearest is marked. {pulse} when they crowd you.",
+    defeat: "Wear the marked champion down with {fire}. When it yields: {tribute} to spare, or strike to devour.",
+    defend: "Meet each raiding wave (marked) and break it before it reaches the shoal.",
+    feed: "Get them chasing you, then keep the black hole between you and them.",
+    lure: "Let the hole follow you, and keep its destination between you and it.",
+    sling: "Fly fast into the ergosphere warning ring and out the far side; never the core.",
+    standing: "Fly to the envoys and press {tribute}; keep their laws.",
+    tribute: "Fly close to the envoy and press {tribute}.",
+};

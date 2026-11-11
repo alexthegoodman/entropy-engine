@@ -2209,7 +2209,9 @@ pub enum InputEvent {
     KeyDown { key: String },
     KeyUp { key: String },
     GamepadButton { button: String, pressed: bool },
-    GamepadAxis { leftStick: [f32; 2], rightStick: [f32; 2] },
+    /// `triggers` are the analog LT and RT, 0..1: some pads only ever report them as values,
+    /// never as a press, so a game that needs "held" should read them here.
+    GamepadAxis { leftStick: [f32; 2], rightStick: [f32; 2], triggers: [f32; 2] },
     // Pen/stylus input (Windows only - see `crate::stylus`). `pressure` is winit's own
     // normalized `Force` (0..1). `tiltX`/`tiltY` are in degrees, 0 = perpendicular to the
     // surface, +-90 = flat against it; `null` on the JS side (`Option::None` here) means this

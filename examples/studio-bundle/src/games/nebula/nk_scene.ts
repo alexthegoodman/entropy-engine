@@ -7,7 +7,7 @@
 // a `Draw` that only records instances, so tests can count what a scene holds.
 
 import { add, sub, mul, len, norm, cross, lerp, clamp, basis, hashString, type V3 } from "./nk_math";
-import { FACTIONS, galaxyById, type RGB, type BodyLook, type FactionId } from "./nk_data";
+import { FACTIONS, FORMS, AFFIXES, BLASTS, galaxyById, type RGB, type BodyLook, type FactionId, type FormId } from "./nk_data";
 import type { Game } from "./nk_game";
 import type { Body, Creature } from "./nk_world";
 import { SOLID_KIND, GLOW_KIND, PLANET_LOOK, PLACE } from "./nk_shader";
@@ -30,15 +30,26 @@ const STAR_COLOR: Partial<Record<BodyLook, RGB>> = {
 const LOOK_INDEX: Partial<Record<BodyLook, number>> = { rock: PLANET_LOOK.rock, ice: PLANET_LOOK.ice, ocean: PLANET_LOOK.ocean, lava: PLANET_LOOK.lava, desert: PLANET_LOOK.desert, gas: PLANET_LOOK.gas, banded: PLANET_LOOK.banded };
 const AIR: Partial<Record<BodyLook, RGB>> = { ocean: [0.35, 0.6, 1], ice: [0.6, 0.8, 1], gas: [0.9, 0.7, 0.45], banded: [0.7, 0.75, 1], lava: [1, 0.35, 0.1], desert: [0.9, 0.6, 0.35] };
 
-/** The nebula's colours at a level: its heart, its body, its edge. Cool when young, royal when grown. */
-export function nebulaPalette(level: number): { core: RGB; mid: RGB; edge: RGB } {
+type Palette = { core: RGB; mid: RGB; edge: RGB };
+const mix = (a: RGB, b: RGB, t: number): RGB => [clamp(lerp(a[0], b[0], t)), clamp(lerp(a[1], b[1], t)), clamp(lerp(a[2], b[2], t))];
+/** What Grace makes of you (gold and white light) and what Ruin does (a bruise of crimson and black). */
+const GRACE: Palette = { core: [1, 1, 0.92], mid: [1, 0.85, 0.5], edge: [0.95, 0.75, 0.95] };
+const RUIN: Palette = { core: [1, 0.55, 0.5], mid: [0.55, 0.05, 0.2], edge: [0.18, 0.02, 0.12] };
+
+/** The nebula's colours: its heart, its body, its edge. Cool when young, royal when grown; a chosen
+ *  form gives it its own hue, and Grace or Ruin (alignment, -100..100) brightens or darkens it. */
+export function nebulaPalette(level: number, form: FormId | "" = "", alignment = 0): Palette {
     const t = clamp((level - 1) / 36);
     const stops = (a: RGB, b: RGB, c: RGB): RGB => (t < 0.5 ? [lerp(a[0], b[0], t * 2), lerp(a[1], b[1], t * 2), lerp(a[2], b[2], t * 2)] : [lerp(b[0], c[0], t * 2 - 1), lerp(b[1], c[1], t * 2 - 1), lerp(b[2], c[2], t * 2 - 1)]);
-    return {
+    let pal: Palette = {
         core: stops([0.85, 0.97, 1], [1, 0.9, 0.95], [1, 0.95, 0.8]),
         mid: stops([0.15, 0.75, 0.95], [0.9, 0.35, 0.85], [1, 0.7, 0.25]),
         edge: stops([0.2, 0.3, 1], [0.5, 0.2, 0.95], [0.95, 0.25, 0.4]),
     };
+    if (form && FORMS[form]) { const f = FORMS[form].palette; pal = { core: mix(pal.core, f.core, 0.7), mid: mix(pal.mid, f.mid, 0.75), edge: mix(pal.edge, f.edge, 0.75) }; }
+    const a = clamp(Math.abs(alignment) / 100) * 0.6, toward = alignment >= 0 ? GRACE : RUIN;
+    if (a > 0) pal = { core: mix(pal.core, toward.core, a), mid: mix(pal.mid, toward.mid, a), edge: mix(pal.edge, toward.edge, a) };
+    return pal;
 }
 
 interface Puff { dir: V3; rho: number; size: number; speed: number; phase: number; tone: number; seed: number }
@@ -75,6 +86,11 @@ function factionColor(f: FactionId): RGB { return FACTIONS[f].color; }
 
 function drawCreature(d: Draw, c: Creature, at: V3, r: number, time: number, attune: number): void {
     const f = c.dir, { right, up } = basis(f);
+    // A Lurker lying in wait is a dim shape among the rubble (attuned, you see it plainly).
+    if (c.hidden && attune < 0.5) {
+        d.solid("sphere-1", oriented(at, f, r * 0.6, r * 0.5, r * 0.6, up), [0.06, 0.05, 0.08, 1], [SOLID_KIND.rock, (c.id * 0.137) % 1, 0, 1]);
+        return;
+    }
     const col = c.species.color, em = c.faction === "wild" ? col : factionColor(c.faction);
     const flash = Math.min(1, c.hurt * 3.5);
     const seed = (c.id * 0.137) % 1;
@@ -177,6 +193,38 @@ function drawCreature(d: Draw, c: Creature, at: V3, r: number, time: number, att
             d.glow(placed(at, r * 2.4), [em[0], em[1], em[2], 0.16], GLOW_KIND.halo, seed);
             break;
         }
+        case "urchin": {
+            hide("sphere-2", at, 0.62, 0.62, 0.62, 3);
+            for (let i = 0; i < 12; i++) {
+                const z = (i / 11) * 2 - 1, a = i * 2.39996, rr = Math.sqrt(1 - z * z), pulse = 1 + 0.15 * Math.sin(ph * 4 + i);
+                spike(at3(Math.cos(a) * rr * 0.5, Math.sin(a) * rr * 0.5, z * 0.5), dirOf(Math.cos(a) * rr, Math.sin(a) * rr, z), 0.12, 0.85 * pulse, 3);
+            }
+            d.glow(placed(at3(0, 0, 0.55), r * 0.35), [em[0], em[1], em[2], 0.9], GLOW_KIND.spark, seed, PLACE.billboard, [1, 0, 0, 0]);
+            break;
+        }
+        case "blob": {
+            const wob = Math.sin(ph * 2.4) * 0.1;
+            hide("sphere-3", at, 0.85 + wob, 0.85 - wob, 0.85, 1);
+            const kids = c.gen === 0 ? 2 : 1;
+            for (let i = 0; i < kids; i++) d.glow(placed(at3((i - (kids - 1) / 2) * 0.45, 0, 0.2), r * 0.45), [em[0], em[1], em[2], 0.85], GLOW_KIND.mote, seed + i * 0.3);
+            d.glow(placed(at, r * 1.6), [em[0], em[1], em[2], 0.3], GLOW_KIND.halo, seed);
+            break;
+        }
+        case "prism": {
+            const spin = time * 0.6 + seed * 6, axis: V3 = [Math.cos(spin), 0, Math.sin(spin)];
+            d.solid("cone", oriented(at, [0, 1, 0], r * 0.7, r * 0.7, r * 1.3, axis), [col[0] * 0.5, col[1] * 0.5, col[2] * 0.5, 1], [SOLID_KIND.crystal, seed, 0, 1], [em[0], em[1], em[2], flash]);
+            d.solid("cone", oriented(at, [0, -1, 0], r * 0.7, r * 0.7, r * 1.3, axis), [col[0] * 0.5, col[1] * 0.5, col[2] * 0.5, 1], [SOLID_KIND.crystal, seed, 0, 1], [em[0], em[1], em[2], flash]);
+            d.glow(placed(at, r * 2.2), [1, 0.95, 0.85, 0.3 + flash * 0.5], GLOW_KIND.halo, seed);
+            d.glow(placed(at, r * 0.8), [1, 1, 1, 0.6], GLOW_KIND.spark, seed, PLACE.billboard, [1, 0, 0, time * 0.4]);
+            break;
+        }
+        case "wraith": {
+            hide("sphere-2", at3(0, 0, 0.3), 0.5, 0.55, 0.6, 3, [0.16, 0.08, 0.12]);
+            for (let i = 0; i < 4; i++) { const a = (i / 4) * 6.283 + ph * 0.6; spike(at3(Math.cos(a) * 0.35, Math.sin(a) * 0.35, 0.1), dirOf(Math.cos(a) * 0.4, Math.sin(a) * 0.4, -1), 0.14, 1.4, 3); }
+            for (let i = 1; i < 6; i++) d.glow(placed(at3(Math.sin(ph + i) * 0.2, Math.cos(ph * 0.7 + i) * 0.2, -i * 0.5), r * (1 - i * 0.12)), [em[0], em[1], em[2], 0.32 / i], GLOW_KIND.gas, seed + i * 0.2);
+            for (const side of [-1, 1]) d.glow(placed(at3(side * 0.2, 0.15, 0.8), r * 0.2), [1, 0.4, 0.6, 0.9], GLOW_KIND.spark, seed + side, PLACE.billboard, [1, 0, 0, 0]);
+            break;
+        }
         case "envoy": {
             const upw: V3 = [0, 1, 0], side: V3 = [Math.cos(time * 0.3), 0, Math.sin(time * 0.3)];
             const bob = Math.sin(time * 0.8 + seed * 6) * 0.1 * r;
@@ -193,6 +241,9 @@ function drawCreature(d: Draw, c: Creature, at: V3, r: number, time: number, att
             break;
         }
     }
+    // A variant wears its twist as a ring of colour; a champion that has yielded, a white one.
+    if (c.affix) d.glow(placed(at, r * 2.1), [AFFIXES[c.affix].color[0], AFFIXES[c.affix].color[1], AFFIXES[c.affix].color[2], 0.35 + 0.15 * Math.sin(time * 3 + seed * 6)], GLOW_KIND.mark, seed + 0.5);
+    if (c.yielding) d.glow(placed(at, r * (2.4 + 0.3 * Math.sin(time * 2.5))), [1, 1, 0.92, 0.7], GLOW_KIND.mark, seed + 0.25);
     if (attune > 0.02) d.glow(placed(at, r * 1.9), [em[0], em[1], em[2], attune * 0.45], GLOW_KIND.mark, seed);
 }
 
@@ -236,7 +287,7 @@ export function drawScene(d: Draw, g: Game, time: number, attune: number, partic
     const p = g.player, scale = p.radius, region = g.region;
     const out: SceneOut = { lights: [], holes: [], solids: 0, glows: 0 };
     const rs = (v: V3): V3 => [(v[0] - p.pos[0]) / scale, (v[1] - p.pos[1]) / scale, (v[2] - p.pos[2]) / scale];
-    const pal = nebulaPalette(p.level);
+    const pal = nebulaPalette(p.level, g.campaign.form, g.campaign.alignment);
     const sky = galaxyById(region.def.galaxy).sky;
 
     d.solid("sky", placed([0, 0, 0], 1), [1, 1, 1, 1], [SOLID_KIND.sky, 0, 0, 1]);
@@ -302,7 +353,7 @@ export function drawScene(d: Draw, g: Game, time: number, attune: number, partic
 
     for (const b of g.bolts) {
         const at = rs(b.pos), r = b.radius / scale, dir = norm(b.vel);
-        const c: RGB = b.faction === "player" ? pal.core : factionColor(b.faction);
+        const c: RGB = b.faction === "player" ? (b.kind === "shard" || b.kind === "seeker" ? BLASTS[b.kind === "shard" ? "shard" : "seeker"].color : pal.core) : factionColor(b.faction);
         const axis = mul(dir, r * 14);
         d.glow([r * 1.6, 0, 0, 0, 0, 1, 0, 0, axis[0], axis[1], axis[2], 0, at[0] - axis[0] * 0.4, at[1] - axis[1] * 0.4, at[2] - axis[2] * 0.4, 1], [c[0], c[1], c[2], 1], GLOW_KIND.bolt, 0, PLACE.axial);
         d.glow(placed(at, r * 5), [c[0], c[1], c[2], 0.5], GLOW_KIND.halo, 0);
@@ -331,6 +382,14 @@ export function drawScene(d: Draw, g: Game, time: number, attune: number, partic
         for (let i = 0; i < stars; i++) {
             const pf = PLAYER_PUFFS[i * 2 + 1], o = rotY(pf.dir, -time * pf.speed * 1.7 + pf.phase);
             d.glow(placed(mul(o, pf.rho * 0.8), 0.14), [1, 0.92, 0.7, veil], GLOW_KIND.spark, pf.seed, PLACE.billboard, [1, 0, 0, time * 0.3 + i]);
+        }
+        if (p.beam.on) {
+            // Sunthread: a ray from your heart to whatever it burns.
+            const axis = mul(p.beam.dir, p.beam.length / scale), bc = BLASTS.beam.color;
+            const flick = 0.85 + 0.15 * Math.sin(time * 40);
+            d.glow([0.5, 0, 0, 0, 0, 1, 0, 0, axis[0], axis[1], axis[2], 0, axis[0] / 2, axis[1] / 2, axis[2] / 2, 1], [bc[0], bc[1], bc[2], flick], GLOW_KIND.bolt, 0.4, PLACE.axial);
+            d.glow([0.18, 0, 0, 0, 0, 1, 0, 0, axis[0], axis[1], axis[2], 0, axis[0] / 2, axis[1] / 2, axis[2] / 2, 1], [1, 1, 1, flick], GLOW_KIND.bolt, 0.7, PLACE.axial);
+            d.glow(placed(axis, 1.2), [bc[0], bc[1], bc[2], 0.8], GLOW_KIND.spark, 0.3, PLACE.billboard, [1, 0, 0, time]);
         }
         if (p.flare > 0) {
             const f = g.forward, axis = mul(f, 90);

@@ -2795,7 +2795,7 @@ globalThis.Entropy = {
                     fireAll("onGamepadButton", event.button, event.pressed);
                     break;
                 case "GamepadAxis":
-                    fireAll("onGamepadAxis", event.leftStick, event.rightStick);
+                    fireAll("onGamepadAxis", event.leftStick, event.rightStick, event.triggers ?? [0, 0]);
                     break;
                 case "StylusDown":
                     fireAll("onStylusDown", { x: event.x, y: event.y, pressure: event.pressure, tiltX: event.tiltX, tiltY: event.tiltY });

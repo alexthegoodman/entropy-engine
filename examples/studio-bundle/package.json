@@ -56,7 +56,7 @@
     "test:abyss": "vitest run tests/abyss_world.test.ts tests/abyss_cinema.test.ts tests/abyss_combat.test.ts tests/abyss_story.test.ts tests/abyss_models.test.ts tests/abyss_chapter2.test.ts tests/abyss_rpg.test.ts",
     "typecheck:abyss": "tsc --project tsconfig.abyss.json --noEmit",
     "build-nebula-kingdom": "npm run ensure-dist && deno bundle src/games/nebula/nebula_addon.ts --output dist/nebula_kingdom.js",
-    "test:nebula-kingdom": "vitest run tests/nebula_data.test.ts tests/nebula_game.test.ts tests/nebula_campaign.test.ts tests/nebula_render.test.ts",
+    "test:nebula-kingdom": "vitest run tests/nebula_data.test.ts tests/nebula_game.test.ts tests/nebula_campaign.test.ts tests/nebula_render.test.ts tests/nebula_guide.test.ts",
     "typecheck:nebula-kingdom": "tsc --project tsconfig.nebula.json --noEmit",
     "build-allegiance": "npm run ensure-dist && deno bundle src/games/allegiance/allegiance_addon.ts --output dist/allegiance.js && npm run build-house-worker",
     "build-house-worker": "npm run ensure-dist && deno bundle src/apps/quadplanet/qp_house_worker.ts --output dist/qp_house_worker.js",

@@ -14,13 +14,17 @@
 // It reads input, steps the game, draws it, saves the campaign, and registers the MCP tools the
 // live test (tests/nebula_live.rs) drives.
 
-import { Game, NO_INPUT, newCampaign, type Campaign, type GameEvent, type NkInput } from "./nk_game";
-import { ABILITIES, ABILITY_IDS, FACETS, FACET_IDS, FACET_MAX, FACTIONS, GALAXIES, GOVERNMENTS, REGIONS, MAX_LEVEL, KIND_LABEL, LOOK_LABEL, compare, formatKm, galaxyById, levelProgress, rankOf, standingTier, tierRadius, massOfRadius, radiusOfLevel, type FacetId, type RGB } from "./nk_data";
+import { Game, NO_INPUT, newCampaign, normalizeCampaign, type Campaign, type GameEvent, type NkInput } from "./nk_game";
+import {
+    ABILITIES, ABILITY_IDS, FACETS, FACET_IDS, FACET_MAX, FACTIONS, GALAXIES, GOVERNMENTS, REGIONS, MAX_LEVEL, KIND_LABEL, LOOK_LABEL, BLASTS, BLAST_IDS, FORMS, FORM_IDS, FORM_LEVEL, LESSONS, GOAL_HOW, BINDINGS, AFFIXES,
+    compare, formatKm, galaxyById, levelProgress, rankOf, standingTier, tierRadius, massOfRadius, radiusOfLevel, alignmentTier, controlText, bindingOf,
+    type FacetId, type RGB, type BlastId, type FormId, type Device,
+} from "./nk_data";
 import { add, sub, mul, len, dist, norm, cross, dot, clamp, type V3 } from "./nk_math";
 import { Renderer, type WorldLook } from "./nk_render";
 import { drawScene, nebulaPalette, type Particle } from "./nk_scene";
 import { GLOW_KIND } from "./nk_shader";
-import { drawHud, drawChart, drawCodex, drawTitle, drawDispersed, drawFold, drawCrowned, type HudView, type HudMarker, type HudFocus, type ChartView, type CodexView } from "./nk_hud";
+import { drawHud, drawChart, drawCodex, drawTitle, drawDispersed, drawFold, drawCrowned, type HudView, type HudMarker, type HudFocus, type ChartView, type CodexView, type HudLesson } from "./nk_hud";
 import { Sound } from "./nk_audio";
 import { enginePainter, type Painter, type DrawApi } from "../allegiance/al_ui";
 import { Controller } from "../allegiance/al_controller";
@@ -58,7 +62,19 @@ const hud = {
     banner: null as HudView["banner"],
     toasts: [] as { text: string; age: number }[],
     hurt: 0, flash: 0, attune: 0, fade: 0, timer: 0,
+    /** Field Guide lessons waiting to be shown, and the one on screen. */
+    lessons: [] as { id: string; vars: Record<string, string> }[],
+    lesson: null as { id: string; vars: Record<string, string>; age: number } | null,
 };
+/** How long a lesson stays up (seconds) before the next takes its place. */
+const LESSON_TIME = 12;
+/** Lessons about something happening this moment, shown ahead of the queue. */
+const URGENT = /^(yield|hole|star|combat|dispersed|law|species:.*|affix)$/;
+/** What the player last touched: lessons and hints name its keys or buttons. */
+let device: Device = "keys";
+/** The Codex item the gamepad cursor rests on. */
+let codexCursor = 0;
+let codexNote = "";
 const particles: Particle[] = [];
 let lastScene = { solids: 0, glows: 0, lights: 0, holes: 0 };
 
@@ -71,6 +87,11 @@ let mouseDeltaX = 0;
 let mouseDeltaY = 0;
 let lastMouse: [number, number] | null = null;
 let fireHeld = false;
+/** L3 clicked: a Lightstride that keeps going until L3 again, pulling back, or running dry. */
+let strideLatch = false;
+let selectDownAt = -1;
+let selectUsed = false;
+let wheel = 0;
 let scripted: (Partial<NkInput> & { frames: number }) | null = null;
 const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(k.toUpperCase());
 const tapped = (k: string) => pressed.has(k) || pressed.has(k.toUpperCase());
@@ -85,15 +106,22 @@ function readInput(): NkInput {
         mouseDeltaY = 0;
     }
     const kx = (key("ArrowRight") ? 1 : 0) - (key("ArrowLeft") ? 1 : 0), ky = (key("ArrowUp") ? 1 : 0) - (key("ArrowDown") ? 1 : 0);
+    const thrust = clamp((key("w") ? 1 : 0) - (key("s") ? 1 : 0) + L[1], -1, 1);
+    if (strideLatch && (thrust < -0.1 || game.player.charge <= 1 || mode !== "play")) strideLatch = false;
+    const pick = mode === "play" ? BLAST_IDS.find((_, i) => tapped(String(i + 1))) ?? "" : "";
     const input: NkInput = {
-        thrust: clamp((key("w") ? 1 : 0) - (key("s") ? 1 : 0) + L[1], -1, 1),
+        thrust,
         strafe: -clamp((key("d") ? 1 : 0) - (key("a") ? 1 : 0) + L[0], -1, 1),
         lift: (key(" ") || controller.held.has("South") ? 1 : 0) - (key("Control") || controller.held.has("East") ? 1 : 0),
         turnX: -clamp(kx + R[0], -1, 1),
         turnY: clamp(ky + R[1], -1, 1),
-        fire: fireHeld || controller.held.has("RightTrigger2") || controller.held.has("RightTrigger"),
-        surge: key("Shift") || controller.held.has("LeftTrigger2") || controller.held.has("LeftTrigger"),
+        // The triggers are read as analog values too: some pads never send them as a press.
+        fire: fireHeld || controller.held.has("RightTrigger2") || controller.triggers[1] > 0.25,
+        surge: key("Shift") || controller.held.has("LeftTrigger2") || controller.triggers[0] > 0.25 || controller.held.has("LeftThumb") || strideLatch,
         siphon: key("e") || controller.held.has("West"),
+        blastPick: pick,
+        blastNext: padPressed.has("RightTrigger") || wheel > 0,
+        blastPrev: padPressed.has("LeftTrigger") || wheel < 0,
         pulse: tapped("q") || padPressed.has("RightThumb"),
         veil: tapped("c") || padPressed.has("DPadDown"),
         attune: tapped("t") || padPressed.has("DPadUp"),
@@ -103,6 +131,7 @@ function readInput(): NkInput {
         lookYaw: mdx * 0.0035,
         lookPitch: -mdy * 0.0035,
     };
+    wheel = 0;
     if (scripted) {
         const { frames: _n, ...rest } = scripted;
         Object.assign(input, rest);
@@ -115,11 +144,13 @@ function setupInput(): void {
     Entropy.Input.onKeyDown((k: string) => {
         const repeat = held.has(k);
         held.add(k);
+        device = "keys";
         if (repeat) return;
         pressed.add(k);
         const lower = k.toLowerCase();
         if (mode === "title") { if (k === "Enter" || k === " ") act(saved ? "continue" : "new"); return; }
         if (crownedAt >= 0 && !crownedSeen) { if (k === "Enter" || k === " " || k === "Escape") act("reign"); return; }
+        if (lower === "h") { nextLesson(); return; }
         if (lower === "m") { setMode(mode === "chart" ? "play" : "chart"); return; }
         if (k === "Tab") { setMode(mode === "codex" ? "play" : "codex"); return; }
         if (k === "Escape") { if (mode !== "play") setMode("play"); else { save(); setMode("title"); } return; }
@@ -131,9 +162,15 @@ function setupInput(): void {
             chartNote = "";
         }
         if (mode === "codex" && /^[1-6]$/.test(k)) act(`facet:${FACET_IDS[Number(k) - 1]}`);
+        if (mode === "codex") {
+            if (k === "ArrowDown" || k === "ArrowRight") moveCodexCursor(1);
+            if (k === "ArrowUp" || k === "ArrowLeft") moveCodexCursor(-1);
+            if (k === "Enter") act(codexItems()[codexCursor] ?? "");
+        }
     });
     Entropy.Input.onKeyUp((k: string) => { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); });
     Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
+        device = "keys";
         if (mode === "play" && !lastMouse) lastMouse = [x, y];
         const hit = painter?.hit(x, y);
         if (hit) { act(hit.id); return; }
@@ -156,21 +193,66 @@ function setupInput(): void {
         }
     });
     Entropy.Input.onMouseUp((button: number) => { if (button === 0) fireHeld = false; });
-    Entropy.Input.onGamepadAxis((l, r) => controller.axis(l, r, realTime));
+    Entropy.Input.onMouseWheel((_dx: number, dy: number) => { if (mode === "play" && dy) { device = "keys"; wheel = dy > 0 ? -1 : 1; } });
+    Entropy.Input.onGamepadAxis((l, r, t) => {
+        controller.axis(l, r, realTime, t);
+        if (Math.max(Math.hypot(...controller.left), Math.hypot(...controller.right), ...controller.triggers) > 0.3) device = "pad";
+    });
     Entropy.Input.onGamepadButton((b, down) => {
         const fresh = controller.button(b, down);
+        if (!down && b === "Select") {
+            // A short press of Back opens the Codex; holding it pages the Field Guide (see frame()).
+            if (selectDownAt >= 0 && !selectUsed && mode !== "title") setMode(mode === "codex" ? "play" : "codex");
+            selectDownAt = -1;
+            return;
+        }
         if (!fresh) return;
+        device = "pad";
         padPressed.add(b);
-        if (mode === "title" && (b === "South" || b === "Start")) act(saved ? "continue" : "new");
-        else if (b === "Start") setMode(mode === "chart" ? "play" : "chart");
-        else if (b === "Select") setMode(mode === "codex" ? "play" : "codex");
+        if (mode === "title") { if (b === "South" || b === "Start") act(saved ? "continue" : "new"); return; }
+        if (crownedAt >= 0 && !crownedSeen) { if (b === "South" || b === "Start") act("reign"); return; }
+        if (b === "Start") { setMode(mode === "chart" ? "play" : "chart"); return; }
+        if (b === "Select") { selectDownAt = realTime; selectUsed = false; return; }
+        if (b === "LeftThumb" && mode === "play") { strideLatch = !strideLatch; return; }
+        if (mode === "chart") {
+            const i = REGIONS.findIndex(r => r.id === chartSelected);
+            if (b === "DPadRight" || b === "DPadDown") { chartSelected = REGIONS[Math.min(REGIONS.length - 1, i + 1)].id; chartNote = ""; }
+            if (b === "DPadLeft" || b === "DPadUp") { chartSelected = REGIONS[Math.max(0, i - 1)].id; chartNote = ""; }
+            if (b === "South") act(`fold:${chartSelected}`);
+            if (b === "East") setMode("play");
+        } else if (mode === "codex") {
+            if (b === "DPadDown" || b === "DPadRight") moveCodexCursor(1);
+            if (b === "DPadUp" || b === "DPadLeft") moveCodexCursor(-1);
+            if (b === "South") act(codexItems()[codexCursor] ?? "");
+            if (b === "East") setMode("play");
+        }
     });
+}
+
+/** What the Codex lets you choose, in the order the gamepad cursor walks them. */
+function codexItems(): string[] {
+    return [...FACET_IDS.map(id => `facet:${id}`), ...FORM_IDS.map(id => `form:${id}`), ...game.blasts.map(id => `blast:${id}`)];
+}
+function moveCodexCursor(step: number): void {
+    const n = codexItems().length;
+    codexCursor = (codexCursor + step + n) % n;
+    codexNote = "";
+    sound.ui();
+}
+
+/** Shows the next Field Guide lesson (or hides the one up, if none is waiting). */
+function nextLesson(): void {
+    hud.lesson = null;
+    const next = hud.lessons.shift();
+    if (next) hud.lesson = { ...next, age: 0 };
+    sound.ui();
 }
 
 function setMode(m: Mode): void {
     if (mode === m) return;
     mode = m;
     sound.ui();
+    if (m === "codex") codexNote = "";
     if (m === "chart") { chartSelected = game.nextRegion() && game.regionComplete ? game.nextRegion()!.id : game.region.def.id; chartNote = ""; }
     fireHeld = false;
     lastMouse = null;
@@ -192,11 +274,18 @@ function act(id: string): void {
         if (!can.ok) { chartNote = can.why; return; }
         game.startFold(region);
         mode = "play";
-    } else if (id.startsWith("facet:")) { if (game.spendFacet(id.slice(6) as FacetId)) save(); }
+    } else if (id.startsWith("facet:")) { if (game.spendFacet(id.slice(6) as FacetId)) save(); else codexNote = game.campaign.points > 0 ? "That facet is full" : "No facet points: they come with each level"; }
+    else if (id.startsWith("form:")) {
+        const r = game.chooseForm(id.slice(5) as FormId);
+        codexNote = r.ok ? `You are a ${FORMS[id.slice(5) as FormId].name} now` : r.why;
+        if (r.ok) { handleEvents(game.events); game.events = []; save(); }
+    } else if (id.startsWith("blast:")) { if (game.selectBlast(id.slice(6) as BlastId)) { codexNote = `${BLASTS[id.slice(6) as BlastId].name} is your blast`; save(); } }
 }
 
 function afterStart(): void {
     particles.length = 0;
+    hud.lessons = []; hud.lesson = null;
+    strideLatch = false;
     hud.banner = { title: game.region.def.name.toUpperCase(), text: game.region.def.text, age: 0, color: FACTIONS[galaxyById(game.region.def.galaxy).government].color };
     hud.toasts = [];
     crownedAt = -1; crownedSeen = game.campaign.crowned;
@@ -207,7 +296,7 @@ function load(): void {
     try {
         const text = addon.IO.store.read(SAVE_PATH);
         const d = text ? (JSON.parse(text) as { v?: number; campaign?: Campaign; sound?: boolean }) : null;
-        if (d?.v === 1 && d.campaign && typeof d.campaign.mass === "number" && REGIONS.some(r => r.id === d.campaign!.region)) saved = d.campaign;
+        if (d?.v === 1 && d.campaign && typeof d.campaign.mass === "number" && REGIONS.some(r => r.id === d.campaign!.region)) saved = normalizeCampaign(d.campaign);
         if (d && typeof d.sound === "boolean") sound.enabled = d.sound;
     } catch { /* no save yet */ }
 }
@@ -246,7 +335,7 @@ function stepParticles(dt: number): void {
     if (p.alive && mode === "play") {
         const speed = len(p.vel) / p.radius;
         if (speed > 0.8 && rnd() < dt * Math.min(40, speed * 6)) {
-            const pal = nebulaPalette(p.level);
+            const pal = nebulaPalette(p.level, game.campaign.form, game.campaign.alignment);
             particles.push({ pos: add(p.pos, mul(rndDir(), p.radius * 0.7)), vel: mul(p.vel, 0.15), life: 1.8, max: 1.8, size: p.radius * (0.5 + rnd() * 0.5), color: rnd() < 0.5 ? pal.mid : pal.edge, kind: GLOW_KIND.gas, grow: 1.2, toPlayer: false, seed: rnd() });
         }
     }
@@ -258,7 +347,7 @@ function toast(text: string): void {
 }
 
 function handleEvents(events: GameEvent[]): void {
-    const p = game.player, pal = nebulaPalette(p.level);
+    const p = game.player, pal = nebulaPalette(p.level, game.campaign.form, game.campaign.alignment);
     for (const e of events) {
         switch (e.kind) {
             case "absorb": if (particles.length < 220) burst(e.at, e.body === "mote" ? 3 : 8, p.radius * 2, Math.max(e.radius, p.radius * 0.08) * 1.4, e.body === "mote" || e.body === "essence" ? [0.8, 1, 1] : [1, 0.85, 0.6], 0.8, GLOW_KIND.spark, true); sound.absorb(e.radius / p.radius); break;
@@ -292,6 +381,30 @@ function handleEvents(events: GameEvent[]): void {
             case "crime": hud.banner = { title: "A LIVING WORLD", text: e.text, age: 0, color: [1, 0.38, 0.38] }; break;
             case "wave": toast(`Raid: wave ${e.n} of ${e.of}`); break;
             case "toast": toast(e.text); break;
+            case "lesson":
+                if (!hud.lesson) hud.lesson = { id: e.id, vars: e.vars, age: 0 };
+                else if (hud.lesson.id !== e.id && !hud.lessons.some(l => l.id === e.id)) {
+                    // What is happening right now is explained first; the rest waits its turn.
+                    if (URGENT.test(e.id)) {
+                        if (!URGENT.test(hud.lesson.id) && hud.lesson.age > 2) { hud.lessons.unshift({ id: hud.lesson.id, vars: hud.lesson.vars }); hud.lesson = { id: e.id, vars: e.vars, age: 0 }; }
+                        else hud.lessons.unshift({ id: e.id, vars: e.vars });
+                    } else hud.lessons.push({ id: e.id, vars: e.vars });
+                }
+                break;
+            case "deed": toast(`${e.amount > 0 ? `Grace +${e.amount}` : `Ruin +${-e.amount}`}: ${e.text}  (${alignmentTier(e.alignment)})`); break;
+            case "yield":
+                hud.banner = { title: `${e.name.toUpperCase()} YIELDS`, text: controlText("Press {tribute} near it to spare it (Grace) - or strike it again to devour it (Ruin)", device), age: 0, color: [1, 0.95, 0.75] };
+                burst(e.at, 1, 0, p.radius * 3, [1, 1, 1], 1.2, GLOW_KIND.halo, false, 2); sound.goal();
+                break;
+            case "spared": toast(e.slipped ? `${e.name} slips away into the dark` : `You spare ${e.name}. It will remember.`); burst(e.at, 24, p.radius * 3, p.radius * 0.3, [1, 0.95, 0.75], 1.4); sound.levelup(); break;
+            case "devoured": hud.flash = Math.max(hud.flash, 0.5); burst(e.at, 50, p.radius * 6, p.radius * 0.35, [1, 0.3, 0.35], 1.6, GLOW_KIND.spark, true); toast(`You devour ${e.name}`); sound.mined(true); break;
+            case "reflect": burst(e.at, 6, p.radius * 2, p.radius * 0.2, [1, 0.95, 0.8], 0.4); sound.impact(); if (!e.byYou) toast("Glass turns your bolt back - switch blasts"); break;
+            case "blink": burst(e.from, 10, p.radius * 2, p.radius * 0.35, [0.95, 0.35, 0.6], 0.6, GLOW_KIND.gas); burst(e.to, 1, 0, p.radius * 2, [0.95, 0.35, 0.6], 0.5, GLOW_KIND.shock, false, 2); sound.shot(); break;
+            case "burst": burst(e.at, 30, e.radius * 1.5, e.radius * 0.2, [1, 0.6, 0.2], 0.9); burst(e.at, 1, 0, e.radius, [1, 0.7, 0.3], 0.6, GLOW_KIND.shock, false, 2); hud.flash = Math.max(hud.flash, 0.25); sound.death(true); break;
+            case "split": burst(e.at, 12, p.radius * 2, p.radius * 0.3, [0.6, 1, 0.55], 0.7); break;
+            case "ambush": toast(`${e.name} strikes from hiding!`); hud.hurt = Math.max(hud.hurt, 0.3); sound.shot(); break;
+            case "blast": toast(`Blast: ${BLASTS[e.id].name}`); break;
+            case "form": hud.banner = { title: FORMS[e.id].name.toUpperCase(), text: `${FORMS[e.id].text} ${FORMS[e.id].perks[0]}.`, age: 0, color: FORMS[e.id].palette.mid }; sound.levelup(); burst(p.pos, 1, 0, p.radius * 4, FORMS[e.id].palette.mid, 1.2, GLOW_KIND.shock, false, 2); break;
         }
     }
 }
@@ -314,6 +427,8 @@ function frame(dt: number, show = true): void {
     realTime += dt;
     frames++;
     controller.expire(realTime);
+    if (selectDownAt >= 0 && !controller.held.has("Select")) selectDownAt = -1;
+    if (selectDownAt >= 0 && !selectUsed && realTime - selectDownAt > 0.45) { selectUsed = true; if (mode === "codex") setMode("play"); nextLesson(); }
     const input = readInput();
     const crownCard = crownedAt >= 0 && !crownedSeen;
     if (mode === "play" && !crownCard) {
@@ -368,7 +483,7 @@ function draw(dt: number): void {
     hud.timer += dt;
     if (hud.timer >= 1 / 30 || fixedStep) { drawUi(hud.timer, w, h, cam); hud.timer = 0; }
     sound.step(realTime, game.region.def.galaxy, mode === "play" ? tension() : 0, p.stride);
-    if (p.siphon) sound.siphon();
+    if (p.siphon || p.beam.on) sound.siphon();
 }
 
 // --- Screens ------------------------------------------------------------------------------------------
@@ -384,7 +499,7 @@ function project(cam: { pos: V3; target: V3; fov: number }, w: number, h: number
 function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }): HudView {
     const g = game, p = g.player, def = g.region.def, gal = galaxyById(def.galaxy), gov = FACTIONS[gal.government];
     const units = (v: V3): V3 => mul(sub(v, p.pos), 1 / p.radius);
-    const pal = nebulaPalette(p.level);
+    const pal = nebulaPalette(p.level, game.campaign.form, game.campaign.alignment);
 
     let focus: HudFocus | null = null;
     const fo = g.focus();
@@ -401,7 +516,7 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
             const reach = g.siphonReach;
             if (b.inhabited) { note = `Carries life: under ${gov.id === "wild" ? FACTIONS.concord.name : gov.name}'s law`; color = [1, 0.74, 0.35]; }
             else if (b.radius < p.radius * 0.5) { note = "Small enough to swallow: fly into it"; color = [0.55, 1, 0.72]; }
-            else if (fo.distance < reach) { note = g.player.siphon === b.id ? "Siphoning..." : "[E] hold to siphon"; color = [0.55, 1, 0.72]; }
+            else if (fo.distance < reach) { note = g.player.siphon === b.id ? "Siphoning..." : controlText("{siphon} hold to siphon", device); color = [0.55, 1, 0.72]; }
             else note = `Siphon from ${formatKm(fo.distance - reach)} closer`;
             if (b.radius < b.radius0 * 0.999) health = (b.radius / b.radius0) ** 3;
         } else if (fo.type === "creature") {
@@ -411,7 +526,11 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
             name = c.name;
             line = `${c.species.name === c.name ? "" : `${c.species.name}  -  `}${c.faction === "wild" ? "Ungoverned" : FACTIONS[c.faction].name}  -  ${hostile ? "Hostile" : c.faction === "wild" ? "Wary" : standingTier(g.standing(c.faction))}`;
             health = c.hp / c.maxHp;
-            if (c.species.id === "envoy") note = fo.distance < p.radius * 9 ? "[G] offer tribute (a twentieth of your mass)" : "An envoy: come closer to offer tribute";
+            if (c.species.id === "envoy") note = fo.distance < p.radius * 9 ? controlText("{tribute} offer tribute (a twentieth of your mass)", device) : "An envoy: come closer to offer tribute";
+            else if (c.yielding) { note = controlText(`Yielding: {tribute} to spare (Grace), strike to devour (Ruin)  -  ${Math.ceil(c.yieldFor)}s`, device); color = [1, 0.95, 0.75]; }
+            else if (c.hidden) note = "Lurking: it has not seen you yet";
+            else if (c.species.tip && hostile) note = controlText(c.species.tip.split(". ")[0] + ".", device);
+            else if (c.affix) note = `${AFFIXES[c.affix].name}: ${AFFIXES[c.affix].text}`;
             else note = `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} x your size`;
         } else {
             color = [0.8, 0.62, 1];
@@ -442,7 +561,7 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
         if (gs.done || gs.locked && gs.def.type !== "lure") continue;
         const d = gs.def;
         if (d.type === "mine" && d.keys) for (const k of d.keys) { const b = g.region.bodies.find(x => x.key === k); if (b) mark(b.pos, b.name.toUpperCase(), goalColor); }
-        if (d.type === "defeat") { const c = g.region.creatures.find(x => x.key === d.key); if (c) mark(c.pos, c.name.toUpperCase(), [1, 0.38, 0.38]); }
+        if (d.type === "defeat") { const c = g.region.creatures.find(x => x.key === d.key); if (c) mark(c.pos, c.yielding ? `${c.name.toUpperCase()} - SPARE OR DEVOUR` : c.name.toUpperCase(), c.yielding ? [1, 0.95, 0.75] : [1, 0.38, 0.38]); }
         if (d.type === "clear") {
             let near = null as null | (typeof g.region.creatures)[number];
             for (const c of g.region.creatures) if (c.alive && c.group === d.group && (!near || dist(c.pos, p.pos) < dist(near.pos, p.pos))) near = c;
@@ -460,33 +579,61 @@ function hudView(w: number, h: number, cam: { pos: V3; target: V3; fov: number }
     let warning = "";
     for (const hole of g.region.holes) if (dist(hole.pos, p.pos) < hole.radius * 2.2) warning = dist(hole.pos, p.pos) < hole.radius * 1.6 ? `${hole.name.toUpperCase()}: TIDES ARE TEARING YOU - PULL AWAY` : `${hole.name.toUpperCase()}: INSIDE THE ERGOSPHERE`;
     const st = g.region.bodies.find(b => b.id === p.siphon);
-    if (st && st.kind === "star" && st.flareIn < 1.3) warning = "FLARE - LIGHTSTRIDE THROUGH IT  [SHIFT]";
+    if (st && st.kind === "star" && st.flareIn < 1.3) warning = controlText("FLARE - LIGHTSTRIDE THROUGH IT  {stride}", device);
 
     return {
         w, h, time: realTime,
         region: def.name, galaxy: gal.name, government: gov.name, governmentColor: gov.color,
         standing: gov.id === "wild" ? "no law here" : standingTier(g.standing(gov.id)), complete: g.regionComplete,
-        goals: g.goals.map(x => ({ text: x.def.text, done: x.done, progress: x.progress, total: x.total, optional: !!x.def.optional, locked: x.locked })),
+        goals: (() => {
+            // How to do it, beneath the first two goals still open.
+            let shown = 0;
+            return g.goals.map(x => {
+                const open = !x.done && !x.locked && shown < 2;
+                if (open) shown++;
+                return { text: x.def.text, done: x.done, progress: x.progress, total: x.total, optional: !!x.def.optional, locked: x.locked, how: open ? controlText(x.def.how ?? GOAL_HOW[x.def.type] ?? "", device) : "" };
+            });
+        })(),
         messages: g.messages.slice(-5).map(m => ({ speaker: m.speaker || "A voice", text: m.text, color: m.faction === "player" ? pal.mid : FACTIONS[m.faction].color, age: g.time - m.t, kind: m.kind })).filter(m => m.age < 16),
         attune: p.attune, veil: p.veil,
         rank: rankOf(p.level), level: p.level, maxLevel: MAX_LEVEL, progress: levelProgress(p.radius), radius: formatKm(p.radius), compare: compare(p.radius),
         cohesion: p.cohesion / g.maxCohesion, charge: p.charge / g.maxCharge, fed: p.fed > 0, points: g.campaign.points,
         abilities: ABILITY_IDS.map(id => {
             const a = ABILITIES[id];
-            return { name: a.name, key: a.key, ready: a.cooldown > 0 ? 1 - clamp(p.cd[id] / a.cooldown) : 1, locked: g.has(id) ? 0 : a.level, active: (id === "veil" && p.veil) || (id === "attune" && p.attune) || (id === "surge" && p.stride > 0) || (id === "flare" && p.flare > 0), affordable: p.charge >= a.cost };
+            const bind = id === "lance" ? "fire" : id === "surge" ? "stride" : id;
+            if (id === "lance") {
+                // The first slot is whichever blast you have chosen.
+                const b = BLASTS[g.blast];
+                return { name: b.name, key: bindingOf(bind, device), ready: b.cooldown > 0 ? 1 - clamp(p.cd.lance / b.cooldown) : 1, locked: 0, active: p.beam.on, affordable: p.charge >= (b.id === "beam" ? 2 : b.cost) };
+            }
+            return { name: a.name, key: bindingOf(bind, device), ready: a.cooldown > 0 ? 1 - clamp(p.cd[id] / a.cooldown) : 1, locked: g.has(id) ? 0 : a.level, active: (id === "veil" && p.veil) || (id === "attune" && p.attune) || (id === "surge" && p.stride > 0) || (id === "flare" && p.flare > 0), affordable: p.charge >= a.cost };
         }),
+        blasts: BLAST_IDS.map((id, i) => ({ name: BLASTS[id].name, key: device === "pad" ? "" : String(i + 1), selected: g.blast === id, locked: g.hasBlast(id) ? 0 : BLASTS[id].level })),
+        blastKey: bindingOf("blast", device),
+        grace: { value: g.campaign.alignment, tier: alignmentTier(g.campaign.alignment) },
+        form: g.campaign.form ? FORMS[g.campaign.form].name : p.level >= FORM_LEVEL ? controlText("No form yet - choose one in the Codex {codex}", device) : "",
+        lesson: lessonView(),
         focus, markers,
         stride: p.stride, speed: `${formatKm(len(p.vel))} / s`,
         warning,
         banner: hud.banner, toasts: hud.toasts,
-        hints: "[M] Star Chart   [TAB] Codex   [E] siphon   [G] tribute   [ESC] title",
+        hints: device === "pad"
+            ? "[START] Star Chart   [BACK] Codex   [HOLD BACK] next tip   [X] siphon   [D-PAD RIGHT] tribute"
+            : "[M] Star Chart   [TAB] Codex   [H] next tip   [E] siphon   [G] tribute   [ESC] title",
     };
+}
+
+function lessonView(): HudLesson | null {
+    const l = hud.lesson;
+    if (!l || !LESSONS[l.id]) return null;
+    return { title: LESSONS[l.id].title, text: controlText(LESSONS[l.id].text, device, l.vars), age: l.age, life: LESSON_TIME, more: hud.lessons.length, next: device === "pad" ? "HOLD BACK" : "H" };
 }
 
 function chartView(w: number, h: number): ChartView {
     const g = game;
     return {
         w, h, selected: chartSelected, note: chartNote,
+        hints: device === "pad" ? "[D-PAD] choose   [A] fold   [B] or [START] close" : "[ARROWS] choose   [ENTER] fold   [M] or [ESC] close",
         galaxies: GALAXIES.map(gal => ({
             name: gal.name, government: FACTIONS[gal.government].name, color: FACTIONS[gal.government].color, text: gal.text,
             regions: REGIONS.filter(r => r.galaxy === gal.id).map(r => ({
@@ -504,9 +651,16 @@ function codexView(w: number, h: number): CodexView {
     return {
         w, h, points: c.points, rank: rankOf(p.level), level: p.level, radius: formatKm(p.radius), compare: compare(p.radius),
         facets: FACET_IDS.map(id => ({ id, name: FACETS[id].name, text: FACETS[id].text, rank: c.facets[id], max: FACET_MAX })),
-        abilities: ABILITY_IDS.map(id => ({ name: ABILITIES[id].name, key: ABILITIES[id].key, text: ABILITIES[id].text, level: ABILITIES[id].level, unlocked: g.has(id) })),
+        abilities: ABILITY_IDS.map(id => ({ name: id === "lance" ? "Blast" : ABILITIES[id].name, key: bindingOf(id === "lance" ? "fire" : id === "surge" ? "stride" : id, device), text: id === "lance" ? "Fire the blast you have chosen (below)." : ABILITIES[id].text, level: ABILITIES[id].level, unlocked: g.has(id) })),
         factions: GOVERNMENTS.map(id => ({ name: FACTIONS[id].name, form: FACTIONS[id].form, creed: FACTIONS[id].creed, color: FACTIONS[id].color, standing: c.standing[id], tier: standingTier(c.standing[id]), laws: FACTIONS[id].laws, fluency: g.fluency(id) })),
-        stats: [`Absorbed: ${s.absorbed}`, `Worlds and stars mined: ${s.mined}`, `Stars consumed: ${s.stars}`, `Creatures undone: ${s.kills}`, `Folds: ${s.folds}`, `Times dispersed: ${s.dispersed}`, `Regions held: ${c.completed.length} of ${REGIONS.length}`, `Time: ${Math.floor(s.time / 60)} min`],
+        stats: [`Absorbed: ${s.absorbed}`, `Worlds and stars mined: ${s.mined}`, `Stars consumed: ${s.stars}`, `Creatures undone: ${s.kills}`, `Spared: ${s.spared}`, `Devoured: ${s.devoured}`, `Folds: ${s.folds}`, `Times dispersed: ${s.dispersed}`, `Regions held: ${c.completed.length} of ${REGIONS.length}`, `Time: ${Math.floor(s.time / 60)} min`],
+        forms: FORM_IDS.map(id => ({ id, name: FORMS[id].name, text: FORMS[id].text, perks: FORMS[id].perks, color: FORMS[id].palette.mid, chosen: c.form === id })),
+        formNote: p.level < FORM_LEVEL ? `You can choose a form at level ${FORM_LEVEL}` : c.form ? "Changing your form costs a tenth of your mass" : "Choose freely: your first form costs nothing",
+        blasts: BLAST_IDS.map(id => ({ id, name: BLASTS[id].name, text: BLASTS[id].text, level: BLASTS[id].level, unlocked: g.hasBlast(id), selected: g.blast === id, color: BLASTS[id].color })),
+        grace: { value: c.alignment, tier: alignmentTier(c.alignment) },
+        cursor: codexItems()[codexCursor] ?? "",
+        note: codexNote,
+        hints: device === "pad" ? "[D-PAD] choose   [A] spend / choose   [B] or [BACK] close" : "[ARROWS] + [ENTER] or click: spend a point, choose a form or blast   [1-6] spend a facet point   [TAB] or [ESC] close",
     };
 }
 
@@ -517,9 +671,14 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
     for (const t of hud.toasts) t.age += dt;
     hud.toasts = hud.toasts.filter(t => t.age < 4.5);
     if (hud.banner) { hud.banner.age += dt; if (hud.banner.age > 6.5) hud.banner = null; }
+    if (hud.lesson && mode === "play" && !game.fold) { hud.lesson.age += dt; if (hud.lesson.age > LESSON_TIME) { hud.lesson = null; const next = hud.lessons.shift(); if (next) hud.lesson = { ...next, age: 0 }; } }
     if (mode === "title") {
         const c = saved;
-        drawTitle(p, { w, h, time: realTime, canContinue: !!c, summary: c ? `${rankOf(Math.max(1, Math.round(1 + Math.log(Math.cbrt(c.mass)) / Math.log(Math.cbrt(3.3)))))}  -  ${REGIONS.find(r => r.id === c.region)?.name ?? ""}  -  ${c.completed.length} of ${REGIONS.length} regions held` : "", sound: sound.enabled });
+        drawTitle(p, {
+            w, h, time: realTime, canContinue: !!c, sound: sound.enabled, device,
+            summary: c ? `${rankOf(Math.max(1, Math.round(1 + Math.log(Math.cbrt(c.mass)) / Math.log(Math.cbrt(3.3)))))}${c.form ? `  -  ${FORMS[c.form].name}` : ""}  -  ${REGIONS.find(r => r.id === c.region)?.name ?? ""}  -  ${c.completed.length} of ${REGIONS.length} regions held` : "",
+            controls: TITLE_CONTROLS.map(id => ({ what: BINDINGS[id].what, keys: BINDINGS[id].keys, pad: BINDINGS[id].pad })),
+        });
     } else if (crownedAt >= 0 && !crownedSeen) {
         const s = game.campaign.stats;
         drawCrowned(p, w, h, realTime - crownedAt, [`Radius ${formatKm(game.player.radius)}  -  ${compare(game.player.radius)}`, `${s.stars} stars consumed  -  ${s.mined} worlds and stars mined  -  ${s.folds} folds  -  ${Math.floor(s.time / 60)} minutes`]);
@@ -534,6 +693,9 @@ function drawUi(dt: number, w: number, h: number, cam: { pos: V3; target: V3; fo
     }
     p.flush();
 }
+
+/** The controls the title screen lists, keyboard and gamepad side by side. */
+const TITLE_CONTROLS = ["steer", "move", "rise", "sink", "stride", "fire", "blast", "siphon", "pulse", "flare", "attune", "veil", "decoy", "tribute", "chart", "codex", "guide"];
 
 // --- Lifecycle ----------------------------------------------------------------------------------------
 
@@ -564,7 +726,7 @@ const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite
 const vec = (v: unknown, d: V3): V3 => (Array.isArray(v) && v.length === 3 && v.every(x => typeof x === "number") ? [v[0], v[1], v[2]] : d);
 
 function snapshot() {
-    return { mode, frames, realTime: Math.round(realTime * 100) / 100, camera: cameraNow(), scene: lastScene, particles: particles.length, sound: sound.played, ui: painter?.opCount() ?? 0, game: game.summary() };
+    return { mode, frames, realTime: Math.round(realTime * 100) / 100, camera: cameraNow(), scene: lastScene, particles: particles.length, sound: sound.played, ui: painter?.opCount() ?? 0, device, lesson: hud.lesson?.id ?? null, lessonsWaiting: hud.lessons.length, game: game.summary() };
 }
 
 /** Steps the game n frames at a fixed step. Only the last is drawn: a tool call is one engine frame. */
@@ -606,11 +768,12 @@ function registerTools(): void {
     const tools: { name: string; description: string; parameters: object; run: (a: Args) => object }[] = [
         { name: "nebula_state", description: "The game's state: mode, camera, what the scene drew, and the game (region, the nebula's size, level and rank, goals, standings, counts).", parameters: { type: "object", properties: {} }, run: () => snapshot() },
         {
-            name: "nebula_config", description: "Test settings: fixedStep (seconds per frame, null for real time), sound (bool).",
-            parameters: { type: "object", properties: { fixedStep: { type: "number" }, sound: { type: "boolean" } } },
+            name: "nebula_config", description: "Test settings: fixedStep (seconds per frame, null for real time), sound (bool), device ('keys' or 'pad': which controls lessons and hints name).",
+            parameters: { type: "object", properties: { fixedStep: { type: "number" }, sound: { type: "boolean" }, device: { type: "string" } } },
             run: a => {
                 if ("fixedStep" in a) fixedStep = a.fixedStep === null ? null : num(a.fixedStep, 1 / 30);
                 if ("sound" in a) sound.enabled = !!a.sound;
+                if (a.device === "keys" || a.device === "pad") device = a.device;
                 return snapshot();
             },
         },
@@ -646,7 +809,7 @@ function registerTools(): void {
             },
         },
         {
-            name: "nebula_act", description: "Plays the nebula. action: wait (frames); fly (to: a key such as a body's, a group, a species, 'rift', or [x,y,z] in region units; frames; surge; fire; siphon: flies at it); face (to); teleport (to, distance in the target's radii); fire / siphon / surge (frames); pulse, veil, attune, decoy, flare, tribute; fold (region); facet (id); screen (chart, codex, play, title); banner (clears the banner and toasts).",
+            name: "nebula_act", description: "Plays the nebula. action: wait (frames); fly (to: a key such as a body's, a group, a species, 'rift', or [x,y,z] in region units; frames; surge; fire; siphon: flies at it); face (to); teleport (to, distance in the target's radii); fire / siphon / surge (frames); pulse, veil, attune, decoy, flare, tribute (also spares a champion that yielded); blast (id: lance, shard, beam, seeker); form (id: emission, reflection, dark, planetary); lesson (shows the next Field Guide lesson); fold (region); facet (id); screen (chart, codex, play, title); banner (clears the banner and toasts).",
             parameters: { type: "object", properties: { action: { type: "string" }, frames: { type: "number" } } },
             run: a => {
                 const g = game, p = g.player;
@@ -686,6 +849,9 @@ function registerTools(): void {
                     case "tribute": advance(1, { tribute: true }); break;
                     case "fold": if (!g.startFold(String(a.region))) throw new Error(g.canFold(String(a.region)).why); mode = "play"; advance(n); break;
                     case "facet": if (!g.spendFacet(String(a.id) as FacetId)) throw new Error("No point to spend there"); break;
+                    case "blast": if (!g.selectBlast(String(a.id) as BlastId)) throw new Error(`Blast ${String(a.id)} is not yours yet`); advance(1); break;
+                    case "form": { const r = g.chooseForm(String(a.id) as FormId); if (!r.ok) throw new Error(r.why); handleEvents(g.events); advance(1); break; }
+                    case "lesson": nextLesson(); advance(1); break;
                     case "screen": mode = (["chart", "codex", "play", "title"].includes(String(a.screen)) ? String(a.screen) : "play") as Mode; if (mode === "chart") chartSelected = String(a.select ?? g.region.def.id); advance(1); break;
                     case "banner": hud.banner = null; hud.toasts = []; advance(1); break;
                     default: throw new Error(`Unknown action ${String(a.action)}`);
