@@ -22,8 +22,10 @@ export interface NkInput {
     fire: boolean; surge: boolean; siphon: boolean;
     /** Pressed this frame. */
     pulse: boolean; veil: boolean; attune: boolean; decoy: boolean; flare: boolean; tribute: boolean;
+    /** Instantaneous angle displacement in radians (e.g. from mouse look). */
+    lookYaw?: number; lookPitch?: number;
 }
-export const NO_INPUT: NkInput = { thrust: 0, strafe: 0, lift: 0, turnX: 0, turnY: 0, fire: false, surge: false, siphon: false, pulse: false, veil: false, attune: false, decoy: false, flare: false, tribute: false };
+export const NO_INPUT: NkInput = { thrust: 0, strafe: 0, lift: 0, turnX: 0, turnY: 0, fire: false, surge: false, siphon: false, pulse: false, veil: false, attune: false, decoy: false, flare: false, tribute: false, lookYaw: 0, lookPitch: 0 };
 
 export interface Campaign {
     mass: number;
@@ -303,8 +305,8 @@ export class Game {
 
     private stepPlayer(dt: number, input: NkInput): void {
         const p = this.player, c = this.campaign;
-        p.yaw += clamp(input.turnX, -1, 1) * 1.9 * dt;
-        p.pitch = clamp(p.pitch + clamp(input.turnY, -1, 1) * 1.5 * dt, -1.35, 1.35);
+        p.yaw += clamp(input.turnX, -1, 1) * 1.9 * dt + (input.lookYaw ?? 0);
+        p.pitch = clamp(p.pitch + clamp(input.turnY, -1, 1) * 1.5 * dt + (input.lookPitch ?? 0), -1.35, 1.35);
         const f = this.forward, { right, up } = basis(f);
 
         // Lightstride: hold to ride your own wave, faster the longer it is held.

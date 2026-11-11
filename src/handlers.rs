@@ -1733,6 +1733,9 @@ fn handle_collectable_interaction(state: &mut Editor) {
 }
 
 pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32)) {
+    // Addons that drive the camera from the gamepad themselves (Allegiance's soldier, the Game World
+    // Detailer's editor camera and Preview World walker, Nebula Kingdom, Abyss): the native free camera would fight them.
+    let mut custom_camera = matches!(state.addon_engine.selected_addon_name.as_deref(), Some("Allegiance") | Some("game-world-detailer") | Some("Nebula Kingdom") | Some("Abyss"));
     // Push event to Addons
     {
         let mut op_state = state.addon_engine.runtime.op_state();
@@ -1742,12 +1745,15 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
                 leftStick: [left_stick.0, left_stick.1], 
                 rightStick: [right_stick.0, right_stick.1] 
             });
+            if !custom_camera {
+                if let Some((first_name, _)) = ctx.registered_addons.first() {
+                    custom_camera = matches!(first_name.as_str(), "Allegiance" | "game-world-detailer" | "Nebula Kingdom" | "Abyss");
+                }
+            }
         }
     }
 
-    // Addons that drive the camera from the gamepad themselves (Allegiance's soldier, the Game World
-    // Detailer's editor camera and Preview World walker): the native free camera would fight them.
-    if matches!(state.addon_engine.selected_addon_name.as_deref(), Some("Allegiance") | Some("game-world-detailer")) { return; }
+    if custom_camera { return; }
 
     let renderer_state = match state.renderer_state.as_mut() {
         Some(rs) => rs,

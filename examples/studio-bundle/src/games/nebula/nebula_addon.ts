@@ -67,32 +67,30 @@ let lastScene = { solids: 0, glows: 0, lights: 0, holes: 0 };
 const held = new Set<string>();
 const pressed = new Set<string>();
 const padPressed = new Set<string>();
-let mouse: [number, number] | null = null;
+let mouseDeltaX = 0;
+let mouseDeltaY = 0;
+let lastMouse: [number, number] | null = null;
 let fireHeld = false;
 let scripted: (Partial<NkInput> & { frames: number }) | null = null;
 const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(k.toUpperCase());
 const tapped = (k: string) => pressed.has(k) || pressed.has(k.toUpperCase());
 
 function readInput(): NkInput {
-    const [w, h] = Entropy.Window.getSize();
     const L = controller.left, R = controller.right;
-    // The cursor steers: the farther from the centre of the window, the harder the turn.
-    let mx = 0, my = 0;
-    if (mouse) {
-        const dead = 0.07;
-        const nx = (mouse[0] - w / 2) / (h / 2), ny = (mouse[1] - h / 2) / (h / 2);
-        const curve = (v: number) => (Math.abs(v) < dead ? 0 : Math.sign(v) * Math.min(1, ((Math.abs(v) - dead) / (0.75 - dead)) ** 1.4));
-        mx = curve(nx); my = curve(ny);
+    let mdx = 0, mdy = 0;
+    if (mode === "play") {
+        mdx = mouseDeltaX;
+        mdy = mouseDeltaY;
+        mouseDeltaX = 0;
+        mouseDeltaY = 0;
     }
     const kx = (key("ArrowRight") ? 1 : 0) - (key("ArrowLeft") ? 1 : 0), ky = (key("ArrowUp") ? 1 : 0) - (key("ArrowDown") ? 1 : 0);
-    // The game's yaw grows toward +X, which is to the left of a camera looking down +Z: right on
-    // screen is a negative turn and a negative strafe.
     const input: NkInput = {
         thrust: clamp((key("w") ? 1 : 0) - (key("s") ? 1 : 0) + L[1], -1, 1),
-        strafe: -clamp((key("d") ? 1 : 0) - (key("a") ? 1 : 0) + L[0], -1, 1),
+        strafe: clamp((key("d") ? 1 : 0) - (key("a") ? 1 : 0) + L[0], -1, 1),
         lift: (key(" ") || controller.held.has("South") ? 1 : 0) - (key("Control") || controller.held.has("East") ? 1 : 0),
-        turnX: -clamp(mx + kx + R[0], -1, 1),
-        turnY: clamp(-my + ky + R[1], -1, 1),
+        turnX: clamp(kx + R[0], -1, 1),
+        turnY: clamp(ky + R[1], -1, 1),
         fire: fireHeld || controller.held.has("RightTrigger2") || controller.held.has("RightTrigger"),
         surge: key("Shift") || controller.held.has("LeftTrigger2") || controller.held.has("LeftTrigger"),
         siphon: key("e") || controller.held.has("West"),
@@ -102,6 +100,8 @@ function readInput(): NkInput {
         decoy: tapped("f") || padPressed.has("DPadLeft"),
         flare: tapped("r") || padPressed.has("North"),
         tribute: tapped("g") || padPressed.has("DPadRight"),
+        lookYaw: mdx * 0.0035,
+        lookPitch: -mdy * 0.0035,
     };
     if (scripted) {
         const { frames: _n, ...rest } = scripted;
@@ -134,14 +134,26 @@ function setupInput(): void {
     });
     Entropy.Input.onKeyUp((k: string) => { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); });
     Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
-        mouse = [x, y];
+        if (mode === "play" && !lastMouse) lastMouse = [x, y];
         const hit = painter?.hit(x, y);
         if (hit) { act(hit.id); return; }
         if (button === 0 && mode === "play") fireHeld = true;
     });
     Entropy.Input.onMouseMove((x: number, y: number) => {
-        mouse = [x, y];
         if (painter) painter.hover = painter.hit(x, y)?.id ?? null;
+        if (mode === "play") {
+            if (lastMouse) {
+                const dx = clamp(x - lastMouse[0], -200, 200);
+                const dy = clamp(y - lastMouse[1], -200, 200);
+                mouseDeltaX += dx;
+                mouseDeltaY += dy;
+            }
+            lastMouse = [x, y];
+        } else {
+            lastMouse = null;
+            mouseDeltaX = 0;
+            mouseDeltaY = 0;
+        }
     });
     Entropy.Input.onMouseUp((button: number) => { if (button === 0) fireHeld = false; });
     Entropy.Input.onGamepadAxis((l, r) => controller.axis(l, r, realTime));
@@ -161,6 +173,9 @@ function setMode(m: Mode): void {
     sound.ui();
     if (m === "chart") { chartSelected = game.nextRegion() && game.regionComplete ? game.nextRegion()!.id : game.region.def.id; chartNote = ""; }
     fireHeld = false;
+    lastMouse = null;
+    mouseDeltaX = 0;
+    mouseDeltaY = 0;
 }
 
 /** A button or hotspot was clicked (or its key pressed). */
