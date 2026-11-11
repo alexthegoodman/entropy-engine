@@ -3846,6 +3846,11 @@ export interface PipelineConfig {
    *  and drawn after every opaque mesh (in creation order; a batch's instances in the order they
    *  were written, so write them far to near). */
   transparent?: boolean;
+  /** With `transparent`: the color adds to what is behind it (scaled by alpha) instead of
+   *  covering it - glows, gas, fire. Draw order between additive meshes does not matter. */
+  additive?: boolean;
+  /** Draws both faces of every triangle (ribbons, discs, shells seen from inside). */
+  doubleSided?: boolean;
   // [key: string]: unknown;
 }
 

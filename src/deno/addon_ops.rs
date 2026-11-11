@@ -184,6 +184,13 @@ pub struct PipelineConfig {
     /// were created (a batch's own instances in the order the addon wrote them - far to near).
     pub transparent: Option<bool>,
 
+    /// With `transparent`: the color adds to what is behind it (source alpha scales it) rather
+    /// than covering it - glows, gas, fire. Order between additive meshes does not matter.
+    pub additive: Option<bool>,
+
+    /// Draw both faces of every triangle (ribbons, discs, shells seen from inside).
+    pub double_sided: Option<bool>,
+
 }
 
 

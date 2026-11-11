@@ -108,10 +108,12 @@ pub fn create_addon_pipeline(
     //     alpha: wgpu::BlendComponent::REPLACE,
     // });
 
+    // `additive`: light adds to what is behind it (glows, gas, fire, stars) instead of covering it.
+    let additive = config.additive == Some(true);
     let blend_state = Some(wgpu::BlendState {
         color: wgpu::BlendComponent {
             src_factor: wgpu::BlendFactor::SrcAlpha,
-            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            dst_factor: if additive { wgpu::BlendFactor::One } else { wgpu::BlendFactor::OneMinusSrcAlpha },
             operation: wgpu::BlendOperation::Add,
         },
         alpha: wgpu::BlendComponent {
@@ -184,7 +186,7 @@ pub fn create_addon_pipeline(
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back), // Default to backface culling
+            cull_mode: if config.double_sided == Some(true) { None } else { Some(wgpu::Face::Back) }, // Default to backface culling
             polygon_mode: wgpu::PolygonMode::Fill,
             unclipped_depth: false,
             conservative: false,
