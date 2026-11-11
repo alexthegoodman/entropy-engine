@@ -4694,7 +4694,8 @@ export interface EntropyAPI {
     onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => () => void;
     onKeyUp: (callback: (key: string) => void) => () => void;
     onGamepadButton: (callback: (button: string, pressed: boolean) => void) => () => void;
-    onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number]) => void) => () => void;
+    /** `triggers` are the analog LT and RT (0..1), read every frame a pad is connected. */
+    onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number], triggers: [number, number]) => void) => () => void;
     // Pen/stylus input (Windows only, PT_PEN pointers - see src/stylus.rs). pressure is 0..1.
     // tiltX/tiltY are degrees (0 = perpendicular to the tablet, +-90 = flat against it), or null
     // if this pen's driver doesn't report that axis. Never fires for mouse or finger-touch input.

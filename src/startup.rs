@@ -1676,7 +1676,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     },
                     gilrs::EventType::Disconnected => {
                         if let Some(editor) = self.windows.values_mut().next().and_then(|w| w.pipeline.export_editor.as_mut()) {
-                            crate::handlers::handle_gamepad_input(editor, (0.0, 0.0), (0.0, 0.0));
+                            crate::handlers::handle_gamepad_input(editor, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
                             for button in ["South", "East", "North", "West", "Start", "Select", "LeftThumb", "RightThumb", "RightTrigger2", "LeftTrigger2", "LeftTrigger", "RightTrigger", "DPadUp", "DPadDown", "DPadLeft", "DPadRight"] {
                                 crate::handlers::handle_gamepad_button(editor, button, false);
                             }
@@ -1692,10 +1692,18 @@ impl ApplicationHandler<UserEvent> for Application {
                 let ly = gamepad.value(Axis::LeftStickY);
                 let rx = gamepad.value(Axis::RightStickX);
                 let ry = gamepad.value(Axis::RightStickY);
+                // The analog triggers: gilrs reports them as button values (0..1) on most pads, and
+                // as the Z axes on some; take whichever is pressed further.
+                let trigger = |button: Button, axis: Axis| {
+                    let held = gamepad.button_data(button).map(|b| b.value()).unwrap_or(0.0);
+                    held.max(gamepad.value(axis).max(0.0)).clamp(0.0, 1.0)
+                };
+                let lt = trigger(Button::LeftTrigger2, Axis::LeftZ);
+                let rt = trigger(Button::RightTrigger2, Axis::RightZ);
 
                 if let Some(window) = self.windows.values_mut().next() {
                     if let Some(editor) = window.pipeline.export_editor.as_mut() {
-                        crate::handlers::handle_gamepad_input(editor, (lx, ly), (rx, ry));
+                        crate::handlers::handle_gamepad_input(editor, (lx, ly), (rx, ry), (lt, rt));
                     }
                 }
                 break; // Just handle first gamepad for now

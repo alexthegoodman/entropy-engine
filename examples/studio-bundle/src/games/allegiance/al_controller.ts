@@ -9,10 +9,13 @@ export function stick(value: [number, number]): [number, number] {
 export class Controller {
     left: [number, number] = [0, 0];
     right: [number, number] = [0, 0];
+    /** The analog triggers (LT, RT), 0..1. */
+    triggers: [number, number] = [0, 0];
     held = new Set<string>();
     lastAxis = -Infinity;
-    axis(left: [number, number], right: [number, number], now: number): void {
+    axis(left: [number, number], right: [number, number], now: number, triggers?: [number, number]): void {
         this.left = stick(left); this.right = stick(right); this.lastAxis = now;
+        if (triggers && Number.isFinite(triggers[0]) && Number.isFinite(triggers[1])) this.triggers = [triggers[0], triggers[1]];
     }
     button(button: string, pressed: boolean): boolean {
         const fresh = pressed && !this.held.has(button);
@@ -20,5 +23,5 @@ export class Controller {
         return fresh;
     }
     expire(now: number): void { if (now - this.lastAxis > 0.5) this.reset(); }
-    reset(): void { this.left = [0, 0]; this.right = [0, 0]; this.held.clear(); }
+    reset(): void { this.left = [0, 0]; this.right = [0, 0]; this.triggers = [0, 0]; this.held.clear(); }
 }

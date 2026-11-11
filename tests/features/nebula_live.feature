@@ -81,3 +81,37 @@ Feature: Nebula Kingdom
     And I call the tool "nebula_act" with {"action": "banner"}
     Then I call the tool "nebula_state"
     And I capture "16-a-giant-comes-home"
+
+  Scenario: The Field Guide, the gamepad, blasts, forms and mercy
+    Given the real Nebula Kingdom game is running in test mode
+    When I call the tool "nebula_config" with {"fixedStep": 0.033, "sound": false, "device": "pad"}
+    And I call the tool "nebula_start" with {"title": true}
+    And I advance 3 frames
+    Then I capture "17-title-gamepad-controls"
+    When I call the tool "nebula_start" with {"region": "cradle"}
+    And I call the tool "nebula_act" with {"action": "wait", "frames": 40}
+    Then I call the tool "nebula_state"
+    And I capture "18-field-guide"
+    When I call the tool "nebula_start" with {"region": "bazaar"}
+    And I call the tool "nebula_act" with {"action": "banner"}
+    And I call the tool "nebula_act" with {"action": "wait", "frames": 20}
+    And I call the tool "nebula_act" with {"action": "lesson"}
+    And I call the tool "nebula_act" with {"action": "teleport", "to": "sump", "distance": 14}
+    And I advance 3 frames
+    Then I capture "19-slingshot-explained"
+    When I call the tool "nebula_start" with {"region": "marches"}
+    And I call the tool "nebula_act" with {"action": "banner"}
+    And I call the tool "nebula_act" with {"action": "blast", "id": "beam"}
+    And I call the tool "nebula_act" with {"action": "teleport", "to": "prism", "distance": 9}
+    And I call the tool "nebula_act" with {"action": "fly", "to": "prism", "frames": 20, "fire": true, "hold": true}
+    Then I capture "20-sunthread-on-glass"
+    When I call the tool "nebula_start" with {"region": "tollgate", "level": 8}
+    And I call the tool "nebula_act" with {"action": "form", "id": "emission"}
+    And I call the tool "nebula_act" with {"action": "screen", "screen": "codex"}
+    Then I capture "21-codex-forms-and-blasts"
+    When I call the tool "nebula_act" with {"action": "screen", "screen": "play"}
+    And I call the tool "nebula_act" with {"action": "banner"}
+    And I call the tool "nebula_act" with {"action": "teleport", "to": "vash", "distance": 7}
+    And I call the tool "nebula_act" with {"action": "fly", "to": "vash", "frames": 360, "fire": true, "hold": true}
+    Then I call the tool "nebula_state"
+    And I capture "22-mercy-or-hunger"

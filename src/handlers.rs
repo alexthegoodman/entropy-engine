@@ -1732,7 +1732,7 @@ fn handle_collectable_interaction(state: &mut Editor) {
     }
 }
 
-pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32)) {
+pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32), triggers: (f32, f32)) {
     // Addons that drive the camera from the gamepad themselves (Allegiance's soldier, the Game World
     // Detailer's editor camera and Preview World walker, Nebula Kingdom, Abyss): the native free camera would fight them.
     let mut custom_camera = matches!(state.addon_engine.selected_addon_name.as_deref(), Some("Allegiance") | Some("game-world-detailer") | Some("Nebula Kingdom") | Some("Abyss"));
@@ -1743,7 +1743,8 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             ctx.input_events.push(crate::deno::addon_ops::InputEvent::GamepadAxis { 
                 leftStick: [left_stick.0, left_stick.1], 
-                rightStick: [right_stick.0, right_stick.1] 
+                rightStick: [right_stick.0, right_stick.1],
+                triggers: [triggers.0, triggers.1],
             });
             if !custom_camera {
                 if let Some((first_name, _)) = ctx.registered_addons.first() {

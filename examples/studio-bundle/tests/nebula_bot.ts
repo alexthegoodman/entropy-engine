@@ -1,5 +1,6 @@
 // A simple pilot for Nebula Kingdom's tests: flies the nebula at a point, a body or a creature.
 import { Game, NO_INPUT, type NkInput } from "../src/games/nebula/nk_game";
+import type { BlastId } from "../src/games/nebula/nk_data";
 import { sub, len, dist, type V3 } from "../src/games/nebula/nk_math";
 
 export const DT = 1 / 30;
@@ -29,10 +30,27 @@ export function flyTo(g: Game, to: () => V3, within: number, seconds = 120, extr
     return run(g, seconds, x => steer(x, to(), extra), x => dist(x.player.pos, to()) < within);
 }
 
+/** Turns on anything hunting it from close by (null when nothing is). */
+export function fightBack(g: Game): NkInput | null {
+    const p = g.player;
+    let near: (typeof g.region.creatures)[number] | null = null;
+    for (const c of g.region.creatures) if (c.alive && !c.hidden && c.state === "hunt" && c.target === -1 && dist(c.pos, p.pos) < p.radius * 16 + c.radius && (!near || dist(c.pos, p.pos) < dist(near.pos, p.pos))) near = c;
+    if (!near) return null;
+    const inp = steer(g, near.pos, { fire: true, pulse: dist(near.pos, p.pos) < p.radius * 8, blastPick: blastFor(g, near) });
+    inp.thrust = 0;
+    return inp;
+}
+
 /** Flies to a keyed body and siphons it to nothing. */
 export function mine(g: Game, key: string, seconds = 240): boolean {
     const body = () => g.region.bodies.find(b => b.key === key);
-    return run(g, seconds, x => { const b = body(); return b ? steer(x, b.pos, { siphon: true, surge: dist(x.player.pos, b.pos) > b.radius + x.player.radius * 20 }) : NO_INPUT; }, () => !body());
+    return run(g, seconds, x => { const b = body(); const f = fightBack(x); if (f) return f; return b ? steer(x, b.pos, { siphon: true, surge: dist(x.player.pos, b.pos) > b.radius + x.player.radius * 20 }) : NO_INPUT; }, () => !body());
+}
+
+/** The blast a sensible player picks for a foe: glass needs the Sunthread (or shards). */
+export function blastFor(g: Game, foe: { species: { trait?: string } }): BlastId {
+    if (foe.species.trait === "reflect") return g.hasBlast("beam") ? "beam" : "shard";
+    return "lance";
 }
 
 /** Hunts every creature of a group with the Lance (and the Pulse when it has it). */
@@ -44,7 +62,7 @@ export function clear(g: Game, group: string, seconds = 400): boolean {
         let near = foes[0];
         for (const c of foes) if (dist(c.pos, x.player.pos) < dist(near.pos, x.player.pos)) near = c;
         const d = dist(near.pos, x.player.pos);
-        const inp = steer(x, near.pos, { fire: d < x.player.radius * 60, pulse: d < x.player.radius * 8 });
+        const inp = steer(x, near.pos, { fire: d < x.player.radius * 60, pulse: d < x.player.radius * 8, blastPick: blastFor(x, near) });
         if (d < x.player.radius * 12) inp.thrust = 0;
         return inp;
     }, () => left().length === 0);
@@ -72,6 +90,7 @@ export function playRegion(g: Game, optional = false): boolean {
                         const to = sub(h.pos, x.player.pos), l = len(to);
                         const side: V3 = [-to[2] / l, 0, to[0] / l];
                         const aim: V3 = [h.pos[0] + side[0] * h.radius * 1.9 + (to[0] / l) * h.radius * 6, h.pos[1], h.pos[2] + side[2] * h.radius * 1.9 + (to[2] / l) * h.radius * 6];
+                        if (l > h.radius * 6) { const f = fightBack(x); if (f) return f; }
                         return steer(x, aim, { surge: true });
                     }, () => goal.done);
                     break;
@@ -103,6 +122,7 @@ export function playRegion(g: Game, optional = false): boolean {
                         const t = target(), along = sub(t, h.pos), l = len(along) || 1;
                         const lead = Math.max(h.radius * 5, x.player.radius * 12);
                         const post: V3 = [t[0] + (along[0] / l) * lead, t[1] + (along[1] / l) * lead, t[2] + (along[2] / l) * lead];
+                        const f = fightBack(x); if (f && dist(x.player.pos, h.pos) > h.radius * 6) return f;
                         return steer(x, post, { surge: dist(x.player.pos, post) > x.player.radius * 30 });
                     }, () => goal.done);
                     break;

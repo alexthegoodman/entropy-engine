@@ -1,7 +1,8 @@
 // Nebula Kingdom's simulation: the nebula you are (flight, feeding, siphoning worlds and stars,
-// the Lance, the Pulse, the Veil, Shed, Starfire), the creatures and their governments, the
-// lightwaves they speak in, black holes (their pull, their shadows, the ones that hunt), goals,
-// levels, and folding between regions and galaxies. Pure TypeScript: nothing here draws or
+// four blasts, the Pulse, the Veil, Shed, Starfire, the form you choose and the Grace or Ruin your
+// deeds earn), the creatures and their governments (and the champions that yield to your mercy),
+// the lightwaves they speak in, black holes (their pull, their shadows, the ones that hunt), goals,
+// levels, the Field Guide that explains each new thing, and folding between regions and galaxies. Pure TypeScript: nothing here draws or
 // touches the engine, so tests and the live tools play the same game the window does.
 //
 // Units: kilometres and seconds. Everything a creature or the player can do is scaled by its own
@@ -9,9 +10,9 @@
 
 import { Rng, add, sub, mul, dot, len, dist, norm, cross, clamp, forwardOf, basis, segmentDistance, type V3 } from "./nk_math";
 import {
-    ABILITIES, FACETS, FACET_MAX, FACTIONS, GOVERNMENTS, REGIONS, GALAXIES, SPECIES,
-    radiusOfMass, massOfRadius, levelOfRadius, levelProgress, rankOf, regionById, galaxyById, isHostileStanding, garble, tierRadius,
-    type AbilityId, type FacetId, type FactionId, type GoalDef, type BodyKind, type RegionDef,
+    ABILITIES, FACETS, FACET_MAX, FACTIONS, GOVERNMENTS, REGIONS, GALAXIES, SPECIES, BLASTS, BLAST_IDS, FORMS, FORM_LEVEL, LESSONS,
+    radiusOfMass, massOfRadius, levelOfRadius, levelProgress, rankOf, regionById, galaxyById, isHostileStanding, garble, tierRadius, alignmentTier, graceKnit, ruinDamage,
+    type AbilityId, type FacetId, type FactionId, type GoalDef, type BodyKind, type RegionDef, type BlastId, type FormId,
 } from "./nk_data";
 import { generateRegion, makeBody, makeCreature, type Region, type Body, type Creature, type Hole } from "./nk_world";
 
@@ -24,6 +25,8 @@ export interface NkInput {
     pulse: boolean; veil: boolean; attune: boolean; decoy: boolean; flare: boolean; tribute: boolean;
     /** Instantaneous angle displacement in radians (e.g. from mouse look). */
     lookYaw?: number; lookPitch?: number;
+    /** Pressed this frame: the next or previous blast you know, or one by name. */
+    blastNext?: boolean; blastPrev?: boolean; blastPick?: BlastId | "";
 }
 export const NO_INPUT: NkInput = { thrust: 0, strafe: 0, lift: 0, turnX: 0, turnY: 0, fire: false, surge: false, siphon: false, pulse: false, veil: false, attune: false, decoy: false, flare: false, tribute: false, lookYaw: 0, lookPitch: 0 };
 
@@ -38,7 +41,15 @@ export interface Campaign {
     goalsDone: Record<string, string[]>;
     region: string;
     crowned: boolean;
-    stats: { absorbed: number; mined: number; stars: number; kills: number; dispersed: number; folds: number; time: number };
+    stats: { absorbed: number; mined: number; stars: number; kills: number; dispersed: number; folds: number; time: number; spared: number; devoured: number };
+    /** The blast {fire} throws. */
+    blast: BlastId;
+    /** The kind of nebula you chose to be ("" until you choose). */
+    form: FormId | "";
+    /** Grace (to 100) or Ruin (to -100): what your deeds have made you. */
+    alignment: number;
+    /** Lessons of the Field Guide already shown. */
+    taught: string[];
 }
 
 export function newCampaign(): Campaign {
@@ -47,8 +58,21 @@ export function newCampaign(): Campaign {
     return {
         mass: 1, facets: { density: 0, radiance: 0, reach: 0, current: 0, resonance: 0, gravity: 0 }, points: 0,
         standing, lexicon, completed: [], goalsDone: {}, region: REGIONS[0].id, crowned: false,
-        stats: { absorbed: 0, mined: 0, stars: 0, kills: 0, dispersed: 0, folds: 0, time: 0 },
+        stats: { absorbed: 0, mined: 0, stars: 0, kills: 0, dispersed: 0, folds: 0, time: 0, spared: 0, devoured: 0 },
+        blast: "lance", form: "", alignment: 0, taught: [],
     };
+}
+
+/** Fills in what a campaign saved before blasts, forms, Grace and the Field Guide did not have. */
+export function normalizeCampaign(c: Campaign): Campaign {
+    const d = newCampaign();
+    c.stats = { ...d.stats, ...(c.stats ?? {}) };
+    if (!c.blast || !BLASTS[c.blast]) c.blast = "lance";
+    if (c.form && !FORMS[c.form]) c.form = "";
+    c.form ??= "";
+    if (typeof c.alignment !== "number" || !Number.isFinite(c.alignment)) c.alignment = 0;
+    if (!Array.isArray(c.taught)) c.taught = [];
+    return c;
 }
 
 export interface Player {
@@ -72,11 +96,15 @@ export interface Player {
     invulnerable: number;
     alive: boolean; deadFor: number;
     tributeCd: number;
+    /** Sunthread, while it is held: how far it reaches and which way. */
+    beam: { on: boolean; length: number; dir: V3; target: number };
 }
 
-export interface Bolt { pos: V3; vel: V3; radius: number; power: number; from: number; fromRadius: number; faction: FactionId | "player"; life: number }
+/** What made a bolt: a blast of yours (or one turned back), or a creature's. */
+export type BoltKind = "lance" | "shard" | "seeker" | "foe";
+export interface Bolt { pos: V3; vel: V3; radius: number; power: number; from: number; fromRadius: number; faction: FactionId | "player"; life: number; kind?: BoltKind; /** A Seeker's quarry (creature id; 0 while it looks). */ target?: number }
 
-export type SignalKind = "edict" | "distress" | "chatter" | "thanks" | "threat" | "pulse" | "flare";
+export type SignalKind = "edict" | "distress" | "chatter" | "thanks" | "threat" | "pulse" | "flare" | "plea";
 export interface Signal {
     id: number; from: V3; t0: number; speed: number; range: number;
     faction: FactionId | "player"; speaker: string; text: string; kind: SignalKind;
@@ -121,7 +149,19 @@ export type GameEvent =
     | { kind: "tribute"; faction: FactionId; standing: number }
     | { kind: "crime"; faction: FactionId; text: string }
     | { kind: "wave"; n: number; of: number }
-    | { kind: "toast"; text: string };
+    | { kind: "toast"; text: string }
+    | { kind: "lesson"; id: string; vars: Record<string, string> }
+    | { kind: "deed"; amount: number; text: string; alignment: number }
+    | { kind: "yield"; at: V3; name: string }
+    | { kind: "spared"; at: V3; name: string; slipped: boolean }
+    | { kind: "devoured"; at: V3; name: string }
+    | { kind: "reflect"; at: V3; byYou: boolean }
+    | { kind: "blink"; from: V3; to: V3 }
+    | { kind: "burst"; at: V3; radius: number }
+    | { kind: "split"; at: V3; name: string }
+    | { kind: "ambush"; at: V3; name: string }
+    | { kind: "blast"; id: BlastId }
+    | { kind: "form"; id: FormId };
 
 const CHATTER: Record<FactionId, string[]> = {
     concord: ["The shoal turns sunward at the next tide.", "A new Wisp in the Reach. Watch over it.", "Light to you, traveller.", "The Old Candle gutters. Let it rest - or let it feed someone."],
@@ -133,6 +173,8 @@ const CHATTER: Record<FactionId, string[]> = {
 };
 
 let SIGNAL_ID = 1;
+/** Seconds a beaten champion waits on your mercy before it slips away. */
+export const YIELD_TIME = 30;
 
 export class Game {
     campaign: Campaign;
@@ -159,6 +201,7 @@ export class Game {
     private spawnIn = 8;
     private baitIn = 4;
     private edictSent = false;
+    private lessonIn = 0;
 
     constructor(campaign: Campaign = newCampaign()) {
         this.campaign = campaign;
@@ -166,8 +209,9 @@ export class Game {
             pos: [0, 0, 0], vel: [0, 0, 0], yaw: 0, pitch: 0, radius: radiusOfMass(campaign.mass), level: levelOfRadius(radiusOfMass(campaign.mass)),
             cohesion: 100, charge: 100, fed: 60, sinceHurt: 99, veil: false, attune: false, stride: 0, sling: 0,
             cd: { lance: 0, surge: 0, attune: 0, pulse: 0, veil: 0, decoy: 0, flare: 0 }, flare: 0, siphon: 0, invulnerable: 0,
-            alive: true, deadFor: 0, tributeCd: 0,
+            alive: true, deadFor: 0, tributeCd: 0, beam: { on: false, length: 0, dir: [0, 0, 1], target: 0 },
         };
+        normalizeCampaign(campaign);
         this.enter(campaign.region);
         this.player.cohesion = this.maxCohesion;
         this.player.charge = this.maxCharge;
@@ -176,11 +220,12 @@ export class Game {
     // --- Derived numbers ------------------------------------------------------------------------------
 
     get mass(): number { return this.campaign.mass; }
-    get maxCohesion(): number { return 100 * (1 + 0.12 * this.campaign.facets.density); }
+    get form(): FormId | "" { return this.campaign.form; }
+    get maxCohesion(): number { return 100 * (1 + 0.12 * this.campaign.facets.density) * (this.form === "reflection" ? 1.15 : 1); }
     get maxCharge(): number { return 100 + 10 * this.campaign.facets.resonance; }
-    get damageMul(): number { return 1 + 0.14 * this.campaign.facets.radiance; }
+    get damageMul(): number { return (1 + 0.14 * this.campaign.facets.radiance) * (this.form === "emission" ? 1.2 : 1) * ruinDamage(this.campaign.alignment); }
     get siphonReach(): number { return this.player.radius * (3 + 0.36 * this.campaign.facets.reach); }
-    get pullRange(): number { return this.player.radius * 4 * (1 + 0.4 * this.campaign.facets.gravity); }
+    get pullRange(): number { return this.player.radius * 4 * (1 + 0.4 * this.campaign.facets.gravity) * (this.form === "planetary" ? 1.5 : 1); }
     get forward(): V3 { return forwardOf(this.player.yaw, this.player.pitch); }
     get maxSpeed(): number {
         const p = this.player;
@@ -188,6 +233,51 @@ export class Game {
         return p.radius * 2.6 * (1 + 0.08 * this.campaign.facets.current) * stride * (p.sling > 0 ? 1.8 : 1);
     }
     has(ability: AbilityId): boolean { return this.player.level >= ABILITIES[ability].level; }
+    hasBlast(id: BlastId): boolean { return !!BLASTS[id] && this.player.level >= BLASTS[id].level; }
+    get blasts(): BlastId[] { return BLAST_IDS.filter(id => this.hasBlast(id)); }
+    get blast(): BlastId { return this.hasBlast(this.campaign.blast) ? this.campaign.blast : "lance"; }
+    get alignment(): number { return this.campaign.alignment; }
+
+    /** Chooses the blast {fire} throws. */
+    selectBlast(id: BlastId): boolean {
+        if (!this.hasBlast(id)) return false;
+        if (this.campaign.blast !== id) { this.campaign.blast = id; this.player.beam.on = false; this.events.push({ kind: "blast", id }); }
+        return true;
+    }
+    private cycleBlast(step: number): void {
+        const known = this.blasts;
+        if (known.length < 2) return;
+        const i = Math.max(0, known.indexOf(this.blast));
+        this.selectBlast(known[(i + step + known.length) % known.length]);
+    }
+
+    /** Becomes a kind of nebula. The first choice is free; changing it later costs a tenth of you. */
+    chooseForm(id: FormId): { ok: boolean; why: string } {
+        const c = this.campaign;
+        if (!FORMS[id]) return { ok: false, why: "No such form" };
+        if (this.player.level < FORM_LEVEL) return { ok: false, why: `You can choose a form at level ${FORM_LEVEL}` };
+        if (c.form === id) return { ok: false, why: "You are already one" };
+        if (c.form) { c.mass = Math.max(1, c.mass * 0.9); this.player.radius = radiusOfMass(c.mass); this.checkLevel(); }
+        c.form = id;
+        this.player.cohesion = Math.min(this.player.cohesion, this.maxCohesion);
+        this.events.push({ kind: "form", id });
+        return { ok: true, why: "" };
+    }
+
+    /** A lesson of the Field Guide, the first time it is needed. */
+    teach(id: string, vars: Record<string, string> = {}): void {
+        if (!LESSONS[id] || this.campaign.taught.includes(id)) return;
+        this.campaign.taught.push(id);
+        this.events.push({ kind: "lesson", id, vars });
+    }
+
+    /** A good or wicked act: Grace (positive) or Ruin (negative). */
+    deed(amount: number, text: string): void {
+        const c = this.campaign;
+        c.alignment = clamp(c.alignment + amount, -100, 100);
+        this.events.push({ kind: "deed", amount, text, alignment: c.alignment });
+        this.teach("deeds");
+    }
     standing(f: FactionId): number { return this.campaign.standing[f]; }
     fluency(f: FactionId | "player"): number {
         if (f === "player") return 1;
@@ -284,10 +374,12 @@ export class Game {
         this.stepFeeding(dt, input);
         this.updateGoals(false);
         this.checkLevel();
+        this.stepLessons(dt);
         if (p.cohesion <= 0 && p.alive) {
-            p.alive = false; p.deadFor = 0; p.siphon = 0; p.veil = false; p.flare = 0;
+            p.alive = false; p.deadFor = 0; p.siphon = 0; p.veil = false; p.flare = 0; p.beam.on = false;
             this.campaign.stats.dispersed++;
             this.events.push({ kind: "dispersed" });
+            this.teach("dispersed");
         }
     }
 
@@ -309,8 +401,9 @@ export class Game {
         p.pitch = clamp(p.pitch + clamp(input.turnY, -1, 1) * 1.5 * dt + (input.lookPitch ?? 0), -1.35, 1.35);
         const f = this.forward, { right, up } = basis(f);
 
-        // Lightstride: hold to ride your own wave, faster the longer it is held.
-        const striding = input.surge && p.charge > 1 && (input.thrust > 0.1 || p.stride > 0);
+        // Lightstride: hold to ride your own wave, faster the longer it is held. It carries you
+        // forward on its own (a gamepad's trigger needs no stick with it); only backing off stops it.
+        const striding = input.surge && p.charge > 1 && input.thrust > -0.1;
         if (striding) { p.stride = Math.min(1, p.stride + dt / 2.5); p.charge -= ABILITIES.surge.cost * dt; if (p.veil) this.setVeil(false); }
         else p.stride = Math.max(0, p.stride - dt * 1.6);
         p.sling = Math.max(0, p.sling - dt);
@@ -330,25 +423,37 @@ export class Game {
         p.sinceHurt += dt;
         p.fed = Math.max(0, p.fed - dt);
         // Charge does not gather while it is being ridden.
-        if (!striding) p.charge = Math.min(this.maxCharge, p.charge + 9 * (1 + 0.15 * c.facets.resonance) * dt);
-        if (p.fed > 0 && p.sinceHurt > 4) p.cohesion = Math.min(this.maxCohesion, p.cohesion + 2.5 * dt);
+        if (!striding && !p.beam.on) p.charge = Math.min(this.maxCharge, p.charge + 9 * (1 + 0.15 * c.facets.resonance) * dt);
+        if (p.fed > 0 && p.sinceHurt > 4) p.cohesion = Math.min(this.maxCohesion, p.cohesion + 2.5 * graceKnit(c.alignment) * dt);
 
         if (input.attune) { p.attune = !p.attune; this.events.push({ kind: "attune", on: p.attune }); }
         if (input.veil && this.has("veil") && p.cd.veil <= 0) { this.setVeil(!p.veil); p.cd.veil = ABILITIES.veil.cooldown; }
-        if (p.veil) { p.charge -= ABILITIES.veil.cost * dt; if (p.charge <= 0) this.setVeil(false); }
+        if (p.veil) { p.charge -= ABILITIES.veil.cost * (this.form === "dark" ? 0.4 : 1) * dt; if (p.charge <= 0) this.setVeil(false); }
 
-        if (input.fire && p.cd.lance <= 0 && p.charge >= ABILITIES.lance.cost) this.fireLance();
+        if (input.blastPick) this.selectBlast(input.blastPick);
+        if (input.blastNext) this.cycleBlast(1);
+        if (input.blastPrev) this.cycleBlast(-1);
+        const blast = this.blast;
+        if (blast === "beam") { if (input.fire) this.fireBeam(dt); else p.beam.on = false; }
+        else {
+            p.beam.on = false;
+            if (input.fire && p.cd.lance <= 0 && p.charge >= BLASTS[blast].cost) {
+                if (blast === "shard") this.fireShards();
+                else if (blast === "seeker") this.fireSeekers();
+                else this.fireLance();
+            }
+        }
         if (input.pulse && this.has("pulse") && p.cd.pulse <= 0 && p.charge >= ABILITIES.pulse.cost) this.pulse();
         if (input.decoy && this.has("decoy") && p.cd.decoy <= 0 && p.charge >= ABILITIES.decoy.cost && c.mass > 1.2) this.shed();
         if (input.flare && this.has("flare") && p.cd.flare <= 0 && p.charge >= ABILITIES.flare.cost) {
-            p.charge -= ABILITIES.flare.cost; p.cd.flare = ABILITIES.flare.cooldown; p.flare = 2.5;
+            p.charge -= ABILITIES.flare.cost; p.cd.flare = ABILITIES.flare.cooldown * (this.form === "emission" ? 0.7 : 1); p.flare = 2.5;
             if (p.veil) this.setVeil(false);
             this.events.push({ kind: "flare", on: true });
         }
         if (p.flare > 0) {
             p.flare -= dt;
             for (const cr of this.region.creatures) {
-                if (!cr.alive || !(this.hostile(cr) || cr.faction === "wild")) continue;
+                if (!cr.alive || cr.yielding || !(this.hostile(cr) || cr.faction === "wild")) continue;
                 const to = sub(cr.pos, p.pos), d = len(to);
                 if (d < p.radius * 90 + cr.radius && dot(to, f) / (d || 1) > 0.965) this.hurtCreature(cr, 46 * dt * this.damageMul, p.radius, -1);
             }
@@ -368,7 +473,7 @@ export class Game {
         const p = this.player, f = this.forward;
         let best: Creature | null = null, bestScore = 0.985;
         for (const c of this.region.creatures) {
-            if (!c.alive || !this.hostile(c)) continue;
+            if (!c.alive || !this.hostile(c) || (c.hidden && !p.attune)) continue;
             const to = sub(c.pos, p.pos), d = len(to);
             if (d > p.radius * 80 + c.radius) continue;
             // Big or close things are easier to hit: widen the cone by their angular size.
@@ -390,17 +495,80 @@ export class Game {
             const lead = dist(t.pos, from) / speed;
             dir = norm(sub(add(t.pos, mul(t.vel, lead)), from), f);
         }
-        this.bolts.push({ pos: from, vel: add(mul(dir, speed), mul(p.vel, 0.3)), radius: p.radius * 0.16, power: 10 * this.damageMul, from: -1, fromRadius: p.radius, faction: "player", life: 4.5 });
+        this.bolts.push({ pos: from, vel: add(mul(dir, speed), mul(p.vel, 0.3)), radius: p.radius * 0.16, power: 10 * this.damageMul, from: -1, fromRadius: p.radius, faction: "player", life: 4.5, kind: "lance" });
         this.events.push({ kind: "lance", at: from });
+    }
+
+    /** Shardfall: seven shards in a close cone, toward the aim. */
+    private fireShards(): void {
+        const p = this.player, f = this.forward;
+        p.charge -= BLASTS.shard.cost; p.cd.lance = BLASTS.shard.cooldown;
+        if (p.veil) this.setVeil(false);
+        const t = this.aimTarget();
+        const aim = t ? norm(sub(t.pos, p.pos), f) : f;
+        const { right, up } = basis(aim);
+        const from = add(p.pos, mul(aim, p.radius * 0.9));
+        for (let i = 0; i < 7; i++) {
+            const a = (i / 7) * Math.PI * 2, k = i === 0 ? 0 : 0.13;
+            const dir = norm(add(aim, add(mul(right, Math.cos(a) * k), mul(up, Math.sin(a) * k))));
+            this.bolts.push({ pos: from, vel: add(mul(dir, p.radius * 16), mul(p.vel, 0.3)), radius: p.radius * 0.12, power: 4.2 * this.damageMul, from: -1, fromRadius: p.radius, faction: "player", life: 0.95, kind: "shard" });
+        }
+        this.events.push({ kind: "lance", at: from });
+    }
+
+    /** Seekers: three slow motes that find their own way to the nearest enemy. */
+    private fireSeekers(): void {
+        const p = this.player, f = this.forward, { right, up } = basis(f);
+        p.charge -= BLASTS.seeker.cost; p.cd.lance = BLASTS.seeker.cooldown;
+        if (p.veil) this.setVeil(false);
+        const t = this.aimTarget();
+        for (let i = 0; i < 3; i++) {
+            const a = (i / 3) * Math.PI * 2;
+            const dir = norm(add(f, add(mul(right, Math.cos(a) * 0.5), mul(up, Math.sin(a) * 0.5))));
+            this.bolts.push({ pos: add(p.pos, mul(dir, p.radius)), vel: mul(dir, p.radius * 9), radius: p.radius * 0.18, power: 7 * this.damageMul, from: -1, fromRadius: p.radius, faction: "player", life: 7, kind: "seeker", target: t?.id ?? 0 });
+        }
+        this.events.push({ kind: "lance", at: [...p.pos] });
+    }
+
+    /** Sunthread: a held ray that burns the first thing along it. */
+    private fireBeam(dt: number): void {
+        const p = this.player, f = this.forward;
+        const cost = BLASTS.beam.cost * dt;
+        if (p.charge < cost) { p.beam.on = false; return; }
+        p.charge -= cost;
+        if (p.veil) this.setVeil(false);
+        const t = this.aimTarget();
+        const dir = t ? norm(sub(t.pos, p.pos), f) : f;
+        const from = add(p.pos, mul(dir, p.radius * 0.9));
+        let length = p.radius * 45, hit: Creature | null = null;
+        const along = (pos: V3, r: number): number => {
+            const to = sub(pos, from), a = dot(to, dir);
+            if (a < -r || a > length + r) return -1;
+            return len(sub(to, mul(dir, a))) < r ? Math.max(0, a - r * 0.6) : -1;
+        };
+        for (const c of this.region.creatures) {
+            if (!c.alive) continue;
+            const a = along(c.pos, c.radius + p.radius * 0.15);
+            if (a >= 0 && a < length) { length = a; hit = c; }
+        }
+        for (const b of this.region.bodies) {
+            if (!b.alive || b.kind === "mote" || b.kind === "essence" || b.radius < p.radius * 0.3) continue;
+            const a = along(b.pos, b.radius);
+            if (a >= 0 && a < length) { length = a; hit = null; }
+        }
+        if (!p.beam.on) this.events.push({ kind: "lance", at: from });
+        p.beam = { on: true, length: length + p.radius * 0.9, dir, target: hit?.id ?? 0 };
+        if (hit) this.hurtCreature(hit, 40 * dt * this.damageMul * (hit.species.trait === "reflect" ? 1.5 : 1), p.radius, -1);
     }
 
     private pulse(): void {
         const p = this.player;
         p.charge -= ABILITIES.pulse.cost; p.cd.pulse = ABILITIES.pulse.cooldown;
         if (p.veil) this.setVeil(false);
-        const reach = p.radius * 10;
+        const reach = p.radius * 10 * (this.form === "planetary" ? 1.4 : 1);
+        if (this.form === "planetary") p.cohesion = Math.min(this.maxCohesion, p.cohesion + 10);
         for (const c of this.region.creatures) {
-            if (!c.alive) continue;
+            if (!c.alive || c.yielding) continue;
             const to = sub(c.pos, p.pos), d = len(to);
             if (d > reach + c.radius) continue;
             // Friends ride the wave; it only bites what means you harm.
@@ -416,7 +584,7 @@ export class Game {
 
     private shed(): void {
         const p = this.player, c = this.campaign;
-        p.charge -= ABILITIES.decoy.cost; p.cd.decoy = ABILITIES.decoy.cooldown;
+        p.charge -= ABILITIES.decoy.cost; p.cd.decoy = ABILITIES.decoy.cooldown * (this.form === "dark" ? 0.5 : 1);
         const m = c.mass * 0.06;
         c.mass -= m;
         p.radius = radiusOfMass(c.mass);
@@ -429,7 +597,12 @@ export class Game {
 
     private tribute(): void {
         const p = this.player, c = this.campaign;
-        if (p.tributeCd > 0 || c.mass < 1.3) return;
+        if (p.tributeCd > 0) return;
+        // A champion that has yielded is spared by the same gesture.
+        let beggar: Creature | null = null;
+        for (const cr of this.region.creatures) if (cr.alive && cr.yielding && dist(cr.pos, p.pos) - cr.radius < p.radius * 14 && (!beggar || dist(cr.pos, p.pos) < dist(beggar.pos, p.pos))) beggar = cr;
+        if (beggar) { this.spare(beggar, false); p.tributeCd = 1; return; }
+        if (c.mass < 1.3) return;
         let envoy: Creature | null = null, best = Infinity;
         for (const cr of this.region.creatures) {
             if (!cr.alive || cr.species.id !== "envoy") continue;
@@ -442,6 +615,7 @@ export class Game {
         p.tributeCd = 2.5;
         this.addStanding(envoy.faction, 12);
         this.flags.add(`tribute:${envoy.faction}`);
+        this.deed(2, `Tribute to ${FACTIONS[envoy.faction].name}`);
         this.emit({ from: [...envoy.pos], faction: envoy.faction, speaker: envoy.name, text: "Your tribute is received. It will be remembered.", kind: "thanks" });
         this.events.push({ kind: "tribute", faction: envoy.faction, standing: c.standing[envoy.faction] });
     }
@@ -453,6 +627,7 @@ export class Game {
 
     /** Whether a creature treats the player as an enemy right now. */
     hostile(c: Creature): boolean {
+        if (c.yielding) return false;
         if (c.provoked > 0) return true;
         if (c.species.attack === "none") return false;
         if (c.faction !== "wild") return isHostileStanding(this.campaign.standing[c.faction]) && c.species.temper !== "civil";
@@ -477,8 +652,15 @@ export class Game {
     /** `by`: -1 the player, a creature id, or 0 the world. */
     hurtCreature(c: Creature, power: number, attackerRadius: number, by: number): void {
         if (!c.alive) return;
+        if (c.yielding) {
+            // Strike one that has yielded (once it has had a moment to say so) and it is devoured.
+            if (by === -1 && c.yieldFor < YIELD_TIME - 0.6) this.devour(c);
+            return;
+        }
+        c.hidden = false;
         c.hp -= Game.scaled(power, attackerRadius, c.radius);
         c.hurt = 0.3;
+        if (c.yieldable && by === -1 && c.hp <= c.maxHp * 0.15) { c.hp = c.maxHp * 0.15; this.yieldTo(c); return; }
         if (by === -1) {
             if (c.provoked <= 0 && c.faction !== "wild" && !isHostileStanding(this.campaign.standing[c.faction])) this.addStanding(c.faction, -3);
             c.provoked = 30;
@@ -495,19 +677,69 @@ export class Game {
     private kill(c: Creature, byPlayer: boolean): void {
         c.alive = false; c.state = "dead";
         this.events.push({ kind: "death", at: [...c.pos], radius: c.radius, species: c.species.id, faction: c.faction, name: c.name });
-        // What it was made of is left behind as loose essence.
-        const n = c.boss > 1.2 ? 5 : 2;
+        const p = this.player;
+        if (c.affix === "volatile") {
+            // It bursts: everything close is caught in it.
+            const reach = c.radius * 4.5;
+            this.events.push({ kind: "burst", at: [...c.pos], radius: reach });
+            if (p.alive && dist(p.pos, c.pos) < reach + p.radius) this.hurtPlayer(Game.scaled(c.power * 2.2, c.radius, p.radius));
+        }
+        if (c.species.trait === "split" && c.gen === 0) {
+            const { right } = basis(c.dir);
+            for (const side of [-1, 1]) {
+                const half = makeCreature(this.region, c.species.id, add(c.pos, mul(right, side * c.radius * 0.7)), { faction: c.faction, boss: c.boss * 0.62, group: c.group, gen: 1, phase: this.rng.next(), affix: c.affix === "volatile" ? "" : c.affix });
+                half.vel = mul(right, side * half.speed);
+                if (byPlayer) { half.state = "hunt"; half.target = -1; half.provoked = 20; }
+            }
+            this.events.push({ kind: "split", at: [...c.pos], name: c.name });
+        }
+        // What it was made of is left behind as loose essence; Ruin wrings out a little more.
+        const n = (c.boss > 1.2 ? 5 : 2) + (byPlayer && this.campaign.alignment <= -60 ? 1 : 0);
         for (let i = 0; i < n; i++) {
             const b = makeBody(this.region, "essence", "light", add(c.pos, mul(this.rng.ball(), c.radius)), c.radius * 0.42 / Math.cbrt(n / 2), this.rng.next());
             b.vel = mul(this.rng.dir(), c.radius * 0.4);
         }
         if (byPlayer) {
             this.campaign.stats.kills++;
+            if (!c.species.menace && !c.yieldable && c.wave < 0) this.deed(-3, `You killed ${c.name}, who meant you no harm`);
             if (c.faction !== "wild") {
                 this.addStanding(c.faction, -4);
                 for (const e of FACTIONS[c.faction].enemies) this.addStanding(e, 2);
             }
         }
+    }
+
+    // --- Mercy and hunger ------------------------------------------------------------------------------
+
+    private yieldTo(c: Creature): void {
+        c.yielding = true; c.yieldFor = YIELD_TIME; c.provoked = 0; c.state = "wander"; c.target = 0;
+        c.vel = mul(c.vel, 0.2);
+        for (const o of this.region.creatures) if (o.target === c.id) { o.state = "wander"; o.target = 0; }
+        this.emit({ from: [...c.pos], faction: c.faction, speaker: c.name, text: "Enough! I yield. Spare me, cloud, and I will trouble no one again.", kind: "plea" });
+        this.events.push({ kind: "yield", at: [...c.pos], name: c.name });
+        this.teach("yield", { name: c.name });
+    }
+
+    /** Lets a champion that yielded go: Grace. */
+    spare(c: Creature, slipped: boolean): void {
+        if (!c.alive || !c.yielding) return;
+        c.alive = false; c.state = "dead";
+        this.campaign.stats.spared++;
+        if (!slipped) this.addStanding(c.faction, 6);
+        this.emit({ from: [...c.pos], faction: c.faction, speaker: c.name, text: slipped ? "(it slips away into the dark)" : "You are merciful. I will not forget it.", kind: "thanks" });
+        this.events.push({ kind: "spared", at: [...c.pos], name: c.name, slipped });
+        this.deed(slipped ? 4 : 12, slipped ? `You let ${c.name} go` : `You spared ${c.name}`);
+    }
+
+    /** Takes a champion that yielded into yourself: Ruin, and a great deal of it to grow on. */
+    private devour(c: Creature): void {
+        if (!c.alive) return;
+        this.campaign.stats.devoured++;
+        this.gain(massOfRadius(c.radius) * 0.05);
+        c.yielding = false;
+        this.events.push({ kind: "devoured", at: [...c.pos], name: c.name });
+        this.kill(c, true);
+        this.deed(-12, `You devoured ${c.name}`);
     }
 
     // --- Lightwaves -------------------------------------------------------------------------------------
@@ -540,6 +772,7 @@ export class Game {
                     const m: Message = { t: this.time, faction: s.faction, speaker: s.speaker, text: garble(s.text, fl, s.id), kind: s.kind };
                     this.messages.push(m);
                     if (this.messages.length > 40) this.messages.shift();
+                    if (s.faction !== "player") this.teach("lightwaves");
                     if (s.faction !== "player") this.campaign.lexicon[s.faction] = (this.campaign.lexicon[s.faction] ?? 0) + (p.attune ? 2 : 1);
                     this.events.push({ kind: "message", message: m });
                 }
@@ -709,6 +942,7 @@ export class Game {
                     h.alive = false;
                     this.flags.add(`lure:${h.key}`);
                     this.events.push({ kind: "banished", at: [...h.pos], hole: h.name });
+                    this.deed(8, `You sent ${h.name} out of the universe`);
                 }
             } else {
                 const other = region.holes.find(x => x.key === d.to && x.alive);
@@ -744,7 +978,28 @@ export class Game {
             c.cooldown -= dt; c.think -= dt; c.cried += dt; c.hurt = Math.max(0, c.hurt - dt);
             c.phase += dt * (1 + len(c.vel) / (c.speed || c.radius));
             const toPlayer = sub(p.pos, c.pos), pd = len(toPlayer);
-            const sight = c.sight * (p.veil ? 0.25 : 1);
+            const sight = c.sight * (p.veil ? 0.25 : 1) * (this.form === "dark" ? 0.8 : 1);
+
+            // A Lurker lies still and dark until something worth striking drifts close.
+            if (c.hidden) {
+                c.vel = mul(c.vel, Math.max(0, 1 - dt * 2));
+                c.pos = add(c.pos, mul(c.vel, dt));
+                if (p.alive && this.hostile(c) && pd < c.radius * 2 + p.radius * (p.veil ? 2.5 : 7)) {
+                    c.hidden = false; c.state = "hunt"; c.target = -1; c.provoked = Math.max(c.provoked, 15);
+                    c.vel = mul(norm(toPlayer), c.speed * 1.6);
+                    this.events.push({ kind: "ambush", at: [...c.pos], name: c.name });
+                    this.teach("species:lurker");
+                }
+                continue;
+            }
+            // A champion that has yielded drifts, waiting on your mercy, and in time slips away.
+            if (c.yielding) {
+                c.yieldFor -= dt;
+                c.vel = mul(norm(mul(toPlayer, -1), c.dir), c.speed * 0.12);
+                c.pos = add(add(c.pos, mul(c.vel, dt)), mul(this.gravity(c.pos, dt), dt));
+                if (c.yieldFor <= 0) this.spare(c, true);
+                continue;
+            }
 
             if (c.think <= 0 && c.state !== "flee") {
                 c.think = 0.45 + this.rng.next() * 0.3;
@@ -809,6 +1064,19 @@ export class Game {
             } else if (c.state === "flee") {
                 want = mul(norm(mul(toPlayer, -1), c.dir), c.speed * 1.15);
             }
+            // A Wraith folds space to land beside what it hunts.
+            if (c.species.trait === "blink") {
+                c.blinkIn -= dt;
+                const t = c.state === "hunt" ? this.targetOf(c) : null;
+                if (t && c.blinkIn <= 0 && dist(t.pos, c.pos) > c.radius * 6 + t.radius) {
+                    const to = add(t.pos, mul(this.rng.dir(), t.radius + c.radius * 2.4));
+                    if (!region.holes.some(h => h.alive && dist(h.pos, to) < h.radius * 2.5)) {
+                        this.events.push({ kind: "blink", from: [...c.pos], to });
+                        c.pos = to; c.vel = [0, 0, 0]; c.blinkIn = 5.5;
+                        if (t === p) this.teach("species:wraith");
+                    } else c.blinkIn = 1;
+                }
+            }
             if (c.state === "wander") {
                 if (dist(c.pos, c.wanderTo) < c.radius * 2 + scale || this.rng.next() < dt * 0.05) c.wanderTo = add(c.home, mul(this.rng.ball(), (c.species.temper === "herd" ? 7 : 11) * scale));
                 want = mul(norm(sub(c.wanderTo, c.pos), c.dir), c.speed * 0.32);
@@ -846,6 +1114,7 @@ export class Game {
 
     /** A creature's hit lands on whatever it hunts. */
     private strike(c: Creature, power: number): void {
+        if (c.affix === "vampiric") c.hp = Math.min(c.maxHp, c.hp + power * 0.6);
         if (c.target === -1) this.hurtPlayer(Game.scaled(power, Math.min(c.radius, this.player.radius * 1.7), this.player.radius));
         else if (c.target === -2) { const d = this.decoys[0]; if (d) d.life -= 6; }
         else { const t = this.region.creatures.find(x => x.id === c.target); if (t) this.hurtCreature(t, power, c.radius, c.id); }
@@ -855,19 +1124,45 @@ export class Game {
         const p = this.player, region = this.region;
         for (const b of this.bolts) {
             b.vel = add(b.vel, this.gravity(b.pos, dt));
+            if (b.kind === "seeker") this.home(b, dt);
             const step = mul(b.vel, dt), next = add(b.pos, step);
             b.life -= dt;
             let hit = false;
             for (const h of region.holes) if (h.alive && dist(h.pos, next) < h.radius * 1.1) { b.life = 0; hit = true; }
             if (!hit && b.from !== -1 && p.alive && segmentDistance(p.pos, b.pos, next) < p.radius * 0.8 + b.radius) {
+                // A Reflection Nebula turns some of what strikes it back on the thrower.
+                const thrower = region.creatures.find(c => c.id === b.from && c.alive);
+                if (this.form === "reflection" && thrower && this.rng.next() < 0.25) {
+                    b.vel = mul(norm(sub(thrower.pos, p.pos), mul(b.vel, -1)), len(b.vel));
+                    b.from = -1; b.faction = "player"; b.kind = "lance"; b.life = 3; b.target = 0;
+                    b.pos = add(p.pos, mul(norm(b.vel), p.radius + b.radius * 2));
+                    this.events.push({ kind: "reflect", at: [...b.pos], byYou: true });
+                    continue;
+                }
                 this.hurtPlayer(Game.scaled(b.power, Math.min(b.fromRadius, p.radius * 1.7), p.radius));
                 hit = true;
             }
+            let bounced = false;
             if (!hit) for (const c of region.creatures) {
                 if (!c.alive || c.id === b.from) continue;
                 if (b.from !== -1 && (c.faction === b.faction)) continue;
-                if (segmentDistance(c.pos, b.pos, next) < c.radius + b.radius) { this.hurtCreature(c, b.power, b.fromRadius, b.from); hit = true; break; }
+                if (segmentDistance(c.pos, b.pos, next) < c.radius + b.radius) {
+                    // Glass turns a single bolt of yours straight back.
+                    if (b.from === -1 && c.species.trait === "reflect" && !c.yielding && (b.kind === "lance" || b.kind === "seeker" || !b.kind)) {
+                        const back = norm(sub(p.pos, c.pos), mul(b.vel, -1));
+                        b.vel = mul(back, len(b.vel) * 0.85);
+                        b.pos = add(c.pos, mul(back, c.radius + b.radius * 2));
+                        b.from = c.id; b.faction = c.faction; b.kind = "foe"; b.life = 3; b.target = 0;
+                        if (c.provoked <= 0) { c.provoked = 30; c.state = "hunt"; c.target = -1; }
+                        this.events.push({ kind: "reflect", at: [...b.pos], byYou: false });
+                        this.teach("species:prism");
+                        bounced = true;
+                        break;
+                    }
+                    this.hurtCreature(c, b.power, b.fromRadius, b.from); hit = true; break;
+                }
             }
+            if (bounced) continue;
             if (!hit) for (const d of this.decoys) if (b.from !== -1 && dist(d.pos, next) < d.radius + b.radius) { d.life -= 3; hit = true; break; }
             if (!hit) for (const body of region.bodies) {
                 if (body.kind === "mote" || body.kind === "essence" || body.radius < b.radius * 2) continue;
@@ -877,6 +1172,24 @@ export class Game {
             b.pos = next;
         }
         this.bolts = this.bolts.filter(b => b.life > 0);
+    }
+
+    /** A Seeker turns toward its quarry, or finds the nearest enemy if it has none. */
+    private home(b: Bolt, dt: number): void {
+        const p = this.player;
+        let t = b.target ? this.region.creatures.find(c => c.id === b.target && c.alive && !c.yielding) : undefined;
+        if (!t) {
+            let best = p.radius * 70;
+            for (const c of this.region.creatures) {
+                if (!c.alive || c.hidden || !this.hostile(c)) continue;
+                const d = dist(c.pos, b.pos);
+                if (d < best) { best = d; t = c; }
+            }
+            b.target = t?.id ?? 0;
+        }
+        if (!t) return;
+        const speed = len(b.vel), want = mul(norm(sub(t.pos, b.pos), b.vel), speed);
+        b.vel = mul(norm(add(b.vel, mul(sub(want, b.vel), Math.min(1, dt * 3.5))), b.vel), speed);
     }
 
     private stepWaves(dt: number): void {
@@ -890,6 +1203,7 @@ export class Game {
         goal.total = def.waves.length;
         goal.progress = Math.max(0, st.wave + (st.alive.length ? 0 : 1));
         if (st.alive.length) return;
+        if (st.wave >= 0 && !this.flags.has(`wave:${def.id}:${st.wave}`)) { this.flags.add(`wave:${def.id}:${st.wave}`); this.deed(4, "You stood between the raiders and the shoal"); }
         if (st.wave >= def.waves.length - 1 && st.wave >= 0) { this.flags.add(`defend:${def.id}`); return; }
         st.timer -= dt;
         if (st.timer > 0) return;
@@ -951,6 +1265,7 @@ export class Game {
         const gov = galaxyById(this.region.def.galaxy).government;
         const f: FactionId = gov === "wild" ? "concord" : gov;
         this.addStanding(f, -30);
+        this.deed(-15, `You fed on ${b.name}, a living world`);
         for (const c of this.region.creatures) if (c.alive && c.faction === f && c.species.attack !== "none") c.provoked = 60;
         this.emit({ from: [...b.pos], faction: f, speaker: b.name, text: `They are feeding on ${b.name}! Every light, to us!`, kind: "distress", about: -1, range: 400 * this.region.scale });
         this.events.push({ kind: "crime", faction: f, text: `${b.name} carries life. ${FACTIONS[f].name} has marked you.` });
@@ -980,7 +1295,7 @@ export class Game {
         const target = input.siphon ? this.siphonTarget() : null;
         p.siphon = target?.id ?? 0;
         if (!target) return;
-        if (p.veil) this.setVeil(false);
+        if (p.veil && this.form !== "dark") this.setVeil(false);
         if (target.inhabited) this.crime(target);
         target.drain = 1;
         const rate = c.mass * 0.17 * (1 + 0.2 * c.facets.reach);
@@ -990,6 +1305,8 @@ export class Game {
         target.radius = radiusOfMass(have - take);
         p.charge = Math.min(this.maxCharge, p.charge + 4 * dt);
         if (target.kind === "star") {
+            this.teach("star");
+            if (this.form === "emission") p.charge = Math.min(this.maxCharge, p.charge + 8 * dt);
             target.flareIn -= dt;
             if (target.flareIn <= 0) {
                 target.flareIn = 4.5;
@@ -1054,6 +1371,7 @@ export class Game {
             for (const [f, n] of Object.entries(region.def.reward)) this.addStanding(f as FactionId, n as number);
             const next = this.nextRegion();
             if (!quiet) this.events.push({ kind: "regionComplete", region: region.def.name, next: next?.name ?? "" });
+            if (!quiet && next) this.teach("fold");
             if (!next) { this.campaign.crowned = true; if (!quiet) this.events.push({ kind: "crowned" }); }
         }
     }
@@ -1066,7 +1384,11 @@ export class Game {
             this.campaign.points++;
             p.cohesion = Math.min(this.maxCohesion, p.cohesion + this.maxCohesion * 0.3);
             const unlocked = Object.values(ABILITIES).find(a => a.level === p.level);
-            this.events.push({ kind: "levelup", level: p.level, rank: rankOf(p.level), newRank: rankOf(p.level) !== rankOf(p.level - 1), unlocked: unlocked?.name ?? "" });
+            const blast = Object.values(BLASTS).find(b => b.level === p.level);
+            const names = [unlocked?.name, blast?.name].filter(Boolean).join(" and ");
+            this.events.push({ kind: "levelup", level: p.level, rank: rankOf(p.level), newRank: rankOf(p.level) !== rankOf(p.level - 1), unlocked: names });
+            if (unlocked && unlocked.id !== "lance" && unlocked.id !== "surge" && unlocked.id !== "attune") this.teach(`ability:${unlocked.id}`);
+            if (blast && blast.id !== "lance") { this.teach("blasts"); this.teach(`blast:${blast.id}`); }
         }
         // Mass lost (tribute, Shed, a horizon) can cost levels; they are won back by feeding.
         if (level < p.level) p.level = level;
@@ -1078,6 +1400,31 @@ export class Game {
         c.points--; c.facets[id]++;
         if (id === "density") this.player.cohesion = Math.min(this.maxCohesion, this.player.cohesion + 12);
         return true;
+    }
+
+    // --- The Field Guide: each new thing explained as it first comes up ------------------------------
+
+    private stepLessons(dt: number): void {
+        const p = this.player, c = this.campaign, region = this.region;
+        if (this.regionTime < 0.5) return;
+        this.teach("fly");
+        // Every kind of goal, as soon as it is one you can work on.
+        for (const g of this.goals) if (!g.done && !g.locked && !g.def.optional) this.teach(`goal:${g.def.type}`);
+        if (c.points > 0) this.teach("facets");
+        if (p.level >= FORM_LEVEL && !c.form) this.teach("forms");
+        this.lessonIn -= dt;
+        if (this.lessonIn > 0) return;
+        this.lessonIn = 0.5;
+        if (this.siphonTarget()) this.teach("siphon");
+        for (const h of region.holes) if (h.alive && dist(h.pos, p.pos) < h.radius * 14 + p.radius * 20) this.teach("hole");
+        for (const b of region.bodies) if (b.alive && b.inhabited && dist(b.pos, p.pos) - b.radius < Math.max(this.siphonReach * 3, p.radius * 12)) this.teach("law");
+        const near = p.radius * 45;
+        for (const cr of region.creatures) {
+            if (!cr.alive || cr.hidden || dist(cr.pos, p.pos) > near + cr.radius) continue;
+            if (this.hostile(cr)) this.teach("combat");
+            if (cr.affix) this.teach("affix");
+            if (cr.species.trait && cr.species.trait !== "ambush" && cr.species.trait !== "blink") this.teach(`species:${cr.species.id}`);
+        }
     }
 
     // --- Reading the game ------------------------------------------------------------------------------
@@ -1092,7 +1439,7 @@ export class Game {
             const score = dot(to, f) / d + Math.min(0.04, (radius / d) * 0.05);
             if (score > bestScore) { bestScore = score; best = { type, id, name, pos, radius, distance: Math.max(0, d - radius - p.radius) }; }
         };
-        for (const c of this.region.creatures) if (c.alive) consider("creature", c.id, c.name, c.pos, c.radius);
+        for (const c of this.region.creatures) if (c.alive && (!c.hidden || p.attune)) consider("creature", c.id, c.name, c.pos, c.radius);
         for (const b of this.region.bodies) if (b.alive && b.kind !== "mote" && b.kind !== "essence" && b.radius > p.radius * 0.4) consider("body", b.id, b.name, b.pos, b.radius);
         for (const h of this.region.holes) if (h.alive) consider("hole", h.id, h.name, h.pos, h.radius);
         return best;
@@ -1108,9 +1455,11 @@ export class Game {
                 pos: r3(p.pos), radiusKm: Math.round(p.radius), mass: Number(c.mass.toPrecision(6)), level: p.level, rank: rankOf(p.level), progress: Math.round(levelProgress(p.radius) * 100) / 100,
                 cohesion: Math.round(p.cohesion), charge: Math.round(p.charge), alive: p.alive, veil: p.veil, attune: p.attune, stride: Math.round(p.stride * 100) / 100,
                 speed: Math.round(len(p.vel)), siphon: p.siphon, points: c.points, facets: c.facets,
+                blast: this.blast, blasts: this.blasts, beam: p.beam.on, form: c.form, alignment: c.alignment, alignmentTier: alignmentTier(c.alignment),
             },
+            taught: c.taught.length,
             goals: this.goals.map(g => ({ id: g.def.id, text: g.def.text, done: g.done, progress: g.progress, total: g.total, optional: !!g.def.optional, locked: g.locked })),
-            counts: { bodies: r.bodies.length, creatures: r.creatures.length, hostile: r.creatures.filter(x => this.hostile(x)).length, holes: r.holes.length, bolts: this.bolts.length, signals: this.signals.length, decoys: this.decoys.length },
+            counts: { bodies: r.bodies.length, creatures: r.creatures.length, hostile: r.creatures.filter(x => this.hostile(x)).length, holes: r.holes.length, bolts: this.bolts.length, signals: this.signals.length, decoys: this.decoys.length, yielding: r.creatures.filter(x => x.yielding).length, hidden: r.creatures.filter(x => x.hidden).length, variants: r.creatures.filter(x => x.affix).length },
             standing: c.standing, completed: c.completed, crowned: c.crowned, stats: c.stats,
             fold: this.fold ? { to: this.fold.to, t: Math.round(this.fold.t * 100) / 100 } : null,
             lastMessage: this.messages[this.messages.length - 1] ?? null,

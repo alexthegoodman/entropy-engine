@@ -5,8 +5,8 @@
 
 import { Rng, add, mul, norm, cross, type V3 } from "./nk_math";
 import {
-    SPECIES, tierRadius, kindOfRadius, starLook, massOfRadius,
-    type RegionDef, type BodySpec, type BodyKind, type BodyLook, type CreatureSpec, type FactionId, type SpeciesId, type Species,
+    SPECIES, AFFIXES, AFFIX_IDS, affixChance, tierRadius, kindOfRadius, starLook, massOfRadius,
+    type RegionDef, type BodySpec, type BodyKind, type BodyLook, type CreatureSpec, type FactionId, type SpeciesId, type Species, type AffixId,
 } from "./nk_data";
 
 export interface Body {
@@ -73,6 +73,18 @@ export interface Creature {
     phase: number;
     /** Wave it arrived in (defend goals), -1 otherwise. */
     wave: number;
+    /** A variant's twist ("" for none). */
+    affix: AffixId | "";
+    /** 0 for one born whole; 1 for half of a Splitter (which does not split again). */
+    gen: number;
+    /** A Lurker lying in wait: unseen and still until something comes close. */
+    hidden: boolean;
+    /** A champion that begs for mercy instead of dying (then `yielding`, for `yieldFor` seconds). */
+    yieldable: boolean;
+    yielding: boolean;
+    yieldFor: number;
+    /** Seconds until a Wraith may fold space again. */
+    blinkIn: number;
 }
 
 export interface Hole {
@@ -139,17 +151,21 @@ export function makeBody(region: Region, kind: BodyKind, look: BodyLook, pos: V3
     return b;
 }
 
-export function makeCreature(region: Region, speciesId: SpeciesId, pos: V3, opts: { faction?: FactionId; name?: string; boss?: number; group?: string; key?: string; wave?: number; phase?: number } = {}): Creature {
+export function makeCreature(region: Region, speciesId: SpeciesId, pos: V3, opts: { faction?: FactionId; name?: string; boss?: number; group?: string; key?: string; wave?: number; phase?: number; affix?: AffixId | ""; gen?: number; yieldable?: boolean } = {}): Creature {
     const species = SPECIES[speciesId];
     const boss = opts.boss ?? 1;
     const radius = species.size * region.scale * boss;
+    const affix = opts.affix ?? "";
+    const hpMul = affix === "armored" ? 1.8 : 1, speedMul = affix === "swift" ? 1.5 : affix === "armored" ? 0.8 : 1;
     const c: Creature = {
-        id: region.nextId++, key: opts.key ?? "", species, faction: opts.faction ?? species.faction, name: opts.name ?? species.name,
+        id: region.nextId++, key: opts.key ?? "", species, faction: opts.faction ?? species.faction,
+        name: opts.name ?? (affix ? `${AFFIXES[affix].name} ${species.name}` : species.name),
         pos, vel: [0, 0, 0], dir: [0, 0, -1], radius,
-        hp: species.hp * boss * boss, maxHp: species.hp * boss * boss, power: species.power * boss,
-        speed: species.speed * radius, sight: species.sight * region.scale * Math.sqrt(boss),
+        hp: species.hp * boss * boss * hpMul, maxHp: species.hp * boss * boss * hpMul, power: species.power * boss,
+        speed: species.speed * radius * speedMul, sight: species.sight * region.scale * Math.sqrt(boss),
         state: "wander", target: 0, home: [...pos], wanderTo: [...pos], cooldown: 1 + (opts.phase ?? 0) * 2, think: opts.phase ?? 0,
         boss, group: opts.group ?? "", alive: true, provoked: 0, cried: 99, hurt: 0, phase: (opts.phase ?? 0) * 6.283, wave: opts.wave ?? -1,
+        affix, gen: opts.gen ?? 0, hidden: species.trait === "ambush", yieldable: !!opts.yieldable, yielding: false, yieldFor: 0, blinkIn: 2 + (opts.phase ?? 0) * 3,
     };
     region.creatures.push(c);
     return c;
@@ -158,6 +174,8 @@ export function makeCreature(region: Region, speciesId: SpeciesId, pos: V3, opts
 export function generateRegion(def: RegionDef): Region {
     const scale = tierRadius(def.tier);
     const rng = new Rng(`nebula-kingdom/${def.id}`);
+    // Variants are rolled apart from placement, so adding them moved nothing.
+    const variants = new Rng(`nebula-kingdom/${def.id}/variants`);
     const region: Region = { def, scale, bodies: [], creatures: [], holes: [], rift: null, entry: [0, 0, -6 * scale], nextId: 1 };
     const keyed = new Map<string, Body>();
     const holePos = new Map<string, V3>();
@@ -225,7 +243,10 @@ export function generateRegion(def: RegionDef): Region {
                 const min = nearBody ? nearBody.radius * 1.5 + SPECIES[spec.species].size * scale * (spec.boss ?? 1) : 0;
                 pos = add(center, mul(d, min + rng.range(0.25, 1) * spread));
             }
-            makeCreature(region, spec.species, pos, { faction: spec.faction, name: spec.name, boss: spec.boss, group: spec.group, key: n === 1 ? spec.key : undefined, phase: rng.next() });
+            const sp = SPECIES[spec.species];
+            const plain = sp.menace && !spec.key && !spec.name && (spec.boss ?? 1) <= 1 && sp.speed > 0;
+            const affix = plain && variants.next() < affixChance(def.tier) ? variants.pick(AFFIX_IDS) : "";
+            makeCreature(region, spec.species, pos, { faction: spec.faction, name: spec.name, boss: spec.boss, group: spec.group, key: n === 1 ? spec.key : undefined, phase: rng.next(), affix, yieldable: !!spec.key && (spec.boss ?? 1) >= 1.25 });
         }
     };
     for (const spec of def.creatures) spawn(spec);
