@@ -100,7 +100,7 @@ function readInput(): NkInput {
         decoy: tapped("f") || padPressed.has("DPadLeft"),
         flare: tapped("r") || padPressed.has("North"),
         tribute: tapped("g") || padPressed.has("DPadRight"),
-        lookYaw: mdx * 0.0035,
+        lookYaw: -mdx * 0.0035,
         lookPitch: -mdy * 0.0035,
     };
     if (scripted) {
