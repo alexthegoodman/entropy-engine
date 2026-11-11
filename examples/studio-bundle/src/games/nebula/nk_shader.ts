@@ -274,7 +274,7 @@ fn sky_color(dir_in: vec3<f32>) -> vec3<f32> {
         let ahead = max(dot(dir_in, fwd), 0.0);
         let rings = 0.5 + 0.5 * sin(acos(clamp(ahead, -1.0, 1.0)) * 46.0 - world.time.x * 26.0);
         let tunnel = smoothstep(0.35, 1.0, warp);
-        col = col + mix(world.sky_a.rgb, vec3<f32>(1.0), 0.6) * tunnel * (pow(ahead, 22.0) * 1.6 + rings * pow(ahead, 3.0) * 0.22);
+        col = col + mix(world.sky_a.rgb, vec3<f32>(1.0), 0.6) * tunnel * (pow(ahead, 22.0) * 0.9 + rings * pow(ahead, 3.0) * 0.12);
     }
     return col;
 }
@@ -521,8 +521,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let ang = atan2(q.y, q.x);
         let rays = fbm(vec3<f32>(cos(ang) * 2.5, sin(ang) * 2.5, r * 2.2 - t * 0.12 + seed * 9.0), 4);
         let inner = in.extra.x;
-        a = exp(-max(r - inner, 0.0) * 5.5) * (0.35 + 1.1 * rays * rays) * smoothstep(1.0, 0.55, r);
-        a = a + exp(-max(r - inner, 0.0) * 22.0) * 0.6;
+        a = exp(-max(r - inner, 0.0) * 7.0) * (0.15 + 1.0 * rays * rays) * smoothstep(1.0, 0.55, r);
+        a = a + exp(-max(r - inner, 0.0) * 26.0) * 0.5;
         col = mix(col, vec3<f32>(1.0), exp(-max(r - inner, 0.0) * 14.0) * 0.6);
     } else if (kind == 3) {
         // A lightwave: the shell of a sphere seen edge-on, with fainter crests behind the front.
@@ -577,7 +577,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let width = mix(0.18, 1.0, clamp(q.y * 0.5 + 0.5, 0.0, 1.0));
         let x = q.x / width;
         let flow = fbm(vec3<f32>(x * 2.5, q.y * 5.0 - t * 9.0, seed), 4);
-        a = exp(-x * x * 4.5) * (0.35 + 1.3 * flow) * smoothstep(-1.0, -0.85, q.y) * smoothstep(1.0, 0.2, q.y) * step(abs(x), 1.6);
+        a = exp(-x * x * 4.5) * (0.35 + 1.3 * flow) * smoothstep(-1.0, -0.85, q.y) * smoothstep(1.0, 0.2, q.y) * smoothstep(1.0, 0.55, abs(q.x));
         col = mix(col, vec3<f32>(1.0), exp(-x * x * 30.0) * 0.8);
     } else if (kind == 12) {
         // A Pulse: the shell, thick and bright.

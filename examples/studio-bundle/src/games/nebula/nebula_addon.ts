@@ -246,8 +246,8 @@ function handleEvents(events: GameEvent[]): void {
     const p = game.player, pal = nebulaPalette(p.level);
     for (const e of events) {
         switch (e.kind) {
-            case "absorb": burst(e.at, e.body === "mote" ? 3 : 8, p.radius * 2, Math.max(e.radius, p.radius * 0.08) * 1.4, e.body === "mote" || e.body === "essence" ? [0.8, 1, 1] : [1, 0.85, 0.6], 0.8, GLOW_KIND.spark, true); sound.absorb(e.radius / p.radius); break;
-            case "mined": burst(e.at, 40, p.radius * 6, p.radius * 0.3, pal.core, 1.6, GLOW_KIND.spark, true); burst(e.at, 1, 0, e.radius * 2.5, pal.mid, 1.2, GLOW_KIND.shock, false, 3); hud.flash = Math.max(hud.flash, 0.25); sound.mined(e.body === "star"); toast(`${e.name || KIND_LABEL[e.body]} is yours`); save(); break;
+            case "absorb": if (particles.length < 220) burst(e.at, e.body === "mote" ? 3 : 8, p.radius * 2, Math.max(e.radius, p.radius * 0.08) * 1.4, e.body === "mote" || e.body === "essence" ? [0.8, 1, 1] : [1, 0.85, 0.6], 0.8, GLOW_KIND.spark, true); sound.absorb(e.radius / p.radius); break;
+            case "mined": burst(e.at, 40, p.radius * 6, p.radius * 0.3, pal.core, 1.6, GLOW_KIND.spark, true); burst(e.at, 1, 0, e.radius * 2.5, pal.mid, 1.2, GLOW_KIND.shock, false, 3); hud.flash = Math.max(hud.flash, 0.2); sound.mined(e.body === "star"); toast(`${e.name || KIND_LABEL[e.body]} is yours`); save(); break;
             case "lance": sound.lance(); break;
             case "shot": sound.shot(); break;
             case "impact": burst(e.at, 5, e.size * 5, e.size * 0.9, e.faction === "player" ? pal.core : FACTIONS[e.faction].color, 0.35); sound.impact(); break;
@@ -295,7 +295,7 @@ function cameraNow(): { pos: V3; target: V3; fov: number } {
     return { pos: mul(sub(c.pos, p.pos), 1 / p.radius), target: mul(sub(c.target, p.pos), 1 / p.radius), fov: c.fov };
 }
 
-function frame(dt: number): void {
+function frame(dt: number, show = true): void {
     realTime += dt;
     frames++;
     controller.expire(realTime);
@@ -312,7 +312,7 @@ function frame(dt: number): void {
     pressed.clear();
     padPressed.clear();
     if (mode === "play" && realTime - lastSave > 30 && game.player.alive && !game.fold) save();
-    draw(dt);
+    if (show) draw(dt);
 }
 
 function tension(): number {
@@ -552,10 +552,14 @@ function snapshot() {
     return { mode, frames, realTime: Math.round(realTime * 100) / 100, camera: cameraNow(), scene: lastScene, particles: particles.length, sound: sound.played, ui: painter?.opCount() ?? 0, game: game.summary() };
 }
 
-function advance(n: number, input: Partial<NkInput> = {}): void {
+/** Steps the game n frames at a fixed step. Only the last is drawn: a tool call is one engine frame. */
+let undrawn = 0;
+function advance(n: number, input: Partial<NkInput> = {}, last = true): void {
     for (let i = 0; i < n; i++) {
         scripted = { ...input, frames: 1 };
-        frame(fixedStep ?? 1 / 30);
+        const show = last && i === n - 1;
+        frame(fixedStep ?? 1 / 30, show);
+        undrawn = show ? 0 : undrawn + 1;
     }
 }
 
@@ -571,7 +575,10 @@ function locate(to: unknown): { pos: V3; radius: number } | null {
     const hole = r.holes.find(x => x.key === k);
     if (hole) return hole;
     if (k === "rift" && r.rift) return r.rift;
-    return null;
+    // A kind of body ("mote", "asteroid", "star"...): the nearest one.
+    let near: (typeof r.bodies)[number] | null = null;
+    for (const x of r.bodies) if (x.alive && x.kind === k && (!near || dist(x.pos, game.player.pos) < dist(near.pos, game.player.pos))) near = x;
+    return near;
 }
 
 function faceTo(at: V3): void {
@@ -648,8 +655,9 @@ function registerTools(): void {
                             if (!t) break;
                             faceTo(t.pos);
                             const d = dist(t.pos, p.pos) - t.radius;
-                            advance(1, { thrust: a.hold ? 0 : Math.min(1, d / (p.radius * 3)), surge: !!a.surge && d > p.radius * 20, fire: !!a.fire, siphon: !!a.siphon, pulse: !!a.pulse && d < p.radius * 8 && p.cd.pulse <= 0 });
+                            advance(1, { thrust: a.hold ? 0 : Math.min(1, d / (p.radius * 3)), surge: !!a.surge && d > p.radius * 20, fire: !!a.fire, siphon: !!a.siphon, pulse: !!a.pulse && d < p.radius * 8 && p.cd.pulse <= 0 }, i === n - 1);
                         }
+                        if (undrawn) draw(0);
                         break;
                     }
                     case "fire": advance(n, { fire: true }); break;

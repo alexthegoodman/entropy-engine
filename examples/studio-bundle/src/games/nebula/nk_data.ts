@@ -258,7 +258,7 @@ export const GALAXIES: Galaxy[] = [
     { id: "drift", name: "The Drift", government: "drift", text: "A ragged irregular galaxy of comet lanes and toll-eddies.", sky: { deep: [0.015, 0.04, 0.03], a: [0.25, 0.7, 0.3], b: [0.85, 0.75, 0.25], clouds: 0.45, stars: 0.8 } },
     { id: "pyre", name: "The Pyre Spiral", government: "ember", text: "Every star here is claimed by the Ember Throne, and most are burning down.", sky: { deep: [0.06, 0.015, 0.01], a: [0.7, 0.16, 0.05], b: [0.85, 0.5, 0.12], clouds: 0.5, stars: 0.8 } },
     { id: "still", name: "The Still Sea", government: "synod", text: "An old elliptical where black holes sing and the medusae listen.", sky: { deep: [0.02, 0.015, 0.07], a: [0.3, 0.2, 0.9], b: [0.75, 0.35, 0.9], clouds: 0.6, stars: 1.1 } },
-    { id: "crownless", name: "The Crownless Expanse", government: "wild", text: "Contested by everyone, ruled by no one. Yet.", sky: { deep: [0.03, 0.03, 0.045], a: [0.9, 0.85, 0.7], b: [0.45, 0.6, 1], clouds: 0.4, stars: 1.4 } },
+    { id: "crownless", name: "The Crownless Expanse", government: "wild", text: "Contested by everyone, ruled by no one. Yet.", sky: { deep: [0.03, 0.03, 0.045], a: [0.75, 0.62, 0.4], b: [0.3, 0.45, 0.95], clouds: 0.35, stars: 1.4 } },
     { id: "hollow", name: "The Hollow", government: "hollow", text: "A galaxy with almost no stars left, and the King who ate them.", sky: { deep: [0.02, 0.005, 0.012], a: [0.6, 0.06, 0.16], b: [0.95, 0.75, 0.7], clouds: 0.5, stars: 0.35 } },
 ];
 

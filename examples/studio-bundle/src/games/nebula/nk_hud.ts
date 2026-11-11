@@ -198,8 +198,8 @@ export function drawChart(p: Painter, v: ChartView): void {
     v.galaxies.forEach((g, i) => {
         const x = x0 + i * gw + 6, cw = gw - 12;
         p.rect(x, top, cw, 2, rgba(g.color, 0.9));
-        p.text(g.name.toUpperCase(), x, top + 10, 15, C.white, F.head, cw);
-        p.text(g.government, x, top + 32, 11, rgba(g.color, 0.95), F.ui, cw);
+        p.text(g.name.toUpperCase(), x, top + 10, 15, C.white, F.head);
+        p.text(g.government, x, top + 32, 11, rgba(g.color, 0.95));
         const ty = paragraph(p, g.text, x, top + 52, 11, cw, C.dim);
         let ry = Math.max(ty + 10, top + 120);
         for (const r of g.regions) {
@@ -207,7 +207,7 @@ export function drawChart(p: Painter, v: ChartView): void {
             if (sel) chosen = r;
             const c = r.state === "sealed" ? C.dim : r.state === "here" ? C.cyan : r.state === "done" ? C.green : C.white;
             p.rect(x, ry, cw, 64, sel ? [0.25, 0.4, 0.75, 0.35] : [0.3, 0.4, 0.6, 0.1], 1, sel ? C.cyan : C.faint);
-            p.text(r.name, x + 10, ry + 8, 14, c, F.head, cw - 16);
+            p.text(r.name, x + 10, ry + 8, 14, c, F.head);
             p.text(r.state === "here" ? "You are here" : r.state === "sealed" ? "Sealed" : r.state === "done" ? "Complete - fold" : "Open - fold", x + 10, ry + 28, 11, c);
             p.text(r.size, x + 10, ry + 44, 10, C.dim);
             p.hotspot(`fold:${r.id}`, x, ry, cw, 64);
@@ -248,7 +248,7 @@ export function drawCodex(p: Painter, v: CodexView): void {
         p.rect(lx, y, colW, 46, [0.3, 0.4, 0.6, 0.1], 1, C.faint);
         p.text(`${i + 1}  ${f.name}`, lx + 10, y + 6, 14, C.white, F.head);
         for (let k = 0; k < f.max; k++) p.rect(lx + 150 + k * 16, y + 9, 11, 11, k < f.rank ? C.gold : [1, 1, 1, 0.08], 1, C.faint);
-        p.text(f.text, lx + 10, y + 26, 11, C.dim, F.ui, colW - 70);
+        p.text(f.text, lx + 10, y + 26, 11, C.dim);
         if (v.points > 0 && f.rank < f.max) { p.rect(lx + colW - 46, y + 8, 36, 30, [1, 0.84, 0.45, 0.18], 1, C.gold); p.text("+", lx + colW - 33, y + 11, 18, C.gold, F.head); p.hotspot(`facet:${f.id}`, lx + colW - 46, y + 8, 36, 30); }
         y += 52;
     });
@@ -259,8 +259,7 @@ export function drawCodex(p: Painter, v: CodexView): void {
         const c = a.unlocked ? C.white : C.dim;
         p.text(a.key, lx, y, 11, a.unlocked ? C.gold : C.dim, F.head);
         p.text(a.unlocked ? a.name : `${a.name} (level ${a.level})`, lx + 56, y, 12, c, F.head);
-        p.text(a.text, lx + 190, y, 11, C.dim, F.ui, colW - 190);
-        y += 22;
+        y = Math.max(y + 22, paragraph(p, a.text, lx + 190, y, 11, colW - 190, C.dim) + 4);
     }
     y += 8;
     v.stats.forEach((s, i) => p.text(s, lx + (i % 2) * (colW / 2), y + Math.floor(i / 2) * 16, 11, C.dim));
@@ -274,10 +273,10 @@ export function drawCodex(p: Painter, v: CodexView): void {
         p.text(f.tier.toUpperCase(), rx + colW - 90, gy, 12, f.standing <= -15 ? C.red : f.standing >= 25 ? C.green : C.soft, F.head);
         meter(p, rx + 12, gy + 21, colW - 12, 5, (f.standing + 100) / 200, c);
         p.rect(rx + 12 + (colW - 12) / 2, gy + 19, 1, 9, C.dim);
-        p.text(f.form, rx + 12, gy + 32, 11, C.soft, F.ui, colW - 12);
-        p.text(`"${f.creed}"`, rx + 12, gy + 48, 12, C.white, F.lore, colW - 12);
-        p.text(f.laws[0] ?? "", rx + 12, gy + 66, 10, C.dim, F.ui, colW - 12);
-        p.text(f.fluency >= 1 ? "You understand their light." : `Their tongue is ${Math.round(f.fluency * 100)}% clear to you: listen (Attune helps).`, rx + 12, gy + 80, 10, f.fluency >= 1 ? C.dim : C.amber, F.ui, colW - 12);
+        p.text(f.form, rx + 12, gy + 32, 11, C.soft);
+        p.text(`"${f.creed}"`, rx + 12, gy + 48, 12, C.white, F.lore);
+        p.text(f.laws[0] ?? "", rx + 12, gy + 66, 10, C.dim);
+        p.text(f.fluency >= 1 ? "You understand their light." : `Their tongue is ${Math.round(f.fluency * 100)}% clear to you: listen (Attune helps).`, rx + 12, gy + 80, 10, f.fluency >= 1 ? C.dim : C.amber);
         gy += 104;
     }
     centered(p, "[1-6] spend a facet point   [G] near an envoy: offer tribute   [TAB] or [ESC] close", w / 2, h - 34, 11, C.dim);

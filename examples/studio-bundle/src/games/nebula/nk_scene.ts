@@ -65,7 +65,7 @@ function drawCloud(d: Draw, at: V3, r: number, puffs: Puff[], pal: { core: RGB; 
         const pos: V3 = [at[0] + (o[0] * p.rho - lag[0] * p.rho * p.rho) * r, at[1] + (o[1] * p.rho - lag[1] * p.rho * p.rho) * r, at[2] + (o[2] * p.rho - lag[2] * p.rho * p.rho) * r];
         const k = clamp(p.rho * 1.1 + (p.tone - 0.5) * 0.35);
         const c: RGB = k < 0.45 ? [lerp(pal.core[0], pal.mid[0], k / 0.45), lerp(pal.core[1], pal.mid[1], k / 0.45), lerp(pal.core[2], pal.mid[2], k / 0.45)] : [lerp(pal.mid[0], pal.edge[0], (k - 0.45) / 0.55), lerp(pal.mid[1], pal.edge[1], (k - 0.45) / 0.55), lerp(pal.mid[2], pal.edge[2], (k - 0.45) / 0.55)];
-        d.glow(placed(pos, p.size * r), [c[0], c[1], c[2], strength * (0.05 + p.rho * 0.025)], GLOW_KIND.gas, p.seed, PLACE.billboard, [filaments, 0, 0, p.phase + time * p.speed * 0.3]);
+        d.glow(placed(pos, p.size * r), [c[0], c[1], c[2], strength * (0.022 + p.rho * 0.055)], GLOW_KIND.gas, p.seed, PLACE.billboard, [filaments, 0, 0, p.phase + time * p.speed * 0.3]);
     }
     d.glow(placed(at, r * 0.95), [pal.core[0], pal.core[1], pal.core[2], strength * 0.14], GLOW_KIND.halo, 0);
     d.glow(placed(at, r * 0.32), [1, 1, 1, strength * 0.4], GLOW_KIND.spark, 0.3, PLACE.billboard, [1, 0, 0, time * 0.1]);
@@ -208,8 +208,8 @@ function drawBody(d: Draw, b: Body, at: V3, r: number, dist: number, out: SceneO
         const c = STAR_COLOR[b.look] ?? [1, 0.9, 0.7];
         const flare = b.drain > 0 && b.flareIn < 1 ? 1 - b.flareIn : 0;
         d.solid(apparent > 0.2 ? "sphere-5" : apparent > 0.02 ? "sphere-4" : "sphere-3", placed(at, r), [c[0], c[1], c[2], 1], [SOLID_KIND.star, b.seed, 0, integrity], [flare, 0, 0, 0]);
-        d.glow(placed(at, r * 3.4), [c[0], c[1], c[2], 0.75 + flare], GLOW_KIND.corona, b.seed, PLACE.billboard, [1 / 3.4, 0, 0, 0]);
-        d.glow(placed(at, r * 7), [c[0], c[1], c[2], 0.22], GLOW_KIND.halo, b.seed);
+        d.glow(placed(at, r * 3.4), [c[0], c[1], c[2], 0.5 + flare * 0.6], GLOW_KIND.corona, b.seed, PLACE.billboard, [1 / 3.4, 0, 0, 0]);
+        d.glow(placed(at, r * 7), [c[0], c[1], c[2], 0.1], GLOW_KIND.halo, b.seed);
         out.lights.push({ pos: at, color: c, intensity: 1.1 * Math.min(1, apparent * 30 + 0.25), reach: 0 });
         return;
     }
@@ -334,7 +334,7 @@ export function drawScene(d: Draw, g: Game, time: number, attune: number, partic
         }
         if (p.flare > 0) {
             const f = g.forward, axis = mul(f, 90);
-            d.glow([16, 0, 0, 0, 0, 1, 0, 0, axis[0], axis[1], axis[2], 0, axis[0] / 2 + f[0], axis[1] / 2 + f[1], axis[2] / 2 + f[2], 1], [1, 0.85, 0.55, Math.min(1, p.flare * 2)], GLOW_KIND.fire, 0.2, PLACE.axial);
+            d.glow([16, 0, 0, 0, 0, 1, 0, 0, axis[0], axis[1], axis[2], 0, axis[0] / 2 + f[0], axis[1] / 2 + f[1], axis[2] / 2 + f[2], 1], [1, 0.8, 0.5, Math.min(1, p.flare * 2) * 0.6], GLOW_KIND.fire, 0.2, PLACE.axial);
         }
     }
 
