@@ -91,6 +91,20 @@ fn game_detailer_live_feature() {
     assert!(detail["bindings"].as_object().unwrap().values().any(|b| b["model"]["objectId"].is_string()), "the varied house has its own model");
     assert_eq!(states[4]["lighting"], "warm");
 
+    // Preview World: the button started it where the view looked, the walker walked (or met a wall),
+    // first person was switched to, and stopping went back to editing.
+    let previews = replies("game_detailer_preview");
+    assert_eq!(previews.len(), 5, "{previews:?}");
+    assert_eq!(previews[0]["previewing"], true, "{}", previews[0]);
+    assert_eq!(previews[0]["view"], "third");
+    let p0 = &previews[0]["positionKm"];
+    let p2 = &previews[2]["positionKm"];
+    let walked = ((p2[0].as_f64().unwrap() - p0[0].as_f64().unwrap()).powi(2) + (p2[1].as_f64().unwrap() - p0[1].as_f64().unwrap()).powi(2)).sqrt() * 1000.0;
+    assert!(walked > 0.3 || previews[2]["touching"].is_string(), "walked {walked} m: {}", previews[2]);
+    assert_eq!(previews[2]["onGround"].as_bool().unwrap() || previews[2]["swimming"].as_bool().unwrap(), true);
+    assert_eq!(previews[3]["view"], "first");
+    assert_eq!(previews[4]["previewing"], false);
+
     // The export: a zip with the scene, models and lore.
     let exported = &replies("game_detailer_export")[0];
     assert_eq!(exported["success"], true, "{exported}");

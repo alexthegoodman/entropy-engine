@@ -5,7 +5,8 @@ Feature: The Game World Detailer in the real window
   are evaluated in the worker and drawn instanced; the ground, its building pads and road beds,
   scatter from the painted woods. Then editing: a house is selected and moved (it moves in the
   plan), every inn becomes another Mesha object, a house is varied, a prop is placed, the view is
-  saved as a site, and the whole level is exported as a zip. Screenshots of every step are kept
+  saved as a site, the world is walked in Preview World (third and first person), and the whole
+  level is exported as a zip. Screenshots of every step are kept
   for visual verification. Frames are slow under software rendering, so waits are in time: the
   worker builds models whatever the frame rate.
 
@@ -56,6 +57,22 @@ Feature: The Game World Detailer in the real window
     Then I capture "06-detailed-warm"
     And I call the tool "game_detailer_items" with {"radiusKm": 0.05, "source": "prop"}
     And I call the tool "game_detailer_state"
+
+  Scenario: Preview World: walk the capital in third and first person
+    When I click "gd-preview"
+    And I advance 4 frames
+    And I call the tool "game_detailer_preview" with {"action": "state"}
+    And I call the tool "game_detailer_preview" with {"walk": {"forward": 1, "seconds": 5}}
+    And I wait 7000 milliseconds
+    And I advance 6 frames
+    Then I capture "07-preview-third-person"
+    And I call the tool "game_detailer_preview" with {"action": "state"}
+    When I call the tool "game_detailer_preview" with {"view": "first", "lookPitchDeg": -4}
+    And I wait 3000 milliseconds
+    And I advance 6 frames
+    Then I capture "08-preview-first-person"
+    When I call the tool "game_detailer_preview" with {"action": "stop"}
+    And I advance 2 frames
 
   Scenario: Export the level
     When I call the tool "game_detailer_export" with {"path": "test-artifacts/game-detailer-live/level.zip"}

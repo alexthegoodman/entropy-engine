@@ -105,8 +105,13 @@ Gallery night, Ashen dusk...).
 
 | Action | How |
 | ------ | --- |
-| Orbit, pan, zoom | right-drag, middle-drag, wheel |
-| Slide over the ground, turn | W A S D (Shift faster), Q / E |
+| Orbit | right-drag (around the point the view looks at) |
+| Drag the ground | middle-drag, or Shift + right-drag: the grabbed point stays under the cursor, near or far |
+| Zoom | the wheel, toward the cursor, by a share of the distance (so a notch feels the same at 5 m and 500 m); Z / X |
+| Glide over the ground, turn | W A S D or the arrows (Shift faster; speed follows the distance, easing in and out), Q / E |
+| Go to a spot | double-click the ground (or a thing, which frames it) |
+| Gamepad | left stick glides, right stick orbits, triggers zoom, L3 faster, Y frames, B deselects, Start previews |
+| Preview World | the toolbar's **Preview World**, P, or Start (see below) |
 | Select | click a thing (it glows; its whole building lights up) |
 | Move, turn | the gizmo (planned things move in the plan) or the Placement section |
 | Frame the selection | F |
@@ -121,6 +126,31 @@ Gallery night, Ashen dusk...).
 | Undo / redo | Ctrl+Z / Ctrl+Y (one gesture is one step) |
 
 ![A prop selected, its Mesha controls in the inspector, warm evening light](../public/game-detailer-warm-live.png)
+
+The camera is the Detailer's own (`detail_camera.ts`), not the engine's orbit control: every move
+eases toward where it was asked to go, the pivot rides on the ground, and the camera never dips
+under a hill.
+
+## Preview World
+
+**Preview World** (toolbar, P, or Start on a gamepad) puts a player on the ground where the view
+looks and lets you walk the level as it will be played, in third or first person
+(`detail_preview.ts`). The editing panels step aside for a small HUD; Esc (B or Start on a gamepad)
+goes back to editing, looking at where the walk ended.
+
+| | Keyboard and mouse | Gamepad |
+| --- | --- | --- |
+| Walk | W A S D (arrows: forward, back) | left stick |
+| Look | drag (either button); Q / E, arrows turn | right stick |
+| Sprint | Shift | L3 (until you stop), RT |
+| Jump | Space | A (South) |
+| Third / first person | V, or the HUD | Y (North) or R3 |
+| Camera distance (third person) | wheel | |
+
+Buildings, walls, landmarks, big props, tree trunks and boulders are solid; low things (a dock) are
+stepped onto; steep cliffs stop you; deep water is swum. Building interiors are not drawn at all,
+here or while editing: going inside a building will be its own level behind a loading screen.
+`game_detailer_preview` drives it from MCP (start, stop, view, look, walk for some seconds).
 
 ## Export: a package for any engine, or an AI agent
 
@@ -151,11 +181,21 @@ The ideas The Abyss and Allegiance settled on (see [ALLEGIANCE_PERFORMANCE.md](A
   `qp_instances.ts` batches: one draw and one buffer write per model variant and level of detail,
   records read by `@builtin(instance_index)` from a storage buffer. A hundred houses of one variant
   or ten thousand trees cost a handful of draws. Unchanged records are not re-uploaded.
+- **No interiors, ever**: rooms, ceilings, floors, stairs and inner doors are dropped from every
+  model before it is cached (interiors will load as their own levels), and the viewport's surfaces
+  are opaque, so they were only cost.
+- **People in "game" quality**: the Mesha human's strand hair and cloth-draped clothes are by far
+  its heaviest parts (a draft person was ~128k triangles, 56k of them hair; a final one ~435k and
+  6 s to build). In the viewport every person is built as Mesha's `quality: "game"`: the coarse
+  body with the outfit, shoes, scalp and beard painted onto its skin as their own regions and
+  materials, ~23k triangles in ~0.4 s. The level keeps the designer's values; the export writes them.
 - **Levels of detail** by vertex clustering (The Abyss's `cluster`) at 3% and 9% of a model's size,
-  interiors dropped from both (Allegiance's exterior-only far houses), chosen by distance over size.
+  chosen by distance over size.
 - **A triangle budget** (World > Viewport quality): once spent, the farthest things drop a level.
-- **Draw distance by size**: grass a few tens of meters, trees hundreds; a conservative view cone
-  skips what is certainly behind the camera.
+- **Draw distance by size on screen**: a thing is drawn while it covers a few pixels (its radius
+  over 1/280 of its distance) and never culled closer than 70 m: grass ~80 m, people ~250 m, trees
+  and houses to the 1.7 km far plane. The sky dome is big enough that the far ground, not the dome,
+  ends the view. A conservative view cone skips what is certainly behind the camera.
 - **Mesha evaluation off the frame**: models are evaluated in a worker isolate
   (`detail_worker.ts`, `dist/game_detailer_worker.js`, `Entropy.Worker`), three at a time, nearest
   first; without the worker, one per frame, spaced out.
@@ -186,6 +226,7 @@ The ideas The Abyss and Allegiance settled on (see [ALLEGIANCE_PERFORMANCE.md](A
 | `game_detailer_scatter` | read or change a mark's scatter; viewport density |
 | `game_detailer_site` | save or forget sites |
 | `game_detailer_export` | the package; with `path` it writes there with no dialog |
+| `game_detailer_preview` | Preview World: start / stop, third or first person, look, walk for some seconds, jump |
 | `game_detailer_save` / `game_detailer_undo` | save now; undo / redo |
 
 Mesha's own tools (`mesha_library`, `mesha_describe`) describe the objects and their parameters.
@@ -200,18 +241,22 @@ Mesha's own tools (`mesha_library`, `mesha_describe`) describe the objects and t
 - `detail_ground.ts` - the ground up close (heights, pads, beds, colors).
 - `detail_scene.ts` - the plan and props as placed objects.
 - `detail_scatter.ts` - scatter per tile.
-- `detail_mesh.ts` - ground tiles, water, builtins, levels of detail.
+- `detail_mesh.ts` - ground tiles, water, builtins, levels of detail (exteriors only; people in game quality).
 - `detail_jobs.ts` / `detail_worker.ts` - models on demand, in a worker.
 - `detail_view.ts` - LOD, budget, culling, records, view change.
+- `detail_camera.ts` - the editing camera (orbit, grab-pan, zoom to cursor, glide, easing).
+- `detail_preview.ts` - Preview World's walker (movement, collisions, swimming, third / first person camera).
 - `detail_shader.ts` - the instanced shader derived from Mesha's.
 - `detail_export.ts` - GLB, PNG and the package.
 - `detail_sample.ts` - the sample world.
 - `../game_planner/world_sync.ts` - the watcher and three-way merge both apps use.
 
 Tests: `npm run test:game-detailer` in `examples/studio-bundle` (`tests/game_detailer.test.ts`,
-`tests/game_detailer_export.test.ts`, `tests/world_sync.test.ts`), the Rust unit tests for linked
+`tests/game_detailer_export.test.ts`, `tests/game_detailer_navigation.test.ts` for the camera, the
+walker, draw distances, interiors and game-quality people, `tests/world_sync.test.ts`), the Rust unit tests for linked
 stores and archives (`cargo test --lib addon_store archive_tests`), and the live window test
 `tests/game_detailer_live.rs` (`xvfb-run -a cargo test --test game_detailer_live` after
 `npm run build-game-detailer`), which creates the sample world, waits for its models, selects and
 moves a building with real clicks and the gizmo-equivalent tool, changes a whole kind's model,
-adds a prop, exports the package and checks the Planner's file shows the move.
+adds a prop, walks the capital in Preview World (started with its button) in third and first
+person, exports the package and checks the Planner's file shows the move.

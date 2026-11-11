@@ -7,7 +7,8 @@
 // - a triangle budget: once it is spent, the farthest things drop a level (people first in
 //   Allegiance; here whatever is farthest);
 // - a conservative view cone: things certainly behind the camera aren't packed at all;
-// - small things are drawn only near (grass a few tens of meters, trees hundreds);
+// - small things are drawn while they cover a few pixels (grass some 80 m, people 250 m, trees and
+//   houses to the far plane);
 // - a still camera does no work: records are repacked only when the camera moved or turned
 //   enough, or the scene changed.
 
@@ -23,9 +24,13 @@ export function chooseLod(distance: number, radius: number, lodScale = 1, levels
     return Math.min(levels - 1, lod);
 }
 
-/** How far (m) a thing of this size is drawn at all. */
-export function drawDistance(radius: number, lodScale = 1, farPlane = 980): number {
-    return Math.min(farPlane, Math.max(45, radius * 140) * Math.max(0.25, lodScale));
+/**
+ * How far (m) a thing of this size is drawn at all: while it still covers a few pixels (a radius
+ * about 1/280 of its distance, some 3 px tall on a 1080p screen at the 45 degree field of view),
+ * never closer than 70 m - a person, a shrub or a cart in front of the camera is always there.
+ */
+export function drawDistance(radius: number, lodScale = 1, farPlane = 1700): number {
+    return Math.min(farPlane, Math.max(70, radius * 280) * Math.max(0.25, lodScale));
 }
 
 /** Ground tile resolution (quads per side) for a tile whose nearest point is `distanceM` away. */
