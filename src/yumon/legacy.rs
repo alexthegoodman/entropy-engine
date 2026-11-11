@@ -742,7 +742,7 @@ impl WorldSim {
     pub fn status_line(&self) -> String {
         let bar = |v: f32, w: usize| -> String {
             let n = (v * w as f32).round() as usize;
-            "▓".repeat(n) + &"░".repeat(w - n)
+            "▓".repeat(n) + "░".repeat(w - n).as_str()
         };
         let danger_flag = if self.danger_active { " ⚠️ " } else { "    " };
         format!(
@@ -898,7 +898,7 @@ fn argmax(arr: &[f32]) -> usize {
 
 fn mk_bar(ratio: f32, width: usize) -> String {
     let n = (ratio.min(1.0) * width as f32).round() as usize;
-    format!("[{}]", "█".repeat(n) + &"░".repeat(width - n))
+    format!("[{}]", "█".repeat(n) + "░".repeat(width - n).as_str())
 }
 
 // usage: we ensure that we run ticks on render_addon_frame, so it runs in tandem with 3D visual simulation, rather than just calling OrganismSim.run()

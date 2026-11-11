@@ -8,6 +8,21 @@ async fn main() {
     {
         let name = env::args().nth(1);
 
+        // Rhai apps (src/script): the same scripts the browser build runs, here in a native window.
+        // `rhai-<app>` picks one of entropy_engine::script::apps::NAMES.
+        if let Some(app) = name.as_deref().and_then(|n| n.strip_prefix("rhai-")) {
+            let Some(script_app) = entropy_engine::script::apps::by_name(app) else {
+                eprintln!("No Rhai app {app}; there are {:?}", entropy_engine::script::apps::NAMES);
+                std::process::exit(2);
+            };
+            let data = env::var("ENTROPY_RHAI_DATA").unwrap_or_else(|_| "../rhai-app-data".to_string());
+            if let Err(e) = script_app.with_data_dir(data).run() {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+
         let app = match name.as_deref() {
             Some("allegiance") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/allegiance.js")

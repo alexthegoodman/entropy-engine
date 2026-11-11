@@ -1019,7 +1019,7 @@ fn argmax(arr: &[f32]) -> usize {
 
 fn mk_bar(ratio: f32, width: usize) -> String {
     let n = (ratio.min(1.0) * width as f32).round() as usize;
-    format!("[{}]", "█".repeat(n) + &"░".repeat(width - n))
+    format!("[{}]", "█".repeat(n) + "░".repeat(width - n).as_str())
 }
 
 // ─── Backend Type Alias ───────────────────────────────────────────────────────
