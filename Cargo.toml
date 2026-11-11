@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 autobins = false
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [patch.crates-io]
 vst3-host = { path = "vendor/vst3-host" }
 rustp2p = { path = "vendor/rustp2p" }
