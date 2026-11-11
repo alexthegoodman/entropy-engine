@@ -134,8 +134,9 @@ export function drawHud(p: Painter, v: HudView): void {
     const l = v.lesson;
     if (l) {
         const a = Math.min(1, l.age * 4) * Math.max(0, Math.min(1, (l.life - l.age) * 1.5));
-        const lines = wrap(l.text, 13, 352);
-        const ch = 46 + lines.length * 18 + 22;
+        // Wrapped narrower than the card: the engine's font runs a little wider than the estimate.
+        const lines = wrap(l.text, 13, 315);
+        const ch = 46 + lines.length * 18 + 26;
         const cy = Math.max(ty + 8, h - m - 70 - ch);
         p.rect(tx - 10, cy, 390, ch, fade(C.glassDark, a), 1, fade(C.gold, 0.55 * a));
         p.rect(tx - 10, cy, 3, ch, fade(C.gold, a));
@@ -340,15 +341,17 @@ export function drawCodex(p: Painter, v: CodexView): void {
         my += 24;
         for (const f of v.forms) {
             const c = rgba(f.color, 1);
-            p.rect(mx, my, colW, 58, f.chosen ? [f.color[0] * 0.3, f.color[1] * 0.3, f.color[2] * 0.3, 0.5] : [0.3, 0.4, 0.6, 0.1], 1, f.chosen ? c : C.faint);
-            cursorBox(`form:${f.id}`, mx, my, colW, 58);
-            p.rect(mx, my, 3, 58, c);
+            const perks = wrap(f.perks.join("  -  "), 9, colW - 60).slice(0, 2);
+            const fh = 40 + perks.length * 13;
+            p.rect(mx, my, colW, fh, f.chosen ? [f.color[0] * 0.3, f.color[1] * 0.3, f.color[2] * 0.3, 0.5] : [0.3, 0.4, 0.6, 0.1], 1, f.chosen ? c : C.faint);
+            cursorBox(`form:${f.id}`, mx, my, colW, fh);
+            p.rect(mx, my, 3, fh, c);
             p.text(f.name.toUpperCase(), mx + 12, my + 5, 13, c, F.head);
             if (f.chosen) p.text("YOU", mx + colW - 40, my + 6, 11, c, F.head);
             p.text(f.text, mx + 12, my + 22, 10, C.soft, F.lore);
-            p.text(f.perks.join("  -  "), mx + 12, my + 38, 9, C.dim);
-            p.hotspot(`form:${f.id}`, mx, my, colW, 58);
-            my += 63;
+            perks.forEach((t, i) => p.text(t, mx + 12, my + 38 + i * 13, 9, C.dim));
+            p.hotspot(`form:${f.id}`, mx, my, colW, fh);
+            my += fh + 5;
         }
         my += 6;
     }
@@ -372,7 +375,7 @@ export function drawCodex(p: Painter, v: CodexView): void {
             p.rect(mx, my, colW, 34, b.selected ? [1, 0.84, 0.45, 0.14] : [0.3, 0.4, 0.6, 0.08], 1, b.selected ? C.gold : C.faint);
             cursorBox(`blast:${b.id}`, mx, my, colW, 34);
             p.text(`${i + 1}  ${b.unlocked ? b.name : `${b.name} (level ${b.level})`}`, mx + 8, my + 4, 12, c, F.head);
-            const t = wrap(b.text, 9, colW - 16)[0] ?? "";
+            const t = wrap(b.text, 9, colW - 50)[0] ?? "";
             p.text(t, mx + 8, my + 20, 9, C.dim);
             if (b.unlocked) p.hotspot(`blast:${b.id}`, mx, my, colW, 34);
             my += 38;
