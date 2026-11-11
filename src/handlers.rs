@@ -1745,7 +1745,9 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
         }
     }
 
-    if state.addon_engine.selected_addon_name.as_deref() == Some("Allegiance") { return; }
+    // Addons that drive the camera from the gamepad themselves (Allegiance's soldier, the Game World
+    // Detailer's editor camera and Preview World walker): the native free camera would fight them.
+    if matches!(state.addon_engine.selected_addon_name.as_deref(), Some("Allegiance") | Some("game-world-detailer")) { return; }
 
     let renderer_state = match state.renderer_state.as_mut() {
         Some(rs) => rs,

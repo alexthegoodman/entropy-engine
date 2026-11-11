@@ -461,7 +461,7 @@ const LIST: ComponentDef[] = [
             n("density", 1, "Strands relative to normal.", 0.3, 2), { name: "beard", kind: "enum", default: "none", options: [...BEARDS], description: "Facial hair." },
             n("browFullness", 0.5, "Brows, fine to bushy.", 0, 1), { name: "lashes", kind: "bool", default: true, description: "Eyelashes." },
             n("wind", 0, "Wind (m/s) the clothes and hair settle in.", 0, 12),
-            { name: "quality", kind: "enum", default: "final", options: ["draft", "final"], description: "Draft builds a coarser person quickly." },
+            { name: "quality", kind: "enum", default: "final", options: ["draft", "final", "game"], description: "Draft builds a coarser person quickly; game paints clothes and hair onto a coarse body (no cloth or strands)." },
             int("seed", 1, "Seed (individual asymmetry, strand placement).", -1e9, 1e9),
         ],
         build: i => {

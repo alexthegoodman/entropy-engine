@@ -228,23 +228,34 @@ export interface ModelLods {
 }
 
 /**
- * Evaluates a Mesha object and makes its levels of detail: the full mesh, then coarser copies by
- * vertex clustering at cells of 3% and 9% of its size, interiors dropped from both (nobody sees
- * into a house from 80 m). `lodCount` 1 skips the coarse copies.
+ * What the viewport builds for a model: people as "game" quality (clothes, shoes and hair painted
+ * onto a coarse body - strand hair and draped cloth cost far more than they show in a level).
+ * The level's data keeps the designer's own values; the export writes those.
+ */
+export function viewportValues(objectId: string, values: ParamValues): ParamValues {
+    if (objectId === "people.human") return { ...values, quality: "game" };
+    return values;
+}
+
+/**
+ * Evaluates a Mesha object and makes its levels of detail: its outside (interiors are never drawn),
+ * then coarser copies by vertex clustering at cells of 3% and 9% of its size. `lodCount` 1 skips
+ * the coarse copies.
  */
 export function buildModelLods(objectId: string, values: ParamValues, lodCount = 3): ModelLods {
     const def = lookupObject(objectId);
     if (!def) throw new Error(`No Mesha object "${objectId}"`);
     const started = Date.now();
-    const e = evaluateObject(def, values, lookupObject);
-    const full = packEvaluation(e);
+    const e = evaluateObject(def, viewportValues(objectId, values), lookupObject);
+    // Interiors are never drawn: going inside a building is a level of its own (behind a loading
+    // screen), and the viewport's surfaces are opaque, so rooms, stairs and inner doors are only cost.
+    const outside = packEvaluation(e, (region) => !INTERIOR_REGIONS.has(region));
+    const full = outside.triangles > 0 ? outside : packEvaluation(e);
     const radius = Math.max(0.05, full.bounds[3]);
     const lods: PackedMesh[] = [full];
     if (lodCount > 1) {
-        const outside = packEvaluation(e, (region) => !INTERIOR_REGIONS.has(region));
-        const base = outside.triangles > 0 ? outside : full;
-        lods.push(cluster(base, radius * 0.03));
-        if (lodCount > 2) lods.push(cluster(base, radius * 0.09));
+        lods.push(cluster(full, radius * 0.03));
+        if (lodCount > 2) lods.push(cluster(full, radius * 0.09));
     }
     return { lods, center: [full.bounds[0], full.bounds[1], full.bounds[2]], radius, ms: Date.now() - started };
 }
@@ -252,7 +263,7 @@ export function buildModelLods(objectId: string, values: ParamValues, lodCount =
 /** A stable cache key for a model variant at a level of detail. */
 export function variantKey(objectId: string, values: ParamValues, lod: number): string {
     const sorted = Object.keys(values).sort().map((k) => `${k}=${values[k]}`).join(",");
-    return `gd2|${objectId}|${sorted}|lod${lod}`;
+    return `gd3|${objectId}|${sorted}|lod${lod}`;
 }
 
 export function quantizedSize(shape: BuiltinShape): [number, number, number] {

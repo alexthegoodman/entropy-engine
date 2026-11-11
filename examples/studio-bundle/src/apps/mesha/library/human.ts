@@ -93,7 +93,7 @@ const human: ObjectDef = {
         { id: "bottomFinish", label: "Bottom", type: "material", default: "fabric.denim", materials: FABRICS, group: "materials", visibleIf: "=bottom != 'none' && top != 'dress'" },
         { id: "shoeFinish", label: "Shoes", type: "material", default: "leather.white", materials: ["leather", "canvas.white", "fabric.black", "fabric.navy"], group: "materials", visibleIf: "=shoes != 'none'" },
         { id: "soleFinish", label: "Soles", type: "material", default: "rubber.white", materials: ["rubber.white", "rubber.gum", "rubber.black", "leather.black", "leather.brown"], group: "materials", visibleIf: "=shoes != 'none'" },
-        { id: "quality", label: "Quality", type: "enum", default: "final", options: ["draft", "final"], optionLabels: ["Draft (fast)", "Final"], group: "quality", variation: 0, description: "Draft builds a coarser person in a fraction of the time." },
+        { id: "quality", label: "Quality", type: "enum", default: "final", options: ["draft", "final", "game"], optionLabels: ["Draft (fast)", "Final", "Game (painted clothes and hair)"], group: "quality", variation: 0, description: "Draft builds a coarser person in a fraction of the time; Game paints the clothes, shoes and hair onto a coarse body (no cloth or strands), for crowds and levels." },
     ],
     rules: [
         { check: "=top != 'dress' || bottomLength >= 0.25", message: "A dress this short barely covers the hips." },

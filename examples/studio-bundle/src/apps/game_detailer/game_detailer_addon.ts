@@ -45,7 +45,9 @@ import { chooseLod, drawDistance, tileResolution, maybeVisible, budgetLods, pack
 import { buildPackage, type ExportProgress, type ArchiveEntry } from "./detail_export";
 import { FITTED_PARAMS, DEFAULT_SCATTER, choice } from "./detail_models";
 import { createSampleWorld } from "./detail_sample";
-import { claimView, orbitView, seedOrbit } from "../shared_view";
+import { claimView } from "../shared_view";
+import { EditorCamera } from "./detail_camera";
+import { Walker, deadzone, pushOut, STEP_HEIGHT, type Blocker } from "./detail_preview";
 import type { IconName } from "../../icon_names";
 
 const APP = "game-world-detailer";
@@ -73,7 +75,10 @@ const WARN: RGBA = [0.98, 0.72, 0.42, 1];
 const SELECT_HIGHLIGHT = [0.42, 0.95, 0.7, 1];
 const HOVER_HIGHLIGHT = [0.42, 0.95, 0.7, 0.35];
 const TILE_KM = 0.128;
-const VIEW_RADIUS_M = 980;
+/** Ground tiles are streamed this far from the camera (m). */
+const VIEW_RADIUS_M = 1250;
+/** Nothing farther than this (m) is considered for drawing at all. */
+const FAR_M = 1700;
 const SOURCE_ICONS: Record<SceneItem["source"], IconName> = { structure: "house", spot: "flag", placement: "person", prop: "cube" };
 
 // -------------------------------------------------------------------------------------------------
@@ -356,7 +361,8 @@ function initRendering(): void {
     Entropy.Buffer.write(identityBuffer, IDENTITY_RECORD);
     skyBuffer = Entropy.Buffer.create({ size: RECORD_FLOATS * 4, usage: "Storage" });
     // The sky: a dome drawn with Mesha's backdrop pattern (7), following the camera.
-    const dome = sphere(900, 40, 20).parts[0];
+    // Big enough that the far ground and the haze, not the dome, end the view.
+    const dome = sphere(6000, 40, 20).parts[0];
     const v: number[] = [];
     for (let i = 0; i < dome.positions.length / 3; i++) v.push(dome.positions[i * 3], dome.positions[i * 3 + 1], dome.positions[i * 3 + 2], 0, 8, 0, 0, 0, 1, 1, 1, 1);
     const idx: number[] = [];
@@ -485,17 +491,18 @@ function repack(cam: V3, forward: V3): void {
         const r = info.radius * scale;
         const cx = x + info.center[0] * scale, cy = y + info.center[1] * scale, cz = z + info.center[2] * scale;
         const distance = Math.hypot(cx - cam[0], cy - cam[1], cz - cam[2]);
-        if (distance - r > drawDistance(r, lodScale)) { culled++; return; }
+        if (distance - r > drawDistance(r, lodScale, FAR_M)) { culled++; return; }
         if (!maybeVisible(cam, forward, [cx, cy, cz], r)) { culled++; return; }
         const lod = info.keys.length > 1 ? chooseLod(distance, r, lodScale, info.keys.length) : 0;
         drawn.push({ info, x, y, z, yaw, scale, distance, lod, triangles: info.triangles, highlight, sway });
     };
-    const [camX, camY] = fromRender(origin, cam[0], cam[2]);
+    // Scatter is grown around what the camera looks at (the pivot, or just ahead of the walker).
+    const [camX, camY] = fromRender(origin, camTarget[0], camTarget[2]);
     for (const it of items) {
         if (it.hidden) continue;
         const [rx, rz] = toRender(origin, it.x, it.y);
         const near = Math.hypot(rx - cam[0], rz - cam[2]);
-        if (near > VIEW_RADIUS_M + 200) continue;
+        if (near > FAR_M) continue;
         const info = it.builtin ? store.wantBuiltin(it.builtin) : store.want(it.model!.objectId, it.model!.values, near);
         const highlight = it.key === selectedKey || (selectedKey && it.sourceId === itemByKey.get(selectedKey)?.sourceId) ? SELECT_HIGHLIGHT : it.key === hoverKey ? HOVER_HIGHLIGHT : null;
         consider(info, rx, it.elevation, rz, it.yaw, it.scale, highlight, 0);
@@ -525,34 +532,37 @@ function repack(cam: V3, forward: V3): void {
 }
 
 // -------------------------------------------------------------------------------------------------
-// Camera
+// Camera: the editor's (detail_camera.ts) and Preview World's walker (detail_preview.ts)
 // -------------------------------------------------------------------------------------------------
 
 interface SavedView { x: number; y: number; yawDeg: number; pitchDeg: number; distanceM: number }
-let zoomSpeed = 2;
 
-/** The camera as last set here or by the orbit control (native reads lag a frame and give a direction, not a target). */
+const edCam = new EditorCamera();
+/** The camera as last put on screen. */
 let camPos: V3 = [120, 120, 120];
 let camTarget: V3 = [0, 0, 0];
 
-/** In the Creative Suite the orbit control can be Mesha's: then this app's camera is the one it last had. */
 function cameraNow(): { pos: V3; target: V3 } {
-    const v = orbitView(APP);
-    if (v) { camPos = v.pos; camTarget = v.target; }
     return { pos: [...camPos], target: [...camTarget] };
 }
 
-/** Puts the camera at `pos` looking at `target`, and the orbit control around `target`. */
-function setCamera(pos: V3, target: V3): void {
+function applyCamera(pos: V3, target: V3): void {
     camPos = pos; camTarget = target;
     Entropy.Camera.setTransform(pos, target);
-    addon.Controls.enable("orbit", { target, trigger: "always", button: 1, panButton: 2, zoomButton: -1, panSpeed: 0.02, zoomSpeed, invertX: true });
-    seedOrbit(pos, target);
 }
 
-/** Back from another app's 3D view (the Creative Suite's Mesha): this app's camera, control, light and gizmo. */
+/** The ground's height under a render-space point. */
+function groundAtRender(x: number, z: number): number {
+    if (!ground) return 0;
+    const [kx, ky] = fromRender(origin, x, z);
+    return ground.heightAt(kx, ky);
+}
+
+/** Back from another app's 3D view (the Creative Suite's Mesha): this app's camera, light and gizmo. */
 function takeView(): void {
-    setCamera([...camPos], [...camTarget]);
+    // This app drives the camera itself: the engine's orbit control (Mesha's) must let go.
+    try { addon.Controls.disable(); } catch { /* no control */ }
+    Entropy.Camera.setTransform([...camPos], [...camTarget]);
     applyLighting();
     Entropy.setGameMode(false);
     // The engine has one gizmo: hiding clears whichever app's is up; ours comes back if something is selected.
@@ -564,32 +574,46 @@ function takeView(): void {
 /** Moves the render origin so the camera works near (0, 0): float precision on big worlds. */
 function rebase(x: number, y: number): void {
     if (Math.hypot(x - origin.x, y - origin.y) < 2 && tiles.size) return;
+    // Render space shifts by the origin's move: everything kept in it follows.
+    const dx = (origin.x - x) * 1000, dz = (y - origin.y) * 1000;
     origin = { x, y };
+    edCam.shift(dx, dz);
+    preview?.shift(dx, dz);
+    blockerCache = null;
+    camPos = [camPos[0] + dx, camPos[1], camPos[2] + dz];
+    camTarget = [camTarget[0] + dx, camTarget[1], camTarget[2] + dz];
     clearGround();
     rebuildRivers();
     forceRepack = true;
+    if (gizmoId) syncGizmo();
 }
 
-function goTo(x: number, y: number, distanceM = 160, yawDeg = 35, pitchDeg = 32): void {
+const rad = (d: number) => (d * Math.PI) / 180;
+
+/**
+ * Puts the view on (x, y) km from a distance, heading and pitch. `glide`: ease there when it is
+ * near (a click in the UI), else jump (opening a world, a tool call).
+ */
+function goTo(x: number, y: number, distanceM = 160, yawDeg = 35, pitchDeg = 32, glide = false): void {
     if (!ground) return;
     rebase(x, y);
     const [rx, rz] = toRender(origin, x, y);
-    const h = ground.heightAt(x, y);
-    const yaw = (yawDeg * Math.PI) / 180, pitch = (pitchDeg * Math.PI) / 180;
-    const target: V3 = [rx, h + 2, rz];
-    const pos: V3 = [rx + Math.sin(yaw) * Math.cos(pitch) * distanceM, h + 2 + Math.sin(pitch) * distanceM, rz + Math.cos(yaw) * Math.cos(pitch) * distanceM];
-    zoomSpeed = Math.max(0.5, distanceM / 60);
-    setCamera(pos, target);
+    const pivot: V3 = [rx, ground.heightAt(x, y), rz];
+    const near = Math.hypot(pivot[0] - edCam.now.pivot[0], pivot[2] - edCam.now.pivot[2]) < 900;
+    if (glide && near && !preview) edCam.glideTo(pivot, distanceM, rad(yawDeg), rad(pitchDeg));
+    else {
+        edCam.set({ pivot, yaw: rad(yawDeg), pitch: rad(pitchDeg), distance: distanceM });
+        if (!preview) { const pose = edCam.update(0, groundAtRender); applyCamera(pose.pos, pose.target); }
+    }
     forceRepack = true;
 }
 
+/** The editor's view (where it is going), as a saved view. */
 function currentView(): SavedView | null {
     if (!world) return null;
-    const { pos, target } = cameraNow();
-    const [x, y] = fromRender(origin, target[0], target[2]);
-    const d: V3 = [pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]];
-    const dist = Math.hypot(...d) || 1;
-    return { x, y, distanceM: dist, yawDeg: (Math.atan2(d[0], d[2]) * 180) / Math.PI, pitchDeg: (Math.asin(d[1] / dist) * 180) / Math.PI };
+    const g = edCam.goal;
+    const [x, y] = fromRender(origin, g.pivot[0], g.pivot[2]);
+    return { x, y, distanceM: g.distance, yawDeg: (g.yaw * 180) / Math.PI, pitchDeg: (g.pitch * 180) / Math.PI };
 }
 
 function defaultView(): SavedView | null {
@@ -604,38 +628,221 @@ function defaultView(): SavedView | null {
     return spot ? { x: spot.x, y: spot.y, distanceM: 220, yawDeg: 35, pitchDeg: 34 } : { x: 0, y: 0, distanceM: 300, yawDeg: 35, pitchDeg: 34 };
 }
 
-const held = new Set<string>();
+// --- Input state: keys held, mouse drags, the gamepad -----------------------------------------------
 
-/** WASD slides the view over the ground (Shift: faster), Q/E turn it. */
-function moveCamera(dt: number): void {
-    if (!held.size || !ground || Entropy.Input.isTypingInUI?.()) return;
-    const { pos, target } = cameraNow();
-    const dx = target[0] - pos[0], dz = target[2] - pos[2];
-    const len = Math.hypot(dx, dz) || 1;
-    const fx = dx / len, fz = dz / len;
-    const dist = Math.hypot(pos[0] - target[0], pos[1] - target[1], pos[2] - target[2]);
-    const speed = Math.max(8, dist * 0.9) * (held.has("shift") ? 3 : 1) * dt;
-    let mx = 0, mz = 0;
-    if (held.has("w")) { mx += fx; mz += fz; }
-    if (held.has("s")) { mx -= fx; mz -= fz; }
-    if (held.has("a")) { mx += fz; mz -= fx; }
-    if (held.has("d")) { mx -= fz; mz += fx; }
-    let turn = 0;
-    if (held.has("q")) turn += dt * 1.2;
-    if (held.has("e")) turn -= dt * 1.2;
-    if (!mx && !mz && !turn) return;
-    const nt: V3 = [target[0] + mx * speed, target[1], target[2] + mz * speed];
-    const [kx, ky] = fromRender(origin, nt[0], nt[2]);
-    nt[1] = ground.heightAt(kx, ky) + 2;
-    let ox = pos[0] - target[0], oz = pos[2] - target[2];
-    if (turn) { const c = Math.cos(turn), s = Math.sin(turn); [ox, oz] = [ox * c - oz * s, ox * s + oz * c]; }
-    const np: V3 = [nt[0] + ox, nt[1] + (pos[1] - target[1]), nt[2] + oz];
-    setCamera(np, nt);
-    if (Math.hypot(kx - origin.x, ky - origin.y) > 3) {
-        const view = currentView();
-        rebase(kx, ky);
-        if (view) goTo(view.x, view.y, view.distanceM, view.yawDeg, view.pitchDeg);
+const held = new Set<string>();
+const pad = { left: [0, 0] as [number, number], right: [0, 0] as [number, number], at: -Infinity, held: new Set<string>() };
+/** Mouse look / orbit accumulated since the last frame (pixels). */
+let dragLook: [number, number] = [0, 0];
+const isHeld = (...keys: string[]) => keys.some((k) => held.has(k));
+const padLive = () => Date.now() - pad.at < 500;
+
+/** The editor camera's frame: keys, gamepad, easing; then onto the screen. */
+function updateEditorCamera(dt: number): void {
+    const typing = !!Entropy.Input.isTypingInUI?.();
+    let forward = 0, right = 0, turn = 0, zoomRate = 0;
+    if (!typing) {
+        if (isHeld("w", "arrowup")) forward += 1;
+        if (isHeld("s", "arrowdown")) forward -= 1;
+        if (isHeld("d", "arrowright")) right += 1;
+        if (isHeld("a", "arrowleft")) right -= 1;
+        if (isHeld("q")) turn += 1.5;
+        if (isHeld("e")) turn -= 1.5;
+        if (isHeld("z", "pageup", "=", "+")) zoomRate += 1;
+        if (isHeld("x", "pagedown", "-")) zoomRate -= 1;
     }
+    if (padLive()) {
+        const l = deadzone(pad.left), r = deadzone(pad.right);
+        forward += l[1]; right += l[0];
+        if (r[0] || r[1]) edCam.orbit(r[0] * dt * 650, -r[1] * dt * 450);
+        if (pad.held.has("RightTrigger2") || pad.held.has("RightTrigger")) zoomRate += 1;
+        if (pad.held.has("LeftTrigger2") || pad.held.has("LeftTrigger")) zoomRate -= 1;
+    }
+    const fast = !typing && (Entropy.Input.isShiftPressed?.() || held.has("shift")) || pad.held.has("LeftThumb");
+    edCam.viewportHeight = Entropy.Window.getSize()[1] || 900;
+    edCam.drive(dt, Math.max(-1, Math.min(1, forward)), Math.max(-1, Math.min(1, right)), turn, zoomRate, !!fast);
+    const pose = edCam.update(dt, groundAtRender);
+    applyCamera(pose.pos, pose.target);
+    const [kx, ky] = fromRender(origin, pose.target[0], pose.target[2]);
+    if (Math.hypot(kx - origin.x, ky - origin.y) > 2) rebase(kx, ky);
+}
+
+// --- Preview World ---------------------------------------------------------------------------------
+
+/** The player: a person in "game" quality, standing and mid-stride. */
+const PLAYER_VALUES = { masculinity: 0.7, height: 1.78, hairStyle: "short", hairColor: "hair.darkBrown", top: "longsleeve", topFinish: "fabric.navy", bottom: "trousers", bottomFinish: "fabric.charcoal", shoes: "boots", shoeFinish: "leather.brown", skin: "skin.medium", seed: 9 };
+const PLAYER_IDLE: ModelChoice = { objectId: "people.human", values: { ...PLAYER_VALUES, pose: "relaxed" } };
+const PLAYER_WALK: ModelChoice = { objectId: "people.human", values: { ...PLAYER_VALUES, pose: "walking" } };
+const playerBatches = new InstanceBatches(meshCacheInstances(DETAIL_NAMESPACE, () => pipelineId, () => studioBuffer), RECORD_FLOATS, { prefix: "gd-player", idleFrames: 30 });
+
+let preview: Walker | null = null;
+let jumpQueued = false;
+let sprintLatch = false;
+let hudWindow = "";
+let blockerCache: { x: number; z: number; list: Blocker[]; items: SceneItem[] } | null = null;
+/** A walk asked for by a tool (stick-like move, until a time). */
+let scriptedWalk: { move: [number, number]; sprint: boolean; until: number } | null = null;
+
+const SOLID_SCATTER = /tree|conifer|palm|boulder|rock|stump|cactus/;
+
+/** Solid things within `radiusM` of a render-space point: buildings, walls, landmarks, props, trunks. */
+function blockersNear(x: number, z: number, radiusM: number): Blocker[] {
+    if (blockerCache && blockerCache.items === items && Math.hypot(blockerCache.x - x, blockerCache.z - z) < radiusM * 0.4) return blockerCache.list;
+    const reach = radiusM;
+    const list: Blocker[] = [];
+    for (const it of items) {
+        if (it.hidden) continue;
+        const [ix, iz] = toRender(origin, it.x, it.y);
+        if (Math.abs(ix - x) > reach + 60 || Math.abs(iz - z) > reach + 60) continue;
+        const info = it.builtin ? store.wantBuiltin(it.builtin) : store.info(it.model!.objectId, it.model!.values);
+        const ready = info?.state === "ready";
+        if (it.builtin?.kind === "dock") {
+            list.push({ x: ix, z: iz, yaw: it.yaw, hw: it.builtin.size[0] / 2, hd: it.builtin.size[2] / 2, top: it.elevation + 0.2, name: it.name });
+            continue;
+        }
+        const top = ready ? it.elevation + (info!.center[1] + info!.radius) * it.scale : it.elevation + 6;
+        if (it.footprint && (it.source === "structure")) {
+            list.push({ x: ix, z: iz, yaw: it.yaw, hw: (it.footprint[0] / 2) * (it.builtin ? 1 : it.scale), hd: (it.footprint[1] / 2) * (it.builtin ? 1 : it.scale), top, name: it.name });
+        } else if (ready) {
+            const r = info!.radius * it.scale;
+            if (r < 0.45) continue;
+            // People and creatures are rounder than their bounding sphere.
+            list.push({ x: ix + info!.center[0] * it.scale, z: iz + info!.center[2] * it.scale, yaw: 0, hw: 0, hd: 0, r: it.source === "placement" ? Math.min(r * 0.35, 3) : r * 0.6, top, name: it.name });
+        }
+    }
+    const [kx, ky] = fromRender(origin, x, z);
+    for (const t of scatterTiles.values()) {
+        for (const s of t.list) {
+            if (!SOLID_SCATTER.test(s.model.objectId)) continue;
+            if (Math.abs(s.x - kx) * 1000 > reach || Math.abs(s.y - ky) * 1000 > reach) continue;
+            const [sx, sz] = toRender(origin, s.x, s.y);
+            const rock = /boulder|rock/.test(s.model.objectId);
+            const info = store.info(s.model.objectId, s.model.values);
+            const r = rock && info?.state === "ready" ? info.radius * s.scale * 0.7 : 0.3 * s.scale;
+            list.push({ x: sx, z: sz, yaw: 0, hw: 0, hd: 0, r, top: s.elevation + (rock && info?.state === "ready" ? (info.center[1] + info.radius * 0.7) * s.scale : 30) });
+        }
+    }
+    blockerCache = { x, z, list, items };
+    return list;
+}
+
+function setEditorWindowsVisible(visible: boolean): void {
+    for (const id of [leftWindow, rightWindow, toolbarWindow]) if (id) Entropy.UI.setWindowVisible(id, visible);
+    if (hudWindow) Entropy.UI.setWindowVisible(hudWindow, !visible);
+}
+
+/** Starts walking the level where the editor is looking, clear of buildings. */
+function startPreview(view: "third" | "first" = "third"): boolean {
+    if (!world || !ground || preview) return false;
+    commitEdit();
+    const g = edCam.goal;
+    let x = g.pivot[0], z = g.pivot[2];
+    for (let pass = 0; pass < 4; pass++) {
+        for (const b of blockersNear(x, z, 40)) {
+            if (b.top - groundAtRender(x, z) <= STEP_HEIGHT) continue;
+            const p = pushOut(x, z, 0.8, b);
+            if (p) { x = p[0]; z = p[1]; }
+        }
+    }
+    preview = new Walker(x, z, groundAtRender(x, z), g.yaw);
+    preview.view = view;
+    jumpQueued = false; sprintLatch = false; dragLook = [0, 0];
+    placeObjectId = null;
+    select(null);
+    hoverKey = null;
+    setEditorWindowsVisible(false);
+    forceRepack = true;
+    statusMessage = "Previewing the world: WASD or the left stick to walk, drag or the right stick to look, Esc to stop.";
+    return true;
+}
+
+/** Back to editing, looking at where the walk ended. */
+function stopPreview(): void {
+    if (!preview) return;
+    const w = preview;
+    preview = null;
+    playerBatches.begin();
+    playerBatches.flush();
+    edCam.set({ pivot: [w.x, w.y, w.z], yaw: w.lookYaw, pitch: rad(30), distance: 45 });
+    const pose = edCam.update(0, groundAtRender);
+    applyCamera(pose.pos, pose.target);
+    setEditorWindowsVisible(true);
+    forceRepack = true;
+    statusMessage = "Back to editing.";
+}
+
+/** One frame of Preview World: input, the walker, the camera, the player's model. */
+function updatePreview(dt: number): void {
+    const w = preview!;
+    const typing = !!Entropy.Input.isTypingInUI?.();
+    let mx = 0, my = 0, yawRate = 0, pitchRate = 0;
+    if (!typing) {
+        if (isHeld("w")) my += 1;
+        if (isHeld("s")) my -= 1;
+        if (isHeld("d")) mx += 1;
+        if (isHeld("a")) mx -= 1;
+        if (isHeld("arrowup")) my += 1;
+        if (isHeld("arrowdown")) my -= 1;
+        if (isHeld("arrowleft", "q")) yawRate += 2;
+        if (isHeld("arrowright", "e")) yawRate -= 2;
+    }
+    if (scriptedWalk) {
+        if (Date.now() < scriptedWalk.until) { mx += scriptedWalk.move[0]; my += scriptedWalk.move[1]; }
+        else scriptedWalk = null;
+    }
+    if (padLive()) {
+        const l = deadzone(pad.left), r = deadzone(pad.right);
+        mx += l[0]; my += l[1];
+        // Look speed eases in with the stick's push (squared), for fine aim near the center.
+        yawRate -= r[0] * Math.abs(r[0]) * 3;
+        pitchRate += r[1] * Math.abs(r[1]) * 2;
+        if (Math.hypot(l[0], l[1]) < 0.3) sprintLatch = false;
+    }
+    const sens = 0.0042;
+    const input = {
+        move: [mx, my] as [number, number],
+        lookYaw: yawRate * dt - dragLook[0] * sens,
+        lookPitch: pitchRate * dt - dragLook[1] * sens,
+        sprint: (!typing && (Entropy.Input.isShiftPressed?.() || held.has("shift"))) || sprintLatch || pad.held.has("RightTrigger2") || !!scriptedWalk?.sprint,
+        jump: jumpQueued,
+    };
+    dragLook = [0, 0];
+    jumpQueued = false;
+    w.step(dt, input, groundAtRender, ground!.seaLevelM, blockersNear(w.x, w.z, 24));
+    const pose = w.camera(dt, groundAtRender);
+    applyCamera(pose.pos, pose.target);
+    // The player's own model, every frame (the scene's records repack only now and then).
+    playerBatches.begin();
+    if (w.view === "third") {
+        const walking = w.speed > 0.6 && w.onGround;
+        let m = walking ? PLAYER_WALK : PLAYER_IDLE;
+        let info = store.want(m.objectId, m.values, -10);
+        if (info.state !== "ready") { m = walking ? PLAYER_IDLE : PLAYER_WALK; info = store.want(m.objectId, m.values, -10); }
+        if (info.state === "ready") {
+            const bob = walking ? Math.abs(Math.sin(w.stride)) * 0.05 : 0;
+            const slot = playerBatches.add(info.keys[0], [w.x + info.center[0], w.y + info.center[1], w.z + info.center[2], info.radius]);
+            packRecord(slot.data, slot.offset, w.x, w.y + bob, w.z, w.bodyYaw, 1, null, 1, 0);
+        }
+    }
+    playerBatches.flush();
+    const [kx, ky] = fromRender(origin, w.x, w.z);
+    if (Math.hypot(kx - origin.x, ky - origin.y) > 2) rebase(kx, ky);
+}
+
+function renderHud(): void {
+    const id = hudWindow;
+    const w = preview;
+    if (!w) return;
+    W.horizontal(id, () => {
+        W.label(id, { text: Icons.label("play", "Preview World"), bold: true, fontSize: 15, color: ACCENT });
+        W.spacer(id, 6);
+        W.segmented(id, { id: "gd-pv-view", options: ["Third person", "First person"], selectedIndex: w.view === "third" ? 0 : 1, compact: true, accent: ACCENT, onChange: (v) => { if ((Number(v) === 0) !== (w.view === "third")) w.toggleView(); } });
+        W.button(id, { id: "gd-pv-stop", text: Icons.label("x-circle", "Stop"), shortcut: "Esc", onClick: () => stopPreview() });
+    });
+    const [kx, ky] = fromRender(origin, w.x, w.z);
+    const near = w.touching?.name ? ` · by ${w.touching.name}` : "";
+    W.label(id, { text: `${kx.toFixed(3)}, ${ky.toFixed(3)} km · ${Math.round(w.y)} m${w.swimming ? " · swimming" : ""}${near}`, color: DIM, monospace: true });
+    W.label(id, { text: padLive() ? "Left stick walk · right stick look · A jump · L3 sprint · Y view · B / Start stop" : "WASD walk · drag to look · Shift sprint · Space jump · V view · wheel zoom · Esc stop", color: DIM, wrap: true });
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -977,7 +1184,8 @@ function renderToolbar(): void {
         W.spacer(id, 8);
         W.segmented(id, { id: "gd-light", options: STUDIO_PRESETS.map((p) => p.label), selectedIndex: lightingIndex, compact: true, accent: ACCENT, onChange: (v) => { lightingIndex = Number(v); detail.lighting = { preset: STUDIO_PRESETS[lightingIndex].id }; applyLighting(); markDirty(); } });
         W.spacer(id, 8);
-        W.button(id, { id: "gd-export", text: Icons.label("export", exportJob ? "Exporting..." : "Export level"), accent: ACCENT, disabled: !!exportJob || !world, tooltip: "A zip of every model (GLB), the scene (JSON), heightmaps, materials and lore, for any engine or an AI agent", onClick: () => startExport() });
+        W.button(id, { id: "gd-export", text: Icons.label("export", exportJob ? "Exporting..." : "Export level"), disabled: !!exportJob || !world, tooltip: "A zip of every model (GLB), the scene (JSON), heightmaps, materials and lore, for any engine or an AI agent", onClick: () => startExport() });
+        W.button(id, { id: "gd-preview", text: Icons.label("play", "Preview World"), accent: ACCENT, disabled: !world, shortcut: "P", tooltip: "Walk the level in third or first person (keyboard and mouse, or a gamepad: Start)", onClick: () => { startPreview(); } });
     });
     const s = stats;
     W.label(id, { text: `${s.instances.toLocaleString()} drawn in ${s.batches} draws · ${(s.triangles / 1e6).toFixed(2)} M triangles · ${s.tiles} ground tiles${s.pending ? ` · building ${s.pending} model(s)` : ""} · ${statusMessage}`, color: DIM, wrap: false });
@@ -1004,7 +1212,7 @@ function renderGoTo(id: string): void {
         W.label(id, { text: "Sites", bold: true });
         for (const s of detail.sites) {
             W.horizontal(id, () => {
-                W.button(id, { id: `gd-site-${s.id}`, text: Icons.label("map-pin", s.name), onClick: () => goTo(s.x, s.y, s.distanceM, s.yawDeg, s.pitchDeg) });
+                W.button(id, { id: `gd-site-${s.id}`, text: Icons.label("map-pin", s.name), onClick: () => goTo(s.x, s.y, s.distanceM, s.yawDeg, s.pitchDeg, true) });
                 W.button(id, { id: `gd-site-del-${s.id}`, text: Icons.get("trash"), frame: false, tooltip: "Forget this site", onClick: () => { beginEdit("Forget site"); detail.sites = detail.sites.filter((x) => x.id !== s.id); commitEdit(); } });
             });
         }
@@ -1025,7 +1233,7 @@ function renderGoTo(id: string): void {
     const spots = world!.spots.filter((s) => !q || s.name.toLowerCase().includes(q)).sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) || a.name.localeCompare(b.name));
     for (const s of spots.slice(0, 60)) {
         const n = counts.get(s.id) ?? 0;
-        W.button(id, { id: `gd-goto-${s.id}`, text: Icons.label(n ? "house" : "flag", `${s.name} · ${s.spotType}${n ? ` · ${n} buildings` : ""}`), onClick: () => goTo(s.x, s.y, n > 20 ? 260 : 140) });
+        W.button(id, { id: `gd-goto-${s.id}`, text: Icons.label(n ? "house" : "flag", `${s.name} · ${s.spotType}${n ? ` · ${n} buildings` : ""}`), onClick: () => { const v = currentView(); goTo(s.x, s.y, n > 20 ? 260 : 140, v?.yawDeg ?? 35, Math.max(20, Math.min(60, v?.pitchDeg ?? 32)), true); } });
     }
 }
 
@@ -1126,7 +1334,7 @@ function renderRight(): void {
         W.label(id, { text: "Inspector", bold: true, fontSize: 15 });
         W.label(id, { text: "Click a building, a landmark, an NPC or a prop to detail it.", color: DIM, wrap: true });
         W.spacer(id, 6);
-        for (const tip of ["Right-drag orbits, middle-drag pans, the wheel zooms; WASD slides over the ground, Q/E turn.", "Moving or turning a planned thing moves it in the plan: the Planner shows it there.", "Del hides a planned thing (or deletes a prop); Ctrl+D duplicates a prop; F frames the selection.", "Export level writes a zip for any engine or an AI agent."]) W.label(id, { text: `· ${tip}`, color: DIM, wrap: true });
+        for (const tip of ["Right-drag orbits, middle-drag (or Shift + right-drag) drags the ground, the wheel zooms toward the cursor; double-click glides to a spot.", "WASD or the arrows glide over the ground (Shift: faster), Q/E turn, Z/X zoom; a gamepad's sticks and triggers do the same.", "Preview World (P, or Start on a gamepad) walks the level in third or first person.", "Moving or turning a planned thing moves it in the plan: the Planner shows it there.", "Del hides a planned thing (or deletes a prop); Ctrl+D duplicates a prop; F frames the selection.", "Export level writes a zip for any engine or an AI agent."]) W.label(id, { text: `· ${tip}`, color: DIM, wrap: true });
         return;
     }
     const kind = kindKeyOf(it);
@@ -1197,7 +1405,7 @@ function frameSelected(): void {
     const info = it.builtin ? store.wantBuiltin(it.builtin) : store.info(it.model!.objectId, it.model!.values);
     const r = info?.state === "ready" ? info.radius * it.scale : 10;
     const v = currentView();
-    goTo(it.x, it.y, Math.max(6, r * 3.2), v?.yawDeg ?? 35, Math.max(15, Math.min(60, v?.pitchDeg ?? 28)));
+    goTo(it.x, it.y, Math.max(6, r * 3.2), v?.yawDeg ?? 35, Math.max(15, Math.min(60, v?.pitchDeg ?? 28)), true);
 }
 
 function setupUI(): void {
@@ -1211,59 +1419,147 @@ function setupUI(): void {
     leftWindow = make({ title: "Level", width: 330, height: sh - 120, x: 16, y: 104, glass: true, onRender: renderLeft });
     rightWindow = make({ title: "Inspector", width: 390, height: sh - 120, x: sw - 406, y: 104, glass: true, onRender: renderRight });
     toolbarWindow = make({ title: "Detailer", width: Math.min(1400, sw - 32), height: 84, x: 16, y: 12, decorations: false, glass: true, onRender: renderToolbar });
+    hudWindow = make({ title: "Preview World", width: Math.min(620, sw - 32), height: 96, x: 16, y: sh - 112, decorations: false, glass: true, onRender: renderHud });
+    Entropy.UI.setWindowVisible(hudWindow, false);
 }
 
 // -------------------------------------------------------------------------------------------------
 // Input
 // -------------------------------------------------------------------------------------------------
+//
+// Editing: left-click selects (or places a prop), double-click glides the view to that spot,
+// right-drag orbits, middle-drag (or Shift + right-drag) drags the ground, the wheel zooms toward
+// the cursor, WASD / arrows glide, Q/E turn, Z/X zoom, F frames the selection, P previews.
+// Preview World: drag to look (either button), WASD walk, Space jump, Shift sprint, V switches the
+// view, the wheel sets the camera distance, Esc (or P) stops. The gamepad works in both.
 
 let downAt: [number, number] | null = null;
 let mouse: [number, number] = [0, 0];
 let lastHoverAt = 0;
+/** Buttons held down that started over the viewport (not over a window): 0 left, 1 right, 2 middle. */
+const dragging = new Set<number>();
+let lastClick: { at: number; x: number; y: number } | null = null;
+
+/** In the Creative Suite every app hears the input: only the app with the 3D view acts on it. */
+const ownsView = () => (globalThis as { __entropyViewOwner?: string }).__entropyViewOwner === APP;
 
 addon.Input.onMouseDown((button, x, y) => {
     mouse = [x, y];
+    if (!ownsView()) return;
+    const overUI = addon.Input.isPointerOverUI();
+    if (!overUI) dragging.add(button);
     if (button !== 0) return;
     pointerHeld = true;
     gizmoWasActive = false;
-    downAt = addon.Input.isPointerOverUI() ? null : [x, y];
+    downAt = overUI || preview ? null : [x, y];
 });
-addon.Input.onMouseMove((x, y) => { mouse = [x, y]; });
+addon.Input.onMouseMove((x, y) => {
+    const dx = x - mouse[0], dy = y - mouse[1];
+    mouse = [x, y];
+    if (!ownsView() || !world || (!dx && !dy)) return;
+    if (preview) {
+        if (dragging.has(0) || dragging.has(1) || dragging.has(2)) { dragLook[0] += dx; dragLook[1] += dy; }
+        return;
+    }
+    const shift = Entropy.Input.isShiftPressed?.() ?? false;
+    if (dragging.has(2) || (dragging.has(1) && shift)) edCam.pan(dx, dy);
+    else if (dragging.has(1)) edCam.orbit(dx, dy);
+});
 addon.Input.onMouseUp((button) => {
+    dragging.delete(button);
     if (button !== 0) return;
     pointerHeld = false;
     const start = downAt;
     downAt = null;
-    if (!start || gizmoWasActive || !world) return;
+    if (!start || gizmoWasActive || !world || preview) return;
     if (Math.hypot(mouse[0] - start[0], mouse[1] - start[1]) > 4) return;
     const ray = Entropy.Camera.screenToWorldRay(mouse[0], mouse[1]);
+    const now = Date.now();
+    const double = lastClick && now - lastClick.at < 350 && Math.hypot(mouse[0] - lastClick.x, mouse[1] - lastClick.y) < 6;
+    lastClick = double ? null : { at: now, x: mouse[0], y: mouse[1] };
     if (placeObjectId) {
         const g = pickGround(ray.origin, ray.direction);
         if (g) addProp(placeObjectId, g[0], g[1]);
         return;
     }
     const hit = pickItem(ray.origin, ray.direction);
+    if (double) {
+        // Glide to what was double-clicked: a thing framed, the ground at a closer look.
+        if (hit) { select(hit.key); frameSelected(); return; }
+        const g = pickGround(ray.origin, ray.direction);
+        if (g) {
+            const [rx, rz] = toRender(origin, g[0], g[1]);
+            edCam.glideTo([rx, groundAtRender(rx, rz), rz], Math.max(12, Math.min(edCam.goal.distance * 0.6, 400)));
+        }
+        return;
+    }
     select(hit?.key ?? null);
 });
+addon.Input.onMouseWheel((_dx, dy) => {
+    if (!ownsView() || !world || !dy || addon.Input.isPointerOverUI()) return;
+    const steps = Math.max(-4, Math.min(4, dy));
+    if (preview) { preview.zoom(steps); return; }
+    // Toward the ground under the cursor, so what is under it stays there.
+    let toward: V3 | null = null;
+    if (steps > 0) {
+        const ray = Entropy.Camera.screenToWorldRay(mouse[0], mouse[1]);
+        const g = pickGround(ray.origin, ray.direction);
+        if (g) { const [rx, rz] = toRender(origin, g[0], g[1]); toward = [rx, groundAtRender(rx, rz), rz]; }
+    }
+    edCam.zoom(steps, toward);
+});
+
+const MOVE_KEYS = ["w", "a", "s", "d", "q", "e", "z", "x", "arrowup", "arrowdown", "arrowleft", "arrowright", "pageup", "pagedown", "=", "+", "-"];
 
 addon.Input.onKeyDown((key, ctrl, shift) => {
-    if (Entropy.Input.isTypingInUI?.()) return;
+    if (Entropy.Input.isTypingInUI?.() || !ownsView()) return;
     const k = key.toLowerCase();
+    if (shift) held.add("shift");
+    if (preview) {
+        if (k === "escape" || k === "p") { stopPreview(); return; }
+        if (k === "v") { preview.toggleView(); return; }
+        if (k === " " || k === "space") { jumpQueued = true; return; }
+        if (MOVE_KEYS.includes(k)) held.add(k);
+        return;
+    }
     if (ctrl && k === "z") { if (shift) redo(); else undo(); return; }
     if (ctrl && k === "y") { redo(); return; }
     if (ctrl && k === "s") { if (saveWorld()) toast("Saved.", "success"); return; }
     if (ctrl && k === "d") { duplicateSelected(); return; }
+    if (ctrl) return;
     if (k === "escape") { placeObjectId = null; select(null); return; }
+    if (k === "p") { startPreview(); return; }
     if (k === "f") { frameSelected(); return; }
     if (k === "v" && selected()) { varySelected(); return; }
     if (k === "delete" || k === "backspace") { removeSelected(); return; }
-    if (["w", "a", "s", "d", "q", "e"].includes(k)) held.add(k);
-    if (shift) held.add("shift");
+    if (MOVE_KEYS.includes(k)) held.add(k);
 });
 addon.Input.onKeyUp((key) => {
     const k = key.toLowerCase();
     held.delete(k);
     if (k === "shift" || k === "shiftleft" || k === "shiftright") held.delete("shift");
+});
+
+addon.Input.onGamepadAxis((left, right) => {
+    pad.left = [left[0], left[1]];
+    pad.right = [right[0], right[1]];
+    pad.at = Date.now();
+});
+addon.Input.onGamepadButton((button, pressed) => {
+    const fresh = pressed && !pad.held.has(button);
+    if (pressed) pad.held.add(button); else pad.held.delete(button);
+    pad.at = Date.now();
+    if (!fresh || !ownsView() || !world) return;
+    if (preview) {
+        if (button === "South") jumpQueued = true;
+        else if (button === "North" || button === "RightThumb") preview.toggleView();
+        else if (button === "LeftThumb") sprintLatch = !sprintLatch;
+        else if (button === "East" || button === "Start") stopPreview();
+        return;
+    }
+    if (button === "Start") startPreview();
+    else if (button === "North" && selected()) frameSelected();
+    else if (button === "East") select(null);
 });
 
 // -------------------------------------------------------------------------------------------------
@@ -1462,6 +1758,24 @@ const TOOLS: { name: string; description: string; parameters: object; run: (a: A
         },
     },
     {
+        name: "game_detailer_preview", description: "Preview World: walk the level as a player. action: start (where the view looks; view 'third' | 'first') | stop | state; while previewing: view to switch, lookYawDeg / lookPitchDeg to turn (absolute, 0 looks north), walk { forward, right (-1..1), seconds, sprint } to walk like a stick held that long, jump.",
+        parameters: { type: "object", properties: { action: { type: "string" }, view: { type: "string" }, lookYawDeg: { type: "number" }, lookPitchDeg: { type: "number" }, walk: { type: "object" }, jump: { type: "boolean" } } },
+        run: (a) => {
+            if (!world) throw new Error("No world is open");
+            if (a.action === "start" && !preview) startPreview(a.view === "first" ? "first" : "third");
+            if (a.action === "stop") { stopPreview(); return { previewing: false, view: currentView() }; }
+            const w = preview;
+            if (!w) return { previewing: false };
+            if ((a.view === "first" || a.view === "third") && a.view !== w.view) w.toggleView();
+            if (typeof a.lookYawDeg === "number") w.lookYaw = rad(a.lookYawDeg);
+            if (typeof a.lookPitchDeg === "number") w.lookPitch = rad(a.lookPitchDeg);
+            if (a.walk) scriptedWalk = { move: [Number(a.walk.right ?? 0), Number(a.walk.forward ?? 0)], sprint: !!a.walk.sprint, until: Date.now() + 1000 * Math.max(0, Math.min(30, Number(a.walk.seconds ?? 1))) };
+            if (a.jump) jumpQueued = true;
+            const [x, y] = fromRender(origin, w.x, w.z);
+            return { previewing: true, view: w.view, positionKm: [x, y], feetM: w.y, onGround: w.onGround, swimming: w.swimming, speed: w.speed, touching: w.touching?.name ?? null, lookYawDeg: (w.lookYaw * 180) / Math.PI };
+        },
+    },
+    {
         name: "game_detailer_save", description: "Save now (the Detailer also saves on its own shortly after every edit), into the Planner's world file.",
         parameters: { type: "object", properties: {} },
         run: () => ({ saved: saveWorld(), savedAt: lastSavedAt }),
@@ -1518,7 +1832,7 @@ addon.onUpdate(() => {
     claimView(APP, takeView);
     if (!world) return;
     if (gizmoId && pointerHeld) { const s = Entropy.Gizmo.getState(gizmoId); if (s?.isActive) gizmoWasActive = true; }
-    moveCamera(dt);
+    if (preview) updatePreview(dt); else updateEditorCamera(dt);
     syncFromDisk();
     const { pos, target } = cameraNow();
     const cam: V3 = [pos[0], pos[1], pos[2]];
@@ -1534,13 +1848,13 @@ addon.onUpdate(() => {
     if (!pointerHeld) commitEdit();
     const busy = !!exportJob;
     streamGround(cam, busy ? 2 : 8);
-    const scatterChanged = streamScatter(cam, busy ? 1 : 4);
+    const scatterChanged = streamScatter(target, busy ? 1 : 4);
     if (store.pump() > 0 || scatterChanged) forceRepack = true;
     if (viewChange.due(cam, forward, now, forceRepack)) { forceRepack = false; repack(cam, forward); }
     pumpExport(30);
     if (dirty && now >= saveDueAt && !pointerHeld) { saveWorld(); }
     // Hover highlight, a few times a second.
-    if (now - lastHoverAt > 150 && !pointerHeld && !addon.Input.isPointerOverUI()) {
+    if (!preview && !dragging.size && now - lastHoverAt > 150 && !pointerHeld && !addon.Input.isPointerOverUI()) {
         lastHoverAt = now;
         const ray = Entropy.Camera.screenToWorldRay(mouse[0], mouse[1]);
         const h = pickItem(ray.origin, ray.direction)?.key ?? null;
@@ -1551,5 +1865,6 @@ addon.onUpdate(() => {
 addon.onCleanup?.(() => {
     if (dirty) saveWorld();
     batches.clear();
+    playerBatches.clear();
     clearGround();
 });
