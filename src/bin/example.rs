@@ -26,6 +26,14 @@ async fn main() {
                 // Terrain and Mesha meshes cache under it (mesh-cache/abyss), saves in its IO.store.
                 // ENTROPY_ABYSS_BDD_DATA lets tests/abyss_live start from a clean folder.
                 .with_data_dir(env::var("ENTROPY_ABYSS_BDD_DATA").unwrap_or_else(|_| "../abyss-data".to_string())),
+            Some("nebula-kingdom") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/nebula_kingdom.js")
+                .with_hot_reload(true)
+                .with_title("NEBULA KINGDOM")
+                .with_window_size(1600.0, 900.0)
+                // The campaign is saved in the addon's own IO.store folder.
+                // ENTROPY_NEBULA_BDD_DATA lets tests/nebula_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_NEBULA_BDD_DATA").unwrap_or_else(|_| "../nebula-kingdom-data".to_string())),
             Some("app-launcher") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/app_launcher.js")
                 .with_hot_reload(true)
