@@ -103,6 +103,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "media-player",
     "mesha",
     "ml-graph-demo",
+    "nebula-kingdom",
     "node-graph",
     "quadplanet",
     "sheet",

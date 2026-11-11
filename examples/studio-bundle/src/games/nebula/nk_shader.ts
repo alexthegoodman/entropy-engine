@@ -202,7 +202,7 @@ fn bend(dir_in: vec3<f32>) -> vec4<f32> {
             let bent = theta - fade * einstein * einstein / theta;
             let perp = normalize(dir - b * c);
             dir = normalize(b * cos(bent) + perp * sin(bent));
-            ring = ring + exp(-pow((theta - einstein) / max(einstein * 0.12, 1e-4), 2.0)) * 0.55;
+            ring = ring + exp(-pow((theta - einstein) / max(einstein * 0.08, 1e-4), 2.0)) * 0.3;
         }
     }
     return vec4<f32>(dir, ring);
@@ -219,11 +219,11 @@ fn sky_color(dir_in: vec3<f32>) -> vec3<f32> {
     var stars = vec3<f32>(0.0);
     if (warp > 0.001) {
         let radial = normalize(dir - fwd * dot(dir, fwd) + vec3<f32>(1e-5));
-        for (var k = 0; k < 6; k = k + 1) {
-            let d2 = normalize(dir + radial * (f32(k) * 0.035 * warp) + fwd * (world.time.x * 0.9 * warp));
-            stars = stars + (star_layer(d2, 70.0, 0.22) + star_layer(d2, 150.0, 0.16)) * (1.0 - f32(k) / 6.0);
+        for (var k = 0; k < 10; k = k + 1) {
+            let d2 = normalize(dir + radial * (f32(k) * 0.016 * warp) + fwd * (world.time.x * 0.9 * warp));
+            stars = stars + (star_layer(d2, 70.0, 0.22) + star_layer(d2, 150.0, 0.16)) * (1.0 - f32(k) / 10.0);
         }
-        stars = stars * 0.5;
+        stars = stars * 0.32;
     } else {
         stars = star_layer(dir, 70.0, 0.1) + star_layer(dir, 150.0, 0.12) + star_layer(dir, 310.0, 0.14) * 0.7;
     }
@@ -242,11 +242,12 @@ fn sky_color(dir_in: vec3<f32>) -> vec3<f32> {
     cloud = cloud * (1.0 - 0.75 * smoothstep(0.5, 0.75, lanes) * band);
     let hue = fbm(q * 0.8 + vec3<f32>(31.0), 3);
     let cloud_col = mix(world.sky_a.rgb, world.sky_b.rgb, smoothstep(0.35, 0.65, hue));
-    var col = world.sky_deep.rgb * (0.6 + 0.8 * band) + cloud_col * cloud * (0.55 + amount * 0.5);
+    cloud = pow(cloud, 1.5);
+    var col = world.sky_deep.rgb * (0.5 + 0.9 * band) + cloud_col * cloud * (0.2 + amount * 0.2);
     // Unresolved stars thicken the band.
-    col = col + vec3<f32>(0.9, 0.9, 1.0) * band * band * 0.07 * world.sky_a.w * (0.5 + fbm(dir * 40.0, 2));
+    col = col + vec3<f32>(0.9, 0.9, 1.0) * band * band * 0.035 * world.sky_a.w * (0.5 + fbm(dir * 40.0, 2));
     // Bright knots where the gas is thickest.
-    col = col + cloud_col * pow(max(cloud, 0.0), 3.0) * 0.5;
+    col = col + cloud_col * pow(max(cloud, 0.0), 3.0) * 0.28;
 
     // Other galaxies, far off: a handful of tilted smudges.
     for (var g = 0; g < 7; g = g + 1) {
@@ -272,7 +273,8 @@ fn sky_color(dir_in: vec3<f32>) -> vec3<f32> {
     if (warp > 0.001) {
         let ahead = max(dot(dir_in, fwd), 0.0);
         let rings = 0.5 + 0.5 * sin(acos(clamp(ahead, -1.0, 1.0)) * 46.0 - world.time.x * 26.0);
-        col = col + mix(world.sky_a.rgb, vec3<f32>(1.0), 0.6) * warp * (pow(ahead, 22.0) * 1.6 + rings * pow(ahead, 3.0) * 0.22);
+        let tunnel = smoothstep(0.35, 1.0, warp);
+        col = col + mix(world.sky_a.rgb, vec3<f32>(1.0), 0.6) * tunnel * (pow(ahead, 22.0) * 1.6 + rings * pow(ahead, 3.0) * 0.22);
     }
     return col;
 }
@@ -295,7 +297,7 @@ fn light_at(p: vec3<f32>, n: vec3<f32>, wrap: f32) -> Lit {
         sum = sum + l.color.rgb * l.color.w * ndl * atten;
         day = max(day, ndl * atten * min(l.color.w, 1.0));
     }
-    return Lit(sum, day);
+    return Lit(min(sum, vec3<f32>(1.6)), day);
 }
 
 fn planet_albedo(p: vec3<f32>, look: i32, seed: f32, tint: vec3<f32>) -> vec4<f32> {
@@ -439,7 +441,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         else if (look == 3) { mark = pow(1.0 - abs(fbm(q * 1.4, 4) * 2.0 - 1.0), 6.0); }
         let pulse = 0.7 + 0.3 * sin(t * 2.4 + seed * 40.0 + in.local.z * 2.0);
         col = in.color.rgb * (lit.diffuse + world.sky_deep.rgb + vec3<f32>(0.03)) * (0.6 + 0.4 * fbm(q * 2.0, 2));
-        col = col + in.extra.rgb * (mark * 1.5 * pulse + pow(1.0 - nv, 2.2) * 0.9);
+        col = col + in.extra.rgb * (mark * 1.3 * pulse + pow(1.0 - nv, 2.5) * 0.45);
         col = mix(col, vec3<f32>(1.6), clamp(in.extra.w, 0.0, 1.0));
     } else {
         // Crystal: an envoy's body, all facets and inner light.
@@ -507,7 +509,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let warp = vec2<f32>(fbm(w + vec3<f32>(3.7, 1.1, 0.0), 3), fbm(w + vec3<f32>(8.3, 5.9, 0.0), 3)) - vec2<f32>(0.5);
         let d = fbm(vec3<f32>((q + warp * 0.9) * 2.1, seed * 17.0 + t * 0.03), 4);
         let fall = pow(clamp(1.0 - r, 0.0, 1.0), 1.6);
-        a = fall * smoothstep(0.18, 0.75, d + fall * 0.35) * 1.5;
+        a = fall * smoothstep(0.34, 0.72, d + fall * 0.22) * 1.6;
         // Filaments brighter and whiter than the body of the cloud.
         let fil = pow(clamp(1.0 - abs(d * 2.0 - 1.0), 0.0, 1.0), 5.0) * fall;
         col = col * (0.8 + 0.5 * d) + vec3<f32>(1.0) * fil * 0.35 * in.extra.x;
@@ -553,7 +555,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     } else if (kind == 7) {
         // A world's rings.
         let inner = in.extra.x;
-        let bands = fbm(vec3<f32>(r * 46.0, seed * 9.0, 0.0), 3);
+        let bands = fbm(vec3<f32>(r * 110.0, seed * 9.0, 0.0), 4);
         let gap = smoothstep(0.03, 0.0, abs(r - mix(inner, 1.0, 0.62)));
         a = smoothstep(inner, inner + 0.02, r) * smoothstep(1.0, 0.97, r) * (0.25 + 0.9 * bands) * (1.0 - gap * 0.9);
     } else if (kind == 8) {
@@ -583,10 +585,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         a = a * step(r, 1.0);
     } else if (kind == 13) {
         // What Attune shows around a creature: a thin ring with four ticks.
-        let ring = exp(-pow((r - 0.9) / 0.012, 2.0));
+        let ring = exp(-pow((r - 0.9) / 0.006, 2.0));
         let ang = atan2(q.y, q.x);
-        let ticks = step(0.92, abs(cos(ang * 2.0))) * smoothstep(0.78, 0.84, r) * step(r, 0.98);
-        a = ring * (0.55 + 0.45 * sin(ang * 40.0 + t * 3.0)) + ticks * 0.9;
+        let ticks = step(0.985, abs(cos(ang * 2.0))) * smoothstep(0.8, 0.84, r) * step(r, 0.97);
+        a = ring * (0.45 + 0.55 * step(0.0, sin(ang * 24.0 + t * 1.5))) + ticks * 0.9;
     } else if (kind == 14) {
         let tw = 0.7 + 0.3 * sin(t * 3.0 + seed * 50.0);
         a = (exp(-r * r * 18.0) * 1.2 + exp(-r * 3.5) * 0.3) * tw * smoothstep(1.0, 0.6, r);

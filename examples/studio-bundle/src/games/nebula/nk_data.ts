@@ -208,7 +208,7 @@ export const SPECIES: Record<SpeciesId, Species> = {
     medusa: { id: "medusa", name: "Medusa", faction: "synod", shape: "jelly", size: 0.9, hp: 70, power: 7, speed: 1.7, sight: 22, attack: "sting", temper: "herd", menace: false, color: [0.7, 0.55, 1], lore: "Star-jellies whose bells ring with the tides of black holes." },
     cantor: { id: "cantor", name: "Cantor", faction: "synod", shape: "jelly", size: 1.3, hp: 130, power: 14, speed: 2, sight: 32, attack: "bolt", temper: "soldier", menace: false, color: [0.82, 0.6, 1], lore: "A priest of the Synod: it sings the law and enforces it." },
     drifter: { id: "drifter", name: "Drifter", faction: "drift", shape: "eel", size: 0.75, hp: 55, power: 6, speed: 3.6, sight: 22, attack: "ram", temper: "civil", menace: false, color: [0.7, 1, 0.5], lore: "Traders of the Collective, hauling comet-ice between galaxies." },
-    marauder: { id: "marauder", name: "Marauder", faction: "wild", shape: "wasp", size: 0.9, hp: 85, power: 12, speed: 3.6, sight: 32, attack: "bolt", temper: "predator", menace: true, color: [0.95, 0.85, 0.35], lore: "Outlaws no government will claim." },
+    marauder: { id: "marauder", name: "Marauder", faction: "wild", shape: "wasp", size: 0.9, hp: 85, power: 12, speed: 3.6, sight: 32, attack: "ram", temper: "predator", menace: true, color: [0.95, 0.85, 0.35], lore: "Outlaws no government will claim. They fly straight at what they want, and do not look where they are going." },
     rival: { id: "rival", name: "Rival Cloud", faction: "wild", shape: "nebula", size: 1.2, hp: 150, power: 15, speed: 3.1, sight: 36, attack: "bolt", temper: "predator", menace: true, color: [1, 0.5, 0.85], lore: "Another living nebula, growing as you grow - and it would rather grow on you." },
     thrall: { id: "thrall", name: "Thrall", faction: "hollow", shape: "husk", size: 1, hp: 95, power: 16, speed: 3.3, sight: 40, attack: "ram", temper: "soldier", menace: true, color: [1, 0.32, 0.45], lore: "The burnt-out husk of a creature that crossed a horizon and was sent back." },
     leviathan: { id: "leviathan", name: "Leviathan", faction: "wild", shape: "whale", size: 3, hp: 420, power: 26, speed: 1.5, sight: 30, attack: "ram", temper: "herd", menace: false, color: [0.6, 0.75, 1], lore: "Star-whales older than the governments. They do not take sides." },
@@ -256,7 +256,7 @@ export interface Galaxy {
 export const GALAXIES: Galaxy[] = [
     { id: "lantern", name: "The Lantern Reach", government: "concord", text: "A young, bright spiral where the Concord keeps the peace.", sky: { deep: [0.01, 0.03, 0.06], a: [0.1, 0.55, 0.6], b: [0.9, 0.6, 0.25], clouds: 0.55, stars: 1 } },
     { id: "drift", name: "The Drift", government: "drift", text: "A ragged irregular galaxy of comet lanes and toll-eddies.", sky: { deep: [0.015, 0.04, 0.03], a: [0.25, 0.7, 0.3], b: [0.85, 0.75, 0.25], clouds: 0.45, stars: 0.8 } },
-    { id: "pyre", name: "The Pyre Spiral", government: "ember", text: "Every star here is claimed by the Ember Throne, and most are burning down.", sky: { deep: [0.06, 0.015, 0.01], a: [0.95, 0.3, 0.1], b: [1, 0.7, 0.2], clouds: 0.7, stars: 0.7 } },
+    { id: "pyre", name: "The Pyre Spiral", government: "ember", text: "Every star here is claimed by the Ember Throne, and most are burning down.", sky: { deep: [0.06, 0.015, 0.01], a: [0.7, 0.16, 0.05], b: [0.85, 0.5, 0.12], clouds: 0.5, stars: 0.8 } },
     { id: "still", name: "The Still Sea", government: "synod", text: "An old elliptical where black holes sing and the medusae listen.", sky: { deep: [0.02, 0.015, 0.07], a: [0.3, 0.2, 0.9], b: [0.75, 0.35, 0.9], clouds: 0.6, stars: 1.1 } },
     { id: "crownless", name: "The Crownless Expanse", government: "wild", text: "Contested by everyone, ruled by no one. Yet.", sky: { deep: [0.03, 0.03, 0.045], a: [0.9, 0.85, 0.7], b: [0.45, 0.6, 1], clouds: 0.4, stars: 1.4 } },
     { id: "hollow", name: "The Hollow", government: "hollow", text: "A galaxy with almost no stars left, and the King who ate them.", sky: { deep: [0.02, 0.005, 0.012], a: [0.6, 0.06, 0.16], b: [0.95, 0.75, 0.7], clouds: 0.5, stars: 0.35 } },
@@ -312,7 +312,7 @@ export type GoalDef =
     | { id: string; type: "clear"; group?: string; text: string; optional?: boolean }
     | { id: string; type: "defeat"; key: string; text: string; optional?: boolean }
     | { id: string; type: "defend"; group: string; waves: { species: SpeciesId; count: number; boss?: number }[]; text: string; optional?: boolean }
-    | { id: string; type: "feed"; hole: string; count: number; text: string; optional?: boolean }
+    | { id: string; type: "feed"; hole: string; count: number; /** More of these keep coming while the goal is open, so it can always be done. */ bait: SpeciesId; text: string; optional?: boolean }
     | { id: string; type: "lure"; hole: string; to: string; after?: string[]; text: string; optional?: boolean }
     | { id: string; type: "sling"; hole: string; text: string; optional?: boolean }
     | { id: string; type: "standing"; factions: number; text: string; optional?: boolean }
@@ -451,7 +451,7 @@ export const REGIONS: RegionDef[] = [
         holes: [{ key: "sump", name: "the Sump", at: [10, 0, 110], size: 2.4 }],
         goals: [
             { id: "sling", type: "sling", hole: "sump", text: "Slingshot around the Sump without crossing its horizon" },
-            { id: "feed", type: "feed", hole: "sump", count: 4, text: "Trick 4 Marauders into the Sump" },
+            { id: "feed", type: "feed", hole: "sump", count: 4, bait: "marauder", text: "Trick 4 Marauders into the Sump (keep it between you and them)" },
             { id: "bruin", type: "mine", keys: ["bruin", "opal"], text: "Consume the brown dwarf Bruin and the giant Opal" },
             { id: "clear", type: "clear", group: "marauders", text: "Clear the Bazaar of Marauders" },
         ],
@@ -499,15 +499,15 @@ export const REGIONS: RegionDef[] = [
         ],
         creatures: [
             { key: "regent", species: "leviathan", faction: "ember", name: "the Pyre Regent", boss: 1.25, near: "throne", spread: 12, group: "court" },
-            { species: "pyre", count: 5, near: "throne", spread: 22, group: "court" },
-            { species: "quill", count: 9, at: [0, 0, 90], spread: 30, group: "court" },
+            { species: "pyre", count: 3, near: "throne", spread: 22, group: "court" },
+            { species: "quill", count: 6, at: [0, 0, 90], spread: 30, group: "court" },
             { species: "spire", count: 2, near: "vassal", spread: 9, group: "court" },
         ],
         goals: [
+            { id: "vassals", type: "mine", keys: ["vassal", "slag"], text: "Consume the vassal stars Vassal and Slag (grow before you face the Regent)" },
             { id: "regent", type: "defeat", key: "regent", text: "Depose the Pyre Regent" },
             { id: "court", type: "clear", group: "court", text: "Clear the Throne of its court" },
             { id: "throne", type: "mine", keys: ["throne"], text: "Consume the Throne Star" },
-            { id: "vassals", type: "mine", keys: ["vassal", "slag"], text: "Consume the vassal stars", optional: true },
         ],
         reward: { concord: 20, synod: 15, drift: 10, ember: 25 },
     },
@@ -648,7 +648,7 @@ export const REGIONS: RegionDef[] = [
         goals: [
             { id: "seneschal", type: "defeat", key: "seneschal", text: "Destroy the Seneschal of the Hollow Court" },
             { id: "court", type: "clear", group: "court", text: "Clear the Shallows of the outer court" },
-            { id: "feed", type: "feed", hole: "reef2", count: 5, text: "Send 5 Thralls back across a horizon" },
+            { id: "feed", type: "feed", hole: "reef2", count: 5, bait: "thrall", text: "Send 5 Thralls back across the Second Reef's horizon" },
             { id: "stars", type: "mine", keys: ["rust", "garnet"], text: "Consume the red supergiants Rust and Garnet" },
         ],
         reward: { concord: 10, synod: 10, drift: 10 },

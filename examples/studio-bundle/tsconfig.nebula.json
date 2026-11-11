@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/addon.d.ts", "src/games/nebula/**/*.ts"]
+  "include": ["src/addon.d.ts", "src/games/nebula/**/*.ts", "src/games/allegiance/al_ui.ts", "src/games/allegiance/al_controller.ts", "src/apps/quadplanet/qp_instances.ts"]
 }

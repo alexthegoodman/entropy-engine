@@ -155,6 +155,7 @@ export class Game {
     private flags = new Set<string>();
     private chatterIn = 5;
     private spawnIn = 8;
+    private baitIn = 4;
     private edictSent = false;
 
     constructor(campaign: Campaign = newCampaign()) {
@@ -195,8 +196,8 @@ export class Game {
     /** The camera a player sees through (km): behind and above, pulling back in a Lightstride. */
     camera(): { pos: V3; target: V3; fov: number } {
         const p = this.player, f = this.forward, { up } = basis(f);
-        const back = 7.5 * (1 + 0.45 * p.stride) * p.radius;
-        return { pos: add(add(p.pos, mul(f, -back)), mul(up, 2.3 * p.radius)), target: add(p.pos, mul(f, 7 * p.radius)), fov: 55 + 22 * p.stride };
+        const back = 8 * (1 + 0.45 * p.stride) * p.radius;
+        return { pos: add(add(p.pos, mul(f, -back)), mul(up, 3.1 * p.radius)), target: add(add(p.pos, mul(f, 9 * p.radius)), mul(up, 1.2 * p.radius)), fov: 55 + 22 * p.stride };
     }
 
     // --- Regions and folding --------------------------------------------------------------------------
@@ -326,7 +327,8 @@ export class Game {
         p.invulnerable = Math.max(0, p.invulnerable - dt);
         p.sinceHurt += dt;
         p.fed = Math.max(0, p.fed - dt);
-        p.charge = Math.min(this.maxCharge, p.charge + 9 * (1 + 0.15 * c.facets.resonance) * dt);
+        // Charge does not gather while it is being ridden.
+        if (!striding) p.charge = Math.min(this.maxCharge, p.charge + 9 * (1 + 0.15 * c.facets.resonance) * dt);
         if (p.fed > 0 && p.sinceHurt > 4) p.cohesion = Math.min(this.maxCohesion, p.cohesion + 2.5 * dt);
 
         if (input.attune) { p.attune = !p.attune; this.events.push({ kind: "attune", on: p.attune }); }
@@ -344,7 +346,7 @@ export class Game {
         if (p.flare > 0) {
             p.flare -= dt;
             for (const cr of this.region.creatures) {
-                if (!cr.alive) continue;
+                if (!cr.alive || !(this.hostile(cr) || cr.faction === "wild")) continue;
                 const to = sub(cr.pos, p.pos), d = len(to);
                 if (d < p.radius * 90 + cr.radius && dot(to, f) / (d || 1) > 0.965) this.hurtCreature(cr, 46 * dt * this.damageMul, p.radius, -1);
             }
@@ -399,7 +401,8 @@ export class Game {
             if (!c.alive) continue;
             const to = sub(c.pos, p.pos), d = len(to);
             if (d > reach + c.radius) continue;
-            this.hurtCreature(c, 22 * this.damageMul, p.radius, -1);
+            // Friends ride the wave; it only bites what means you harm.
+            if (this.hostile(c) || c.faction === "wild") this.hurtCreature(c, 9 * this.damageMul, p.radius, -1);
             const shove = clamp((p.radius / c.radius) ** 1.5, 0.1, 3) * p.radius * 9;
             c.vel = add(c.vel, mul(norm(to, [0, 1, 0]), shove));
             if (c.species.temper === "prey" || c.species.temper === "herd") { c.state = "flee"; c.think = 3; }
@@ -457,7 +460,8 @@ export class Game {
     private hurtPlayer(amount: number): void {
         const p = this.player;
         if (p.invulnerable > 0 || !p.alive || amount <= 0) return;
-        const dealt = amount * (1 - 0.05 * this.campaign.facets.density);
+        // A nebula is hard to hurt: what strikes it mostly passes through.
+        const dealt = amount * 0.55 * (1 - 0.05 * this.campaign.facets.density);
         p.cohesion -= dealt;
         p.sinceHurt = 0;
         this.events.push({ kind: "hurt", amount: dealt });
@@ -465,7 +469,7 @@ export class Game {
 
     /** Damage of a hit: `power` against something its own size, scaled by how the sizes compare. */
     static scaled(power: number, attackerRadius: number, targetRadius: number): number {
-        return power * clamp((attackerRadius / targetRadius) ** 1.5, 0.08, 6);
+        return power * clamp((attackerRadius / targetRadius) ** 1.5, 0.12, 6);
     }
 
     /** `by`: -1 the player, a creature id, or 0 the world. */
@@ -636,6 +640,24 @@ export class Game {
                     c.state = "hunt"; c.target = -1; c.provoked = 1e9;
                 }
             }
+        }
+        // An open "feed" goal never runs out of creatures to trick: more arrive.
+        for (const g of this.goals) {
+            const d = g.def;
+            if (d.type !== "feed" || g.done || !p.alive) continue;
+            const hole = region.holes.find(h => h.key === d.hole);
+            if (!hole) continue;
+            const left = d.count - hole.fed;
+            if (region.creatures.filter(c => c.alive && c.species.menace && c.species.attack === "ram").length >= left) continue;
+            this.baitIn -= dt;
+            if (this.baitIn > 0) continue;
+            this.baitIn = 9;
+            const from = add(hole.pos, mul(this.rng.dir(), 45 * region.scale));
+            for (let i = 0; i < 2; i++) {
+                const c = makeCreature(region, d.bait, add(from, mul(this.rng.ball(), 5 * region.scale)), { wave: -3, phase: this.rng.next() });
+                c.state = "hunt"; c.target = -1; c.provoked = 120;
+            }
+            this.events.push({ kind: "toast", text: `More ${SPECIES[d.bait].name}s are coming` });
         }
         region.creatures = region.creatures.filter(c => c.alive);
         region.bodies = region.bodies.filter(b => b.alive);
@@ -822,7 +844,7 @@ export class Game {
 
     /** A creature's hit lands on whatever it hunts. */
     private strike(c: Creature, power: number): void {
-        if (c.target === -1) this.hurtPlayer(Game.scaled(power, c.radius, this.player.radius));
+        if (c.target === -1) this.hurtPlayer(Game.scaled(power, Math.min(c.radius, this.player.radius * 1.7), this.player.radius));
         else if (c.target === -2) { const d = this.decoys[0]; if (d) d.life -= 6; }
         else { const t = this.region.creatures.find(x => x.id === c.target); if (t) this.hurtCreature(t, power, c.radius, c.id); }
     }
@@ -836,7 +858,7 @@ export class Game {
             let hit = false;
             for (const h of region.holes) if (h.alive && dist(h.pos, next) < h.radius * 1.1) { b.life = 0; hit = true; }
             if (!hit && b.from !== -1 && p.alive && segmentDistance(p.pos, b.pos, next) < p.radius * 0.8 + b.radius) {
-                this.hurtPlayer(Game.scaled(b.power, b.fromRadius, p.radius));
+                this.hurtPlayer(Game.scaled(b.power, Math.min(b.fromRadius, p.radius * 1.7), p.radius));
                 hit = true;
             }
             if (!hit) for (const c of region.creatures) {
