@@ -7,6 +7,14 @@ autobins = false
 [profile.dev]
 debug = "line-tables-only"
 
+# The browser build (scripts/build-web.sh): the engine's WASM, optimized as a whole. The Rhai
+# interpreter is most of a frame there, and gains a lot from cross-crate inlining.
+[profile.web]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
 [profile.dev.package."*"]
 debug = false
 
@@ -258,6 +266,7 @@ log = "0.4"
 # JavaScript semantics for scripts translated from TypeScript (src/script/jsrt.rs): insertion-ordered
 # objects, and the few regular expressions games test strings with.
 indexmap = "2"
+rustc-hash = "2"
 regex-lite = "0.1"
 
 
@@ -402,12 +411,14 @@ symphonia = { version = "0.5", default-features = false, features = ["aac", "iso
 fdk-aac = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Storage", "CssStyleDeclaration", "console"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Storage", "CssStyleDeclaration", "console", "Performance"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"
 js-sys = "0.3.83"
 console_error_panic_hook = "0.1"
+# A faster allocator than the default (dlmalloc) for the many small allocations an interpreter makes.
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
 rhai = { version = "1.23", features = ["wasm-bindgen"] }
 cpal = { version = "0.16", features = ["wasm-bindgen"] }
 

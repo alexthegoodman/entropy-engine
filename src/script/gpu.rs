@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt;
 
 use super::state::{BindingKind, CameraState, EngineState, GpuCommand, MeshData, PipelineDesc, VERTEX_FLOATS};
 use super::ui::UiRenderer;
@@ -211,11 +210,8 @@ impl Gpu {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() }],
         });
         let identity: [[f32; 4]; 4] = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
-        let model_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("script model"),
-            contents: bytemuck::cast_slice(&[identity]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let model_buffer = device.create_buffer(&wgpu::BufferDescriptor { label: Some("script model"), size: 64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        queue.write_buffer(&model_buffer, 0, bytemuck::cast_slice(&[identity]));
         let model_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("script model"),
             layout: &model_layout,
@@ -318,6 +314,7 @@ impl Gpu {
         layouts.extend(extra_layouts.iter());
 
         device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (vertex_src, fragment_src) = (browser_wgsl(vertex_src), browser_wgsl(fragment_src));
         let vs = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(&format!("{} vs", desc.name)), source: wgpu::ShaderSource::Wgsl(vertex_src.into()) });
         let fs = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(&format!("{} fs", desc.name)), source: wgpu::ShaderSource::Wgsl(fragment_src.into()) });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(&desc.name), bind_group_layouts: &layouts, push_constant_ranges: &[] });
@@ -371,7 +368,13 @@ impl Gpu {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = device.pop_error_scope();
+            let scope = device.pop_error_scope();
+            let name = desc.name.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Some(e) = scope.await {
+                    web_sys::console::error_1(&format!("pipeline {name:?}: {e}").into());
+                }
+            });
         }
         self.pipelines.insert(id, PipelineEntry { pipeline, desc, extra_layouts });
     }
@@ -381,16 +384,14 @@ impl Gpu {
         if let Some((_, g)) = self.geometry.get(&key) {
             return g.clone();
         }
-        let vertices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("script mesh vertices"),
-            contents: bytemuck::cast_slice(&mesh.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let indices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("script mesh indices"),
-            contents: bytemuck::cast_slice(&mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        // Created empty and written: a browser refuses large buffers mapped at creation.
+        let upload = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
+            let b = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: (bytes.len() as u64).max(4).div_ceil(4) * 4, usage: usage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            self.queue.write_buffer(&b, 0, bytes);
+            b
+        };
+        let vertices = upload("script mesh vertices", bytemuck::cast_slice(&mesh.vertices), wgpu::BufferUsages::VERTEX);
+        let indices = upload("script mesh indices", bytemuck::cast_slice(&mesh.indices), wgpu::BufferUsages::INDEX);
         let g = Rc::new(GpuMesh { vertices, indices, count: mesh.indices.len() as u32 });
         // The Rc kept alongside pins the pointer used as the key.
         self.geometry.insert(key, (mesh.clone(), g.clone()));
@@ -665,6 +666,18 @@ impl Gpu {
 
     pub fn mesh_count(&self) -> usize {
         self.meshes.len()
+    }
+}
+
+/// Browsers compile WGSL with Tint, which rejects derivatives (`dpdx`, `fwidth`, implicit-LOD
+/// `textureSample`) in control flow it cannot prove uniform; wgpu's own compiler (naga, natively)
+/// does not check this, so shaders written for the desktop engine use them freely. In a browser
+/// the check is turned off for script shaders, which then behave as they do natively.
+fn browser_wgsl(src: String) -> String {
+    if cfg!(target_arch = "wasm32") && !src.contains("derivative_uniformity") {
+        format!("diagnostic(off, derivative_uniformity);\n{src}")
+    } else {
+        src
     }
 }
 

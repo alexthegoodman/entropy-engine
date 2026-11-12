@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt;
 
 use super::fonts::Fonts;
 use super::state::UiState;
@@ -260,11 +259,15 @@ impl UiRenderer {
             }
         }
         self.vertex_count = out.len() as u32;
-        self.vertex_buffer = if out.is_empty() {
-            None
-        } else {
-            Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("script ui vertices"), contents: bytemuck::cast_slice(&out), usage: wgpu::BufferUsages::VERTEX }))
-        };
+        // One growing buffer, written each rebuild (a browser refuses large buffers mapped at creation).
+        let bytes: &[u8] = bytemuck::cast_slice(&out);
+        if !bytes.is_empty() {
+            let need = (bytes.len() as u64).next_power_of_two().max(4096);
+            if self.vertex_buffer.as_ref().map(|b| b.size() < need).unwrap_or(true) {
+                self.vertex_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor { label: Some("script ui vertices"), size: need, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }));
+            }
+            queue.write_buffer(self.vertex_buffer.as_ref().unwrap(), 0, bytes);
+        }
         // A build that overflowed the atlas holds glyphs from before the reset: redo it next frame.
         self.built_version = if self.atlas_reset { u64::MAX } else { ui.version };
         self.built_screen = screen;
@@ -272,7 +275,7 @@ impl UiRenderer {
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        if let Some(vb) = &self.vertex_buffer {
+        if let Some(vb) = self.vertex_buffer.as_ref().filter(|_| self.vertex_count > 0) {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, vb.slice(..));

@@ -15,8 +15,18 @@ pub fn hello_sources() -> ScriptSources {
     files!("hello": "main.rhai")
 }
 
+/// The prelude every game translated from TypeScript runs on (scripts/ts2rhai.mjs).
+pub fn ts_prelude() -> (String, String) {
+    ("ts_prelude.rhai".to_string(), include_str!("../../examples/rhai/ts_prelude.rhai").to_string())
+}
+
+/// Nebula Kingdom, translated from examples/studio-bundle/src/games/nebula (the TypeScript game
+/// is the source; regenerate with `node scripts/ts2rhai.mjs examples/rhai/nebula_kingdom/ts2rhai.json`),
+/// with its renderer on the engine's native instance batches.
 pub fn nebula_kingdom_sources() -> ScriptSources {
-    files!("nebula_kingdom": "nk_math.rhai", "nk_data.rhai", "nk_world.rhai", "nk_game.rhai", "nk_shader.rhai", "nk_render.rhai", "nk_scene.rhai", "nk_ui.rhai", "nk_hud.rhai", "nk_audio.rhai", "main.rhai")
+    let mut s = vec![ts_prelude()];
+    s.extend(files!("nebula_kingdom": "nk_render_native.rhai", "nebula_kingdom.gen.rhai"));
+    s
 }
 
 pub fn by_name(name: &str) -> Option<ScriptApp> {

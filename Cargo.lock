@@ -3287,6 +3287,7 @@ dependencies = [
  "rmp-serde",
  "rodio",
  "rtrb",
+ "rustc-hash 2.1.1",
  "rustp2p",
  "rustp2p-quic",
  "rustp2p-reliable",
@@ -3299,6 +3300,7 @@ dependencies = [
  "strum_macros 0.26.4",
  "symphonia",
  "taffy",
+ "talc",
  "tiff 0.9.1",
  "tiny_http",
  "tokio",
@@ -10612,6 +10614,15 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec",
+]
+
+[[package]]
+name = "talc"
+version = "4.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ae828aa394de34c7de08f522d1b86bd1c182c668d27da69caadda00590f26d"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]

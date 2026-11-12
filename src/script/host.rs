@@ -69,13 +69,16 @@ fn f3(a: &Array) -> [f32; 3] {
     [v[0] as f32, v[1] as f32, v[2] as f32]
 }
 
-/// Dynamic -> JSON (for `Json::stringify` and tool results).
+/// Dynamic -> JSON (for `Json::stringify` and tool results): maps, arrays and the JavaScript
+/// `Obj`/`List` alike.
 pub fn to_json(v: &Dynamic) -> serde_json::Value {
-    rhai::serde::from_dynamic::<serde_json::Value>(v).unwrap_or(serde_json::Value::Null)
+    super::jsrt::to_json(v)
 }
 
+/// JSON -> `Obj`/`List` with FLOAT numbers: property access and indexing work on them as on maps
+/// and arrays, and code translated from TypeScript gets the reference semantics it expects.
 pub fn from_json(v: &serde_json::Value) -> Dynamic {
-    rhai::serde::to_dynamic(v).unwrap_or(Dynamic::UNIT)
+    super::jsrt::from_json_value(v)
 }
 
 fn mesh_from_map(m: &Map) -> RResult<MeshData> {
@@ -552,9 +555,10 @@ impl Host {
         engine.set_max_operations(MAX_OPERATIONS);
         engine.set_max_call_levels(96);
         engine.set_max_expr_depths(256, 128);
-        engine.set_max_string_size(8 << 20);
-        engine.set_max_array_size(1 << 20);
-        engine.set_max_map_size(1 << 16);
+        // No size limits on strings, arrays and maps: checking them costs every operation, and
+        // a script can only allocate inside the page's own WASM memory anyway.
+        // Not Full: it evaluates calls with constant arguments at compile time, which would turn every
+        // `list([])` or `obj()` into one shared object, and freeze clocks such as `js_date_now()`.
         engine.set_optimization_level(rhai::OptimizationLevel::Simple);
         engine.set_fast_operators(true);
         let st = state.clone();
@@ -563,6 +567,7 @@ impl Host {
         engine.on_debug(move |text, src, pos| st.borrow_mut().println(format!("[debug {src:?} {pos}] {text}")));
         rmath::register(&mut engine, state.clone());
         super::jsrt::register(&mut engine);
+        super::jsrt::register_intrinsics(&mut engine);
         register_api(&mut engine, &state);
 
         let mut ast = AST::empty();
@@ -579,6 +584,12 @@ impl Host {
         let mut globals = Module::new();
         for (name, _, value) in scope.iter_raw() {
             globals.set_var(name, value.clone().into_shared());
+            // A script translated from TypeScript lists the properties it uses on objects.
+            if name == "__OBJ_PROPS" {
+                if let Some(names) = value.read_lock::<Array>() {
+                    super::jsrt::register_props(&mut engine, names.iter().filter_map(|n| n.clone().into_immutable_string().ok()));
+                }
+            }
         }
         engine.register_static_module("G", globals.into());
         let scope = Scope::new();
@@ -616,8 +627,16 @@ impl Host {
         self.call(f.fn_name(), args)
     }
 
-    /// A tool registered with `Entropy::registerTool(name, ...)` runs the script's `tool_<name>(args)`.
+    /// A tool registered with `Entropy::registerTool(name, ...)` runs the script's `tool_<name>(args)`
+    /// (or, in a script translated from TypeScript, its `__call_tool(name, args)` dispatcher).
     pub fn call_tool(&mut self, name: &str, args: serde_json::Value) -> serde_json::Value {
+        if self.has("__call_tool") {
+            let before = self.errors.len();
+            return match self.call("__call_tool", vec![name.into(), from_json(&args)]) {
+                Some(v) => to_json(&v),
+                None => serde_json::json!({ "success": false, "error": self.errors.get(before).cloned().unwrap_or_default() }),
+            };
+        }
         let f = format!("tool_{name}");
         if !self.has(&f) {
             return serde_json::json!({ "success": false, "error": format!("no tool {name}") });

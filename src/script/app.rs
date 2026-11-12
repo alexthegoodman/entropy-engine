@@ -31,6 +31,24 @@ use super::state::{EngineState, InputEvent, Shared};
 use super::store::Store;
 use rhai::Dynamic;
 
+/// Frame timing, for tuning: milliseconds per frame in the script (input callbacks and `update`)
+/// and in building the frame for the GPU, smoothed. In a browser, `stats()` returns it as JSON.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct FrameStats {
+    pub frames: u64,
+    pub script_ms: f64,
+    pub render_ms: f64,
+    pub frame_ms: f64,
+}
+
+thread_local! {
+    pub static STATS: std::cell::Cell<FrameStats> = std::cell::Cell::new(FrameStats::default());
+}
+
+fn smooth(old: f64, new: f64) -> f64 {
+    if old == 0.0 { new } else { old * 0.9 + new * 0.1 }
+}
+
 /// A script's files, compiled in this order into one script.
 pub type ScriptSources = Vec<(String, String)>;
 
@@ -414,11 +432,21 @@ impl App {
         let dt = self.last.map(|l| (now - l).as_secs_f64()).unwrap_or(1.0 / 60.0).clamp(0.0, 0.25);
         self.last = Some(now);
         let physical = {
-            let slot = self.gpu.borrow();
-            match slot.as_ref() {
-                Some((_, s)) => [s.config.width, s.config.height],
-                None => return, // still waiting for the GPU (a browser grants it asynchronously)
+            let mut slot = self.gpu.borrow_mut();
+            let Some((gpu, s)) = slot.as_mut() else {
+                return; // still waiting for the GPU (a browser grants it asynchronously)
+            };
+            // The window's size can change before the GPU is ready (a browser lays the canvas out
+            // after the surface was made), so the surface follows the window every frame.
+            if let Some(w) = &self.window {
+                let size = w.inner_size();
+                if size.width > 0 && size.height > 0 && (size.width != s.config.width || size.height != s.config.height) {
+                    s.config.width = size.width;
+                    s.config.height = size.height;
+                    s.surface.configure(&gpu.device, &s.config);
+                }
             }
+            [s.config.width, s.config.height]
         };
         let logical = self.logical(physical);
         {
@@ -430,10 +458,12 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         self.run_drive(_event_loop);
         self.poll_gamepad();
+        let script_start = Instant::now();
         self.dispatch_input();
         if let Some(h) = self.host.as_mut() {
             h.call("update", vec![Dynamic::from_float(dt)]);
         }
+        let script_ms = script_start.elapsed().as_secs_f64() * 1000.0;
         let notes: Vec<_> = self.state.borrow_mut().notes.drain(..).collect();
         for (wave, p, pan) in notes {
             self.audio.play(&wave, p, pan);
@@ -452,9 +482,15 @@ impl App {
             }
         };
         let view = frame.texture.create_view(&Default::default());
+        let render_start = Instant::now();
         gpu.render(&mut self.state.borrow_mut(), &view, logical, physical);
+        let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
         frame.present();
         self.state.borrow_mut().frame += 1;
+        STATS.with(|st| {
+            let o = st.get();
+            st.set(FrameStats { frames: o.frames + 1, script_ms: smooth(o.script_ms, script_ms), render_ms: smooth(o.render_ms, render_ms), frame_ms: smooth(o.frame_ms, dt * 1000.0) });
+        });
     }
 
     fn init_gpu(&mut self, window: Arc<Window>) {

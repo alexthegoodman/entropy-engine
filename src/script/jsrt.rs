@@ -20,7 +20,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+/// Insertion-ordered, with a fast hash: property names are short and come from the script itself.
+type IndexMap<K, V> = indexmap::IndexMap<K, V, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 use rhai::{Array, Dynamic, Engine, EvalAltResult, FnPtr, ImmutableString, Map, NativeCallContext, FLOAT, INT};
 
 pub type RResult<T> = Result<T, Box<EvalAltResult>>;
@@ -405,6 +406,16 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("js_entries", |o: Obj| List::new(o.0.borrow().iter().map(|(k, v)| Dynamic::from(List::new(vec![k.clone().into(), v.clone()]))).collect()));
     engine.register_fn("js_has", |o: Obj, k: ImmutableString| o.0.borrow().contains_key(&k));
     engine.register_fn("js_has", |o: Dynamic, k: ImmutableString| o.read_lock::<Obj>().map(|o| o.0.borrow().contains_key(&k)).unwrap_or(false));
+    engine.register_fn("js_omit", |o: Obj, keys: Array| {
+        let skip: Vec<String> = keys.into_iter().map(|k| js_str(&k)).collect();
+        let out = Obj::default();
+        for (k, v) in o.0.borrow().iter() {
+            if !skip.iter().any(|s| s == k.as_str()) {
+                out.set(k.clone(), v.clone());
+            }
+        }
+        out
+    });
     engine.register_fn("js_delete", |o: Obj, k: ImmutableString| o.0.borrow_mut().shift_remove(&k).is_some());
     engine.register_fn("js_assign", |t: Obj, s: Dynamic| {
         if let Some(src) = s.read_lock::<Obj>() {
@@ -720,6 +731,21 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("js_is_finite", |d: Dynamic| (d.is_float() || d.is_int()) && num(&d).is_finite());
     engine.register_fn("js_is_nan", |x: FLOAT| x.is_nan());
     engine.register_fn("js_to_fixed", |x: FLOAT, d: FLOAT| format!("{:.*}", d.clamp(0.0, 20.0) as usize, x));
+    engine.register_fn("js_to_precision", |x: FLOAT, p: FLOAT| {
+        let p = p.clamp(1.0, 21.0) as i32;
+        if x == 0.0 || !x.is_finite() {
+            return if x == 0.0 { format!("{:.*}", (p - 1) as usize, 0.0) } else { fmt_num(x) };
+        }
+        let e = x.abs().log10().floor() as i32;
+        if e < -6 || e >= p {
+            let s = format!("{:.*e}", (p - 1) as usize, x);
+            let (m, ex) = s.split_once('e').unwrap_or((&s, "0"));
+            let ex: i32 = ex.parse().unwrap_or(0);
+            format!("{m}e{}{}", if ex >= 0 { "+" } else { "-" }, ex.abs())
+        } else {
+            format!("{:.*}", (p - 1 - e).max(0) as usize, x)
+        }
+    });
     engine.register_fn("js_locale", |x: FLOAT| {
         let n = round_js(x);
         let digits = format!("{:.0}", n.abs());
@@ -833,6 +859,252 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("js_json_stringify", |d: Dynamic| to_json(&d).to_string());
 }
 
+
+// --- Intrinsics: the hot helpers of translated games, native -------------------------------------
+
+fn l3(d: &Dynamic) -> [f64; 3] {
+    if let Some(l) = d.read_lock::<List>() {
+        let v = l.0.borrow();
+        return [v.first().map(num).unwrap_or(0.0), v.get(1).map(num).unwrap_or(0.0), v.get(2).map(num).unwrap_or(0.0)];
+    }
+    if let Some(a) = d.read_lock::<Array>() {
+        return [a.first().map(num).unwrap_or(0.0), a.get(1).map(num).unwrap_or(0.0), a.get(2).map(num).unwrap_or(0.0)];
+    }
+    [0.0; 3]
+}
+fn lv(l: &List) -> [f64; 3] {
+    let v = l.0.borrow();
+    [v.first().map(num).unwrap_or(0.0), v.get(1).map(num).unwrap_or(0.0), v.get(2).map(num).unwrap_or(0.0)]
+}
+fn v3l(v: [f64; 3]) -> List {
+    List::new(vec![Dynamic::from_float(v[0]), Dynamic::from_float(v[1]), Dynamic::from_float(v[2])])
+}
+fn opt(d: &Dynamic, default: f64) -> f64 {
+    if d.is_unit() { default } else { num(d) }
+}
+fn floats_of(d: &Dynamic, out: &mut [f32]) {
+    if let Some(l) = d.read_lock::<List>() {
+        for (o, v) in out.iter_mut().zip(l.0.borrow().iter()) {
+            *o = num(v) as f32;
+        }
+    }
+}
+
+fn add_record(b: &super::rmath::Batches, key: &str, m: &List, v0: &Dynamic, v1: &Dynamic, v2: &Dynamic) {
+    let mut inner = b.0.borrow_mut();
+    let rec = inner.add(key, None);
+    {
+        let mv = m.0.borrow();
+        for (o, v) in rec.iter_mut().zip(mv.iter()).take(16) {
+            *o = num(v) as f32;
+        }
+    }
+    if rec.len() >= 20 { floats_of(v0, &mut rec[16..20]); }
+    if rec.len() >= 24 { floats_of(v1, &mut rec[20..24]); }
+    if rec.len() >= 28 { floats_of(v2, &mut rec[24..28]); }
+}
+
+/// Accessors on `Obj` for these property names (`o.name` then skips Rhai's indexer fallback).
+pub fn register_props(engine: &mut Engine, names: impl Iterator<Item = ImmutableString>) {
+    for name in names {
+        if matches!(name.as_str(), "length" | "size" | "lastStats") {
+            continue;
+        }
+        let (k, k2) = (name.clone(), name.clone());
+        engine.register_get(name.as_str(), move |o: &mut Obj| o.0.borrow().get(&k).cloned().unwrap_or(Dynamic::UNIT));
+        engine.register_set(name.as_str(), move |o: &mut Obj, v: Dynamic| {
+            o.0.borrow_mut().insert(k2.clone(), v);
+        });
+    }
+}
+
+/// The native side of TypeScript helpers a translation config marks as provided: `nk_math`'s
+/// vectors and `Rng`, `placed`/`oriented` matrices, and instance records from a matrix list.
+pub fn register_intrinsics(engine: &mut Engine) {
+    use super::rmath::{basis_of, hash_string, oriented, placed, Batches, Rng};
+    engine.register_fn("add", |a: List, b: List| { let (a, b) = (lv(&a), lv(&b)); v3l([a[0] + b[0], a[1] + b[1], a[2] + b[2]]) });
+    engine.register_fn("sub", |a: List, b: List| { let (a, b) = (lv(&a), lv(&b)); v3l([a[0] - b[0], a[1] - b[1], a[2] - b[2]]) });
+    engine.register_fn("mul", |a: List, s: FLOAT| { let a = lv(&a); v3l([a[0] * s, a[1] * s, a[2] * s]) });
+    engine.register_fn("dot", |a: List, b: List| { let (a, b) = (lv(&a), lv(&b)); a[0] * b[0] + a[1] * b[1] + a[2] * b[2] });
+    engine.register_fn("cross", |a: List, b: List| { let (a, b) = (lv(&a), lv(&b)); v3l([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]) });
+    engine.register_fn("len", |a: List| { let a = lv(&a); a[0].hypot(a[1]).hypot(a[2]) });
+    engine.register_fn("dist", |a: List, b: List| { let (a, b) = (lv(&a), lv(&b)); (a[0] - b[0]).hypot(a[1] - b[1]).hypot(a[2] - b[2]) });
+    engine.register_fn("norm", |a: List, fb: Dynamic| {
+        let a = lv(&a);
+        let l = a[0].hypot(a[1]).hypot(a[2]);
+        if l > 1e-12 { v3l([a[0] / l, a[1] / l, a[2] / l]) } else if fb.is_unit() { v3l([0.0, 0.0, 1.0]) } else { v3l(l3(&fb)) }
+    });
+    engine.register_fn("lerp3", |a: List, b: List, t: FLOAT| { let (a, b) = (lv(&a), lv(&b)); v3l([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]) });
+    engine.register_fn("clamp", |v: FLOAT, lo: Dynamic, hi: Dynamic| { let (lo, hi) = (opt(&lo, 0.0), opt(&hi, 1.0)); if v < lo { lo } else if v > hi { hi } else { v } });
+    engine.register_fn("forwardOf", |yaw: FLOAT, pitch: FLOAT| v3l([yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()]));
+    engine.register_fn("basis", |f: List| {
+        let (r, u) = basis_of(lv(&f));
+        let o = Obj::default();
+        o.set("right", Dynamic::from(v3l(r)));
+        o.set("up", Dynamic::from(v3l(u)));
+        o
+    });
+    engine.register_fn("segmentDistance", |p: List, a: List, b: List| {
+        let (p, a, b) = (lv(&p), lv(&a), lv(&b));
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+        let t = if l2 > 0.0 { (((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        (p[0] - a[0] - ab[0] * t).hypot(p[1] - a[1] - ab[1] * t).hypot(p[2] - a[2] - ab[2] * t)
+    });
+    engine.register_fn("hashString", |s: ImmutableString| hash_string(&s) as FLOAT);
+    engine.register_fn("smooth", |a: FLOAT, b: FLOAT, v: FLOAT| { let t = ((v - a) / (b - a)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) });
+
+    // `new Rng(seed)` and its methods, under the translator's class naming.
+    engine.register_fn("Rng__new", |seed: Dynamic| {
+        if let Some(s) = seed.read_lock::<ImmutableString>() {
+            return Rng::new(hash_string(&s));
+        }
+        // `seed >>> 0 || 1` as the TypeScript constructor does.
+        let n = num(&seed);
+        Rng::new(if n.is_finite() { (n.trunc() as i64) as u32 } else { 0 })
+    });
+    engine.register_fn("Rng__next", |r: &mut Rng| r.next());
+    engine.register_fn("Rng__range", |r: &mut Rng, a: FLOAT, b: FLOAT| r.range(a, b));
+    engine.register_fn("Rng__int", |r: &mut Rng, a: FLOAT, b: FLOAT| r.range(a, b + 1.0).floor());
+    engine.register_fn("Rng__pick", |r: &mut Rng, items: List| -> Dynamic {
+        let v = items.0.borrow();
+        if v.is_empty() {
+            return Dynamic::UNIT;
+        }
+        let i = ((r.next() * v.len() as f64).floor() as usize).min(v.len() - 1);
+        v[i].clone()
+    });
+    engine.register_fn("Rng__dir", |r: &mut Rng| v3l(r.dir()));
+    engine.register_fn("Rng__ball", |r: &mut Rng| {
+        let d = r.dir();
+        let k = r.next().cbrt();
+        v3l([d[0] * k, d[1] * k, d[2] * k])
+    });
+
+    let m16 = |m: [f32; 16]| List::new(m.iter().map(|x| Dynamic::from_float(*x as f64)).collect());
+    engine.register_fn("placed", move |p: List, sx: FLOAT, sy: Dynamic, sz: Dynamic| m16(placed(lv(&p), [sx, opt(&sy, sx), opt(&sz, sx)])));
+    engine.register_fn("oriented", move |p: List, f: List, sx: FLOAT, sy: FLOAT, sz: FLOAT, up: Dynamic| {
+        let up = if up.is_unit() { [0.0, 1.0, 0.0] } else { l3(&up) };
+        m16(oriented(lv(&p), lv(&f), [sx, sy, sz], up))
+    });
+    // A record: a 16-float matrix list, then up to three vec4 lists.
+    engine.register_fn("add_mat", |b: &mut Batches, key: ImmutableString, m: List, v0: Dynamic, v1: Dynamic, v2: Dynamic| add_record(b, &key, &m, &v0, &v1, &v2));
+    // The scene's Draw interface, natively: `d` is a Renderer object holding `solids` and `glows`.
+    engine.register_fn("draw_solid", |d: Obj, mesh: ImmutableString, m: List, color: Dynamic, params: Dynamic, extra: Dynamic| -> RResult<()> {
+        let b = d.get("solids").try_cast::<Batches>().ok_or("draw_solid: the renderer has no solids batches")?;
+        add_record(&b, &mesh, &m, &color, &params, &extra);
+        Ok(())
+    });
+    engine.register_fn("draw_glow", |d: Obj, m: List, color: Dynamic, kind: FLOAT, seed: Dynamic, place: Dynamic, extra: Dynamic| -> RResult<()> {
+        let b = d.get("glows").try_cast::<Batches>().ok_or("draw_glow: the renderer has no glows batches")?;
+        let mut inner = b.0.borrow_mut();
+        let rec = inner.add("quad", None);
+        {
+            let mv = m.0.borrow();
+            for (o, v) in rec.iter_mut().zip(mv.iter()).take(16) {
+                *o = num(v) as f32;
+            }
+        }
+        floats_of(&color, &mut rec[16..20]);
+        rec[20..24].copy_from_slice(&[kind as f32, opt(&seed, 0.0) as f32, 0.0, opt(&place, 0.0) as f32]);
+        floats_of(&extra, &mut rec[24..28]);
+        Ok(())
+    });
+    engine.register_get("lastStats", |b: &mut Batches| {
+        let o = Obj::default();
+        for (k, v) in b.0.borrow().last.iter() {
+            o.set(k.as_str(), Dynamic::from_float(num(v)));
+        }
+        o
+    });
+
+    // --- More JavaScript ---
+    engine.register_fn("js_nan", || f64::NAN);
+    engine.register_fn("js_inf", || f64::INFINITY);
+    engine.register_fn("js_date_now", || web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0).floor());
+    engine.register_fn("js_push_all", |l: List, items: List| {
+        let more = items.0.borrow().clone();
+        let mut v = l.0.borrow_mut();
+        v.extend(more);
+        v.len() as FLOAT
+    });
+    engine.register_fn("js_list_entries", |l: List| List::new(l.0.borrow().iter().enumerate().map(|(i, x)| Dynamic::from(List::new(vec![Dynamic::from_float(i as f64), x.clone()]))).collect()));
+    engine.register_fn("js_list_keys", |l: List| List::new((0..l.0.borrow().len()).map(|i| Dynamic::from_float(i as f64)).collect()));
+    engine.register_fn("js_at", |l: List, i: FLOAT| {
+        let v = l.0.borrow();
+        let i = if i < 0.0 { v.len() as f64 + i } else { i };
+        if i < 0.0 { Dynamic::UNIT } else { v.get(i as usize).cloned().unwrap_or(Dynamic::UNIT) }
+    });
+    engine.register_fn("js_new_array", |n: FLOAT| List::new(vec![Dynamic::UNIT; n.max(0.0) as usize]));
+    engine.register_fn("js_is_integer", |d: Dynamic| { let n = num(&d); (d.is_float() || d.is_int()) && n.is_finite() && n.fract() == 0.0 });
+    engine.register_fn("js_replace_first", |s: ImmutableString, a: ImmutableString, b: ImmutableString| s.replacen(a.as_str(), b.as_str(), 1));
+    engine.register_fn("js_coll_for_each", |ctx: NativeCallContext, c: Dynamic, f: FnPtr| -> RResult<()> {
+        // Map: (value, key); Set: (value, value).
+        let items: Vec<(Dynamic, Dynamic)> = if let Some(m) = c.read_lock::<JsMap>() {
+            m.0.borrow().values().map(|(k, v)| (v.clone(), k.clone())).collect()
+        } else if let Some(s) = c.read_lock::<JsSet>() {
+            s.0.borrow().values().map(|v| (v.clone(), v.clone())).collect()
+        } else {
+            Vec::new()
+        };
+        for (a, b) in items {
+            call(&ctx, &f, vec![a, b])?;
+        }
+        Ok(())
+    });
+    // A caught error as JavaScript sees one: an object with a message.
+    engine.register_fn("js_error", |e: Dynamic| -> Dynamic {
+        if e.is::<Obj>() {
+            return e;
+        }
+        let msg = if let Some(m) = e.read_lock::<Map>() { m.get("message").map(js_str).unwrap_or_else(|| e.to_string()) } else { js_str(&e) };
+        let o = Obj::default();
+        o.set("message", Dynamic::from(msg));
+        Dynamic::from(o)
+    });
+    // `x.m(args)` where `m` is an interface method: a closure held in a property, or a method of
+    // the object's class (`__class`, set by every translated constructor).
+    engine.register_fn("js_icall", |ctx: NativeCallContext, o: Dynamic, name: ImmutableString, args: Array| -> RResult<Dynamic> {
+        let (field, class) = match o.read_lock::<Obj>() {
+            Some(ob) => (ob.get(&name), ob.get("__class")),
+            None => return Err(format!("{name}() called on {}", js_typeof(&o)).into()),
+        };
+        if let Some(f) = field.read_lock::<FnPtr>() {
+            return call(&ctx, &f, args);
+        }
+        let class = class.into_immutable_string().map_err(|_| format!("{name} is not a function"))?;
+        let mut this = o.clone();
+        let mut args = args;
+        let mut refs: Vec<&mut Dynamic> = std::iter::once(&mut this).chain(args.iter_mut()).collect();
+        ctx.call_fn_raw(format!("{class}__{name}"), true, true, &mut refs)
+    });
+
+    // Typed arrays (Float32Array) are Floats.
+    use super::rmath::Floats;
+    engine.register_fn("floats_f", |n: FLOAT| Floats::new(n.max(0.0) as usize));
+    engine.register_fn("js_floats_from", |d: Dynamic| {
+        let v: Vec<f32> = if let Some(l) = d.read_lock::<List>() { l.0.borrow().iter().map(|x| num(x) as f32).collect() } else { Vec::new() };
+        Floats(Rc::new(RefCell::new(v)))
+    });
+    engine.register_get("length", |f: &mut Floats| f.0.borrow().len() as FLOAT);
+    engine.register_indexer_get(|f: &mut Floats, i: FLOAT| f.0.borrow().get(i as usize).map(|x| *x as FLOAT).unwrap_or(f64::NAN));
+    engine.register_indexer_set(|f: &mut Floats, i: FLOAT, v: FLOAT| {
+        if let Some(x) = f.0.borrow_mut().get_mut(i as usize) {
+            *x = v as f32;
+        }
+    });
+    engine.register_fn("js_floats_set", |f: Floats, src: Dynamic, offset: FLOAT| {
+        let vals: Vec<f32> = if let Some(l) = src.read_lock::<List>() { l.0.borrow().iter().map(|x| num(x) as f32).collect() } else if let Some(s) = src.read_lock::<Floats>() { s.0.borrow().clone() } else { Vec::new() };
+        let mut v = f.0.borrow_mut();
+        let o = offset.max(0.0) as usize;
+        for (i, x) in vals.into_iter().enumerate() {
+            if let Some(slot) = v.get_mut(o + i) {
+                *slot = x;
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,6 +1148,7 @@ mod tests {
         let s: String = e.eval(r#"js_replace_braces("Press {fire} or {x}", |m, k| if k == "fire" { "[LMB]" } else { m })"#).unwrap();
         assert_eq!(s, "Press [LMB] or {x}");
         let j: String = e.eval(r#"js_json_stringify(js_json_parse("{\"a\":[1,2.5,{\"b\":null}],\"c\":\"d\"}"))"#).unwrap();
-        assert_eq!(j, r#"{"a":[1,2.5,{"b":null}],"c":"d"}"#);
+        // Rhai has one "nothing" for null and undefined; stringify leaves it out, as JS does undefined.
+        assert_eq!(j, r#"{"a":[1,2.5,{}],"c":"d"}"#);
     }
 }

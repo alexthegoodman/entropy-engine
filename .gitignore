@@ -6,3 +6,5 @@ node_modules
 **/data/level_editor_2d/
 test-artifacts/
 /checkpoints
+web/pkg/
+examples/rhai/**/*.profile.rhai

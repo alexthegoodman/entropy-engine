@@ -416,7 +416,33 @@ fn locale_int(x: f64) -> String {
     if neg { format!("-{out}") } else { out }
 }
 
+thread_local! {
+    static PROFILE: RefCell<HashMap<String, (f64, u64)>> = RefCell::new(HashMap::new());
+}
+
+/// Inclusive milliseconds and calls per function, from a `--profile` translation.
+pub fn profile_report() -> Vec<(String, f64, u64)> {
+    let mut v: Vec<_> = PROFILE.with(|p| p.borrow().iter().map(|(k, (ms, n))| (k.clone(), *ms, *n)).collect());
+    v.sort_by(|a, b| b.1.total_cmp(&a.1));
+    v
+}
+
+pub fn profile_reset() {
+    PROFILE.with(|p| p.borrow_mut().clear());
+}
+
 pub fn register(engine: &mut Engine, state: Shared) {
+    let t0 = web_time::Instant::now();
+    engine.register_fn("prof_begin", move || t0.elapsed().as_secs_f64() * 1000.0);
+    engine.register_fn("prof_end", move |name: ImmutableString, start: FLOAT| {
+        let ms = t0.elapsed().as_secs_f64() * 1000.0 - start;
+        PROFILE.with(|p| {
+            let mut p = p.borrow_mut();
+            let e = p.entry(name.to_string()).or_insert((0.0, 0));
+            e.0 += ms;
+            e.1 += 1;
+        });
+    });
     // --- scalars ---
     engine.register_fn("lerp", |a: FLOAT, b: FLOAT, t: FLOAT| a + (b - a) * t);
     engine.register_fn("clamp", |v: FLOAT| v.clamp(0.0, 1.0));
