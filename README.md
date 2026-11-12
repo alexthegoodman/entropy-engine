@@ -10,7 +10,7 @@
 
 ## Rhai and the web
 
-Apps can also be scripted in Rhai, which runs natively and in the browser (WebAssembly + WebGPU) with no JavaScript of the app's own. Nebula Kingdom runs on the web this way, translated from its TypeScript by `scripts/ts2rhai.mjs`: `./scripts/build-web.sh`, then serve `web/`. See [docs/RHAI_SCRIPTING.md](docs/RHAI_SCRIPTING.md).
+Apps can also be scripted in Rhai, which runs natively and in the browser (WebAssembly + WebGPU) with no JavaScript of the app's own. Nebula Kingdom runs on the web this way, translated from its TypeScript by `scripts/ts2rhai.mjs`: `./scripts/build-web.sh`, then serve `web/`. See [docs/RHAI_SCRIPTING.md](docs/RHAI_SCRIPTING.md). To publish it as a static site on Vercel: `./scripts/deploy-web.ps1` (builds, then `vercel deploy --prod` from `web/`; `-Preview` for a preview URL).
 
 ## Writing Addons
 
