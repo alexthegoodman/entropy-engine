@@ -122,7 +122,7 @@ pub fn truthy(d: &Dynamic) -> bool {
 pub fn fmt_num(f: f64) -> String {
     if f.is_nan() {
         "NaN".into()
-    } else if f.is_infinite() {
+    } else if f.is_infinite() || f.abs() == f64::MAX {
         if f > 0.0 { "Infinity".into() } else { "-Infinity".into() }
     } else if f == 0.0 {
         "0".into()
@@ -1020,7 +1020,10 @@ pub fn register_intrinsics(engine: &mut Engine) {
 
     // --- More JavaScript ---
     engine.register_fn("js_nan", || f64::NAN);
-    engine.register_fn("js_inf", || f64::INFINITY);
+    // Rhai's float comparisons answer false against a true infinity (`1.0 < inf`, `inf == inf`), which
+    // broke every "best so far" search seeded with `Infinity` (siphon found no target). The largest
+    // finite float orders correctly and `fmt_num` still prints it as Infinity.
+    engine.register_fn("js_inf", || f64::MAX);
     engine.register_fn("js_date_now", || web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0).floor());
     engine.register_fn("js_push_all", |l: List, items: List| {
         let more = items.0.borrow().clone();
