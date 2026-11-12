@@ -1,0 +1,49 @@
+{
+    "$comment": "Nebula Kingdom for the Rhai runtime: node scripts/ts2rhai.mjs examples/rhai/nebula_kingdom/ts2rhai.json",
+    "typescriptFrom": "../../studio-bundle/package.json",
+    "tsconfig": "../../studio-bundle/tsconfig.nebula.json",
+    "entry": "../../studio-bundle/src/games/nebula/nebula_addon.ts",
+    "out": "nebula_kingdom.gen.rhai",
+    "skipModules": [
+        "../../studio-bundle/src/games/nebula/nk_math.ts",
+        "../../studio-bundle/src/games/nebula/nk_meshes.ts",
+        "../../studio-bundle/src/apps/quadplanet/qp_instances.ts"
+    ],
+    "provided": {
+        "../../studio-bundle/src/games/nebula/nk_render.ts": [
+            "placed",
+            "oriented",
+            "Renderer"
+        ]
+    },
+    "api": {
+        "Entropy.AddonAtom.register": "__addon_register",
+        "Entropy.Addon.register": "__addon_register",
+        "Entropy.println": "Entropy::println",
+        "Entropy.setGameMode": null,
+        "Entropy.Lighting.updateSun": "Entropy::Lighting::updateSun",
+        "Entropy.Camera.setTransform": "Entropy::Camera::setTransform",
+        "Entropy.Camera.setFov": "Entropy::Camera::setFov",
+        "Entropy.Window.getSize": "__window_size",
+        "Entropy.Audio.playNote": "Entropy::Audio::playNote",
+        "Entropy.Input.onKeyDown": "__hook_key_down",
+        "Entropy.Input.onKeyUp": "__hook_key_up",
+        "Entropy.Input.onMouseDown": "__hook_mouse_down",
+        "Entropy.Input.onMouseUp": "__hook_mouse_up",
+        "Entropy.Input.onMouseMove": "__hook_mouse_move",
+        "Entropy.Input.onMouseWheel": "__hook_mouse_wheel",
+        "Entropy.Input.onGamepadButton": "__hook_gamepad_button",
+        "Entropy.Input.onGamepadAxis": "__hook_gamepad_axis",
+        "addon.onInit": "__hook_init",
+        "addon.onUpdatePlus": "__hook_update",
+        "addon.onUpdate": "__hook_update1",
+        "addon.registerTool": "__tool_register",
+        "addon.IO.store.read": "Entropy::Store::read",
+        "addon.IO.store.write": "Entropy::Store::write"
+    },
+    "interfaceCalls": {
+        "Draw.solid": "draw_solid",
+        "Draw.glow": "draw_glow"
+    },
+    "$comment2": "interfaceCalls: the scene's Draw interface goes straight to native instance records (Renderer in nk_render_native.rhai holds the batches)."
+}

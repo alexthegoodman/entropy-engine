@@ -7,6 +7,14 @@ autobins = false
 [profile.dev]
 debug = "line-tables-only"
 
+# The browser build (scripts/build-web.sh): the engine's WASM, optimized as a whole. The Rhai
+# interpreter is most of a frame there, and gains a lot from cross-crate inlining.
+[profile.web]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
 [profile.dev.package."*"]
 debug = false
 
@@ -232,8 +240,6 @@ getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
 
 # For dependencies that use getrandom 0.3
 getrandom = { version = "0.3", features = ["wasm_js"] }
-
-env_logger = "0.11"
 pollster = "0.3"
 bytemuck = { version = "1.19.0", features = ["derive"] }
 # wgpu = "22.1.0"
@@ -241,70 +247,30 @@ bytemuck = { version = "1.19.0", features = ["derive"] }
 wgpu = "27.0.1"
 futures = "0.3.30"
 uuid = { version = "1.8.0", features = ["v4", "v5", "js"] }
-lyon_tessellation = "1.0.15"
-strum = "0.26.3"
-strum_macros = "0.26"
-cgmath = "0.18.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_with = "3.11.0"
 fontdue = "0.9.2"
-image = "0.25.5"
 rand = "0.8.5"
-munkres = "0.5.2"
-directories = "5.0.1"
-chrono = { version = "0.4.38", features = ["serde", "wasmbind"] }
 anyhow = "1.0"
 # wgpu = "22.1.0"
 raw-window-handle = "0.6.2"
-nalgebra = { version = "0.32.5", features = ["mint"] }
-nalgebra-glm = "0.18.0"
-base64 = "0.22.1"
-tiff = "0.9.1"
-reqwest = { version = "0.12.4", features = ["json", "blocking"] }
-reqwest-graphql = "1.0.0"
-regex = "1"
-# Parses tests/features/browser_live.feature at runtime so BrowserBddDriver's live-tier action
-# sequence (src/startup.rs) is generated from that file instead of duplicated by hand. Same
-# gherkin version cucumber = "0.23.0" (a dev-dependency below) already pulls in transitively.
-gherkin = "0.16"
-gloo-utils = "0.2.0"
-rapier3d = { version = "0.20.0" }
-lazy_static = "1.5.0"
-# rayon = "1.10.0" # no wasm?
-cursor-icon = "1.2.0"
 tracing = "0.1.43"
-noise = "0.8"
-transform-gizmo = "0.8.0"
-mint = "0.5.9"
-exr = "1.74.0"
+# Portable script runtime (src/script): Rhai is the scripting language that runs everywhere,
+# including the browser, where Deno cannot. winit/cpal/gilrs all have web backends.
+rhai = { version = "1.23", features = ["serde"] }
+winit = { version = "0.30.12", features = ["rwh_06"] }
+cpal = "0.16"
 gilrs = "0.11.1"
-rodio = "0.21.1"
-fundsp = "0.23.0"
-# Windowed real FFT for the DAW's spectrum analyzer (src/audio/analysis.rs). Already in the tree
-# via fundsp; naming it here lets the analyzer plan its own transforms.
-realfft = "3.5"
-hound = "3.5"
-ordered-float = "5.1.0"
-burn = { version = "0.20", features = ["ndarray", "autodiff", "wgpu"] }
-fastrand = "2"
-# CLI and progress bars for the gen_daw_data / train_prediction bins.
-clap = { version = "4", features = ["derive"] }
-indicatif = "0.17"
+web-time = "1"
+log = "0.4"
+# JavaScript semantics for scripts translated from TypeScript (src/script/jsrt.rs): insertion-ordered
+# objects, and the few regular expressions games test strings with.
+indexmap = "2"
+rustc-hash = "2"
+regex-lite = "0.1"
 
-# entropy_gui (the in-house immediate-mode GUI kit that replaces egui) dependencies
-etagere = "0.2"
-arboard = "3"
 
-# Minimal blocking HTTP server backing the automatic MCP server (src/mcp/) that
-# exposes every addon-registered tool to external MCP clients like Claude Code.
-tiny_http = "0.12"
-scraper = "0.27.0"
-ego-tree = "0.11.0"
-taffy = "0.14.0"
-url = "2.5.8"
-
-[dependencies.gltf]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.gltf]
 features = ["utils", "KHR_texture_transform"]
 version = "1"
 
@@ -335,8 +301,63 @@ windows-core = "0.58.0"
 windows-capture = "1.5.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+
+env_logger = "0.11"
+lyon_tessellation = "1.0.15"
+strum = "0.26.3"
+strum_macros = "0.26"
+cgmath = "0.18.0"
+serde_with = "3.11.0"
+image = "0.25.5"
+munkres = "0.5.2"
+directories = "5.0.1"
+chrono = { version = "0.4.38", features = ["serde", "wasmbind"] }
+nalgebra = { version = "0.32.5", features = ["mint"] }
+nalgebra-glm = "0.18.0"
+base64 = "0.22.1"
+tiff = "0.9.1"
+reqwest = { version = "0.12.4", features = ["json", "blocking"] }
+reqwest-graphql = "1.0.0"
+regex = "1"
+# Parses tests/features/browser_live.feature at runtime so BrowserBddDriver's live-tier action
+# sequence (src/startup.rs) is generated from that file instead of duplicated by hand. Same
+# gherkin version cucumber = "0.23.0" (a dev-dependency below) already pulls in transitively.
+gherkin = "0.16"
+gloo-utils = "0.2.0"
+rapier3d = { version = "0.20.0" }
+lazy_static = "1.5.0"
+# rayon = "1.10.0" # no wasm?
+cursor-icon = "1.2.0"
+noise = "0.8"
+transform-gizmo = "0.8.0"
+mint = "0.5.9"
+exr = "1.74.0"
+gilrs = "0.11.1"
+rodio = "0.21.1"
+fundsp = "0.23.0"
+# Windowed real FFT for the DAW's spectrum analyzer (src/audio/analysis.rs). Already in the tree
+# via fundsp; naming it here lets the analyzer plan its own transforms.
+realfft = "3.5"
+hound = "3.5"
+ordered-float = "5.1.0"
+burn = { version = "0.20", features = ["ndarray", "autodiff", "wgpu"] }
+fastrand = "2"
+# CLI and progress bars for the gen_daw_data / train_prediction bins.
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+
+# entropy_gui (the in-house immediate-mode GUI kit that replaces egui) dependencies
+etagere = "0.2"
+arboard = "3"
+
+# Minimal blocking HTTP server backing the automatic MCP server (src/mcp/) that
+# exposes every addon-registered tool to external MCP clients like Claude Code.
+tiny_http = "0.12"
+scraper = "0.27.0"
+ego-tree = "0.11.0"
+taffy = "0.14.0"
+url = "2.5.8"
 meshopt = "0.4.1"
-winit = { version = "0.30.12", features = ["rwh_06"] }
 # egui / egui-wgpu / egui-winit / egui_dock / egui-snarl / egui_code_editor all removed:
 # replaced by our own entropy_gui kit (see src/entropy_gui/).
 device_query = "2.1.0"
@@ -367,7 +388,6 @@ vst3-host = { version = "0.9.0", default-features = false }
 # Live guitar input (src/guitar_live). rodio 0.21 already pulls in this cpal for output; naming it
 # here gives us the input side of the same host. ASIO is opt-in (`--features asio`): it needs the
 # Steinberg SDK (CPAL_ASIO_DIR) and LLVM at build time, so the default build stays WASAPI.
-cpal = "0.16"
 # Lock-free single-producer single-consumer queue between the input callback and the router.
 rtrb = "0.3"
 # Real interactive terminal: portable-pty opens a native pseudo-terminal (ConPTY on Windows,
@@ -391,11 +411,16 @@ symphonia = { version = "0.5", default-features = false, features = ["aac", "iso
 fdk-aac = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Navigator", "Location"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Location", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Storage", "CssStyleDeclaration", "console", "Performance"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"
 js-sys = "0.3.83"
+console_error_panic_hook = "0.1"
+# A faster allocator than the default (dlmalloc) for the many small allocations an interpreter makes.
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
+rhai = { version = "1.23", features = ["wasm-bindgen"] }
+cpal = { version = "0.16", features = ["wasm-bindgen"] }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 # Inspect exported tracks in daw_visualizer_live; Windows playback/export uses Media Foundation.

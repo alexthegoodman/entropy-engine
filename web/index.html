@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The page runs one script of its own (main.js, which loads the engine) and the engine's
+     WebAssembly. No inline or remote scripts, no eval: a game's logic is Rhai inside the WASM. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Entropy</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #cfe; font: 15px/1.5 system-ui, sans-serif; overflow: hidden; }
+  #entropy-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
+  #entropy-status { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: min(560px, calc(100vw - 32px)); text-align: center; pointer-events: none; }
+  #entropy-status[data-state="running"] { display: none; }
+  #entropy-status[data-state="error"] { color: #f99; background: #1a0508e6; padding: 16px 20px; border: 1px solid #f665; border-radius: 6px; }
+</style>
+<script type="module" src="./main.js"></script>
+</head>
+<body>
+<canvas id="entropy-canvas" tabindex="0"></canvas>
+<div id="entropy-status" data-state="loading">Loading…</div>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "$comment": "One scripted flight through Cradle Shoals: both harnesses step the Game with these inputs at 1/30 s and print summary() and a few derived values.",
+  "region": "cradle",
+  "dt": 0.03333333333333333,
+  "phases": [
+    { "frames": 90, "input": { "thrust": 1 } },
+    { "frames": 60, "input": { "thrust": 0.6, "turnX": 0.4, "fire": true } },
+    { "frames": 40, "input": { "thrust": 1, "surge": true, "turnY": -0.2 } },
+    { "frames": 30, "input": { "siphon": true, "lift": 1 } },
+    { "frames": 1, "input": { "pulse": true, "attune": true } },
+    { "frames": 120, "input": { "thrust": 0.8, "turnX": -0.5, "fire": true } },
+    { "frames": 200, "input": { "thrust": 1, "turnX": 0.15, "strafe": 0.3 } }
+  ]
+}

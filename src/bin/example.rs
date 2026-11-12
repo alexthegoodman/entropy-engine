@@ -8,6 +8,35 @@ async fn main() {
     {
         let name = env::args().nth(1);
 
+        // Rhai apps (src/script): the same scripts the browser build runs, here in a native window.
+        // `rhai-<app>` picks one of entropy_engine::script::apps::NAMES.
+        if name.as_deref() == Some("rhai-file") {
+            // `rhai-file a.rhai b.rhai ...`: a Rhai app straight from disk, files in order.
+            let data = env::var("ENTROPY_RHAI_DATA").unwrap_or_else(|_| "../rhai-app-data".to_string());
+            let mut app = entropy_engine::script::ScriptApp::new("rhai-file").with_data_dir(data);
+            for path in env::args().skip(2) {
+                let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+                app = app.with_script(path, text);
+            }
+            if let Err(e) = app.run() {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if let Some(app) = name.as_deref().and_then(|n| n.strip_prefix("rhai-")) {
+            let Some(script_app) = entropy_engine::script::apps::by_name(app) else {
+                eprintln!("No Rhai app {app}; there are {:?}", entropy_engine::script::apps::NAMES);
+                std::process::exit(2);
+            };
+            let data = env::var("ENTROPY_RHAI_DATA").unwrap_or_else(|_| "../rhai-app-data".to_string());
+            if let Err(e) = script_app.with_data_dir(data).run() {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+
         let app = match name.as_deref() {
             Some("allegiance") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/allegiance.js")

@@ -8,6 +8,10 @@
 
 ---
 
+## Rhai and the web
+
+Apps can also be scripted in Rhai, which runs natively and in the browser (WebAssembly + WebGPU) with no JavaScript of the app's own. Nebula Kingdom runs on the web this way, translated from its TypeScript by `scripts/ts2rhai.mjs`: `./scripts/build-web.sh`, then serve `web/`. See [docs/RHAI_SCRIPTING.md](docs/RHAI_SCRIPTING.md).
+
 ## Writing Addons
 
 Everything you build — game logic, UI panels, custom render pipelines, procedural content — is a TypeScript **addon**. An addon registers itself once, then reacts to lifecycle hooks and calls into the native `Entropy` API.
