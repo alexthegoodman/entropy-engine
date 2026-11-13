@@ -494,6 +494,10 @@ cargo run --bin example --release -- quadplanet
 // speak, organize and conquer the full-scale Earth of 2100 (Allegiance)
 npm run build-allegiance
 cargo run --bin example --release -- allegiance
+
+// a bare wall of PBR material for parallax occlusion work (Material Lab, see docs/MATERIAL_LAB.md)
+npm run build-material-lab
+cargo run --bin example --release -- material-lab
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,

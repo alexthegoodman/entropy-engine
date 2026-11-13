@@ -47,6 +47,11 @@ async fn main() {
                 // tiles, OpenStreetMap city tiles and Mesha house meshes cache under it too.
                 // ENTROPY_ALLEGIANCE_BDD_DATA lets tests/allegiance_live start from a clean folder.
                 .with_data_dir(env::var("ENTROPY_ALLEGIANCE_BDD_DATA").unwrap_or_else(|_| "../allegiance-data".to_string())),
+            Some("material-lab") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/material_lab.js")
+                .with_hot_reload(true)
+                .with_title("MATERIAL LAB")
+                .with_window_size(1600.0, 900.0),
             Some("abyss") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/abyss.js")
                 .with_hot_reload(true)

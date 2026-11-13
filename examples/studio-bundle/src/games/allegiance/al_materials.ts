@@ -11,13 +11,14 @@
 // - Meshes from Mesha have no texture coordinates, so the maps are laid on the same planes the
 //   procedural surfaces use (along and up a wall, across and up a roof's slope), in the object's
 //   own space, so they stay put on a building.
-// - Near the camera the height map drives parallax occlusion mapping: the view ray is stepped
-//   through the height field so stones stand proud of their joints and hide what lies behind
-//   them. It fades out by PARALLAX_FAR, where plain normal mapping takes over, and the height also
+// - Near the camera the height map drives parallax occlusion mapping (materials/pom.ts, shared with
+//   the Material Lab): the view ray is stepped through the height field so stones stand proud of
+//   their joints and hide what lies behind them. It fades out by PARALLAX_FAR, where plain normal mapping takes over, and the height also
 //   darkens the crevices. Roughness feeds a normalized specular lobe (dielectric, F0 = 0.04).
 
 import type { BindingConfig, BindingEntry } from "../../addon";
 import { SURFACE, FINISH } from "../../apps/quadplanet/qp_shader";
+import { pomTracer, pomSettingsWgsl, POM_REFINED } from "../../materials/pom";
 
 export interface MaterialSet {
     /** Folder under MATERIAL_DIR holding basecolor.png, normal.png, roughness.png and height.png. */
@@ -139,6 +140,9 @@ const SURFACE_LAYER = array<i32, ${t.layer.length}>(${t.layer.join(", ")});
 const SURFACE_TILE = array<f32, ${t.layer.length}>(${t.tile.map(f).join(", ")});
 const SURFACE_DEPTH = array<f32, ${t.layer.length}>(${t.depth.map(f).join(", ")});
 
+${pomTracer({ height: "mat_height", sampler: "mat_sampler" })}
+const POM_SETTINGS = ${pomSettingsWgsl(POM_REFINED)};
+
 struct Textured { albedo: vec3<f32>, n_local: vec3<f32>, rough: f32, height: f32, metallic: f32 };
 
 fn surface_layer(kind: i32) -> i32 {
@@ -148,7 +152,7 @@ fn surface_layer(kind: i32) -> i32 {
 
 // The textured surface at local point p (normal ln, surface coordinates uv0 with screen
 // derivatives dx/dy), seen along v_local (unit, toward the eye, object space) from dist meters.
-fn textured_surface(kind: i32, layer: i32, uv0: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, ln: vec3<f32>, v_local: vec3<f32>, dist: f32) -> Textured {
+fn textured_surface(kind: i32, layer: i32, uv0: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, ln: vec3<f32>, v_local: vec3<f32>, dist: f32, frag: vec2<f32>) -> Textured {
     var out: Textured;
     let tile = SURFACE_TILE[kind];
     // Image up is up the wall (or slope): the maps' v runs down.
@@ -162,30 +166,13 @@ fn textured_surface(kind: i32, layer: i32, uv0: vec2<f32>, dx: vec2<f32>, dy: ve
     var t = vec3<f32>(1.0, 0.0, 0.0);
     if (fl >= 0.08) { t = normalize(vec3<f32>(-flat.y, 0.0, flat.x)); }
     let b = cross(t, ln);
-    // Parallax occlusion near the eye: march the view ray down through the height field.
+    // Parallax occlusion near the eye (materials/pom.ts): march the view ray down through the
+    // height field, then binary-search the hit.
     let near = 1.0 - smoothstep(${f(PARALLAX_NEAR)}, ${f(PARALLAX_FAR)}, dist);
     let vt = vec3<f32>(dot(v_local, t), dot(v_local, b), dot(v_local, ln));
     if (near > 0.0 && vt.z > 0.08 && SURFACE_DEPTH[kind] > 0.0) {
         let shift = vec2<f32>(vt.x, -vt.y) / vt.z * (SURFACE_DEPTH[kind] / tile) * near;
-        let steps = mix(24.0, 8.0, vt.z);
-        let step = 1.0 / steps;
-        var depth = 0.0;
-        var cur = uv;
-        var surface = 1.0 - textureSampleGrad(mat_height, mat_sampler, cur, layer, gx, gy).r;
-        var prev_cur = cur;
-        var prev_gap = surface;
-        for (var i = 0; i < 32; i = i + 1) {
-            if (depth >= surface || f32(i) >= steps) { break; }
-            prev_cur = cur;
-            prev_gap = surface - depth;
-            cur = cur - shift * step;
-            depth = depth + step;
-            surface = 1.0 - textureSampleGrad(mat_height, mat_sampler, cur, layer, gx, gy).r;
-        }
-        // Between the last two steps, where the ray met the surface.
-        let after = surface - depth;
-        let w = clamp(after / (after - prev_gap + 1.0e-5), 0.0, 1.0);
-        uv = mix(cur, prev_cur, w);
+        uv = pom_trace(layer, uv, gx, gy, shift, vt.z, vec2<f32>(0.0), frag, POM_SETTINGS).uv;
     }
     out.albedo = textureSampleGrad(mat_basecolor, mat_sampler, uv, layer, gx, gy).rgb;
     let nt = textureSampleGrad(mat_normal, mat_sampler, uv, layer, gx, gy).xyz * 2.0 - 1.0;

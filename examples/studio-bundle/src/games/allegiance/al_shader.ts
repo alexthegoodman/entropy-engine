@@ -207,7 +207,7 @@ fn sun_visibility(p: vec3<f32>, n: vec3<f32>, view_w: f32, i: i32) -> f32 {
                 // Textured: maps with parallax near the eye, then the same weathering.
                 let m = item.model;
                 let vl = normalize(vec3<f32>(dot(v, normalize(m[0].xyz)), dot(v, normalize(m[1].xyz)), dot(v, normalize(m[2].xyz))));
-                let tx = textured_surface(kind, layer, mat_uv0, mat_dx, mat_dy, ln, vl, dist);
+                let tx = textured_surface(kind, layer, mat_uv0, mat_dx, mat_dy, ln, vl, dist, in.clip_position.xy);
                 let f = city_surface(0, tx.albedo * item.tint.rgb, in.tex_pos * mat_scale, ln, footprint);
                 base = f.albedo;
                 // Roughness as a normalized specular lobe (dielectric).

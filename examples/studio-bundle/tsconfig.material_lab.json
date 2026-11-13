@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/materials/**/*.ts", "src/apps/material_lab/**/*.ts"]
+}

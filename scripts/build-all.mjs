@@ -18,6 +18,7 @@ if (!Number.isSafeInteger(bundleJobs) || bundleJobs < 1) {
 const bundles = [
   ["allegiance", "src/games/allegiance/allegiance_addon.ts", "allegiance.js"],
   ["app-launcher", "src/apps/app_launcher_addon.ts", "app_launcher.js"],
+  ["material-lab", "src/apps/material_lab/material_lab_addon.ts", "material_lab.js"],
   ["nebula-kingdom", "src/games/nebula/nebula_addon.ts", "nebula_kingdom.js"],
   ["canvas-surface-demo", "src/apps/canvas_surfaces/canvas_surface_addon.ts", "canvas_surfaces.js"],
   ["cc-manager", "src/apps/cc_manager_addon.ts", "cc_manager.js"],
