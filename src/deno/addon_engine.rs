@@ -63,6 +63,10 @@ use crate::deno::quadplanet_ops::{
     op_quadplanet_info, op_quadplanet_configure, op_quadplanet_clear, op_quadplanet_destroy, op_quadplanet_geocode,
     op_quadplanet_place_name, op_quadplanet_buildings, op_quadplanet_roads,
 };
+use crate::deno::cad_ops::{
+    op_cad_open, op_cad_close, op_cad_evaluate, op_cad_spawn, op_cad_lines_begin, op_cad_lines_add, op_cad_segments, op_cad_pick,
+    op_cad_sketch_point, op_cad_sketch_hit, op_cad_export,
+};
 use crate::deno::mesh_cache_ops::{
     op_mesh_cache_status, op_mesh_cache_put, op_mesh_cache_meta, op_mesh_cache_info, op_mesh_cache_vertices, op_mesh_cache_indices, op_mesh_cache_create_mesh, op_mesh_cache_remove, op_mesh_cache_clear, op_mesh_cache_prune, op_mesh_cache_stats, op_mesh_cache_failure,
 };
@@ -548,6 +552,17 @@ extension!(
         op_quadplanet_place_name,
         op_quadplanet_buildings,
         op_quadplanet_roads,
+        op_cad_open,
+        op_cad_close,
+        op_cad_evaluate,
+        op_cad_spawn,
+        op_cad_lines_begin,
+        op_cad_lines_add,
+        op_cad_segments,
+        op_cad_pick,
+        op_cad_sketch_point,
+        op_cad_sketch_hit,
+        op_cad_export,
         op_mesh_cache_status,
         op_mesh_cache_put,
         op_mesh_cache_meta,

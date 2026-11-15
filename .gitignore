@@ -8,3 +8,5 @@ test-artifacts/
 /checkpoints
 web/pkg/
 examples/rhai/**/*.profile.rhai
+crates/*/target
+crates/*/Cargo.lock

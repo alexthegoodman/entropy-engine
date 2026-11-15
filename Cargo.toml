@@ -235,6 +235,8 @@ name = "bench_prediction"
 path = "src/bin/bench_prediction.rs"
 
 [dependencies]
+# The geometry kernel shared by the CAD apps (NURBS curves, sketches, swept bodies, booleans).
+entropy-cad = { path = "crates/entropy-cad" }
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
 
