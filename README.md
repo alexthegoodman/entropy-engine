@@ -161,6 +161,7 @@ For addons that want to write their own WGSL shaders instead of using the engine
 | `Texture.update(id, data)` | Overwrites an existing texture's pixels for procedurally generated or video-fed textures. |
 | `Texture.load(filename)` | Loads a texture from an image file. |
 | `Composite.register(name, outputTexId, pipelineId, bindings)` | Registers a full-screen compositing pass (e.g. combining multiple render targets into one final image). |
+| `Screen.setEffect({ pipeline, buffers })` | A full-screen pass over the finished 3D frame, before the UI: a `form: "composite"` pipeline reads a copy of the frame and its depth (depth of field, haze, ink lines); `null` turns it off. World of Music's dreamy look is one. |
 
 </details>
 
@@ -518,6 +519,10 @@ cargo run --bin example --release -- quadplanet
 npm run build-allegiance
 cargo run --bin example --release -- allegiance
 
+// direct swarms of Tones on a cel-shaded island where color means something (World of Music, see docs/WORLD_OF_MUSIC.md)
+npm run build-world-of-music
+cargo run --bin example --release -- world-of-music
+
 // a bare wall of PBR material for parallax occlusion work (Material Lab, see docs/MATERIAL_LAB.md)
 npm run build-material-lab
 cargo run --bin example --release -- material-lab
@@ -598,6 +603,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Contour Design / the Skiff as light](public/contour-design-holo.png "Contour Design / the Skiff as light") | ![Contour Design / a loft, twisted and unevenly mirrored](public/contour-design-asymmetry.png "Contour Design / a loft, twisted and unevenly mirrored") |
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
+| ![World of Music / Landfall Cove](public/world-of-music-vista.png "World of Music / Landfall Cove") | ![World of Music / Agent Tom and his Tones](public/world-of-music-agent-tom.png "World of Music / Agent Tom and his Tones") |
 | ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |
 
 ## P2P development

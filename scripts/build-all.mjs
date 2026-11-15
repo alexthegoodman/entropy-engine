@@ -20,6 +20,7 @@ const bundles = [
   ["app-launcher", "src/apps/app_launcher_addon.ts", "app_launcher.js"],
   ["material-lab", "src/apps/material_lab/material_lab_addon.ts", "material_lab.js"],
   ["nebula-kingdom", "src/games/nebula/nebula_addon.ts", "nebula_kingdom.js"],
+  ["world-of-music", "src/games/world_of_music/world_of_music_addon.ts", "world_of_music.js"],
   ["canvas-surface-demo", "src/apps/canvas_surfaces/canvas_surface_addon.ts", "canvas_surfaces.js"],
   ["cc-manager", "src/apps/cc_manager_addon.ts", "cc_manager.js"],
   ["p2p-forum", "src/apps/p2p_forum_addon.ts", "p2p_forum.js"],

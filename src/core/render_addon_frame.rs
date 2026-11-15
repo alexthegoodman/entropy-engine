@@ -1643,6 +1643,81 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 }
             }
 
+            // Screen effect (Entropy.Screen.setEffect): the finished 3D frame is copied, then a
+            // full-screen "composite" pipeline reads the copy and the depth buffer and writes the
+            // frame again - depth of field, haze, ink lines - before the gizmo and the UI.
+            if let Some(frame_texture) = pipeline.frame_texture.clone() {
+                let effect = {
+                    let op_state = editor.addon_engine.runtime.op_state();
+                    let op_state = op_state.borrow();
+                    op_state.try_borrow::<AddonContext>().and_then(|ctx| {
+                        let config = ctx.screen_effect.as_ref()?;
+                        let p = ctx.composite_pipelines.get(&config.pipeline)?.clone();
+                        let buffers: Option<Vec<_>> = config.buffers.iter().map(|id| ctx.buffers.get(id).cloned()).collect();
+                        Some((p, buffers?))
+                    })
+                };
+                if let Some((effect_pipeline, buffers)) = effect {
+                    let size = frame_texture.size();
+                    let stale = pipeline.screen_effect_copy.as_ref().map_or(true, |t| t.size() != size || t.format() != frame_texture.format());
+                    if stale {
+                        pipeline.screen_effect_copy = Some(device.create_texture(&wgpu::TextureDescriptor {
+                            label: Some("screen effect frame copy"),
+                            size,
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: frame_texture.format(),
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                            view_formats: &[],
+                        }));
+                    }
+                    let copy = pipeline.screen_effect_copy.as_ref().unwrap();
+                    encoder.copy_texture_to_texture(frame_texture.as_image_copy(), copy.as_image_copy(), size);
+                    let copy_view = copy.create_view(&wgpu::TextureViewDescriptor::default());
+                    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        ..Default::default()
+                    });
+                    let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("screen effect frame group"),
+                        layout: &effect_pipeline.get_bind_group_layout(1),
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&copy_view) },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(depth_view) },
+                        ],
+                    });
+                    let uniform_group = (!buffers.is_empty()).then(|| {
+                        let entries: Vec<_> = buffers.iter().enumerate().map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() }).collect();
+                        device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("screen effect uniforms"), layout: &effect_pipeline.get_bind_group_layout(2), entries: &entries })
+                    });
+                    let mut effect_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Screen Effect Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    if let Some(rect) = viewport_rect {
+                        effect_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+                    effect_pass.set_pipeline(&effect_pipeline);
+                    effect_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    effect_pass.set_bind_group(1, &frame_group, &[]);
+                    if let Some(g) = &uniform_group { effect_pass.set_bind_group(2, g, &[]); }
+                    effect_pass.draw(0..3, 0..1);
+                }
+            }
+
             // Gizmo Render Pass
             let gizmo_draw_data = renderer_state.gizmo.draw();
             if !renderer_state.game_mode && !gizmo_draw_data.vertices.is_empty() {
