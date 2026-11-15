@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/apps/cad/**/*.ts", "src/apps/cad_design/**/*.ts", "src/apps/shared_view.ts"]
+}

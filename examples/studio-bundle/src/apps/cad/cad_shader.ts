@@ -54,6 +54,8 @@ export interface ItemUniform {
     opacity?: number;
     /** Bodies: the face index to light up, or -1. */
     face?: number;
+    /** Bodies: drawn as faint light whatever the view mode (while a sketch is being drawn through them). */
+    ghost?: boolean;
     /** Grids: spacing of the fine lines, and the radius they fade out at (document units). */
     step?: number;
     reach?: number;
@@ -63,7 +65,7 @@ export function packItem(i: ItemUniform): Float32Array {
     return new Float32Array([
         i.tint[0], i.tint[1], i.tint[2], i.glow ?? 0,
         i.face ?? -1, i.kind, i.opacity ?? 1, i.step ?? 10,
-        i.reach ?? 1000, 0, 0, 0,
+        i.reach ?? 1000, i.ghost ? 1 : 0, 0, 0,
     ]);
 }
 
@@ -85,7 +87,7 @@ struct Scene {
 struct Item {
     tint: vec4<f32>,       // rgb, w = selection glow
     params: vec4<f32>,     // x highlighted face, y kind, z opacity, w grid step
-    extra: vec4<f32>,      // x grid reach
+    extra: vec4<f32>,      // x grid reach, y ghost
 };
 @group(2) @binding(1) var<uniform> item: Item;
 
@@ -150,6 +152,10 @@ fn shade_body(in: VertexOutput, facing: bool) -> vec4<f32> {
     let picked = abs(in.uv.x - item.params.x) < 0.5;
     let glow = item.tint.w;
 
+    if (item.extra.y > 0.5) {
+        // A ghost: just enough light to place a sketch against.
+        return vec4<f32>(mix(item.tint.rgb, accent, 0.6) * (0.4 + rim), (0.05 + rim * 0.4) * item.params.z);
+    }
     if (mode > 0.5 && mode < 1.5) {
         // Holo: mostly rim light, with slow scan lines drifting up through the form.
         let scan = 0.5 + 0.5 * sin(in.world_pos.y * 90.0 / max(scene.params.z, 0.3) - scene.viewport.z * 1.6);
@@ -188,9 +194,9 @@ fn shade_body(in: VertexOutput, facing: bool) -> vec4<f32> {
     let wrap = 0.5 + 0.5 * dot(n, l);
     let sky = mix(vec3<f32>(0.10, 0.075, 0.06), vec3<f32>(0.20, 0.27, 0.34), 0.5 + 0.5 * n.y);
     let r = reflect(-v, n);
-    // A soft-box strip overhead and a horizon line, reflected: enough to show a surface's flow.
-    let strip = smoothstep(0.55, 0.9, r.y) * 0.55 + smoothstep(0.06, 0.0, abs(r.y)) * 0.18;
-    let spec = pow(max(dot(n, h), 0.0), 64.0) * 0.9;
+    // A soft-box strip overhead, reflected: enough to show how a surface flows.
+    let strip = smoothstep(0.6, 0.95, r.y) * 0.3;
+    let spec = pow(max(dot(n, h), 0.0), 48.0) * 0.35;
     var c = base * (sky * 1.5 + vec3<f32>(0.95, 0.98, 1.0) * (diffuse * 0.85 + wrap * 0.18));
     c = c + vec3<f32>(0.75, 0.9, 1.0) * (spec + strip * (0.25 + 0.75 * rim));
     c = c + accent * rim * (0.35 + glow * 0.9);
@@ -207,9 +213,9 @@ fn shade_grid(in: VertexOutput) -> vec4<f32> {
     let coarse = grid_lines(p, spacing * 10.0, 1.4);
     // The plane's own axes, brighter.
     let w = max(fwidth(p), vec2<f32>(1e-6));
-    let axis = max(1.0 - abs(p.x) / (w.x * 1.6), 1.0 - abs(p.y) / (w.y * 1.6));
+    let axis = max(1.0 - abs(p.x) / (w.x * 1.2), 1.0 - abs(p.y) / (w.y * 1.2));
     let fade = 1.0 - smoothstep(reach * 0.35, reach, length(p));
-    let a = (fine * 0.16 + coarse * 0.34 + clamp(axis, 0.0, 1.0) * 0.6) * fade * item.params.z;
+    let a = (fine * 0.14 + coarse * 0.3 + clamp(axis, 0.0, 1.0) * 0.38) * fade * item.params.z;
     let c = mix(item.tint.rgb, scene.accent.rgb, clamp(axis, 0.0, 1.0) * 0.6 + coarse * 0.25);
     return vec4<f32>(c, a);
 }
@@ -217,12 +223,13 @@ fn shade_grid(in: VertexOutput) -> vec4<f32> {
 fn shade_backdrop(in: VertexOutput) -> vec4<f32> {
     let d = normalize(in.world_pos - camera.view_pos.xyz);
     let up = d.y;
-    // A dark room: nearly black overhead, a faint band of light at the horizon, darker floor.
-    let horizon = exp(-abs(up) * 7.0);
-    var c = mix(vec3<f32>(0.012, 0.016, 0.024), vec3<f32>(0.035, 0.05, 0.07), smoothstep(-0.2, 0.6, up));
-    c = c + mix(item.tint.rgb, scene.accent.rgb, 0.35) * horizon * 0.10;
+    // A dark room: black overhead, a faint band of light at the horizon. (Colours are linear:
+    // the display curve lifts these a long way.)
+    let horizon = exp(-abs(up) * 6.0);
+    var c = mix(vec3<f32>(0.002, 0.003, 0.005), vec3<f32>(0.006, 0.0095, 0.015), smoothstep(-0.3, 0.7, up));
+    c = c + mix(item.tint.rgb, scene.accent.rgb, 0.5) * horizon * 0.03;
     // Fine grain so the gradient doesn't band.
-    c = c + (hash2(in.clip_position.xy) - 0.5) * 0.006;
+    c = c + (hash2(in.clip_position.xy) - 0.5) * 0.0008;
     return vec4<f32>(c, 1.0);
 }
 

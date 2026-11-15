@@ -209,11 +209,30 @@ impl Mesh {
         count.values().filter(|c| **c != 0).count()
     }
 
-    /// Splits every edge longer than `max_edge` (repeatedly), keeping neighbours matched, so a
-    /// deformer has vertices to bend. Flat faces stay flat; this adds no detail of its own.
+    /// Splits every edge longer than `max_edge` (repeatedly), keeping neighbours matched. Flat
+    /// faces stay flat; this adds no detail of its own.
     pub fn refine(&mut self, max_edge: f64) {
         if !(max_edge > 0.0) { return; }
-        for _ in 0..10 {
+        self.refine_where(|a, b| a.dist(b) > max_edge);
+    }
+
+    /// Splits edges until a map of space is followed to within `tolerance`: an edge is split
+    /// while the map carries points along it away from the straight line between its mapped ends.
+    /// Where the map is locally a plain move, turn or stretch nothing is added, so a twist
+    /// subdivides the walls it winds and leaves the caps alone.
+    pub fn refine_for(&mut self, f: impl Fn(V3) -> V3, tolerance: f64) {
+        self.refine_where(|a, b| {
+            let (fa, fb) = (f(a), f(b));
+            [0.25, 0.5, 0.75].iter().any(|t| f(a.lerp(b, *t)).dist(fa.lerp(fb, *t)) > tolerance)
+        });
+    }
+
+    /// Splits every edge `split(a, b)` asks for, repeatedly. The answer must depend only on the
+    /// two positions (in either order), so both triangles on an edge agree and the mesh stays closed.
+    pub fn refine_where(&mut self, split: impl Fn(V3, V3) -> bool) {
+        let ordered = |a: V3, b: V3| if (a.x, a.y, a.z) <= (b.x, b.y, b.z) { (a, b) } else { (b, a) };
+        let wants = |a: V3, b: V3| { let (a, b) = ordered(a, b); split(a, b) };
+        for _ in 0..9 {
             let mut mid: HashMap<(u32, u32), u32> = HashMap::new();
             let mut tris = Vec::with_capacity(self.tris.len() * 2);
             let mut face = Vec::with_capacity(self.face.len() * 2);
@@ -222,7 +241,7 @@ impl Mesh {
                 let mut m = [u32::MAX; 3];
                 for k in 0..3 {
                     let (a, b) = (t[k], t[(k + 1) % 3]);
-                    if self.positions[a as usize].dist(self.positions[b as usize]) <= max_edge { continue; }
+                    if !wants(self.positions[a as usize], self.positions[b as usize]) { continue; }
                     let key = (a.min(b), a.max(b));
                     m[k] = match mid.get(&key) {
                         Some(v) => *v,
@@ -257,10 +276,15 @@ impl Mesh {
             self.face = face;
             if !any { break; }
         }
+        // Sharp edges follow the same rule, so they stay on the surface.
         let mut edges = Vec::with_capacity(self.edges.len());
-        for [a, b] in &self.edges {
-            let k = (a.dist(*b) / max_edge).ceil().max(1.0) as usize;
-            for i in 0..k { edges.push([a.lerp(*b, i as f64 / k as f64), a.lerp(*b, (i + 1) as f64 / k as f64)]); }
+        let mut stack: Vec<([V3; 2], u32)> = self.edges.iter().rev().map(|e| (*e, 0)).collect();
+        while let Some(([a, b], depth)) = stack.pop() {
+            if depth < 9 && wants(a, b) {
+                let m = (a + b) * 0.5;
+                stack.push(([m, b], depth + 1));
+                stack.push(([a, m], depth + 1));
+            } else { edges.push([a, b]); }
         }
         self.edges = edges;
     }
@@ -460,6 +484,11 @@ impl Bvh {
 
     /// Calls `visit(triangle, t)` for every triangle the ray `origin + t * dir` (0 < t < t_max) hits.
     pub fn ray(&self, mesh: &Mesh, origin: V3, dir: V3, t_max: f64, mut visit: impl FnMut(usize, f64)) {
+        self.ray_margin(mesh, origin, dir, t_max, |t, d, _| visit(t, d));
+    }
+
+    /// As `ray`, also passing how far inside the triangle the hit is (0 on an edge, up to 1/3).
+    pub fn ray_margin(&self, mesh: &Mesh, origin: V3, dir: V3, t_max: f64, mut visit: impl FnMut(usize, f64, f64)) {
         if self.nodes.is_empty() { return; }
         let inv = v3(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
         let mut stack = vec![0u32];
@@ -469,7 +498,7 @@ impl Bvh {
             if node.leaf {
                 for t in &self.order[node.a as usize..node.b as usize] {
                     let [a, b, c] = mesh.tri(*t as usize);
-                    if let Some(hit) = ray_triangle(origin, dir, a, b, c) { if hit < t_max { visit(*t as usize, hit); } }
+                    if let Some((hit, margin)) = ray_triangle_margin(origin, dir, a, b, c) { if hit < t_max { visit(*t as usize, hit, margin); } }
                 }
             } else { stack.push(node.a); stack.push(node.b); }
         }
@@ -495,21 +524,39 @@ impl Bvh {
         }
     }
 
-    /// Is `p` inside the closed mesh? Three rays vote, so one grazing an edge can't decide alone.
+    /// Is `p` inside the closed mesh? Counts surface crossings along a ray. A ray that grazes an
+    /// edge or vertex can miscount, so such rays are set aside and others tried until two clean
+    /// ones agree.
     pub fn contains(&self, mesh: &Mesh, p: V3) -> bool {
-        const DIRS: [V3; 3] = [v3(0.577_215_66, 0.211_324_87, 0.788_675_13), v3(-0.431_157_9, 0.862_315_8, 0.265_327_9), v3(0.193_649_2, -0.561_552_8, -0.804_468_1)];
-        let mut votes = 0;
+        const DIRS: [V3; 7] = [
+            v3(0.577_215_66, 0.211_324_87, 0.788_675_13), v3(-0.431_157_9, 0.862_315_8, 0.265_327_9), v3(0.193_649_2, -0.561_552_8, -0.804_468_1),
+            v3(-0.842_701_1, -0.318_309_9, 0.434_294_5), v3(0.301_029_9, 0.693_147_2, -0.654_653_7), v3(-0.141_592_6, -0.915_965_6, 0.375_469_3), v3(0.955_316_6, 0.128_378_9, -0.266_514_4),
+        ];
+        let (mut inside, mut outside, mut any) = (0, 0, 0i32);
         for d in DIRS {
-            let mut crossings = 0usize;
-            self.ray(mesh, p, d, f64::INFINITY, |_, _| crossings += 1);
-            if crossings % 2 == 1 { votes += 1; }
+            let (mut crossings, mut clean) = (0usize, true);
+            self.ray_margin(mesh, p, d, f64::INFINITY, |_, _, margin| { crossings += 1; if margin < 1e-7 { clean = false; } });
+            let hit = crossings % 2 == 1;
+            any += if hit { 1 } else { -1 };
+            if !clean { continue; }
+            if hit { inside += 1; } else { outside += 1; }
+            if inside >= 2 { return true; }
+            if outside >= 2 { return false; }
         }
-        votes >= 2
+        if inside != outside { inside > outside } else { any > 0 }
     }
 }
 
 /// Moeller-Trumbore: distance along the ray to the triangle, if it hits its front or back.
 pub fn ray_triangle(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<f64> {
+    ray_triangle_margin(origin, dir, a, b, c).map(|h| h.0)
+}
+
+/// As `ray_triangle`, with the hit's smallest barycentric coordinate (0 on an edge). Hits a hair
+/// outside an edge are reported too (with a negative margin), so a ray along a shared edge is
+/// seen by both triangles and flagged rather than slipping between them.
+pub fn ray_triangle_margin(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<(f64, f64)> {
+    const SLACK: f64 = 1e-9;
     let (e1, e2) = (b - a, c - a);
     let p = dir.cross(e2);
     let det = e1.dot(p);
@@ -517,12 +564,12 @@ pub fn ray_triangle(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<f64> {
     let inv = 1.0 / det;
     let s = origin - a;
     let u = s.dot(p) * inv;
-    if !(0.0..=1.0).contains(&u) { return None; }
+    if u < -SLACK || u > 1.0 + SLACK { return None; }
     let q = s.cross(e1);
     let v = dir.dot(q) * inv;
-    if v < 0.0 || u + v > 1.0 { return None; }
+    if v < -SLACK || u + v > 1.0 + SLACK { return None; }
     let t = e2.dot(q) * inv;
-    if t > 1e-12 { Some(t) } else { None }
+    if t > 1e-12 { Some((t, u.min(v).min(1.0 - u - v))) } else { None }
 }
 
 #[cfg(test)]
@@ -616,6 +663,19 @@ mod tests {
         assert!((m.volume() - 3000.0).abs() < 1e-9);
         for t in 0..m.tris.len() { let [a, b, c] = m.tri(t); assert!(a.dist(b).max(b.dist(c)).max(c.dist(a)) <= 4.0 + 1e-9); }
         assert!(m.edges.iter().all(|e| e[0].dist(e[1]) <= 4.0 + 1e-9));
+    }
+
+    #[test]
+    fn refining_for_a_twist_divides_the_walls_and_leaves_the_caps() {
+        let mut m = prism(&square(10.0), 0.0, 30.0);
+        let twist = |p: V3| { let (s, c) = (p.z * 0.05).sin_cos(); v3(p.x * c - p.y * s, p.x * s + p.y * c, p.z) };
+        m.refine_for(twist, 0.01);
+        assert_eq!(m.open_edges(), 0);
+        let caps = (0..m.tris.len()).filter(|t| m.faces[m.face[*t] as usize].part != "side").count();
+        assert_eq!(caps, 4, "a cap only turns: nothing to follow");
+        assert!(m.tris.len() > 100, "{}", m.tris.len());
+        let twisted = m.mapped(twist);
+        assert!((twisted.volume() - 3000.0).abs() < 3.0, "{}", twisted.volume());
     }
 
     #[test]

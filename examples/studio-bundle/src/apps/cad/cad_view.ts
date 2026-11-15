@@ -10,6 +10,7 @@ import { CAD_LINE_SHADER, CAD_SURFACE_SHADER, ITEM_FLOATS, ITEM_KIND, SCENE_FLOA
 
 type V3 = [number, number, number];
 type Addon = ReturnType<typeof Entropy.Addon.register>;
+type Bindings = NonNullable<CadSpawnConfig["bindings"]>;
 
 /** World units per document unit (millimetres): a 100 mm part is one world unit across. */
 export const UNIT = 0.01;
@@ -23,11 +24,11 @@ export interface CadPalette {
     dim: [number, number, number];
 }
 
-/** Cyan light with amber for what you are touching: the instrument-panel palette. */
+/** Cyan light with amber for what you are touching: the instrument-panel palette (linear colours). */
 export const HOLO_PALETTE: CadPalette = {
     accent: [0.25, 0.86, 1.0],
     hot: [1.0, 0.66, 0.2],
-    body: [0.34, 0.39, 0.45],
+    body: [0.075, 0.095, 0.115],
     line: [0.55, 0.93, 1.0],
     dim: [0.3, 0.48, 0.58],
 };
@@ -50,7 +51,7 @@ export interface SketchDraw {
 /** Extra lines in document space: a rubber band, a snap marker, an axis. */
 export interface Overlay { segments: number[]; color: [number, number, number, number]; width?: number; dashed?: boolean }
 
-interface LiveBody { key: string; mode: ViewMode; meshId: string; edgesId: string | null; item: string }
+interface LiveBody { key: string; mode: ViewMode; ghost: boolean; meshId: string; edgesId: string | null; item: string }
 
 export class CadView {
     readonly session: string;
@@ -58,6 +59,8 @@ export class CadView {
     mode: ViewMode = "solid";
     palette: CadPalette = HOLO_PALETTE;
     showEdges = true;
+    /** Bodies as faint light, so a sketch drawn inside or behind them stays visible. */
+    ghost = false;
 
     private surface = "";
     private glass = "";
@@ -74,7 +77,6 @@ export class CadView {
     private selected: { body: string | null; face: number } = { body: null, face: -1 };
     private started = Date.now();
     private focus = 3;
-    private target: V3 = [0, 0.3, 0];
     private lastView: { pos: V3; target: V3 } = { pos: [2.6, 1.9, 3.2], target: [0, 0.3, 0] };
     private settle = 0;
     private pendingFrame = 0;
@@ -105,11 +107,11 @@ export class CadView {
         this.takeView();
     }
 
-    private bind(itemBuffer: string): BindingConfig[] {
+    private bind(itemBuffer: string): Bindings {
         return [
             { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.scene } } },
             { group: 2, binding: 1, resource: { type: "Buffer", value: { id: itemBuffer } } },
-        ] as BindingConfig[];
+        ] as Bindings;
     }
 
     private writeScene(): void {
@@ -135,13 +137,13 @@ export class CadView {
         for (let j = 0; j < rings; j++) for (let i = 0; i < segs; i++) {
             const a = j * (segs + 1) + i, b = a + 1, c = a + segs + 1, d = c + 1;
             // Wound to be seen from inside.
-            indexData.push(a, b, c, b, d, c);
+            indexData.push(a, c, b, b, c, d);
         }
         const backdrop = Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
         Entropy.Buffer.write(backdrop, packItem({ kind: ITEM_KIND.backdrop, tint: this.palette.dim }));
         this.addon.Model.createMesh({ id: Entropy.generateUUID(), position: [0, 0, 0], vertexData, indexData, pipelineId: this.surface, bindings: this.bind(backdrop) });
         // The ground: the Top plane, whose sketch coordinates are (x, -z).
-        const r = 20000;
+        const r = 4000;
         this.addon.Model.createMesh({
             id: Entropy.generateUUID(), position: [0, 0, 0], pipelineId: this.glass, bindings: this.bind(this.floorItem),
             vertexData: [[-r, -r], [r, -r], [r, r], [-r, r]].flatMap(([x, z]) => [x, 0, z, 0, 1, 0, x, -z, 1, 1, 1, 1]),
@@ -169,7 +171,7 @@ export class CadView {
 
     private bodyItem(id: string): Float32Array {
         const picked = this.selected.body === id;
-        return packItem({ kind: ITEM_KIND.body, tint: this.palette.body, glow: picked ? 1 : 0, face: picked ? this.selected.face : -1 });
+        return packItem({ kind: ITEM_KIND.body, tint: this.palette.body, glow: picked ? 1 : 0, face: picked ? this.selected.face : -1, ghost: this.ghost });
     }
 
     private syncBodies(): void {
@@ -177,24 +179,24 @@ export class CadView {
         for (const id of [...this.bodies.keys()]) if (!live.has(id)) this.dropBody(id);
         for (const body of this.evaluation.bodies) {
             const have = this.bodies.get(body.id);
-            if (have && have.key === body.key && have.mode === this.mode && !!have.edgesId === this.showEdges) continue;
+            if (have && have.key === body.key && have.mode === this.mode && have.ghost === this.ghost && !!have.edgesId === this.showEdges) continue;
             this.dropBody(body.id);
             const item = Entropy.Buffer.create({ size: ITEM_FLOATS * 4, usage: "Uniform" });
             Entropy.Buffer.write(item, this.bodyItem(body.id));
             const meshId = Entropy.generateUUID();
-            this.addon.Cad.spawnBody(this.session, body.id, { id: meshId, pipelineId: this.mode === "holo" ? this.glass : this.surface, bindings: this.bind(item) });
+            this.addon.Cad.spawnBody(this.session, body.id, { id: meshId, pipelineId: this.mode === "holo" || this.ghost ? this.glass : this.surface, bindings: this.bind(item) });
             let edgesId: string | null = null;
             if (this.showEdges) {
                 edgesId = Entropy.generateUUID();
-                const strong = this.mode === "holo" || this.mode === "solid";
-                const color: [number, number, number, number] = this.mode === "zebra" ? [0.02, 0.03, 0.04, 0.9] : [...this.palette.line, strong ? 0.85 : 0.5];
+                const strong = !this.ghost && (this.mode === "holo" || this.mode === "solid");
+                const color: [number, number, number, number] = this.mode === "zebra" && !this.ghost ? [0.02, 0.03, 0.04, 0.9] : [...this.palette.line, strong ? 0.85 : this.ghost ? 0.3 : 0.5];
                 const spawned = this.addon.Cad.spawnLines({
                     id: edgesId, pipelineId: this.lines, bindings: this.bind(this.lineItem),
                     batches: [{ segments: Entropy.Cad.segments(this.session, { kind: "bodyEdges", body: body.id }), color, width: 1.4 }],
                 });
                 if (!spawned) edgesId = null;
             }
-            this.bodies.set(body.id, { key: body.key, mode: this.mode, meshId, edgesId, item });
+            this.bodies.set(body.id, { key: body.key, mode: this.mode, ghost: this.ghost, meshId, edgesId, item });
         }
     }
 
@@ -202,6 +204,12 @@ export class CadView {
         if (this.mode === mode) return;
         this.mode = mode;
         this.writeScene();
+        this.syncBodies();
+    }
+
+    setGhost(ghost: boolean): void {
+        if (this.ghost === ghost) return;
+        this.ghost = ghost;
         this.syncBodies();
     }
 
@@ -313,7 +321,6 @@ export class CadView {
     /** Puts this app's camera, control and sky back (after another app in the suite had the 3D view). */
     private takeView(): void {
         const { pos, target } = this.lastView;
-        this.target = target;
         Entropy.Camera.setTransform(pos, target);
         this.enableOrbit(target, pos);
         Entropy.Lighting.updateSun({ horizonColor: [0.03, 0.045, 0.06], zenithColor: [0.01, 0.014, 0.02], sunDirection: [0.45, 0.8, 0.4], sunColor: [0.8, 0.9, 1], sunIntensity: 0.3 });
@@ -357,7 +364,6 @@ export class CadView {
 
     private lookFrom(target: V3, dir: V3, distance: number, up?: V3): void {
         const pos: V3 = [target[0] + dir[0] * distance, target[1] + dir[1] * distance, target[2] + dir[2] * distance];
-        this.target = target;
         this.focus = distance;
         Entropy.Camera.setTransform(pos, target, up);
         this.enableOrbit(target, pos);

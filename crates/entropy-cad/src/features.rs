@@ -571,6 +571,8 @@ fn revolve(r: &Revolve, id: &str, sketches: &[SketchEval], tol: Tolerance) -> Re
     let mut crosses = (false, false);
     for reg in &picked { for p in &reg.outer.pts { let rr = (*p - origin).dot(radial); if rr > 1e-6 { crosses.0 = true; } if rr < -1e-6 { crosses.1 = true; } } }
     if crosses.0 && crosses.1 { return Err("the profile crosses the axis: keep it to one side".into()); }
+    // On the far side of the axis the same turn carries the profile the other way through space.
+    let far_side = crosses.1;
     let closed = span >= 360.0 - 1e-9 && r.pitch == 0.0 && r.grow == 1.0;
     let span = if closed { 360.0 } else { span };
     let per_turn = ((std::f64::consts::TAU / tol.angle).ceil() as usize).max(12).max(r.lobes as usize * 16);
@@ -588,7 +590,7 @@ fn revolve(r: &Revolve, id: &str, sketches: &[SketchEval], tol: Tolerance) -> Re
     };
     let forward = |theta: f64| spoke(theta).norm().cross(d3).norm();
     let mut mesh = Mesh::default();
-    sweep_regions(&mut mesh, id, s, &picked, rows, &[], closed, &place, (-forward(start.to_radians()), forward(end.to_radians())), false, false);
+    sweep_regions(&mut mesh, id, s, &picked, rows, &[], closed, &place, if far_side { (forward(start.to_radians()), -forward(end.to_radians())) } else { (-forward(start.to_radians()), forward(end.to_radians())) }, far_side, false);
     Ok(mesh)
 }
 
@@ -852,54 +854,46 @@ fn deform(body: &Mesh, d: &Deform, tol: Tolerance) -> Result<Mesh, String> {
     let center = bounds.center();
     let ease = |t: f64| if d.smooth { t * t * (3.0 - 2.0 * t) } else { t };
     let progress = |p: V3| ease(((p.get(axis) - a0) / (a1 - a0)).clamp(0.0, 1.0));
-    let mut mesh = body.clone();
-    // Finer where the tolerance is finer, but always enough to show a curve.
-    let fine = if tol.angle <= Tolerance::default().angle * 1.01 { 56.0 } else { 28.0 };
-    mesh.refine(bounds.diagonal() / fine);
     let toward = { let t = d.toward.index(); if t == axis { u } else { t } };
-    Ok(match d.kind {
-        DeformKind::Twist => mesh.mapped(|p| {
-            let (s, c) = (d.angle.to_radians() * progress(p)).sin_cos();
-            let (du, dv) = (p.get(u) - center.get(u), p.get(v) - center.get(v));
-            let mut q = p;
-            q.set(u, center.get(u) + du * c - dv * s);
-            q.set(v, center.get(v) + du * s + dv * c);
-            q
-        }),
-        DeformKind::Taper => mesh.mapped(|p| {
-            let t = progress(p);
-            let mut q = p;
-            q.set(u, center.get(u) + (p.get(u) - center.get(u)) * (1.0 + (d.scale[0] - 1.0) * t));
-            q.set(v, center.get(v) + (p.get(v) - center.get(v)) * (1.0 + (d.scale[1] - 1.0) * t));
-            q
-        }),
-        DeformKind::Shear => mesh.mapped(|p| {
-            let t = progress(p);
-            let mut q = p;
-            q.set(u, p.get(u) + d.shift[0] * t);
-            q.set(v, p.get(v) + d.shift[1] * t);
-            q
-        }),
-        DeformKind::Bend => {
-            let total = d.angle.to_radians();
-            if total.abs() < 1e-9 { return Ok(body.clone()); }
-            let (dir, length) = ((a1 - a0).signum(), (a1 - a0).abs());
-            let radius = length / total;
-            mesh.mapped(|p| {
+    let (dir, length) = ((a1 - a0).signum(), (a1 - a0).abs());
+    let map = |p: V3| -> V3 {
+        let mut q = p;
+        match d.kind {
+            DeformKind::Twist => {
+                let (s, c) = (d.angle.to_radians() * progress(p)).sin_cos();
+                let (du, dv) = (p.get(u) - center.get(u), p.get(v) - center.get(v));
+                q.set(u, center.get(u) + du * c - dv * s);
+                q.set(v, center.get(v) + du * s + dv * c);
+            }
+            DeformKind::Taper => {
+                let t = progress(p);
+                q.set(u, center.get(u) + (p.get(u) - center.get(u)) * (1.0 + (d.scale[0] - 1.0) * t));
+                q.set(v, center.get(v) + (p.get(v) - center.get(v)) * (1.0 + (d.scale[1] - 1.0) * t));
+            }
+            DeformKind::Shear => {
+                let t = progress(p);
+                q.set(u, p.get(u) + d.shift[0] * t);
+                q.set(v, p.get(v) + d.shift[1] * t);
+            }
+            DeformKind::Bend => {
+                let total = d.angle.to_radians();
                 let s = (p.get(axis) - a0) * dir;
-                if s <= 0.0 { return p; }
+                if total.abs() < 1e-9 || s <= 0.0 { return p; }
+                let radius = length / total;
                 let w = p.get(toward) - center.get(toward);
                 let bent = s.min(length);
-                let phi = bent / radius;
-                let (sn, cs) = phi.sin_cos();
+                let (sn, cs) = (bent / radius).sin_cos();
                 let beyond = s - bent;
-                let mut q = p;
                 q.set(axis, a0 + dir * (sn * (radius - w) + cs * beyond));
                 q.set(toward, center.get(toward) + radius - cs * (radius - w) + sn * beyond);
-                q
-            })
+            }
         }
-    })
+        q
+    };
+    // Only the edges the deformation actually curves are divided.
+    let mut mesh = body.clone();
+    mesh.refine_for(map, (tol.chord * 3.0).max(bounds.diagonal() * 2e-4));
+    Ok(mesh.mapped(map))
 }
 
 fn mirror(body: &Mesh, m: &Mirror) -> Mesh {
@@ -1012,6 +1006,13 @@ mod tests {
         assert_eq!(m.open_edges(), 0);
         outward(m);
         assert!(!m.faces.iter().any(|f| f.part == "start"), "a full turn has no ends");
+        // The same profile drawn on the other side of the axis makes the same ring.
+        let other = doc(json!({"features": [rect_sketch("s", json!({"base":"front"}), -14.0, 0.0, -10.0, 6.0), {"id":"r","type":"revolve","profile":{"sketch":"s"},"end":200}]}));
+        let e = eval(&other);
+        let m = only(&e);
+        assert!((m.volume() - ring * 200.0 / 360.0).abs() < ring * 2e-3, "{}", m.volume());
+        assert_eq!(m.open_edges(), 0);
+        outward(m);
         // From -30 to 150 degrees: half the ring, with flat ends.
         let part = doc(json!({"features": [sk, {"id":"r","type":"revolve","profile":{"sketch":"s"},"start":-30,"end":150}]}));
         let e = eval(&part);

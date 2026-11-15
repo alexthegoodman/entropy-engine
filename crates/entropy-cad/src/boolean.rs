@@ -112,18 +112,26 @@ impl<'a> Cutter<'a> {
         (pieces, normal)
     }
 
-    fn place(&self, piece: &Piece, normal: V3) -> Place {
+    fn place(&self, piece: &Piece, normal: V3, near: &mut Vec<u32>) -> Place {
         let c = piece.centroid();
         if !self.bounds.grown(self.nudge * 2.0).overlaps(&Aabb { min: c, max: c }) { return Place::Outside; }
-        let below = self.bvh.contains(self.other, c - normal * self.nudge);
-        let above = self.bvh.contains(self.other, c + normal * self.nudge);
-        match (below, above) {
-            (true, true) => Place::Inside,
-            (false, false) => Place::Outside,
-            // The other body's surface runs through the piece, facing the same way or against it.
-            (true, false) => Place::OnSame,
-            (false, true) => Place::OnOpposite,
+        // Lying in the other body's surface means sharing a plane with one of its triangles there;
+        // merely passing close to it at a shallow angle does not.
+        near.clear();
+        self.bvh.overlapping(&Aabb { min: c, max: c }.grown(self.nudge), near);
+        for t in near.iter() {
+            let [p, q, r] = self.other.tri(*t as usize);
+            let n = (q - p).cross(r - p);
+            let len = n.len();
+            if len < 1e-300 { continue; }
+            let n = n / len;
+            if n.cross(normal).len() > 1e-6 || n.dot(c - p).abs() > self.nudge { continue; }
+            let tol = -1e-6 * len;
+            if (q - p).cross(c - p).dot(n) >= tol && (r - q).cross(c - q).dot(n) >= tol && (p - r).cross(c - r).dot(n) >= tol {
+                return if n.dot(normal) > 0.0 { Place::OnSame } else { Place::OnOpposite };
+            }
         }
+        if self.bvh.contains(self.other, c) { Place::Inside } else { Place::Outside }
     }
 
     /// Does `p` lie on the other body's surface?
@@ -193,6 +201,7 @@ pub fn boolean(a: &Mesh, b: &Mesh, op: BoolOp) -> Mesh {
     out.mesh.faces = a.faces.clone();
     out.mesh.faces.extend_from_slice(&b.faces);
     let mut near = Vec::new();
+    let mut probe = Vec::new();
 
     // What survives of each body. A face lying on the other body's surface is kept once (from
     // `a`) where the two agree, and not at all where material meets material.
@@ -208,7 +217,7 @@ pub fn boolean(a: &Mesh, b: &Mesh, op: BoolOp) -> Mesh {
     for t in 0..a.tris.len() {
         let (pieces, normal) = cut_by_b.pieces(a, t, &mut near);
         for piece in &pieces {
-            if !keep_a(cut_by_b.place(piece, normal)) { continue; }
+            if !keep_a(cut_by_b.place(piece, normal, &mut probe)) { continue; }
             out.piece(piece, a.face[t], false);
             // Edges made by the cut, where they really lie on the other surface, are the seam.
             for i in 0..piece.pos.len() {
@@ -222,7 +231,7 @@ pub fn boolean(a: &Mesh, b: &Mesh, op: BoolOp) -> Mesh {
     for t in 0..b.tris.len() {
         let (pieces, normal) = cut_by_a.pieces(b, t, &mut near);
         for piece in &pieces {
-            if keep_b(cut_by_a.place(piece, normal)) { out.piece(piece, face_base + b.face[t], op == BoolOp::Subtract); }
+            if keep_b(cut_by_a.place(piece, normal, &mut probe)) { out.piece(piece, face_base + b.face[t], op == BoolOp::Subtract); }
         }
     }
     for e in &a.edges { cut_by_b.clip_edge(e[0], e[1], op == BoolOp::Intersect, &mut out.mesh.edges); }
@@ -235,7 +244,7 @@ pub fn boolean(a: &Mesh, b: &Mesh, op: BoolOp) -> Mesh {
 /// its neighbour's was not, the neighbour is split at the same points. `q` is the weld distance.
 fn seal(mesh: &mut Mesh, q: f64) {
     let key = |p: V3| [(p.x / q).round() as i64, (p.y / q).round() as i64, (p.z / q).round() as i64];
-    for _ in 0..4 {
+    for _ in 0..8 {
         let mut ids: HashMap<[i64; 3], u32> = HashMap::new();
         let mut rep: Vec<V3> = Vec::new();
         let weld: Vec<u32> = mesh.positions.iter().map(|p| *ids.entry(key(*p)).or_insert_with(|| { rep.push(*p); (rep.len() - 1) as u32 })).collect();
@@ -316,12 +325,17 @@ fn fan_ring(mesh: &Mesh, ring: &[u32], f: u32, tris: &mut Vec<[u32; 3]>, face: &
             let blocked = ring.iter().any(|v| *v != a && *v != b && *v != c && area(a, b, *v) >= -tiny && area(b, c, *v) >= -tiny && area(c, a, *v) >= -tiny);
             if !blocked { best = Some((size, i)); }
         }
-        let Some((_, i)) = best else { break };
+        // No clean ear (points bunched within rounding of each other): close the rest with a
+        // plain fan. Its slivers have no area, but they keep the surface sealed.
+        let Some((_, i)) = best else {
+            for k in 1..ring.len() - 1 { tris.push([ring[0], ring[k], ring[k + 1]]); face.push(f); }
+            return;
+        };
         tris.push([ring[(i + n - 1) % n], ring[i], ring[(i + 1) % n]]);
         face.push(f);
         ring.remove(i);
     }
-    if ring.len() == 3 && area(ring[0], ring[1], ring[2]) > tiny { tris.push([ring[0], ring[1], ring[2]]); face.push(f); }
+    if ring.len() == 3 { tris.push([ring[0], ring[1], ring[2]]); face.push(f); }
 }
 
 #[cfg(test)]

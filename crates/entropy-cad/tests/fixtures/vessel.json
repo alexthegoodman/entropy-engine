@@ -1,0 +1,157 @@
+{
+ "version": 1,
+ "units": "mm",
+ "features": [
+  {
+   "id": "s1",
+   "name": "Wall",
+   "type": "sketch",
+   "plane": {
+    "base": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 14,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 44,
+     "y": 34
+    },
+    {
+     "id": "p3",
+     "x": 30,
+     "y": 86
+    },
+    {
+     "id": "p4",
+     "x": 20,
+     "y": 126
+    },
+    {
+     "id": "p5",
+     "x": 32,
+     "y": 150
+    },
+    {
+     "id": "p6",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p7",
+     "x": 0,
+     "y": 150
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "id": "e1",
+     "stroke": {
+      "left": 2.2,
+      "right": 2.2,
+      "start": 1.6,
+      "middle": 1,
+      "end": 0.5,
+      "round": true
+     }
+    },
+    {
+     "type": "line",
+     "a": "p6",
+     "b": "p7",
+     "construction": true,
+     "id": "e2"
+    }
+   ]
+  },
+  {
+   "type": "revolve",
+   "profile": {
+    "sketch": "s1"
+   },
+   "axis": {
+    "entity": "e2"
+   },
+   "start": 0,
+   "end": 360,
+   "squash": 0.78,
+   "lobes": 3,
+   "lobeDepth": 0.06,
+   "op": "new",
+   "id": "r1",
+   "name": "Body"
+  },
+  {
+   "id": "s2",
+   "name": "Foot",
+   "type": "sketch",
+   "plane": {
+    "base": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    }
+   ],
+   "entities": [
+    {
+     "type": "circle",
+     "center": "p1",
+     "radius": 15,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "type": "extrude",
+   "profile": {
+    "sketch": "s2"
+   },
+   "forward": {
+    "distance": 3
+   },
+   "backward": {
+    "distance": 0
+   },
+   "op": "add",
+   "id": "x1",
+   "name": "Base"
+  },
+  {
+   "type": "deform",
+   "kind": "bend",
+   "axis": "y",
+   "toward": "x",
+   "angle": 16,
+   "from": 0.35,
+   "to": 1,
+   "smooth": false,
+   "id": "d1",
+   "name": "Lean"
+  },
+  {
+   "type": "deform",
+   "kind": "twist",
+   "axis": "y",
+   "angle": 70,
+   "from": 0.1,
+   "to": 1,
+   "smooth": true,
+   "id": "d2",
+   "name": "Spiral"
+  }
+ ]
+}
