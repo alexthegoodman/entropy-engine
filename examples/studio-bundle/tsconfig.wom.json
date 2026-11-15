@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/games/world_of_music/**/*.ts", "src/games/nebula/nk_math.ts", "src/games/allegiance/al_ui.ts", "src/games/allegiance/al_controller.ts", "src/apps/quadplanet/qp_instances.ts"]
+}

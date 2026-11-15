@@ -4427,6 +4427,17 @@ export interface EntropyAPI {
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;
   },
+  /**
+   * A full-screen pass over the finished 3D frame, drawn before the gizmo and the UI (so HUD text
+   * stays sharp). `pipeline` is made with `form: "composite"`: its `vs_main` draws a full-screen
+   * triangle (3 vertices, no buffers); group 0 is the camera, group 1 is a copy of the frame
+   * (binding 0, `texture_2d<f32>`), a filtering sampler (1) and the depth buffer (2,
+   * `texture_depth_2d`); `buffers` are uniform buffers bound at group 2, bindings 0, 1, ... in
+   * order (declare them in `extraBindGroups`). Depth of field, haze, ink outlines. null turns it off.
+   */
+  Screen: {
+    setEffect: (config: { pipeline: string; buffers?: string[] } | null) => void;
+  },
   Pipeline: {
     create: (config: PipelineConfig) => string;
     createCompute: (config: ComputePipelineConfig) => string;

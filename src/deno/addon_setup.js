@@ -3478,6 +3478,13 @@ globalThis.Entropy.IO = {
     // So we should add IO to the returned object in `register`.
 };
 
+// A full-screen pass over the finished 3D frame, before the UI: `pipeline` is a `form:
+// "composite"` pipeline (group 1 = a copy of the frame, a sampler, the depth buffer), and
+// `buffers` are uniform buffers bound at group 2. null turns it off.
+globalThis.Entropy.Screen = {
+  setEffect: (config) => ops.op_screen_effect_set(config ? { pipeline: config.pipeline, buffers: config.buffers || [] } : null),
+};
+
 globalThis.Entropy.Composite = {
   register: (name, textureId, pipelineId, bindings = []) => {
     const target = globalThis.__entropy_current_addon_context_override || "Global";

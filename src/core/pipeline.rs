@@ -303,6 +303,11 @@ pub struct EntropyPipeline {
     pub procedural_sky_uniform_buffer: Option<wgpu::Buffer>, // New field for procedural sky uniform buffer
     pub debug_sphere_pipeline: Option<RenderPipeline>,
     pub texture: Option<Arc<wgpu::Texture>>,
+    /// The texture this frame is drawn into (the swapchain texture or its offscreen stand-in),
+    /// so a screen effect can copy what the scene drew before it reads it.
+    pub frame_texture: Option<wgpu::Texture>,
+    /// The copy a screen effect samples (sized to the frame).
+    pub screen_effect_copy: Option<wgpu::Texture>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
     // pub game_dock_state: DockState<Tab>,
@@ -423,6 +428,8 @@ impl EntropyPipeline {
             simple_mesh_pipeline: None,
             lighting_pipeline: None,
             texture: None,
+            frame_texture: None,
+            screen_effect_copy: None,
             view: None,
             depth_view: None,
             // game_dock_state,
@@ -2196,7 +2203,7 @@ impl EntropyPipeline {
                 let size = window.inner_size();
                 if size.width > 0 && size.height > 0 {
                     let surface_config = wgpu::SurfaceConfiguration {
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
                         format: gpu_resources.surface_format,
                         width: size.width,
                         height: size.height,
@@ -2300,7 +2307,9 @@ impl EntropyPipeline {
         // panels elsewhere - see egui_sidebar.rs's Tab::Viewport for that history). Passing
         // `None` here means no scissor at all, i.e. always full screen: the (translucent)
         // panels below then composite as glass on top of it instead of sitting beside it.
+        self.frame_texture = Some(frame_texture.clone());
         crate::core::frame_profile::time("scene (addon update + 3d)", || self.render_addon_frame(Some(&view), current_time, None));
+        self.frame_texture = None;
 
         // Re-blur the frame we just drew into a small offscreen target so the glass
         // panels (painted next, in the egui pass) have something to sample as their

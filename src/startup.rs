@@ -194,6 +194,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_ALLEGIANCE_BDD_RESULT",
     "ENTROPY_ABYSS_BDD_RESULT",
     "ENTROPY_NEBULA_BDD_RESULT",
+    "ENTROPY_WOM_BDD_RESULT",
     "ENTROPY_MATERIALLAB_BDD_RESULT",
     "ENTROPY_TABS_BDD_RESULT",
 ];
@@ -222,6 +223,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real Allegiance game is running in test mode"
         || text == "the real Abyss game is running in test mode"
         || text == "the real Nebula Kingdom game is running in test mode"
+        || text == "the real World of Music game is running in test mode"
         || text == "the real Material Lab is running in test mode"
         || text == "the real Guitar Tabs app is running in test mode"
     {
@@ -357,9 +359,11 @@ impl BrowserBddDriver {
         let abyss = std::env::var_os("ENTROPY_ABYSS_BDD_RESULT").is_some();
         // Nebula Kingdom rides it too.
         let nebula = std::env::var_os("ENTROPY_NEBULA_BDD_RESULT").is_some();
+        // World of Music too.
+        let wom = std::env::var_os("ENTROPY_WOM_BDD_RESULT").is_some();
         // The Material Lab (a bare wall for parallax work) rides it as well.
         let materiallab = std::env::var_os("ENTROPY_MATERIALLAB_BDD_RESULT").is_some();
-        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
+        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || wom || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
         let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
         let forum = std::env::var_os("ENTROPY_P2P_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if forum {
@@ -390,6 +394,8 @@ impl BrowserBddDriver {
             "ENTROPY_ABYSS_BDD_RESULT"
         } else if quadplanet && nebula {
             "ENTROPY_NEBULA_BDD_RESULT"
+        } else if quadplanet && wom {
+            "ENTROPY_WOM_BDD_RESULT"
         } else if quadplanet && materiallab {
             "ENTROPY_MATERIALLAB_BDD_RESULT"
         } else if quadplanet {
@@ -446,6 +452,12 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_NEBULA_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/nebula_live.feature"),
+            }
+        } else if quadplanet && wom {
+            // ENTROPY_WOM_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
+            match std::env::var("ENTROPY_WOM_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/world_of_music_live.feature"),
             }
         } else if quadplanet && materiallab {
             // ENTROPY_MATERIALLAB_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.

@@ -2030,6 +2030,9 @@ pub struct AddonContext {
     pub camera_proj: mint::ColumnMatrix4<f32>,
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
+    /// A full-screen pass over the finished 3D frame (Entropy.Screen.setEffect): a "composite"
+    /// pipeline that reads a copy of the frame and its depth, plus uniform buffers by id.
+    pub screen_effect: Option<ScreenEffectConfig>,
     pub model_cache: HashMap<String, Vec<u8>>,
     pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
@@ -2242,6 +2245,16 @@ pub struct CompositeInstance {
     pub uniform_buffers: Vec<wgpu::Buffer>,
     pub samplers: Vec<wgpu::Sampler>,
     pub time_buffer: Option<wgpu::Buffer>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenEffectConfig {
+    /// A pipeline made with `form: "composite"`.
+    pub pipeline: String,
+    /// Uniform buffers (Buffer.create ids), bound at group 2 bindings 0, 1, ... in order.
+    #[serde(default)]
+    pub buffers: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -7198,6 +7211,14 @@ pub fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String
         } else {
             ctx.hidden_addons.insert(addon_name);
         }
+    }
+}
+
+/// Sets (or with null clears) the screen effect: see `ScreenEffectConfig`.
+#[op2]
+pub fn op_screen_effect_set(state: &mut OpState, #[serde] config: Option<ScreenEffectConfig>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.screen_effect = config;
     }
 }
 

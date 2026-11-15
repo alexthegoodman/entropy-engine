@@ -68,6 +68,14 @@ async fn main() {
                 // The campaign is saved in the addon's own IO.store folder.
                 // ENTROPY_NEBULA_BDD_DATA lets tests/nebula_live start from a clean folder.
                 .with_data_dir(env::var("ENTROPY_NEBULA_BDD_DATA").unwrap_or_else(|_| "../nebula-kingdom-data".to_string())),
+            Some("world-of-music") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/world_of_music.js")
+                .with_hot_reload(true)
+                .with_title("WORLD OF MUSIC")
+                .with_window_size(1600.0, 900.0)
+                // The campaign is saved in the addon's own IO.store folder.
+                // ENTROPY_WOM_BDD_DATA lets tests/world_of_music_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_WOM_BDD_DATA").unwrap_or_else(|_| "../world-of-music-data".to_string())),
             Some("app-launcher") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/app_launcher.js")
                 .with_hot_reload(true)
