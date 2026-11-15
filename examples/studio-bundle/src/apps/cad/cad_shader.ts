@@ -176,8 +176,9 @@ fn shade_body(in: VertexOutput, facing: bool) -> vec4<f32> {
     }
     if (mode > 2.5) {
         // Curvature: how fast the normal turns across the surface, flat (deep blue) to tight (hot).
-        let k = length(fwidth(n)) / max(length(fwidth(in.world_pos)), 1e-7) * scene.params.z * 0.12;
-        let t = clamp(k, 0.0, 1.0);
+        // Scaled by the viewing distance, so the colours mean "tight for its size" at any zoom.
+        let k = length(fwidth(n)) / max(length(fwidth(in.world_pos)), 1e-7) * scene.params.z * 0.05;
+        let t = k / (1.0 + k);
         let cold = vec3<f32>(0.03, 0.10, 0.28);
         let mid = vec3<f32>(0.05, 0.75, 0.70);
         let hot = vec3<f32>(1.0, 0.55, 0.12);

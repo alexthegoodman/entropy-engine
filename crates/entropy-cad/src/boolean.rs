@@ -450,6 +450,7 @@ mod tests {
         // A Steinmetz solid: 16 r^3 / 3.
         assert!((both.volume() - 16000.0 / 3.0).abs() < 16000.0 / 3.0 * 2e-3, "{}", both.volume());
         assert_eq!(both.open_edges(), 0);
+        println!("crossing cylinders: {} triangles in {ms:.1} ms", both.tris.len());
         assert!(ms < 2000.0, "took {ms} ms");
     }
 }

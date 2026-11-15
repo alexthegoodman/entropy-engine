@@ -267,7 +267,7 @@ export class CadView {
                 batches.push({ segments: Entropy.Cad.segments(this.session, { kind: "sketch", sketch: d.sketch, entity: e.id }), color, width: selected || hover ? 2.6 : 1.9, dashed: e.construction });
             }
             if (d.comb) {
-                try { batches.push({ segments: Entropy.Cad.segments(this.session, { kind: "comb", sketch: d.sketch, entity: d.comb.entity, scale: d.comb.scale, quills: 72 }), color: [...hot, 0.55], width: 1 }); } catch { /* the entity was just deleted */ }
+                try { batches.push({ segments: Entropy.Cad.segments(this.session, { kind: "comb", sketch: d.sketch, entity: d.comb.entity, scale: d.comb.scale, quills: 120 }), color: [...hot, 0.55], width: 1 }); } catch { /* the entity was just deleted */ }
             }
             // Points: zero-length segments, which the line shader draws as squares.
             const dots = (pts: Array<{ x: number; y: number }>, color: [number, number, number, number], width: number) => {

@@ -109,6 +109,24 @@ Getting geometry on screen, whether it is a loaded `.glb` file, a hand-built mes
 
 </details>
 
+<a id="cad"></a>
+<details>
+<summary><strong>CAD kernel</strong></summary>
+
+Exact curves, sketches and solid features for CAD apps, from the `entropy-cad` kernel (`crates/entropy-cad`, plain Rust, usable on its own). Your addon keeps the document as JSON; a session evaluates it incrementally and queues the results as engine meshes. See [docs/CAD_FOUNDATIONS.md](docs/CAD_FOUNDATIONS.md) and the [Contour Design](docs/CAD_DESIGN.md) app built on it.
+
+| Call | What it does |
+|---|---|
+| `Cad.open()` / `close(session)` | Opens a kernel session, which remembers what it has built so a change rebuilds only what depends on it. |
+| `Cad.evaluate(session, doc, options)` | Evaluates a document (sketches, then extrude / revolve / loft / sweep / deform / mirror features with add, cut and intersect) and returns bodies (size, volume, area, named faces), sketches (flattened curves, closed regions, open paths) and any per-feature issues in plain words. `draft` coarsens for a drag; `sketchesOnly` skips bodies while drawing. |
+| `Cad.spawnBody` / `spawnRegions` / `spawnLines` | Queues a body's surface, a sketch's filled regions, or line ribbons (edges, curves, points) straight into your pipeline, without the geometry crossing into JavaScript. |
+| `Cad.segments(session, what)` | Line segments to draw: a body's sharp edges and seams, a sketch's curves, region outlines, or a curve's curvature comb. |
+| `Cad.pick(session, origin, direction)` | The body, face (and the feature that made it), point and normal under a ray. |
+| `Cad.sketchPoint` / `sketchHit` | A ray in a sketch's own coordinates, and what is near a sketch position with where to snap: points, then midpoints, then curves. |
+| `Cad.export(session, format, path)` | Writes every body as binary STL or OBJ. |
+
+</details>
+
 <a id="terrain--procedural-world"></a>
 <details>
 <summary><strong>Terrain & procedural world</strong></summary>
@@ -478,6 +496,11 @@ cargo run --bin example --release -- canvas-surface-demo
 npm run build-mesha
 cargo run --bin example --release -- mesha
 
+// CAD for designers: sketch curves, raise them into bodies, break symmetry on purpose
+// (Contour Design, see docs/CAD_DESIGN.md; the shared kernel is docs/CAD_FOUNDATIONS.md)
+npm run build-cad-design
+cargo run --bin example --release -- cad-design
+
 // plan a game world from above: terrain, roads, towns building by building, quests (Game World Planner)
 npm run build-game-planner
 cargo run --bin example --release -- game-planner
@@ -572,6 +595,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Entropy Engine / Keyframe Tracks](public/entropy-keyframe-tracks-clip-drag.png "Entropy Engine / Keyframe Tracks") | ![Entropy Drawing Example](public/entropy-stylus-drawing-tilt-hello.png "Entropy Drawing Example") |
 | ![Entropy Engine](public/water1.png "Entropy Engine") | ![Entropy Engine](public/image-3.png "Entropy Engine") |
 | ![Entropy Multi-Page Documents](public/entropy-doc-editor-pagination.png "Entropy Multi-Page Documents") | ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") |
+| ![Contour Design / the Skiff as light](public/contour-design-holo.png "Contour Design / the Skiff as light") | ![Contour Design / a loft, twisted and unevenly mirrored](public/contour-design-asymmetry.png "Contour Design / a loft, twisted and unevenly mirrored") |
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
 | ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |

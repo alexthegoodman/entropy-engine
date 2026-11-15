@@ -155,14 +155,14 @@ function redraw(): void {
     view.drawSketches(draws, overlays());
 }
 
-/** Quills about a fifth of the curve's size at its tightest bend. */
+/** Quills a modest fraction of the curve's size where it bends as tightly as its own radius. */
 function combScale(s: SketchFeature, entityId: string): number {
     const e = view.evaluation.sketches.find(k => k.id === s.id)?.entities.find(x => x.id === entityId);
     if (!e || e.points.length < 6) return 100;
     let [lo, hi]: [V2, V2] = [[Infinity, Infinity], [-Infinity, -Infinity]];
     for (let i = 0; i < e.points.length; i += 2) { lo = [Math.min(lo[0], e.points[i]), Math.min(lo[1], e.points[i + 1])]; hi = [Math.max(hi[0], e.points[i]), Math.max(hi[1], e.points[i + 1])]; }
     const size = Math.hypot(hi[0] - lo[0], hi[1] - lo[1]);
-    return size * size * 0.12;
+    return size * size * 0.015;
 }
 
 /** The snap marker under the cursor while drawing. */
