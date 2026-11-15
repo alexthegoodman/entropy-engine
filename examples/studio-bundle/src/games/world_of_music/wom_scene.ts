@@ -3,7 +3,7 @@
 // friends, the corrupted, the palms. Grey unless it means something (wom_data.ts PALETTE).
 
 import { Renderer, placed, yawed, aligned, at, between, type Mat4 } from "./wom_render";
-import { TOON, GLOW } from "./wom_shader";
+import { TOON, GLOW, MATERIAL, CARD } from "./wom_shader";
 import { Game, type Tone, type Enemy } from "./wom_game";
 import { SPECIES, PALETTE, ENEMIES, BOSSES, NPCS, type RGB, type SpeciesId } from "./wom_data";
 import { Rng, type V3 } from "../nebula/nk_math";
@@ -17,31 +17,183 @@ const hue = (c: RGB, chroma = 1): number[] => [c[0], c[1], c[2], chroma];
 
 export interface Particle { pos: V3; vel: V3; life: number; max: number; size: number; color: RGB; kind: number; spin: number }
 
-interface Decor { kind: "bush" | "rock" | "grass" | "fern" | "shell"; x: number; z: number; y: number; s: number; yaw: number; seed: number; up: V3 }
-const decorCache = new Map<string, Decor[]>();
+// --- scenery ---------------------------------------------------------------------------------
+//
+// Dense, cheap scenery. Grass, reeds, ferns, bushes, flowers and broad leaves are billboard
+// cards (2 triangles, the silhouette cut in the shader); rocks come in four sizes, trees in three
+// kinds, and there is driftwood on the beaches. Everything is placed once per island, sorted into
+// 16 m chunks, and only chunks near the camera are drawn (grass nearest, trees and boulders far).
 
-function decorFor(g: Game): Decor[] {
-    const key = g.level.id;
-    const hit = decorCache.get(key);
+type CardItem = { x: number; y: number; z: number; w: number; h: number; shape: number; grey: number; seed: number };
+type RockItem = { x: number; y: number; z: number; sx: number; sy: number; sz: number; yaw: number; up: V3; grey: number; seed: number; mesh: string; size: number };
+type TreeItem = { kind: "palm" | "broad" | "sapling"; x: number; y: number; z: number; s: number; yaw: number; seed: number; lean: number };
+type LogItem = { a: V3; b: V3; r: number };
+interface Chunk { cards: CardItem[]; small: RockItem[]; big: RockItem[]; trees: TreeItem[]; logs: LogItem[]; cx: number; cz: number }
+const CHUNK = 16;
+const sceneryCache = new Map<string, Map<number, Chunk>>();
+
+function scenery(g: Game): Map<number, Chunk> {
+    const hit = sceneryCache.get(g.level.id);
     if (hit) return hit;
-    const T = g.terrain, rng = new Rng(g.level.seed * 77 + 5), out: Decor[] = [];
-    const busy = (x: number, z: number) => g.trees.some(t => Math.hypot(t.x - x, t.z - z) < 4) || g.crates.some(c => Math.hypot(c.x - x, c.z - z) < 3) || g.switches.some(s => Math.hypot(s.x - x, s.z - z) < 4)
-        || g.gates.some(s => Math.hypot(s.x - x, s.z - z) < 7) || g.npcs.some(n => Math.hypot(n.x - x, n.z - z) < 4) || Math.hypot(g.level.spawn[0] - x, g.level.spawn[1] - z) < 6 || Math.hypot(g.level.exit[0] - x, g.level.exit[1] - z) < 5
-        || g.level.portals.some(p => Math.hypot(p.a[0] - x, p.a[1] - z) < 4 || Math.hypot(p.b[0] - x, p.b[1] - z) < 4);
-    for (let i = 0; i < 900 && out.length < 420; i++) {
-        const x = rng.range(-T.half + 8, T.half - 8), z = rng.range(-T.half + 8, T.half - 8);
-        const h = T.height(x, z);
-        if (h < 0.15 || busy(x, z)) continue;
-        const grade = T.grade(x, z);
-        const r = rng.next();
-        let kind: Decor["kind"];
-        if (grade > 0.9) { if (r < 0.5) kind = "rock"; else continue; }
-        else if (h < 0.9) kind = r < 0.25 ? "shell" : r < 0.45 ? "rock" : "grass";
-        else kind = r < 0.22 ? "bush" : r < 0.36 ? "rock" : r < 0.5 ? "fern" : "grass";
-        out.push({ kind, x, z, y: T.height(x, z), s: rng.range(0.6, 1.4), yaw: rng.range(0, 6.28), seed: rng.next(), up: T.normal(x, z) });
+    const T = g.terrain, rng = new Rng(g.level.seed * 77 + 5), chunks = new Map<number, Chunk>();
+    const chunk = (x: number, z: number): Chunk => {
+        const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK), k = (cx + 64) * 256 + (cz + 64);
+        let c = chunks.get(k);
+        if (!c) { c = { cards: [], small: [], big: [], trees: [], logs: [], cx: (cx + 0.5) * CHUNK, cz: (cz + 0.5) * CHUNK }; chunks.set(k, c); }
+        return c;
+    };
+    const keep: { x: number; z: number; r: number }[] = [
+        ...g.trees.map(t => ({ x: t.x, z: t.z, r: 3 })), ...g.crates.map(c => ({ x: c.x, z: c.z, r: 2.4 })), ...g.switches.map(s => ({ x: s.x, z: s.z, r: 3.5 })),
+        ...g.gates.map(s => ({ x: s.x, z: s.z, r: s.len / 2 + 2 })), ...g.npcs.map(n => ({ x: n.x, z: n.z, r: 3.5 })), ...g.levers.map(l => ({ x: l.x, z: l.z, r: 2.5 })),
+        { x: g.level.spawn[0], z: g.level.spawn[1], r: 5 }, { x: g.level.exit[0], z: g.level.exit[1], r: 4.5 },
+        ...g.level.portals.flatMap(p => [{ x: p.a[0], z: p.a[1], r: 3.5 }, { x: p.b[0], z: p.b[1], r: 3.5 }]),
+        ...g.darks.map(d => ({ x: d.def.x, z: d.def.z, r: 4 })),
+    ];
+    const busy = (x: number, z: number, pad = 0) => keep.some(o => Math.hypot(o.x - x, o.z - z) < o.r + pad);
+    const lo = -T.half + 4, hi = T.half - 4;
+    const rand = () => [rng.range(lo, hi), rng.range(lo, hi)] as const;
+    // Where things like to grow: patches, not an even spray.
+    const lush = (x: number, z: number) => 0.5 + 0.5 * Math.sin(x * 0.07 + Math.sin(z * 0.05) * 2) * Math.cos(z * 0.06 + x * 0.02);
+
+    // Grass tufts in clumps.
+    for (let c = 0; c < 1500; c++) {
+        const [x0, z0] = rand();
+        const h0 = T.height(x0, z0);
+        if (h0 < 0.2 || T.grade(x0, z0) > 0.8 || T.path(x0, z0) > 0.5) continue;
+        const n = 3 + Math.floor(lush(x0, z0) * 9);
+        for (let k = 0; k < n; k++) {
+            const x = x0 + rng.range(-3, 3), z = z0 + rng.range(-3, 3), y = T.height(x, z);
+            if (y < 0.15 || T.grade(x, z) > 0.9 || T.path(x, z) > 0.4 || busy(x, z)) continue;
+            const beach = y < 1.0;
+            const s = rng.range(0.35, 0.75) * (beach ? 0.7 : 1);
+            chunk(x, z).cards.push({ x, y: y - 0.05, z, w: s * 0.9, h: s, shape: CARD.grass, grey: beach ? 0.62 : rng.range(0.32, 0.5), seed: rng.next() });
+        }
     }
-    decorCache.set(key, out);
-    return out;
+    // Ferns, bushes, broad leaves and white flowers, in the damp and shady places.
+    for (let i = 0; i < 1600; i++) {
+        const [x, z] = rand(), y = T.height(x, z);
+        if (y < 0.8 || T.grade(x, z) > 0.7 || T.path(x, z) > 0.3 || busy(x, z, 1)) continue;
+        const r = rng.next() * (0.6 + lush(x, z) * 0.6);
+        const c = chunk(x, z);
+        if (r < 0.28) { const s = rng.range(0.7, 1.4); c.cards.push({ x, y: y - 0.05, z, w: s * 1.1, h: s * 0.8, shape: CARD.fern, grey: rng.range(0.28, 0.42), seed: rng.next() }); }
+        else if (r < 0.55) { const s = rng.range(0.8, 2.0); c.cards.push({ x, y: y - 0.1, z, w: s, h: s * 0.85, shape: CARD.bush, grey: rng.range(0.3, 0.5), seed: rng.next() }); }
+        else if (r < 0.68) { const s = rng.range(1.2, 2.2); c.cards.push({ x, y: y - 0.05, z, w: s * 0.9, h: s, shape: CARD.broad, grey: rng.range(0.36, 0.5), seed: rng.next() }); }
+        else if (r < 0.9) { for (let k = 0; k < 3; k++) { const fx = x + rng.range(-1.5, 1.5), fz = z + rng.range(-1.5, 1.5); const s = rng.range(0.35, 0.6); c.cards.push({ x: fx, y: T.height(fx, fz) - 0.03, z: fz, w: s * 0.8, h: s, shape: CARD.flower, grey: 0.62, seed: rng.next() }); } }
+    }
+    // Reeds along every shore and pond edge.
+    for (let i = 0; i < 2500; i++) {
+        const [x, z] = rand(), y = T.height(x, z);
+        if (y < -0.3 || y > 0.45 || busy(x, z)) continue;
+        const s = rng.range(0.8, 1.5);
+        chunk(x, z).cards.push({ x, y: y - 0.05, z, w: s * 0.5, h: s, shape: CARD.reed, grey: rng.range(0.36, 0.5), seed: rng.next() });
+    }
+    // Rocks in four sizes: pebble scatters, stones, rocks, boulders (most at the foot of cliffs).
+    const rock = (x: number, z: number, size: number, list: "small" | "big") => {
+        const y = T.height(x, z);
+        if (y < -0.4 || busy(x, z, size)) return;
+        const flat = rng.range(0.45, 0.85);
+        chunk(x, z)[list].push({ x, y: y - size * 0.25, z, sx: size * rng.range(0.8, 1.3), sy: size * flat, sz: size * rng.range(0.8, 1.2), yaw: rng.range(0, 6.28), up: T.normal(x, z), grey: rng.range(0.42, 0.62), seed: rng.next(), mesh: size > 1.2 || rng.next() < 0.5 ? S1 : S2, size });
+    };
+    for (let i = 0; i < 260; i++) { const [x, z] = rand(); if (T.height(x, z) < 0.1) continue; for (let k = 0; k < 4; k++) rock(x + rng.range(-1.2, 1.2), z + rng.range(-1.2, 1.2), rng.range(0.08, 0.2), "small"); }
+    for (let i = 0; i < 380; i++) { const [x, z] = rand(); rock(x, z, rng.range(0.25, 0.6), "small"); }
+    for (let i = 0; i < 2600; i++) {
+        const [x, z] = rand();
+        const gr = T.grade(x, z);
+        if (gr > 1.4 || gr < 0.35 && rng.next() > 0.12) continue;
+        if (T.path(x, z) > 0.1) continue;
+        rock(x, z, gr > 0.35 ? rng.range(0.8, 2.6) : rng.range(0.7, 1.4), "big");
+    }
+    for (let i = 0; i < 40; i++) { const [x, z] = rand(); if (T.grade(x, z) < 0.5 && T.path(x, z) < 0.05 && !busy(x, z, 6)) rock(x, z, rng.range(2.4, 3.8), "big"); }
+    // Trees: tall palms by the sea, broad rain trees inland, little saplings anywhere.
+    for (let i = 0; i < 700; i++) {
+        const [x, z] = rand(), y = T.height(x, z);
+        if (y < 0.5 || T.grade(x, z) > 0.5 || T.path(x, z) > 0.2 || busy(x, z, 3)) continue;
+        const coastal = y < 2.4, r = rng.next();
+        if (r > 0.35 + lush(x, z) * 0.25) continue;
+        const kind: TreeItem["kind"] = r < 0.12 ? "sapling" : coastal || r < 0.22 ? "palm" : "broad";
+        chunk(x, z).trees.push({ kind, x, y, z, s: rng.range(0.8, 1.3), yaw: rng.range(0, 6.28), seed: rng.next(), lean: rng.range(0.2, 0.6) });
+    }
+    // Driftwood on the sand.
+    for (let i = 0; i < 260; i++) {
+        const [x, z] = rand(), y = T.height(x, z);
+        if (y < 0.1 || y > 0.9 || busy(x, z)) continue;
+        const a = rng.range(0, 6.28), l = rng.range(1.2, 3);
+        const p0: V3 = [x, y + 0.12, z], p1: V3 = [x + Math.cos(a) * l, T.height(x + Math.cos(a) * l, z + Math.sin(a) * l) + 0.12, z + Math.sin(a) * l];
+        chunk(x, z).logs.push({ a: p0, b: p1, r: rng.range(0.1, 0.2) });
+    }
+    sceneryCache.set(g.level.id, chunks);
+    return chunks;
+}
+
+/** Scenery counts for the HUD diagnostics and tests. */
+export function sceneryStats(g: Game): { cards: number; rocks: number; trees: number; logs: number; chunks: number } {
+    let cards = 0, rocks = 0, trees = 0, logs = 0;
+    const ch = scenery(g);
+    for (const c of ch.values()) { cards += c.cards.length; rocks += c.small.length + c.big.length; trees += c.trees.length; logs += c.logs.length; }
+    return { cards, rocks, trees, logs, chunks: ch.size };
+}
+
+function drawScenery(r: Renderer, g: Game, cam: V3, time: number): void {
+    // Tall things standing between the camera and Tom are left out, so he is never hidden.
+    const tom = g.tom.pos, vx = tom[0] - cam[0], vz = tom[2] - cam[2], vl = Math.hypot(vx, vz) || 1;
+    const blocks = (x: number, z: number, r0: number) => {
+        const t = ((x - cam[0]) * vx + (z - cam[2]) * vz) / vl;
+        if (t < -r0 || t > vl - 1) return false;
+        return Math.abs((x - cam[0]) * vz - (z - cam[2]) * vx) / vl < r0 + 1.5;
+    };
+    for (const c of scenery(g).values()) {
+        const d = Math.hypot(c.cx - cam[0], c.cz - cam[2]);
+        if (d > 150) continue;
+        if (d < 62) for (const k of c.cards) {
+            if (k.shape === CARD.grass && d > 44) continue;
+            if (k.h > 0.9 && blocks(k.x, k.z, k.w * 0.6)) continue;
+            r.solid("quad", placed([k.x, k.y, k.z], k.w, k.h, 1), grey(k.grey), [TOON.card, k.seed, 0, 0], [0, k.shape, 0, 0]);
+        }
+        else if (d < 110) for (const k of c.cards) if (k.shape === CARD.bush || k.shape === CARD.broad) r.solid("quad", placed([k.x, k.y, k.z], k.w, k.h, 1), grey(k.grey), [TOON.card, k.seed, 0, 0], [0, k.shape, 0, 0]);
+        const ink = d < 50 ? INK : 0;
+        if (d < 55) for (const k of c.small) r.solid(k.mesh, aligned([k.x, k.y, k.z], k.up, k.yaw, k.sx, k.sy, k.sz), grey(k.grey), [TOON.prop, k.seed, 0, 0], [0, MATERIAL.stone, 0, k.size > 0.3 ? ink * 0.6 : 0]);
+        for (const k of c.big) if (!(k.size > 1.2 && blocks(k.x, k.z, k.size))) r.solid(k.mesh, aligned([k.x, k.y, k.z], k.up, k.yaw, k.sx, k.sy, k.sz), grey(k.grey), [TOON.prop, k.seed, 0, 0], [0, MATERIAL.stone, 0, ink]);
+        if (d < 70) for (const l of c.logs) r.solid("cyl", between(l.a, l.b, l.r), grey(0.7), [TOON.prop, 0, 0, 0], [0, MATERIAL.bark, 0, ink * 0.7]);
+        for (const t of c.trees) if (!blocks(t.x, t.z, t.kind === "broad" ? 3 * t.s : 1.5)) drawTree(r, t, time, d < 70 ? INK : 0);
+    }
+}
+
+function drawTree(r: Renderer, t: TreeItem, time: number, ink: number): void {
+    const base: V3 = [t.x, t.y - 0.2, t.z];
+    if (t.kind === "palm") {
+        let p = base;
+        const segs = 7, sway = Math.sin(time * 0.6 + t.seed * 9) * 0.05;
+        for (let k = 0; k < segs; k++) {
+            const q = at(p, t.yaw, [0, 1.25 * t.s, t.lean * 0.16 * (k + 1) * 0.5 + sway * k]);
+            r.solid("cyl", between(p, q, (0.24 - k * 0.018) * t.s), grey(0.5), [TOON.prop, t.seed, 0, 0], [0, MATERIAL.ringed, 0, ink]);
+            p = q;
+        }
+        for (let k = 0; k < 8; k++) {
+            const a = t.yaw + k * 0.785 + t.seed;
+            const tip = at(p, a, [0, -0.9 * t.s, 2.8 * t.s]);
+            const mid: V3 = [(p[0] + tip[0]) / 2, (p[1] + tip[1]) / 2 + 0.45 * t.s, (p[2] + tip[2]) / 2];
+            r.solid(S2, aligned(mid, [Math.sin(a) * 0.4, 0.92, Math.cos(a) * 0.4], a, 0.42 * t.s, 0.06, 1.7 * t.s), grey(0.3), [TOON.foliage, t.seed + k, 0, 0], [0, MATERIAL.leaf, 0, ink * 0.8]);
+        }
+        r.solid(S1, placed(p, 0.35 * t.s), grey(0.25), [TOON.prop, 0, 0, 0]);
+    } else if (t.kind === "broad") {
+        const h = 4.2 * t.s, top: V3 = [t.x, t.y + h, t.z];
+        r.solid("cyl", between(base, top, 0.32 * t.s, 0.32 * t.s), grey(0.38), [TOON.prop, t.seed, 0, 0], [0, MATERIAL.bark, 0, ink]);
+        for (let k = 0; k < 3; k++) {
+            const a = t.yaw + k * 2.1;
+            r.solid("cyl", between(at(base, a, [0, h * 0.55, 0]), at(base, a, [0, h * 0.95, 1.6 * t.s]), 0.12 * t.s), grey(0.38), [TOON.prop, t.seed, 0, 0], [0, MATERIAL.bark, 0, ink]);
+        }
+        // A lumpy crown: a big core and a ring of smaller clumps at different heights.
+        for (let k = 0; k < 10; k++) {
+            const a = t.yaw + k * 2.39 + t.seed * 3, rr = k === 0 ? 0 : (1.1 + (k % 3) * 0.45) * t.s;
+            const c = at(top, a, [0, (k === 0 ? 1.0 : -0.2 + ((k * 7) % 5) * 0.32) * t.s, rr]);
+            const s = (k === 0 ? 1.9 : 0.85 + ((k * 3) % 4) * 0.17) * t.s;
+            r.solid(S2, yawed(c, a, s, s * 0.8, s * 0.95), grey(0.28 + (k % 3) * 0.05), [TOON.foliage, t.seed + k, 0, 0], [0, 0, 0, ink]);
+        }
+    } else {
+        const top: V3 = [t.x, t.y + 1.4 * t.s, t.z];
+        r.solid("cyl", between(base, top, 0.07 * t.s), grey(0.4), [TOON.prop, 0, 0, 0], [0, MATERIAL.bark, 0, ink * 0.6]);
+        r.solid(S2, placed(top, 0.75 * t.s, 0.6 * t.s, 0.75 * t.s), grey(0.38), [TOON.foliage, t.seed, 0, 0], [0, 0, 0, ink * 0.7]);
+    }
 }
 
 let gRef: Game | null = null;
@@ -50,29 +202,12 @@ export interface SceneStats { solids: number; glows: number }
 
 export function drawScene(r: Renderer, g: Game, time: number, particles: Particle[], cam: V3, terrainKey: string, waterKey: string, selectedColor: RGB): void {
     const T = g.terrain;
-    const far = (p: { x: number; z: number } | V3, d: number) => {
-        const x = Array.isArray(p) ? p[0] : p.x, z = Array.isArray(p) ? p[2] : p.z;
-        return Math.hypot(x - cam[0], z - cam[2]) > d;
-    };
+
     r.solid("sky", placed([0, 0, 0], 1), grey(0.8), [TOON.sky, 0, 0, 0]);
     r.solid(terrainKey, placed([0, 0, 0], 1), grey(0.65), [TOON.terrain, 0, 0, 0]);
     r.solid(waterKey, placed([0, 0, 0], 1), grey(0.5), [TOON.water, 0, 0, 0]);
 
-    // Decoration (ink only near the camera).
-    for (const d of decorFor(g)) {
-        if (far(d, 95)) continue;
-        const ink = far(d, 45) ? 0 : INK;
-        const p: V3 = [d.x, d.y, d.z];
-        if (d.kind === "rock") r.solid(S1, aligned([d.x, d.y + 0.15 * d.s, d.z], d.up, d.yaw, 0.7 * d.s, 0.45 * d.s, 0.55 * d.s), grey(0.5 + d.seed * 0.15), [TOON.prop, d.seed, 0, 0], [0, 0, 0, ink]);
-        else if (d.kind === "bush") {
-            for (let k = 0; k < 3; k++) r.solid(S2, placed(at(p, d.yaw, [Math.cos(k * 2.1) * 0.5 * d.s, 0.4 * d.s, Math.sin(k * 2.1) * 0.5 * d.s]), 0.65 * d.s, 0.5 * d.s, 0.65 * d.s), grey(0.42 + d.seed * 0.12), [TOON.foliage, d.seed + k, 0, 0], [0, 0, 0, ink]);
-        } else if (d.kind === "fern") {
-            for (let k = 0; k < 5; k++) { const a = d.yaw + k * 1.256; r.solid(S1, yawed(at(p, a, [0, 0.35 * d.s, 0.5 * d.s]), a, 0.12 * d.s, 0.05 * d.s, 0.6 * d.s), grey(0.36), [TOON.foliage, d.seed, 0, 0], [0, 0, 0, ink * 0.6]); }
-        } else if (d.kind === "grass") {
-            if (far(d, 55)) continue;
-            for (let k = 0; k < 3; k++) { const a = d.yaw + k * 2.1; r.solid("cone", aligned(at(p, a, [0.12, 0, 0]), [Math.sin(a) * 0.25, 1, Math.cos(a) * 0.25].map(v => v / 1.06) as V3, a, 0.05 * d.s, 0.55 * d.s, 0.05 * d.s), grey(0.4), [TOON.foliage, d.seed, 0, 0]); }
-        } else r.solid(S1, aligned([d.x, d.y + 0.05, d.z], d.up, d.yaw, 0.22 * d.s, 0.09 * d.s, 0.18 * d.s), grey(0.92), [TOON.prop, d.seed, 0, 0], [0, 0, 0, ink * 0.5]);
-    }
+    drawScenery(r, g, cam, time);
 
     // Palms with magenta fruit.
     g.trees.forEach((t, i) => {
@@ -81,14 +216,14 @@ export function drawScene(r: Renderer, g: Game, time: number, particles: Particl
         let p = base, lean = 0.35 + (i % 3) * 0.12, yaw = i * 1.9;
         for (let k = 0; k < 6; k++) {
             const q = at(p, yaw, [0, 1.15, lean * 0.18 * (k + 1) * 0.4 + shake]);
-            r.solid("cyl", between(p, q, 0.22 - k * 0.018), grey(0.45 + (k % 2) * 0.07), [TOON.prop, i, 0, 0], [0, 0, 0, INK]);
+            r.solid("cyl", between(p, q, 0.22 - k * 0.018), grey(0.5), [TOON.prop, i, 0, 0], [0, MATERIAL.ringed, 0, INK]);
             p = q;
         }
         for (let k = 0; k < 7; k++) {
             const a = yaw + k * 0.9;
             const tip = at(p, a, [0, -0.6, 2.4]);
             const mid: V3 = [(p[0] + tip[0]) / 2, (p[1] + tip[1]) / 2 + 0.35, (p[2] + tip[2]) / 2];
-            r.solid(S2, aligned(mid, [Math.sin(a) * 0.35, 0.94, Math.cos(a) * 0.35], a, 0.35, 0.07, 1.5), grey(0.3), [TOON.foliage, i + k, 0, 0], [0, 0, 0, INK * 0.8]);
+            r.solid(S2, aligned(mid, [Math.sin(a) * 0.35, 0.94, Math.cos(a) * 0.35], a, 0.35, 0.07, 1.5), grey(0.3), [TOON.foliage, i + k, 0, 0], [0, MATERIAL.leaf, 0, INK * 0.8]);
         }
         for (let k = 0; k < t.fruit; k++) {
             const a = yaw + k * 1.7;
@@ -101,7 +236,7 @@ export function drawScene(r: Renderer, g: Game, time: number, particles: Particl
         if (c.broken) continue;
         const s = c.big ? 1.1 : 0.7, sh = Math.sin(time * 50) * c.shake * 0.08;
         const p: V3 = [c.x + sh, c.y + s, c.z];
-        r.solid("box", yawed(p, c.x * 0.3, s, s, s), grey(0.78), [TOON.prop, 1, 0, 0], [0, 0, 0, INK]);
+        r.solid("box", yawed(p, c.x * 0.3, s, s, s), grey(0.74), [TOON.prop, 1, 0, 0], [0, MATERIAL.wood, 0, INK]);
         for (const y of [-0.55, 0.55]) r.solid("box", yawed([p[0], p[1] + y * s, p[2]], c.x * 0.3, s * 1.02, s * 0.08, s * 1.02), grey(0.42), [TOON.prop, 2, 0, 0]);
         if (c.hp < c.max) r.glow(placed([p[0], p[1] + s + 0.5, p[2]], 0.6 * (c.hp / c.max) + 0.2), [1, 1, 1, 0.3], GLOW.ring, 0.12);
     }
@@ -132,7 +267,7 @@ export function drawScene(r: Renderer, g: Game, time: number, particles: Particl
         for (let k = 0; k <= n; k++) {
             const f = k / n - 0.5;
             const x = gt.x + dx * gt.len * f, z = gt.z + dz * gt.len * f, y = T.height(x, z);
-            r.solid("cyl", placed([x, y - sink, z], 0.22, 3.2, 0.22), grey(0.25), [TOON.prop, k, 0, 0], [0, 0, 0, INK]);
+            r.solid("cyl", placed([x, y - sink, z], 0.22, 3.2, 0.22), grey(0.4), [TOON.prop, k, 0, 0], [0, MATERIAL.stone, 0, INK]);
             r.solid(S1, placed([x, y + 3.25 - sink, z], 0.3), hue(PALETTE.mech), [TOON.mech, k, 0.6, 0], [0, 0, 0, INK]);
         }
         if (gt.lift < 0.9) for (let h = 0.6; h < 3; h += 0.8) {
@@ -144,7 +279,7 @@ export function drawScene(r: Renderer, g: Game, time: number, particles: Particl
         }
     }
     for (const l of g.levers) {
-        r.solid("box", placed([l.x, l.y + 0.4, l.z], 0.5, 0.4, 0.5), grey(0.35), [TOON.prop, 0, 0, 0], [0, 0, 0, INK]);
+        r.solid("box", placed([l.x, l.y + 0.4, l.z], 0.5, 0.4, 0.5), grey(0.45), [TOON.prop, 0, 0, 0], [0, MATERIAL.stone, 0, INK]);
         const tilt = l.flipped ? 0.8 : -0.8;
         const top: V3 = [l.x + Math.sin(tilt) * 1.2, l.y + 0.8 + Math.cos(tilt) * 1.2, l.z];
         r.solid("cyl", between([l.x, l.y + 0.8, l.z], top, 0.09), grey(0.6), [TOON.prop, 0, 0, 0], [0, 0, 0, INK]);
@@ -167,7 +302,7 @@ export function drawScene(r: Renderer, g: Game, time: number, particles: Particl
         const c = Math.cos(faceY), sn = Math.sin(faceY);
         const up: Mat4 = [s * c, 0, -s * sn, 0, s * sn, 0, s * c, 0, 0, s, 0, 0, ex, ey, ez, 1];
         r.solid("torus", up, g.exitOpen ? [1, 1, 1, 0] : grey(0.35), [TOON.prop, 0, g.exitOpen ? 1.2 : 0, 0], [0, 0, 0, INK]);
-        r.solid("cyl", placed([ex, ey - 2.7, ez], 2.2, 0.25, 2.2), grey(0.3), [TOON.prop, 0, 0, 0], [0, 0, 0, INK]);
+        r.solid("cyl", placed([ex, ey - 2.7, ez], 2.2, 0.25, 2.2), grey(0.5), [TOON.prop, 0, 0, 0], [0, MATERIAL.stone, 0, INK]);
         if (g.exitOpen) {
             r.glow(placed([ex, ey, ez], 2.5), [1, 1, 1, 0.8], GLOW.ring, 0.25);
             r.glow(placed([ex, ey, ez], 2.2), [1, 1, 1, 0.45 + 0.2 * Math.sin(time * 3)], GLOW.dot);
@@ -477,8 +612,8 @@ function drawNpc(r: Renderer, id: string, p: V3, face: number, time: number, tal
         // A stall awning behind.
         const st = at(p, y, [0, 0, -1.6]);
         for (const sx of [-1, 1]) r.solid("cyl", placed(at(st, y, [sx * 1.4, 0, 0]), 0.08, 2.6, 0.08), dark, [TOON.prop, 0, 0, 0], [0, 0, 0, ink]);
-        r.solid("box", yawed(at(st, y, [0, 2.65, 0.3]), y, 1.6, 0.08, 0.9), grey(0.88), [TOON.prop, 0, 0, 0], [0, 0, 0, ink]);
-        r.solid("box", yawed(at(st, y, [0, 0.45, 0.2]), y, 1.3, 0.45, 0.5), grey(0.5), [TOON.prop, 0, 0, 0], [0, 0, 0, ink]);
+        r.solid("box", yawed(at(st, y, [0, 2.65, 0.3]), y, 1.6, 0.08, 0.9), grey(0.88), [TOON.prop, 0, 0, 0], [0, MATERIAL.wood, 0, ink]);
+        r.solid("box", yawed(at(st, y, [0, 0.45, 0.2]), y, 1.3, 0.45, 0.5), grey(0.6), [TOON.prop, 0, 0, 0], [0, MATERIAL.wood, 0, ink]);
     } else if (def.kind === "owl") {
         const body = at(p, y, [0, 0.85 + bounce * 0.5, 0]);
         r.solid(S3, yawed(body, y, 0.5, 0.75, 0.45), fur, [TOON.creature, 0, 0, 0], [0, 0, 0, ink]);

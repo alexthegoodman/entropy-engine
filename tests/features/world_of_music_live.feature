@@ -13,7 +13,7 @@ Feature: World of Music
     And I call the tool "wom_act" with {"action": "wait", "frames": 60}
     Then I capture "03-landfall"
     When I call the tool "wom_act" with {"action": "banner"}
-    And I call the tool "wom_camera" with {"position": [2.4, 4.6, 73.2], "target": [0, 3.7, 77.6], "fov": 46}
+    And I call the tool "wom_camera" with {"position": [2.4, 2.1, -4.8], "target": [0, 1.2, -0.4], "fov": 46, "relative": true}
     And I advance 2 frames
     Then I capture "04-agent-tom-and-his-tones"
     When I call the tool "wom_camera" with {"release": true}

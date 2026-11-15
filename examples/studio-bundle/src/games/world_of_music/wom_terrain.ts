@@ -34,11 +34,12 @@ function valueNoise(seed: number) {
 }
 
 /** How much a plateau covers (x, z): 1 on top, 0 off it, a ramp across its edge. */
-export function plateauMask(p: Plateau, x: number, z: number): number {
+export function plateauMask(p: Plateau, x: number, z: number, wobble = 0): number {
     const dx = x - p.x, dz = z - p.z;
     let m: number;
     if (p.r !== undefined) {
-        const d = Math.hypot(dx, dz);
+        // `wobble` (metres) pushes the edge in and out, so cliffs are not perfect circles.
+        const d = Math.hypot(dx, dz) + wobble;
         m = smoothstep(p.r, p.r - p.edge, d);
         if (p.ri !== undefined) {
             m *= smoothstep(p.ri, p.ri + p.edge, d);
@@ -52,7 +53,7 @@ export function plateauMask(p: Plateau, x: number, z: number): number {
         }
     } else {
         const hw = (p.w ?? 10) / 2, hd = (p.d ?? 10) / 2;
-        m = smoothstep(hw, hw - p.edge, Math.abs(dx)) * smoothstep(hd, hd - p.edge, Math.abs(dz));
+        m = smoothstep(hw, hw - p.edge, Math.abs(dx) + wobble) * smoothstep(hd, hd - p.edge, Math.abs(dz) + wobble);
     }
     return m;
 }
@@ -66,6 +67,10 @@ export class Terrain {
     readonly climbMask: Float32Array;
     readonly n: number;
     private noise: (x: number, z: number) => number;
+    /** 0..1 on worn dirt paths between the places that matter (1 m grid, like heights). */
+    readonly paths: Float32Array;
+    /** Places where cliff edges must stay where the level put them (gates, ramp ends, gaps). */
+    private still: [number, number][] = [];
     /** Gates: segments that block everything while closed (the game owns open/closed). */
     blockers: { ax: number; az: number; bx: number; bz: number; open: boolean; id: string }[] = [];
 
@@ -76,6 +81,10 @@ export class Terrain {
         this.noise = valueNoise(level.seed);
         this.heights = new Float32Array(this.n * this.n);
         this.climbMask = new Float32Array(this.n * this.n);
+        this.paths = new Float32Array(this.n * this.n);
+        for (const g of level.gates) this.still.push([g.x, g.z]);
+        for (const r of level.ramps) this.still.push(r.from, r.to);
+        for (const p of level.plateaus) if (p.gap !== undefined && p.r !== undefined) { const rm = ((p.ri ?? p.r) + p.r) / 2; this.still.push([p.x + Math.cos(p.gap) * rm, p.z + Math.sin(p.gap) * rm]); }
         for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
             const x = i - this.half, z = j - this.half;
             this.heights[j * this.n + i] = this.raw(x, z);
@@ -85,15 +94,55 @@ export class Terrain {
             const x = i - this.half, z = j - this.half;
             const g = Math.max(Math.abs(this.heights[j * this.n + i + 1] - this.heights[j * this.n + i - 1]), Math.abs(this.heights[(j + 1) * this.n + i] - this.heights[(j - 1) * this.n + i])) / 2;
             if (g < 0.8) continue;
-            for (const p of level.plateaus) if (p.climb && plateauMask({ ...p, edge: p.edge + 2.5, r: p.r !== undefined ? p.r + 1.2 : undefined, w: p.w !== undefined ? p.w + 2.4 : undefined, d: p.d !== undefined ? p.d + 2.4 : undefined }, x, z) > 0.01) this.climbMask[j * this.n + i] = 1;
+            for (const p of level.plateaus) if (p.climb && plateauMask({ ...p, edge: p.edge + 2.5, r: p.r !== undefined ? p.r + 1.2 : undefined, w: p.w !== undefined ? p.w + 2.4 : undefined, d: p.d !== undefined ? p.d + 2.4 : undefined }, x, z, this.wobble(x, z)) > 0.01) this.climbMask[j * this.n + i] = 1;
         }
+        // Worn paths from the landing to everything worth walking to.
+        const from = level.spawn;
+        const to: [number, number][] = [...level.npcs.map(n => [n.x, n.z] as [number, number]), ...level.dark.map(d => [d.x, d.z] as [number, number]), ...level.switches.map(s => [s.x, s.z] as [number, number]), level.exit, ...level.ramps.map(r => r.from)];
+        const segs: [number, number, number, number][] = to.map(t => [from[0], from[1], t[0], t[1]]);
+        for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+            const x = i - this.half, z = j - this.half;
+            const wx = x + (this.noise(x / 13 + 31, z / 13) - 0.5) * 6, wz = z + (this.noise(x / 13, z / 13 + 57) - 0.5) * 6;
+            let d = Infinity;
+            for (const s of segs) d = Math.min(d, segDist(wx, wz, s[0], s[1], s[2], s[3]));
+            const width = 0.45 + this.noise(x / 6, z / 6) * 0.5;
+            // Paths fade out near the landing so they do not merge into a plaza.
+            const fade = smoothstep(4, 14, Math.hypot(x - from[0], z - from[1]));
+            this.paths[j * this.n + i] = smoothstep(width + 1.0, width - 0.2, d) * (0.35 + 0.65 * fade);
+        }
+    }
+
+    /** How far a cliff edge is pushed in or out here (zero near gates, ramps and gaps). */
+    wobble(x: number, z: number): number {
+        let calm = 1;
+        for (const [sx, sz] of this.still) calm = Math.min(calm, smoothstep(8, 16, Math.hypot(x - sx, z - sz)));
+        return ((this.noise(x / 9 + 17, z / 9 + 5) - 0.5) * 2 * 2.2 + (this.noise(x / 3.5, z / 3.5 + 9) - 0.5) * 0.8) * calm;
+    }
+
+    path(x: number, z: number): number {
+        const fx = Math.max(0, Math.min(this.size - 1e-3, x + this.half)), fz = Math.max(0, Math.min(this.size - 1e-3, z + this.half));
+        const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, n = this.n, P = this.paths;
+        const a = P[j * n + i], b = P[j * n + i + 1], c = P[(j + 1) * n + i], d = P[(j + 1) * n + i + 1];
+        return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
     }
 
     /** The island's base: gently rolling, falling into the sea past ~45% of the size. */
     base(x: number, z: number): number {
-        const r = Math.hypot(x, z * 1.08) / this.half;
-        const rolling = (this.noise(x / 23, z / 23) - 0.5) * 2.2 + (this.noise(x / 9 + 40, z / 9) - 0.5) * 0.6;
-        const land = 1.8 + rolling;
+        // The shoreline itself wanders, so the island is not an oval.
+        const landing = smoothstep(26, 10, Math.hypot(x - this.level.spawn[0], z - this.level.spawn[1]));
+        const coast = ((this.noise(Math.atan2(z, x) * 3 + 50, 3) - 0.5) * 0.07 + (this.noise(x / 31 + 70, z / 31) - 0.5) * 0.05) * (1 - landing) - landing * 0.06;
+        const r = Math.hypot(x, z * 1.08) / this.half + coast;
+        // Layered hills: broad swells, rolling knolls, small lumps - always gentle enough to walk.
+        const swell = (this.noise(x / 64 + 11, z / 64 + 23) - 0.38) * 5.5;
+        const knoll = (this.noise(x / 24, z / 24) - 0.5) * 2.6;
+        const lump = (this.noise(x / 9 + 40, z / 9) - 0.5) * 0.7;
+        // Dunes along the beaches.
+        const dunes = Math.sin((x * 0.31 + z * 0.12) + this.noise(x / 12, z / 12) * 4) * 0.35 * smoothstep(0.6, 0.8, r) * (1 - smoothstep(0.86, 0.95, r));
+        // Inland is higher: the island rises gently from its beaches.
+        const rise = 2.2 * (1 - smoothstep(0.2, 0.85, r));
+        let land = 1.5 + rise + (swell + knoll) * (1 - smoothstep(0.7, 0.9, r)) + lump + dunes;
+        // The landing beach is always dry.
+        land += landing * Math.max(0, 1.7 - land);
         const shore = smoothstep(0.84, 1.0, r);
         // The spawn beach slopes gently into the water.
         return land * (1 - shore) + (-5) * shore;
@@ -102,7 +151,8 @@ export class Terrain {
     private plateauHeight(x: number, z: number): number {
         let h = this.base(x, z);
         let up = 0;
-        for (const p of this.level.plateaus) up = Math.max(up, p.h * plateauMask(p, x, z));
+        const wob = this.wobble(x, z);
+        for (const p of this.level.plateaus) up = Math.max(up, p.h * plateauMask(p, x, z, wob));
         h += up;
         for (const w of this.level.hollows) h -= w.depth * smoothstep(w.r, w.r * 0.55, Math.hypot(x - w.x, z - w.z));
         return h;
@@ -137,8 +187,7 @@ export class Terrain {
     /** The ground or the water surface, whichever is higher (what feet stand on). */
     surface(x: number, z: number): number { return Math.max(this.height(x, z), SEA); }
 
-    normal(x: number, z: number): [number, number, number] {
-        const e = 0.6;
+    normal(x: number, z: number, e = 0.6): [number, number, number] {
         const dx = this.height(x + e, z) - this.height(x - e, z), dz = this.height(x, z + e) - this.height(x, z - e);
         const l = Math.hypot(dx, 2 * e, dz);
         return [-dx / l, (2 * e) / l, -dz / l];
@@ -234,15 +283,17 @@ export class Terrain {
         const v = new Float32Array(n * n * 12);
         for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
             const x = i * step - this.half, z = j * step - this.half, y = this.height(x, z);
-            const nr = this.normal(x, z), o = (j * n + i) * 12;
+            const nr = this.normal(x, z, 1.6), o = (j * n + i) * 12;
             const steep = 1 - nr[1];
             v[o] = x; v[o + 1] = y; v[o + 2] = z;
             v[o + 3] = nr[0]; v[o + 4] = nr[1]; v[o + 5] = nr[2];
             v[o + 6] = x / 8; v[o + 7] = z / 8;
             v[o + 8] = this.climbable(x, z) ? 1 : 0;
-            v[o + 9] = smoothstep(1.6, 0.3, y);
+            // Sand only along the coast (and a little round ponds), never on low ground inland.
+            const coastal = smoothstep(0.66, 0.8, Math.hypot(x, z * 1.08) / this.half);
+            v[o + 9] = smoothstep(1.6, 0.3, y) * Math.max(coastal, smoothstep(0.2, -0.3, y));
             v[o + 10] = smoothstep(0.25, 0.55, steep);
-            v[o + 11] = 1;
+            v[o + 11] = this.path(x, z) * (1 - smoothstep(0.2, 0.45, steep));
         }
         const idx = new Uint32Array(cells * cells * 6);
         let k = 0;

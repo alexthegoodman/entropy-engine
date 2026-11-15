@@ -65,3 +65,17 @@ describe("World of Music rendering data", () => {
         expect(Math.min(...depths)).toBe(0);
     });
 });
+
+import { sceneryStats } from "../src/games/world_of_music/wom_scene";
+import { Game, newCampaign } from "../src/games/world_of_music/wom_game";
+describe("World of Music scenery", () => {
+    it("every island is densely planted, with rocks of every size", () => {
+        for (const l of LEVELS) {
+            const c = newCampaign(); c.level = l.id;
+            const s = sceneryStats(new Game(c));
+            expect(s.cards).toBeGreaterThan(3000);
+            expect(s.rocks).toBeGreaterThan(800);
+            expect(s.trees).toBeGreaterThan(80);
+        }
+    });
+});

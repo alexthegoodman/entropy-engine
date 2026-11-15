@@ -43,6 +43,27 @@ ground turns to ink and its veins beat red.
   copied, then a `form: "composite"` pipeline reads the copy and the depth buffer. Depth is
   written as `w / (w + 60)` so the pass recovers distance exactly.
 
+## Scenery
+
+- **Terrain** (`wom_terrain.ts`): broad swells, rolling knolls and lumps over an island that rises
+  gently from its beaches, dunes along the shore, a wandering coastline, and cliff outlines pushed
+  in and out by noise (held still near gates, ramp ends and wall gaps so every puzzle keeps its
+  shape; `tests/wom_world.test.ts` proves each one still needs the swarm it was built for). Worn
+  paths wind from the landing to everything worth walking to.
+- **Ground materials** (TOON shader): pale meadow with sparse short pen dashes, darker long grass,
+  bare soil with pebbles and cracks, rippled stippled sand on the coast, packed-dirt paths with
+  frayed edges, and stratified, cracked rock on every cliff. The ground keeps two soft light bands
+  (cliffs three hard ones) so small rolls of land do not flicker.
+- **Prop materials** (`MATERIAL`): stone (speckle, cracks, lichen), bark, ringed palm trunks, wood
+  planks, leaf midribs, shell ribs.
+- **Billboard cards** (`TOON.card`, `CARD`): grass tufts, reeds, ferns, bushes, white flowers and
+  broad banana/taro leaves - two triangles each, silhouette cut and inked in the shader, swaying,
+  stained by the Corruption. About 10k per island.
+- **3D scenery**: rocks in four sizes (pebble scatters, stones, rocks, boulders gathered at cliff
+  feet), tall palms by the sea, broad rain trees inland, saplings, driftwood. Placed once per
+  island into 16 m chunks; grass draws within ~44 m, other cards ~62 m, bushes and broad leaves
+  ~110 m, trees and boulders ~150 m. Trees and boulders between the camera and Tom are left out.
+
 ## Playing
 
 - Point and click: the selected swarm goes and does the obvious thing at the pointer (attack,

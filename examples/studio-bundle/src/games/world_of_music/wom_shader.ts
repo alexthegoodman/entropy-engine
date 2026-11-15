@@ -24,7 +24,11 @@ export const ITEM_FLOATS = 28;
 export const POST_FLOATS = 4 * 4;
 
 /** Item.params.x in the TOON pipeline. */
-export const TOON = { prop: 0, terrain: 1, water: 2, sky: 3, foliage: 4, creature: 5, corrupt: 6, mech: 7, ghost: 8 } as const;
+export const TOON = { prop: 0, terrain: 1, water: 2, sky: 3, foliage: 4, creature: 5, corrupt: 6, mech: 7, ghost: 8, card: 9 } as const;
+/** Surface patterns for props (Item.extra.y with TOON.prop / TOON.foliage). */
+export const MATERIAL = { plain: 0, stone: 1, bark: 2, wood: 3, leaf: 4, shell: 5, ringed: 6 } as const;
+/** Silhouettes drawn on a billboard card (Item.extra.y with TOON.card). */
+export const CARD = { grass: 0, reed: 1, fern: 2, bush: 3, flower: 4, broad: 5 } as const;
 /** Item.params.x in the GLOW pipeline. */
 export const GLOW = { dot: 0, ring: 1, note: 2, star: 3, flatRing: 4, beam: 5, heart: 6, shock: 7 } as const;
 
@@ -79,6 +83,24 @@ fn vnoise(p: vec2<f32>) -> f32 {
     return mix(mix(hash2(i), hash2(i + vec2<f32>(1.0, 0.0)), u.x), mix(hash2(i + vec2<f32>(0.0, 1.0)), hash2(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
 fn luma(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
+
+// Scattered round dots: pebbles, sand grains, speckle.
+fn dots(p: vec2<f32>, scale: f32, density: f32, size: f32) -> f32 {
+    let q = p * scale;
+    let cell = floor(q);
+    let o = hash22(cell) * 0.6 + vec2<f32>(0.2);
+    let d = length(fract(q) - o);
+    return smoothstep(size, size * 0.6, d) * step(1.0 - density, hash2(cell + vec2<f32>(7.3, 1.9)));
+}
+// Short pen dashes leaning one way: grass drawn with a nib.
+fn dashes(p: vec2<f32>, scale: f32, density: f32, len: f32) -> f32 {
+    let q = p * scale;
+    let cell = floor(q);
+    let local = fract(q) - hash22(cell) * 0.6 - vec2<f32>(0.2);
+    let lean = (hash2(cell + vec2<f32>(1.7, 4.4)) - 0.5) * 0.8;
+    let d = abs(local.x - local.y * lean);
+    return smoothstep(0.045, 0.0, d) * step(abs(local.y), len) * step(1.0 - density, hash2(cell + vec2<f32>(3.1, 7.7)));
+}
 
 // Distance to the nearest edge of a Voronoi web (the veins), in cell units.
 fn veins(p: vec2<f32>) -> f32 {
@@ -143,6 +165,31 @@ fn place(in: VertexInput, ii: u32, push: f32) -> VOut {
         let s = it.extra.x;
         local = local * vec3<f32>(1.0 + s * 0.5, 1.0 - s, 1.0 + s * 0.5);
     }
+    if (kind == 9) {
+        // A billboard card, turned about +y to face the camera, standing on its base.
+        let c = it.model[3].xyz;
+        let w = length(it.model[0].xyz);
+        let h = length(it.model[1].xyz);
+        var tc = camera.view_pos.xyz - c;
+        tc.y = 0.0;
+        let f = normalize(tc + vec3<f32>(0.0001, 0.0, 0.0));
+        let r = vec3<f32>(f.z, 0.0, -f.x);
+        let t = in.position.y * 0.5 + 0.5;
+        let sway = sin(world.time.x * 1.7 + it.params.y * 13.0 + c.x * 0.3 + c.z * 0.2) * 0.1 * t * t * w;
+        let cwp = c + r * (in.position.x * w + sway) + vec3<f32>(0.0, t * h, 0.0);
+        let cclip = camera.view_proj * vec4<f32>(cwp, 1.0);
+        out.clip = far_depth(cclip);
+        out.world_pos = cwp;
+        out.normal = normalize(f * 0.6 + vec3<f32>(0.0, 1.0, 0.0));
+        out.uv = in.tex_coords;
+        out.vcolor = in.color;
+        out.local = in.position;
+        out.color = it.color;
+        out.params = it.params;
+        out.extra = it.extra;
+        if (push > 0.0) { out.clip = vec4<f32>(0.0, 0.0, -2.0, 1.0); }
+        return out;
+    }
     let sx = dot(it.model[0].xyz, it.model[0].xyz);
     let sy = dot(it.model[1].xyz, it.model[1].xyz);
     let sz = dot(it.model[2].xyz, it.model[2].xyz);
@@ -172,6 +219,72 @@ fn place(in: VertexInput, ii: u32, push: f32) -> VOut {
 
 @vertex
 fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut { return place(in, ii, 0.0); }
+
+// A tapered blade from (bx, -1) to (tx, ty): signed distance (negative inside).
+fn blade(q: vec2<f32>, bx: f32, tx: f32, ty: f32, w: f32) -> f32 {
+    let a = vec2<f32>(bx, -1.0);
+    let b = vec2<f32>(tx, ty);
+    let ab = b - a;
+    let t = clamp(dot(q - a, ab) / dot(ab, ab), 0.0, 1.0);
+    // A slight bow, as real blades have.
+    let bow = vec2<f32>(-ab.y, ab.x) / length(ab) * sin(t * 3.1416) * 0.08;
+    return length(q - (a + ab * t + bow)) - w * (1.0 - t * 0.92);
+}
+
+// A card's silhouette: x = signed distance (inside < 0), y = tone multiplier.
+fn card(q: vec2<f32>, shape: i32, seed: f32) -> vec2<f32> {
+    var d = 9.0;
+    var tone = 1.0;
+    if (shape == 0 || shape == 1 || shape == 2 || shape == 4) {
+        let n = select(select(select(4, 9, shape == 2), 4, shape == 1), 7, shape == 0);
+        let w = select(select(select(0.07, 0.15, shape == 2), 0.06, shape == 1), 0.1, shape == 0);
+        for (var i = 0; i < 9; i = i + 1) {
+            if (i >= n) { break; }
+            let fi = f32(i);
+            let h = hash2(vec2<f32>(seed * 31.0 + fi, fi * 1.7));
+            let spread = select(0.55, 1.0, shape == 2);
+            let bx = (fi / f32(n - 1) - 0.5) * select(0.7, 0.25, shape == 2);
+            let tx = (fi / f32(n - 1) - 0.5) * 2.0 * spread + (h - 0.5) * 0.3;
+            var ty = select(0.1 + h * 0.85, 0.7 + h * 0.3, shape == 1);
+            if (shape == 2) { ty = 0.2 + (1.0 - abs(fi / f32(n - 1) - 0.5) * 2.0) * 0.75; }
+            d = min(d, blade(q, bx, tx, ty, w));
+            if (shape == 4) {
+                let head = length(q - vec2<f32>(tx, ty)) - 0.17 - h * 0.06;
+                if (head < d) { d = head; tone = 1.55; }
+            }
+            if (shape == 1 && fi < 2.0) {
+                let pod = length((q - vec2<f32>(tx * 0.9, ty - 0.22)) / vec2<f32>(0.07, 0.2)) - 1.0;
+                if (pod * 0.07 < d) { d = pod * 0.07; tone = 0.45; }
+            }
+        }
+    } else if (shape == 3) {
+        let j = vec2<f32>(hash2(vec2<f32>(seed, 1.0)), hash2(vec2<f32>(seed, 2.0))) - vec2<f32>(0.5);
+        d = min(d, length(q - vec2<f32>(-0.5, -0.5) - j * 0.2) - 0.5);
+        d = min(d, length(q - vec2<f32>(0.45, -0.45) + j * 0.2) - 0.52);
+        d = min(d, length(q - vec2<f32>(0.0, -0.05) - j * 0.15) - 0.58);
+        d = min(d, length(q - vec2<f32>(-0.3, 0.38) + j * 0.1) - 0.38);
+        d = min(d, length(q - vec2<f32>(0.32, 0.3) - j * 0.1) - 0.36);
+        // Leaf scallops along the edge, and shade toward the bottom.
+        d = d + (vnoise(q * 9.0 + vec2<f32>(seed * 7.0)) - 0.5) * 0.09;
+        tone = 0.8 + 0.3 * (q.y * 0.5 + 0.5) + step(0.72, vnoise(q * 7.0 + vec2<f32>(seed))) * 0.12;
+    } else {
+        // Broad leaves (banana, taro): rotated ellipses from the base, each with a dark midrib.
+        for (var i = 0; i < 4; i = i + 1) {
+            let fi = f32(i);
+            let ang = (fi / 3.0 - 0.5) * 1.9 + (hash2(vec2<f32>(seed, fi)) - 0.5) * 0.3;
+            let dir = vec2<f32>(sin(ang), cos(ang));
+            let c = vec2<f32>(0.0, -1.0) + dir * (0.95 + fi * 0.04);
+            let rel = q - c;
+            let u = dot(rel, dir);
+            let v = dot(rel, vec2<f32>(dir.y, -dir.x));
+            let e = length(vec2<f32>(u / 0.9, v / 0.36)) - 1.0;
+            let stem = blade(q, 0.0, c.x - dir.x * 0.85, c.y - dir.y * 0.85, 0.05);
+            let dd = min(e * 0.36, stem);
+            if (dd < d) { d = dd; tone = select(1.0, 0.55, abs(v) < 0.025 && e < 0.0); }
+        }
+    }
+    return vec2<f32>(d, tone);
+}
 
 fn bands(l: f32) -> f32 {
     // Three flat bands of light: shadow, mid, lit.
@@ -207,6 +320,20 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
     let kind = i32(in.params.x + 0.5);
     let p = in.world_pos.xz;
     if (kind == 3) { return vec4<f32>(sky(normalize(in.world_pos - camera.view_pos.xyz)), 1.0); }
+    if (kind == 9) {
+        let s = card(in.local.xy, i32(in.extra.y + 0.5), in.params.y);
+        if (s.x > 0.0) { discard; }
+        let cc = corruption(p);
+        var a = luma(in.color.rgb) * s.y * (0.78 + 0.3 * (in.local.y * 0.5 + 0.5));
+        a = mix(a, 0.07, cc.x * 0.9);
+        let lit = bands(dot(normalize(in.normal), normalize(world.sun.xyz)) * 0.8 + 0.1 * in.local.y);
+        var cardCol = vec3<f32>(min(a, 1.0) * mix(0.75, 1.0, lit));
+        // An ink line just inside the silhouette.
+        let edge = smoothstep(-0.045, -0.01, s.x) * world.look.z;
+        cardCol = mix(cardCol, vec3<f32>(0.04), edge * 0.85);
+        cardCol = cardCol + vec3<f32>(0.95, 0.06, 0.09) * edge * cc.x * (0.4 + 0.6 * cc.y);
+        return vec4<f32>(cardCol, 1.0);
+    }
     let n = normalize(in.normal);
     let L = normalize(world.sun.xyz);
     let V = normalize(camera.view_pos.xyz - in.world_pos);
@@ -219,19 +346,41 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
     let cor = corruption(p);
 
     if (kind == 1 || kind == 2) {
-        // The ground: grass greys, pale sand by the water, dark cliff faces, teal climbing marks.
+        // The ground, in several drawn materials: meadow (pale, sparse short dashes), long grass
+        // (darker, dense long dashes), bare soil with pebbles, rippled stippled sand, worn
+        // paths, and layered, cracked rock on every cliff.
         let grain = vnoise(p * 0.22) * 0.6 + vnoise(p * 1.1) * 0.4;
-        let beach = in.vcolor.g;
+        let beach = smoothstep(0.3, 0.7, in.vcolor.g + (vnoise(p * 0.45) - 0.5) * 0.5);
         let cliff = in.vcolor.b;
-        albedo = mix(0.46 + grain * 0.1, 0.8 + grain * 0.05, beach);
-        albedo = mix(albedo, 0.28 + grain * 0.08, cliff);
-        // Strokes of grass, drawn as darker dashes.
-        // Grass as short ink dashes, sparse, like a pen drawing.
-        let cell = floor(p * 1.4);
-        let jitter = hash22(cell);
-        let local = fract(p * 1.4) - jitter * 0.6 - vec2<f32>(0.2);
-        let dash = smoothstep(0.05, 0.0, abs(local.x + local.y * 0.25)) * step(abs(local.y), 0.22) * step(0.72, hash2(cell + vec2<f32>(3.1, 7.7)));
-        albedo = albedo - dash * 0.22 * (1.0 - beach) * (1.0 - cliff);
+        let path = select(in.vcolor.a, 0.0, kind == 2);
+        let zoneA = vnoise(p * 0.03 + vec2<f32>(3.0, 8.0)) * 0.7 + vnoise(p * 0.09) * 0.3;
+        let zoneB = vnoise(p * 0.05 + vec2<f32>(11.0, 5.0)) * 0.75 + vnoise(p * 0.2 + vec2<f32>(2.0)) * 0.25;
+        let meadow = smoothstep(0.42, 0.58, zoneA);
+        let soil = smoothstep(0.66, 0.72, zoneB) * (1.0 - beach);
+        // Grass: long and dark, or short and pale.
+        var g = mix(0.4, 0.56, meadow) + grain * 0.08;
+        g = g - dashes(p, mix(2.2, 1.5, meadow), mix(0.75, 0.35, meadow), mix(0.34, 0.18, meadow)) * mix(0.2, 0.14, meadow);
+        g = g - dashes(p + vec2<f32>(0.37, 0.71), 3.1, 0.3 * (1.0 - meadow), 0.25) * 0.12;
+        // Bare soil: dark, with light pebbles and a few cracks.
+        var so = 0.36 + grain * 0.06 + dots(p, 2.6, 0.22, 0.18) * 0.18 - smoothstep(0.035, 0.0, veins(p * 0.8)) * 0.07;
+        g = mix(g, so, soil);
+        // Sand: pale, ripples, stipple and the odd shell.
+        let ripple = smoothstep(0.75, 0.95, sin(p.x * 1.4 + p.y * 0.55 + vnoise(p * 0.3) * 6.0)) * 0.05;
+        let sand = 0.8 + grain * 0.04 - ripple - dots(p, 6.0, 0.55, 0.16) * 0.12 + dots(p + vec2<f32>(9.0), 0.7, 0.1, 0.2) * 0.12;
+        albedo = mix(g, sand, beach);
+        // Worn paths: packed light dirt, pebbles, a darker rim.
+        // The path's edge frays with noise, so the 1.5 m mesh never shows as steps.
+        let fray = path + (vnoise(p * 1.7) - 0.5) * 0.45;
+        let dirt = 0.6 + grain * 0.05 - dots(p, 3.2, 0.2, 0.16) * 0.08;
+        albedo = mix(albedo, dirt, smoothstep(0.45, 0.65, fray) * 0.85);
+        // Rock: strata following height, cracks across them, lighter ledges.
+        let strata = fract(in.world_pos.y * 0.85 + vnoise(p * 0.25) * 1.3);
+        var rock = 0.3 + grain * 0.06 + smoothstep(0.9, 1.0, strata) * 0.12 - smoothstep(0.1, 0.0, strata) * 0.14;
+        rock = rock - smoothstep(0.05, 0.0, veins(vec2<f32>(p.x + p.y, in.world_pos.y * 2.0) * 0.7)) * 0.12;
+        albedo = mix(albedo, rock, cliff);
+        // The ground keeps two soft bands (cliffs keep three hard ones): small rolls of land
+        // must not flicker between light and shadow.
+        light = mix(mix(0.74, 1.0, smoothstep(0.2, 0.5, ndl)), light, cliff);
         if (kind == 2) {
             // Water: flat dark grey, a white rim of foam where it meets land.
             let depth = in.vcolor.r;
@@ -265,6 +414,12 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
     } else if (kind == 4) {
         // Foliage: leaf texture in greys.
         albedo = albedo * (0.85 + vnoise(in.local.xy * 6.0 + in.params.y) * 0.3);
+        if (i32(in.extra.y + 0.5) == 4) {
+            // A leaf: dark midrib along its length, veins off it.
+            let rib = smoothstep(0.07, 0.0, abs(in.local.x));
+            let vn = smoothstep(0.06, 0.0, abs(fract(in.local.z * 4.0 - abs(in.local.x) * 2.0) - 0.5) - 0.44) * step(abs(in.local.x), 0.85);
+            albedo = albedo - rib * 0.18 - vn * 0.08;
+        }
     } else if (kind == 6) {
         // Corrupted flesh: glossy red with black veins that crawl.
         let v = smoothstep(0.08, 0.0, veins(in.local.xz * 2.4 + in.local.y * 1.7 + vec2<f32>(world.time.x * 0.3)));
@@ -274,6 +429,33 @@ fn fs_main(in: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f3
     } else if (kind == 7) {
         let band = smoothstep(0.4, 0.5, fract(in.local.y * 3.0 - world.time.x * 0.8));
         emit = emit + in.color.rgb * (in.params.z + band * 0.25);
+    } else if (kind == 0) {
+        let m = i32(in.extra.y + 0.5);
+        let L = in.local;
+        if (m == 1) {
+            // Stone: speckle, cracks, lichen on top.
+            albedo = albedo * (0.86 + vnoise(L.xz * 5.0 + L.y * 3.0 + in.params.y * 9.0) * 0.22);
+            albedo = albedo - smoothstep(0.05, 0.0, veins(L.xz * 1.6 + vec2<f32>(L.y * 1.3, in.params.y * 5.0))) * 0.16;
+            albedo = albedo - dots(L.xz * 3.0 + vec2<f32>(in.params.y * 3.0), 3.0, 0.4, 0.2) * 0.08 * smoothstep(0.4, 0.8, n.y);
+            albedo = albedo + smoothstep(0.6, 0.9, n.y) * 0.08;
+        } else if (m == 2) {
+            // Bark: vertical fissures.
+            let fis = smoothstep(0.08, 0.0, abs(fract(atan2(L.z, L.x) * 2.5 + vnoise(L.xy * vec2<f32>(3.0, 0.6)) * 1.4) - 0.5) - 0.42);
+            albedo = albedo - fis * 0.14;
+        } else if (m == 6) {
+            // Palm trunk: rings of old leaf bases.
+            let ring = fract(L.y * 2.4 + atan2(L.z, L.x) * 0.08);
+            albedo = albedo - smoothstep(0.82, 0.95, ring) * 0.16 + smoothstep(0.1, 0.0, ring) * 0.06;
+        } else if (m == 3) {
+            // Wood planks: seams, grain lines and nail heads.
+            let seam = smoothstep(0.06, 0.0, abs(fract(L.x * 1.5 + 0.5) - 0.5) - 0.44);
+            let gr = smoothstep(0.7, 0.9, vnoise(vec2<f32>(L.x * 12.0, L.y * 1.5 + L.z)));
+            albedo = albedo - seam * 0.2 - gr * 0.06;
+        } else if (m == 5) {
+            // Shell: ribs fanning out.
+            let rib = smoothstep(0.2, 0.0, abs(fract(atan2(L.z, L.x) * 2.2) - 0.5) - 0.3);
+            albedo = albedo - rib * 0.08;
+        }
     } else if (kind == 8) {
         // A fallen Tone: grey, see-through-ish speckle.
         if (hash2(floor(in.clip.xy * 0.5)) > 0.55 + in.params.z * 0.4) { discard; }

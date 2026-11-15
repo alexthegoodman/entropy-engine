@@ -603,7 +603,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Contour Design / the Skiff as light](public/contour-design-holo.png "Contour Design / the Skiff as light") | ![Contour Design / a loft, twisted and unevenly mirrored](public/contour-design-asymmetry.png "Contour Design / a loft, twisted and unevenly mirrored") |
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
-| ![World of Music / the Smudged Grove](public/world-of-music-the-smudged-grove.png "World of Music / the Smudged Grove") | ![World of Music / Agent Tom and his Tones](public/world-of-music-agent-tom.png "World of Music / Agent Tom and his Tones") |
+| ![World of Music / Landfall Cove](public/world-of-music-vista.png "World of Music / Landfall Cove") | ![World of Music / Agent Tom and his Tones](public/world-of-music-agent-tom.png "World of Music / Agent Tom and his Tones") |
 | ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |
 
 ## P2P development

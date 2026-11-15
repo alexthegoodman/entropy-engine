@@ -599,7 +599,12 @@ function registerTools(): void {
             run: a => {
                 if (a.release) freeCam = null;
                 else if ("yaw" in a || "dist" in a) { freeCam = null; game.camYaw = num(a.yaw, game.camYaw); game.camDist = num(a.dist, game.camDist); }
-                else freeCam = { pos: vec(a.position, cameraNow().pos), target: vec(a.target, cameraNow().target), fov: num(a.fov, 52) };
+                else {
+                    // `relative`: position and target are offsets from Agent Tom's feet.
+                    const o: V3 = a.relative ? [...game.tom.pos] : [0, 0, 0];
+                    const p = vec(a.position, cameraNow().pos), t = vec(a.target, cameraNow().target);
+                    freeCam = { pos: [p[0] + o[0], p[1] + o[1], p[2] + o[2]], target: [t[0] + o[0], t[1] + o[1], t[2] + o[2]], fov: num(a.fov, 52) };
+                }
                 draw(0);
                 return snapshot();
             },
