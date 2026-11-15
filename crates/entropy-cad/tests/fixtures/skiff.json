@@ -1,0 +1,511 @@
+{
+ "version": 1,
+ "units": "mm",
+ "features": [
+  {
+   "id": "s1",
+   "name": "Nose",
+   "type": "sketch",
+   "plane": {
+    "base": "side",
+    "offset": -150,
+    "tiltY": 0
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -6,
+     "y": 30
+    },
+    {
+     "id": "p2",
+     "x": 0,
+     "y": 38
+    },
+    {
+     "id": "p3",
+     "x": 8,
+     "y": 33
+    },
+    {
+     "id": "p4",
+     "x": 6,
+     "y": 25
+    },
+    {
+     "id": "p5",
+     "x": -2,
+     "y": 23
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "id": "s2",
+   "name": "Fore section",
+   "type": "sketch",
+   "plane": {
+    "base": "side",
+    "offset": -60,
+    "tiltY": 8
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -45,
+     "y": 22
+    },
+    {
+     "id": "p2",
+     "x": -12,
+     "y": 58
+    },
+    {
+     "id": "p3",
+     "x": 36,
+     "y": 46
+    },
+    {
+     "id": "p4",
+     "x": 52,
+     "y": 20
+    },
+    {
+     "id": "p5",
+     "x": 8,
+     "y": 6
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "id": "s3",
+   "name": "Mid section",
+   "type": "sketch",
+   "plane": {
+    "base": "side",
+    "offset": 50,
+    "tiltY": -4
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -62,
+     "y": 24
+    },
+    {
+     "id": "p2",
+     "x": -22,
+     "y": 70
+    },
+    {
+     "id": "p3",
+     "x": 44,
+     "y": 54
+    },
+    {
+     "id": "p4",
+     "x": 70,
+     "y": 22
+    },
+    {
+     "id": "p5",
+     "x": 6,
+     "y": 2
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "id": "s4",
+   "name": "Tail",
+   "type": "sketch",
+   "plane": {
+    "base": "side",
+    "offset": 150,
+    "tiltY": 0
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -26,
+     "y": 28
+    },
+    {
+     "id": "p2",
+     "x": -6,
+     "y": 50
+    },
+    {
+     "id": "p3",
+     "x": 24,
+     "y": 42
+    },
+    {
+     "id": "p4",
+     "x": 30,
+     "y": 26
+    },
+    {
+     "id": "p5",
+     "x": 2,
+     "y": 14
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "type": "loft",
+   "sections": [
+    {
+     "profile": {
+      "sketch": "s1"
+     }
+    },
+    {
+     "profile": {
+      "sketch": "s2"
+     }
+    },
+    {
+     "profile": {
+      "sketch": "s3"
+     }
+    },
+    {
+     "profile": {
+      "sketch": "s4"
+     }
+    }
+   ],
+   "op": "new",
+   "id": "l1",
+   "name": "Hull"
+  },
+  {
+   "id": "s5",
+   "name": "Cockpit outline",
+   "type": "sketch",
+   "plane": {
+    "base": "top",
+    "offset": 90
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 5,
+     "y": 6
+    }
+   ],
+   "entities": [
+    {
+     "type": "ellipse",
+     "center": "p1",
+     "rx": 46,
+     "ry": 17,
+     "rotation": 14,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "type": "extrude",
+   "profile": {
+    "sketch": "s5"
+   },
+   "forward": {
+    "distance": 0
+   },
+   "backward": {
+    "distance": 52,
+    "scale": [
+     0.72,
+     0.6
+    ],
+    "shift": [
+     10,
+     0
+    ]
+   },
+   "op": "cut",
+   "id": "x1",
+   "name": "Cockpit"
+  },
+  {
+   "id": "s6",
+   "name": "Wing spine",
+   "type": "sketch",
+   "plane": {
+    "base": "top",
+    "offset": 26
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -10,
+     "y": -40
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": -85
+    },
+    {
+     "id": "p3",
+     "x": 78,
+     "y": -128
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3"
+     ],
+     "id": "e1",
+     "stroke": {
+      "left": 26,
+      "right": 9,
+      "start": 1,
+      "middle": 0.75,
+      "end": 0.12,
+      "round": true
+     }
+    }
+   ]
+  },
+  {
+   "type": "extrude",
+   "profile": {
+    "sketch": "s6"
+   },
+   "forward": {
+    "distance": 5,
+    "scale": [
+     0.9,
+     0.9
+    ]
+   },
+   "backward": {
+    "distance": 3
+   },
+   "op": "add",
+   "id": "x2",
+   "name": "Wing"
+  },
+  {
+   "id": "s7",
+   "name": "Fin section",
+   "type": "sketch",
+   "plane": {
+    "base": "top",
+    "offset": 48
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 70,
+     "y": 4
+    }
+   ],
+   "entities": [
+    {
+     "type": "ellipse",
+     "center": "p1",
+     "rx": 26,
+     "ry": 4.5,
+     "rotation": 0,
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "id": "s8",
+   "name": "Fin path",
+   "type": "sketch",
+   "plane": {
+    "base": "front",
+    "offset": -4
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 70,
+     "y": 48
+    },
+    {
+     "id": "p2",
+     "x": 92,
+     "y": 92
+    },
+    {
+     "id": "p3",
+     "x": 140,
+     "y": 122
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3"
+     ],
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "type": "sweep",
+   "profile": {
+    "sketch": "s7"
+   },
+   "path": {
+    "sketch": "s8"
+   },
+   "scaleEnd": 0.22,
+   "twist": 0,
+   "op": "add",
+   "id": "w1",
+   "name": "Fin"
+  },
+  {
+   "id": "s9",
+   "name": "Thruster section",
+   "type": "sketch",
+   "plane": {
+    "base": "front",
+    "offset": -2
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 146,
+     "y": 50
+    },
+    {
+     "id": "p2",
+     "x": 182,
+     "y": 55
+    },
+    {
+     "id": "p3",
+     "x": 190,
+     "y": 48
+    },
+    {
+     "id": "p4",
+     "x": 180,
+     "y": 43
+    },
+    {
+     "id": "p5",
+     "x": 146,
+     "y": 44
+    },
+    {
+     "id": "p6",
+     "x": 100,
+     "y": 30
+    },
+    {
+     "id": "p7",
+     "x": 200,
+     "y": 30
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "id": "e1"
+    },
+    {
+     "type": "line",
+     "a": "p6",
+     "b": "p7",
+     "construction": true,
+     "id": "e2"
+    }
+   ]
+  },
+  {
+   "type": "revolve",
+   "profile": {
+    "sketch": "s9"
+   },
+   "axis": {
+    "entity": "e2"
+   },
+   "start": 0,
+   "end": 360,
+   "lobes": 6,
+   "lobeDepth": 0.07,
+   "op": "add",
+   "id": "r1",
+   "name": "Thruster"
+  }
+ ]
+}

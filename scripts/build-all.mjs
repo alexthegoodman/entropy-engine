@@ -38,6 +38,7 @@ const bundles = [
   ["mcp-tools-demo", "src/apps/mcp_tools_demo_addon.ts", "mcp_demo.js"],
   ["media-player", "src/apps/media_player_addon.ts", "media_player.js"],
   ["mesha", "src/apps/mesha/mesha_addon.ts", "mesha.js"],
+  ["cad-design", "src/apps/cad_design/cad_design_addon.ts", "cad_design.js"],
   ["ml-graph-demo", "src/apps/ml_graph_demo_addon.ts", "ml_graph_demo.js"],
   ["node-graph", "src/apps/node_graph_addon.ts", "node_graph.js"],
   ["quadplanet", "src/apps/quadplanet/quadplanet_addon.ts", "quadplanet.js"],

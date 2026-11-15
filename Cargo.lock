@@ -3219,6 +3219,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5320ae4c3782150d900b79807611a59a99fc9a1d61d686faafc24b93fc8d7ca"
 
 [[package]]
+name = "entropy-cad"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "entropy-engine"
 version = "0.1.0"
 dependencies = [
@@ -3240,6 +3248,7 @@ dependencies = [
  "device_query",
  "directories",
  "ego-tree",
+ "entropy-cad",
  "env_logger",
  "etagere",
  "exr",

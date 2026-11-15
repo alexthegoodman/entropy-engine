@@ -1,6 +1,7 @@
 pub mod addon_engine;
 pub mod addon_ops;
 pub mod brass_ops;
+pub mod cad_ops;
 pub mod matter_ops;
 pub mod music_video_ops;
 pub mod water_ops;

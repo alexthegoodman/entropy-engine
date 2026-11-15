@@ -169,6 +169,94 @@ declare global {
     failure: (namespace: string, key: string) => string | null;
   }
 
+  /** One body of an evaluated CAD document (`Entropy.Cad.evaluate`). Lengths in document units. */
+  interface CadBody {
+    id: string; name: string;
+    /** Changes when (and only when) the geometry does: re-spawn the body's meshes then. */
+    key: string;
+    triangles: number;
+    min: [number, number, number]; max: [number, number, number];
+    volume: number; area: number; centroid: [number, number, number];
+    /** What made each face: the feature's id and the part ("side:<entity id>", "start", "end"). */
+    faces: Array<{ feature: string; part: string }>;
+  }
+  interface CadSketch {
+    id: string;
+    /** The sketch plane in space: a point `p` of the sketch is `origin + x * p[0] + y * p[1]`. */
+    origin: [number, number, number]; x: [number, number, number]; y: [number, number, number]; normal: [number, number, number];
+    /** Every curve, flattened, in sketch coordinates (x, y, x, y...). */
+    entities: Array<{ id: string; closed: boolean; construction: boolean; points: number[] }>;
+    /** Closed areas a feature can use, named by `key` (stable across edits). */
+    regions: Array<{ key: string; area: number; centroid: [number, number]; holes: number }>;
+    /** Open runs of curves joined end to end (paths to sweep along), as entity ids. */
+    chains: string[][];
+  }
+  interface CadEvaluation {
+    ms: number;
+    /** Bodies rebuilt (rather than reused from the session's cache) by this evaluation. */
+    built: number;
+    /** Features that could not be built, and why, in plain words. The rest of the document still is. */
+    issues: Array<{ feature: string; message: string }>;
+    bodies: CadBody[];
+    sketches: CadSketch[];
+  }
+  interface CadSpawnConfig { id?: string; pipelineId: string; bindings?: BindingConfig[] }
+  interface CadPick {
+    body: string; faceIndex: number; feature: string; part: string;
+    point: [number, number, number]; normal: [number, number, number]; distance: number;
+  }
+  interface CadSketchHit {
+    kind: "point" | "midpoint" | "curve" | "none";
+    point: string | null; entity: string | null;
+    /** Where to snap to, in sketch coordinates. */
+    at: [number, number]; distance: number;
+  }
+  type CadSegments =
+    | { kind: "bodyEdges"; body: string }
+    | { kind: "sketch"; sketch: string; entity?: string; construction?: boolean }
+    | { kind: "regions"; sketch: string }
+    | { kind: "comb"; sketch: string; entity: string; scale: number; quills?: number };
+
+  /**
+   * The CAD geometry kernel (crates/entropy-cad): exact NURBS curves, sketches with region
+   * finding, extrude / revolve / loft / sweep, deformers, mirror and booleans.
+   *
+   * The addon owns its document as plain JSON (see apps/cad/cad_doc.ts for its shape) and gives it
+   * to a session to evaluate; the session remembers what it built, so changing one feature rebuilds
+   * only what depends on it. Geometry stays on the Rust side: `spawn*` queue engine meshes directly.
+   */
+  interface CadAPI {
+    open: () => string;
+    close: (session: string) => void;
+    /**
+     * `chord` is how far a flattened curve may stray (document units, default 0.02) and `angle` how
+     * much neighbouring facets may turn (degrees, default 6). `draft` coarsens both for a drag.
+     * `sketchesOnly` skips bodies (they keep their last evaluation): use it while drawing.
+     * Throws only if `doc` is not a document at all; a feature that fails is reported in `issues`.
+     */
+    evaluate: (session: string, doc: object | string, options?: { chord?: number; angle?: number; draft?: boolean; sketchesOnly?: boolean }) => CadEvaluation;
+    /** A body's surface, in the engine's `mesh` layout; `uv.x` is the face's index in `CadBody.faces`. False if there is nothing to draw. */
+    spawnBody: (session: string, body: string, config: CadSpawnConfig) => boolean;
+    /** A sketch's closed regions, filled flat in `color`. */
+    spawnRegions: (session: string, sketch: string, config: CadSpawnConfig & { color?: RGBA }) => boolean;
+    /**
+     * Line segments (x, y, z, x, y, z each) as ribbons a shader widens on screen. Per vertex:
+     * `position` its own end, `normal` the other end, `uv.x` side (-1 / 1) times `width` in pixels,
+     * `uv.y` 0 at the start and 1 at the end of the segment (plus 2 when `dashed`), `color`.
+     */
+    spawnLines: (config: CadSpawnConfig & { batches: Array<{ segments: Float32Array | number[]; color?: RGBA; width?: number; dashed?: boolean }> }) => boolean;
+    /** Segments in document space, to pass to `spawnLines`. */
+    segments: (session: string, what: CadSegments) => Float32Array;
+    /** The nearest body surface along a ray (document space). */
+    pick: (session: string, origin: [number, number, number], direction: [number, number, number]) => CadPick | null;
+    /** Where a ray (document space) meets a sketch's plane, in sketch coordinates. */
+    sketchPoint: (session: string, sketch: string, origin: [number, number, number], direction: [number, number, number]) => [number, number] | null;
+    /** What is within `radius` of a sketch point, and where to snap: points, then midpoints, then curves. `skip`: point ids being dragged. */
+    sketchHit: (session: string, sketch: string, x: number, y: number, radius: number, skip?: string[]) => CadSketchHit;
+    /** Writes every body to `path` as binary "stl" or "obj". */
+    export: (session: string, format: "stl" | "obj", path: string) => { success: boolean; path: string; bytes: number; error: string | null };
+  }
+
   var lastPBRDesignerTextures: {
     [key: string]: {
     diffId: string;
@@ -516,6 +604,8 @@ export interface ScopedAPI {
   };
   QuadPlanet: QuadPlanetAPI;
   MeshCache: MeshCacheAPI;
+  /** The CAD geometry kernel: evaluate a document, spawn its bodies, pick and snap. */
+  Cad: CadAPI;
   /** Addon phases and counters in the native frame profiler (ENTROPY_FRAME_PROFILE=1): `record`
    * adds milliseconds to a named phase of this frame, `count` adds to a per-frame counter. Both
    * do nothing while profiling is off; `enabled` says whether it is on. */
@@ -4430,6 +4520,8 @@ export interface EntropyAPI {
   };
   QuadPlanet: QuadPlanetAPI;
   MeshCache: MeshCacheAPI;
+  /** The CAD geometry kernel: evaluate a document, spawn its bodies, pick and snap. */
+  Cad: CadAPI;
   /** Addon phases and counters in the native frame profiler (see the other declaration). */
   /**
    * Background jobs on engine worker threads, each script in a JavaScript isolate of its own

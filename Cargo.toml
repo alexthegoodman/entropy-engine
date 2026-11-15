@@ -235,6 +235,8 @@ name = "bench_prediction"
 path = "src/bin/bench_prediction.rs"
 
 [dependencies]
+# The geometry kernel shared by the CAD apps (NURBS curves, sketches, swept bodies, booleans).
+entropy-cad = { path = "crates/entropy-cad" }
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
 
@@ -433,6 +435,10 @@ cucumber = "0.23.0"
 
 # OpenH264 is C++ built by cc at the profile's opt level; unoptimized it can't decode 1080p in
 # real time, which makes debug builds (and `cargo test`) useless for video.
+# The CAD kernel rebuilds geometry on every frame of a drag: unoptimized it is several times slower.
+[profile.dev.package.entropy-cad]
+opt-level = 3
+
 [profile.dev.package.openh264-sys2]
 opt-level = 3
 

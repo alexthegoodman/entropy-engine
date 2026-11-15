@@ -189,6 +189,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_MEDIA_BDD_RESULT",
     "ENTROPY_MESHA_BDD_RESULT",
     "ENTROPY_PLANNER_BDD_RESULT",
+    "ENTROPY_CAD_BDD_RESULT",
     "ENTROPY_QUADPLANET_BDD_RESULT",
     "ENTROPY_ALLEGIANCE_BDD_RESULT",
     "ENTROPY_ABYSS_BDD_RESULT",
@@ -215,6 +216,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real video export demo is running in test mode"
         || text == "the real Mesha app is running in test mode"
         || text == "the real Game World Planner is running in test mode"
+        || text == "the real Contour Design app is running in test mode"
         || text == "the real Game World Detailer is running in test mode"
         || text == "the real QuadPlanet app is running in test mode"
         || text == "the real Allegiance game is running in test mode"
@@ -346,7 +348,9 @@ impl BrowserBddDriver {
         let planner = !daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_PLANNER_BDD_RESULT").is_some();
         // The Game World Detailer too: tool replies in the result, captures, Mesha's budget.
         let detailer = !daw && !canvas && !launcher && !sheet && !ml && !media && !planner && std::env::var_os("ENTROPY_DETAILER_BDD_RESULT").is_some();
-        let mesha = planner || detailer || (!daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some());
+        // Contour Design (CAD) rides it as well: tool replies in the result, captures, Mesha's budget.
+        let cad = !daw && !canvas && !launcher && !sheet && !ml && !media && !planner && !detailer && std::env::var_os("ENTROPY_CAD_BDD_RESULT").is_some();
+        let mesha = planner || detailer || cad || (!daw && !canvas && !launcher && !sheet && !ml && !media && std::env::var_os("ENTROPY_MESHA_BDD_RESULT").is_some());
         // Allegiance (a game on QuadPlanet's Earth) rides QuadPlanet's run: keys, MCP tools, captures.
         let allegiance = std::env::var_os("ENTROPY_ALLEGIANCE_BDD_RESULT").is_some();
         // The Abyss rides the same run (keys, MCP tools, captures) with its own feature.
@@ -376,6 +380,8 @@ impl BrowserBddDriver {
             "ENTROPY_PLANNER_BDD_RESULT"
         } else if detailer {
             "ENTROPY_DETAILER_BDD_RESULT"
+        } else if cad {
+            "ENTROPY_CAD_BDD_RESULT"
         } else if mesha {
             "ENTROPY_MESHA_BDD_RESULT"
         } else if quadplanet && allegiance {
@@ -407,6 +413,12 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_DETAILER_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/game_detailer_live.feature"),
+            }
+        } else if cad {
+            // ENTROPY_CAD_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
+            match std::env::var("ENTROPY_CAD_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/cad_design_live.feature"),
             }
         } else if mesha {
             // ENTROPY_MESHA_BDD_FEATURE: "human" plays the people feature, "scene" the procedural scene

@@ -1,0 +1,91 @@
+{
+ "version": 1,
+ "units": "mm",
+ "features": [
+  {
+   "id": "s1",
+   "name": "Outline",
+   "type": "sketch",
+   "plane": {
+    "base": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -50,
+     "y": -10
+    },
+    {
+     "id": "p2",
+     "x": -20,
+     "y": 34
+    },
+    {
+     "id": "p3",
+     "x": 34,
+     "y": 30
+    },
+    {
+     "id": "p4",
+     "x": 58,
+     "y": -6
+    },
+    {
+     "id": "p5",
+     "x": 10,
+     "y": -36
+    }
+   ],
+   "entities": [
+    {
+     "type": "spline",
+     "points": [
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+     ],
+     "closed": true,
+     "weights": [
+      1,
+      1.4,
+      1,
+      0.7,
+      1
+     ],
+     "id": "e1"
+    }
+   ]
+  },
+  {
+   "type": "extrude",
+   "profile": {
+    "sketch": "s1"
+   },
+   "forward": {
+    "distance": 34,
+    "scale": [
+     0.35,
+     0.5
+    ],
+    "shift": [
+     14,
+     6
+    ],
+    "bulge": 0.22
+   },
+   "backward": {
+    "distance": 10,
+    "scale": [
+     0.7,
+     0.7
+    ],
+    "bulge": 0.12
+   },
+   "op": "new",
+   "id": "x1",
+   "name": "Pebble"
+  }
+ ]
+}

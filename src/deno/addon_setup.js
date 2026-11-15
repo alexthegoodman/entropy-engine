@@ -793,6 +793,41 @@ function createAddonContextualAPI(resolveTarget) {
             record: (name, ms) => ops.op_frame_profile_record(String(name), Number(ms)),
             count: (name, value) => ops.op_frame_profile_count(String(name), Number(value)),
         },
+        // The CAD geometry kernel (src/deno/cad_ops.rs, crates/entropy-cad). The addon owns its
+        // document as JSON; a session evaluates it (incrementally) and spawns the results as
+        // engine meshes without the geometry crossing into JavaScript.
+        Cad: {
+            open: () => ops.op_cad_open(),
+            close: (session) => ops.op_cad_close(session),
+            evaluate: (session, doc, options) => ops.op_cad_evaluate(session, typeof doc === "string" ? doc : JSON.stringify(doc), options ?? null),
+            spawnBody: (session, body, config) => ops.op_cad_spawn(resolveTarget(), session, { kind: "body", body }, {
+                id: config.id ?? null, pipelineId: config.pipelineId, bindings: config.bindings ?? null,
+            }),
+            spawnRegions: (session, sketch, config) => ops.op_cad_spawn(resolveTarget(), session, { kind: "regions", sketch, color: config.color ?? [1, 1, 1, 0.2] }, {
+                id: config.id ?? null, pipelineId: config.pipelineId, bindings: config.bindings ?? null,
+            }),
+            // batches: [{ segments: Float32Array (x,y,z,x,y,z each), color, width (px), dashed }]
+            spawnLines: (config) => {
+                ops.op_cad_lines_begin();
+                for (const b of config.batches ?? []) {
+                    const seg = b.segments instanceof Float32Array ? b.segments : new Float32Array(b.segments);
+                    if (!seg.length) continue;
+                    const c = b.color ?? [1, 1, 1, 1];
+                    ops.op_cad_lines_add(new Uint8Array(seg.buffer, seg.byteOffset, seg.byteLength), c[0], c[1], c[2], c[3] ?? 1, b.width ?? 1.5, !!b.dashed);
+                }
+                return ops.op_cad_spawn(resolveTarget(), "", { kind: "lines" }, {
+                    id: config.id ?? null, pipelineId: config.pipelineId, bindings: config.bindings ?? null,
+                });
+            },
+            segments: (session, what) => {
+                const u8 = ops.op_cad_segments(session, what);
+                return u8.byteOffset % 4 === 0 ? new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4) : new Float32Array(u8.slice().buffer);
+            },
+            pick: (session, origin, direction) => ops.op_cad_pick(session, origin[0], origin[1], origin[2], direction[0], direction[1], direction[2]) ?? null,
+            sketchPoint: (session, sketch, origin, direction) => ops.op_cad_sketch_point(session, sketch, origin[0], origin[1], origin[2], direction[0], direction[1], direction[2]) ?? null,
+            sketchHit: (session, sketch, x, y, radius, skip) => ops.op_cad_sketch_hit(session, sketch, x, y, radius, skip ?? []),
+            export: (session, format, path) => ops.op_cad_export(session, format, path),
+        },
         // Generated meshes kept on disk (src/deno/mesh_cache_ops.rs), like a shader cache: build
         // a mesh once, `put` it, and `createMesh` spawns it from the cache from then on.
         MeshCache: {
@@ -1416,6 +1451,7 @@ globalThis.Entropy = {
                 Landscape3D: contextualAPI.Landscape3D,
                 QuadPlanet: contextualAPI.QuadPlanet,
                 MeshCache: contextualAPI.MeshCache,
+                Cad: contextualAPI.Cad,
                 Profile: contextualAPI.Profile,
                 Worker: contextualAPI.Worker,
                 Collectable: {
@@ -2838,6 +2874,7 @@ globalThis.Entropy = {
     Landscape3D: globalContextualAPI.Landscape3D,
     QuadPlanet: globalContextualAPI.QuadPlanet,
     MeshCache: globalContextualAPI.MeshCache,
+    Cad: globalContextualAPI.Cad,
     Profile: globalContextualAPI.Profile,
     Worker: globalContextualAPI.Worker,
     Particles: globalContextualAPI.Particles,

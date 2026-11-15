@@ -126,6 +126,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "abyss",
     "allegiance",
     "app-launcher",
+    "cad-design",
     "canvas-surface-demo",
     "cc-manager",
     "p2p-forum",

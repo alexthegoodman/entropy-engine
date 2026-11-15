@@ -212,6 +212,16 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/media_player.js")
                 .with_title("Entropy Media Player")
                 .with_window_size(1280.0, 760.0),
+            Some("cad-design") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/cad_design.js")
+                .with_hot_reload(true)
+                .with_title("Contour Design")
+                .with_window_size(1600.0, 960.0)
+                // The panels are `glass: true` over the 3D viewport; this runs the pass they sample.
+                .with_glass_blur(true)
+                // The document persists through the addon's own IO.store folder.
+                // ENTROPY_CAD_BDD_DATA lets tests/cad_design_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_CAD_BDD_DATA").unwrap_or_else(|_| "../cad-design-data".to_string())),
             Some("mesha") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/mesha.js")
                 .with_hot_reload(true)
