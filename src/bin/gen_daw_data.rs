@@ -1,19 +1,20 @@
 #![allow(warnings)]
 
-//! Procedural DAW workflow data generator.
+//! Procedural DAW session generator.
 //!
-//! Runs the session simulator in `brain::daw_sim` (genres, personas, chained
-//! goals, a modelled DAW state) and writes the sessions as JSON for
-//! train_prediction. With `--eval-count` it also writes a held-out evaluation
-//! set next to the training file: sessions built around genre and instrument
-//! pairings the training split never contains.
+//! Runs the session simulator in `prediction::daw_sim` (genres, personas,
+//! chained goals, a modelled DAW state) and writes the sessions as JSON in the
+//! form yumon-pet's `wir daw --sessions` scores the next-step brain on:
+//! `[[[action, [params], [family, tracks, pattern_fill, song_fill,
+//! pattern_steps]], ..], ..]`. With `--eval-count` it also writes a held-out
+//! set next to the first file: sessions built around genre and instrument
+//! pairings the first split never contains. Write rules against the first
+//! split and report the held-out one.
 //!
 //! Usage:
 //!   cargo run --release --bin gen_daw_data -- \
-//!       --out data/daw_sequences.json \
-//!       --count 20000 \
-//!       --eval-count 1000 \
-//!       --seed 42
+//!       --out data/daw_sessions.json --count 3000 --eval-count 1000 --seed 42
+//!   (in yumon-pet/wir) cargo run --release -- daw --sessions ../../entropy-engine/data/daw_sessions.eval.json
 
 use anyhow::Result;
 use clap::Parser;
@@ -25,11 +26,11 @@ use entropy_engine::prediction::daw_sim::{generate_sessions, Split};
 #[derive(Parser)]
 #[command(name = "gen_daw_data", about = "Generate synthetic DAW action sessions")]
 struct Cli {
-    /// Training output file (JSON).
-    #[arg(long, default_value = "data/daw_sequences.json")]
+    /// Output file (JSON) for the split rules are written against.
+    #[arg(long, default_value = "data/daw_sessions.json")]
     out: String,
 
-    /// Number of training sessions.
+    /// Number of sessions in that split.
     #[arg(long, default_value_t = 20_000)]
     count: usize,
 
@@ -44,7 +45,7 @@ struct Cli {
 
 fn eval_path(out: &str) -> String {
     let p = std::path::Path::new(out);
-    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("daw_sequences");
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("daw_sessions");
     p.with_file_name(format!("{stem}.eval.json")).to_string_lossy().into_owned()
 }
 
@@ -53,7 +54,24 @@ fn write(path: &str, sessions: &[Trajectory]) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
-    serde_json::to_writer(&mut file, sessions)?;
+    let rows: Vec<serde_json::Value> = sessions
+        .iter()
+        .map(|t| {
+            t.steps
+                .iter()
+                .filter_map(|s| {
+                    let a = s.action()?;
+                    let c = &s.context;
+                    Some(serde_json::json!([
+                        a.name(),
+                        s.params[..a.param_count()],
+                        [c.family, c.tracks, c.pattern_fill, c.song_fill, c.pattern_steps],
+                    ]))
+                })
+                .collect()
+        })
+        .collect();
+    serde_json::to_writer(&mut file, &rows)?;
     file.flush()?;
     let size = std::fs::metadata(path)?.len();
     println!("Wrote {} sessions to {path} ({:.1} MB)", sessions.len(), size as f64 / 1_048_576.0);

@@ -1,15 +1,15 @@
-//! The DAW's next-action prediction model, its action vocabulary and the procedural session
-//! generator that trains it (moved from yumon-pet). `gen_daw_data` and `train_prediction` in
-//! src/bin generate data and train; the Deno ops in deno/prediction_ops.rs run inference.
+//! The DAW's next-step prediction: a written WIR brain (`brain`, compiled by yumon-pet's
+//! `wir daw`), the substantive action vocabulary it ranks (`daw_actions`) and the procedural
+//! session simulator it is scored on (`daw_sim`; `bench_prediction` in src/bin measures it,
+//! `gen_daw_data` writes sessions for `wir daw --sessions`). The Deno ops in
+//! deno/prediction_ops.rs call it.
 
+pub mod brain;
 pub mod daw_actions;
 pub mod daw_sim;
-pub mod model;
-pub mod nn;
 
-pub use daw_actions::{ActionStep, DawAction, StepContext, Trajectory};
-pub use model::{
-    ActionPredictor, AltAction, InferenceBackend, LoadedPredictor, PlanPoll, PlanState, PredictedAction,
-    PredictionMetadata, PredictionModel, PredictionModelConfig, PredictionStatus, poll_plan, predict_next_actions,
-    predict_plan, prediction_status, request_plan, resolve_prediction_checkpoint_dir,
+pub use brain::{
+    AltAction, Brain, BrainInput, PlanPoll, PlanState, PredictedAction, PredictionStatus, poll_plan, predict_plan, prediction_status,
+    request_plan,
 };
+pub use daw_actions::{ActionStep, DawAction, StepContext, Trajectory};

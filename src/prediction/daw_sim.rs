@@ -1,13 +1,16 @@
-//! Procedural DAW session simulator: the training data for the prediction model.
+//! Procedural DAW session simulator: the sessions the next-step brain is
+//! scored on (`bench_prediction`, and `gen_daw_data` for yumon-pet's `wir daw
+//! --sessions`).
 //!
 //! Instead of fixed scripts, every session runs against a small model of the
-//! Entropy DAW (tracks, instrument families, patterns, clips, the view on
-//! screen, the transport) and only emits actions that make sense in that
-//! state. A session is a chain of goals (lay down drums, write a bassline,
-//! arrange, mix, export...) pursued by a persona with habits (how often they
-//! listen, whether they preview notes, paint or click, use the Moves panel,
-//! save) in a genre that sets tempo, key, grooves, harmony and which
-//! instruments get picked for each role.
+//! Entropy DAW (tracks, instrument families, patterns, clips) and only emits
+//! actions that make sense in that state. A session is a chain of goals (lay
+//! down drums, write a bassline, arrange, mix, export...) pursued by a persona
+//! with habits (whether they paint or click, slip, use the Moves panel, how
+//! deep they tweak) in a genre that sets tempo, key, grooves, harmony and which
+//! instruments get picked for each role. Only substantive actions are emitted:
+//! the user's view switches, windows, selection and the transport are not part
+//! of the vocabulary.
 //!
 //! Notes are written the way the DAW's piano roll writes them: a click adds a
 //! one-step note at velocity 0.85 and clicking a note erases it; dragging
@@ -17,8 +20,7 @@
 //! under the kick, chords stack thirds of the progression and melodies walk
 //! the scale around chord tones with a repeated motif.
 //!
-//! Every emitted step carries the `StepContext` after the action, so the model
-//! learns what the app looks like as well as what was done.
+//! Every emitted step carries the `StepContext` after the action.
 
 use super::daw_actions::*;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
@@ -136,39 +138,24 @@ pub enum Split {
 /// A user's habits. Sampled per session so the model sees many working styles.
 #[derive(Debug, Clone)]
 struct Persona {
-    /// Edits between listening back.
-    listen_every: u32,
-    /// Keep editing while the song plays instead of stopping first.
-    edits_while_playing: f64,
-    preview_prob: f64,
     /// Drag along a row instead of clicking each cell, where a run allows it.
     paint_prob: f64,
     mistake_prob: f64,
-    /// Edits between saved versions (0: never saves until the end).
-    save_every: u32,
     /// Sound-design passes.
     tweak_depth: u32,
     uses_moves: f64,
-    opens_windows: f64,
     /// Writes drums voice by voice (true) or step by step.
     writes_by_row: bool,
-    loops_pattern: f64,
 }
 
 impl Persona {
     fn sample(rng: &mut StdRng) -> Self {
         Self {
-            listen_every: rng.gen_range(3..14),
-            edits_while_playing: rng.gen_range(0.0..0.7),
-            preview_prob: rng.gen_range(0.0..0.6),
             paint_prob: rng.gen_range(0.1..0.9),
             mistake_prob: rng.gen_range(0.0..0.12),
-            save_every: if rng.gen_bool(0.3) { 0 } else { rng.gen_range(20..70) },
             tweak_depth: rng.gen_range(1..5),
             uses_moves: rng.gen_range(0.0..0.8),
-            opens_windows: rng.gen_range(0.2..0.95),
             writes_by_row: rng.gen_bool(0.7),
-            loops_pattern: rng.gen_range(0.0..0.6),
         }
     }
 }
@@ -290,14 +277,8 @@ pub struct DawSim {
     song_bars: u32,
     tracks: Vec<SimTrack>,
     active: usize,
-    view: u32,
-    playing: bool,
-    selected_clip: Option<(usize, usize)>,
-    open_windows: Vec<u32>,
-    /// Moves taken since the last undo: Undo in the DAW only reverts moves.
-    undoable_moves: u32,
-    edits_since_listen: u32,
-    edits_since_save: u32,
+    /// The context before the first action.
+    start: StepContext,
     pub steps: Vec<ActionStep>,
     pub tasks: Vec<DawTask>,
 }
@@ -321,8 +302,7 @@ impl DawSim {
         let song_bars = 16;
         Self {
             rng, split, persona, genre, held_out, bpm, scale, key_root, progression, song_bars,
-            tracks: Vec::new(), active: 0, view: view::ARRANGE, playing: false, selected_clip: None,
-            open_windows: Vec::new(), undoable_moves: 0, edits_since_listen: 0, edits_since_save: 0,
+            tracks: Vec::new(), active: 0, start: StepContext::default(),
             steps: Vec::new(), tasks: Vec::new(),
         }
     }
@@ -335,6 +315,7 @@ impl DawSim {
             vocab_version: DAW_VOCAB_VERSION,
             tasks: sim.tasks.iter().map(|t| t.id()).collect(),
             genre: sim.genre.name().to_string(),
+            start: sim.start,
             steps: sim.steps,
         }
     }
@@ -350,11 +331,10 @@ impl DawSim {
         };
         StepContext {
             family: t.map(|t| t.family).unwrap_or(family::NONE),
-            view: self.view,
-            playing: self.playing,
             tracks: self.tracks.len() as u32,
             pattern_fill,
             song_fill,
+            pattern_steps: t.map(|t| t.pattern().steps).unwrap_or(STEPS_PER_BAR),
         }
     }
 
@@ -393,87 +373,9 @@ impl DawSim {
 
     // ── Habits ────────────────────────────────────────────────────────────
 
-    fn view_to(&mut self, v: u32) {
-        if self.view != v {
-            self.view = v;
-            self.emit(DawAction::OpenView, &[v as f32]);
-        }
-    }
-
+    /// Works on track `i` from now on. Selecting a track is not recorded.
     fn select_track(&mut self, i: usize) {
-        if self.active != i && i < self.tracks.len() {
-            self.active = i;
-            self.emit(DawAction::SelectTrack, &[i as f32]);
-        }
-    }
-
-    fn play(&mut self) {
-        if !self.playing {
-            if self.chance(0.5) { self.emit(DawAction::Rewind, &[]); }
-            self.playing = true;
-            self.emit(DawAction::Play, &[]);
-        }
-    }
-
-    fn stop(&mut self) {
-        if self.playing {
-            self.playing = false;
-            self.emit(DawAction::Stop, &[]);
-        }
-    }
-
-    fn listen(&mut self) {
-        self.edits_since_listen = 0;
-        if self.view == view::ROLL && self.chance(self.persona.loops_pattern * 0.3) {
-            self.emit(DawAction::SetTransportMode, &[1.0]);
-        }
-        self.play();
-        if !self.chance(self.persona.edits_while_playing) { self.stop(); }
-    }
-
-    /// Book-keeping after an edit: listen back and save on the persona's rhythm.
-    fn after_edit(&mut self) {
-        self.edits_since_listen += 1;
-        self.edits_since_save += 1;
-        let jitter = self.rng.gen_range(0..3);
-        if self.edits_since_listen >= self.persona.listen_every + jitter { self.listen(); }
-        if self.persona.save_every > 0 && self.edits_since_save >= self.persona.save_every {
-            self.edits_since_save = 0;
-            self.emit(DawAction::SaveVersion, &[]);
-        }
-    }
-
-    fn window_for(fam: u32) -> Option<u32> {
-        // Indices into WINDOWS.
-        match fam {
-            family::WAVETABLE => Some(2), family::STRINGS => Some(3), family::BRASS => Some(4),
-            family::PIANO => Some(5), family::MATTER => Some(6), family::WATER => Some(7),
-            family::DRUM_RACK => Some(8), _ => None,
-        }
-    }
-
-    fn open_window(&mut self, w: u32) {
-        if !self.open_windows.contains(&w) {
-            self.open_windows.push(w);
-            self.emit(DawAction::ToggleWindow, &[w as f32, 1.0]);
-        }
-    }
-
-    fn close_window(&mut self, w: u32) {
-        if let Some(i) = self.open_windows.iter().position(|&x| x == w) {
-            self.open_windows.remove(i);
-            self.emit(DawAction::ToggleWindow, &[w as f32, 0.0]);
-        }
-    }
-
-    fn move_taken(&mut self) {
-        self.undoable_moves += 1;
-        // Not every move lands: some get undone straight away.
-        if self.chance(0.18) {
-            self.undoable_moves -= 1;
-            self.emit(DawAction::Undo, &[]);
-        }
-        self.after_edit();
+        if i < self.tracks.len() { self.active = i; }
     }
 
     // ── Tracks and instruments ────────────────────────────────────────────
@@ -515,7 +417,6 @@ impl DawSim {
         self.tracks.remove(i);
         if self.active >= self.tracks.len() { self.active = self.tracks.len().saturating_sub(1); }
         else if self.active > i { self.active -= 1; }
-        self.selected_clip = None;
     }
 
     fn switch_family(&mut self, i: usize, fam: u32) {
@@ -543,9 +444,6 @@ impl DawSim {
                 self.emit(DawAction::SetWaveform, &[w]);
             }
         }
-        let opens = self.chance(self.persona.opens_windows);
-        let window = Self::window_for(fam);
-        if opens { if let Some(w) = window { self.open_window(w); } }
         self.load_preset(fam, role);
         if self.tracks[i].melodic() && fam != family::WATER {
             let root = match role {
@@ -563,13 +461,6 @@ impl DawSim {
                 self.emit(DawAction::SetRootNote, &[root as f32]);
             }
         }
-        if self.chance(self.persona.preview_prob) {
-            for _ in 0..self.rng.gen_range(1..4) {
-                let row = self.rng.gen_range(0..self.tracks[i].rows.min(8)) as f32;
-                self.emit(DawAction::PreviewNote, &[row, DEFAULT_VELOCITY]);
-            }
-        }
-        if opens && self.chance(0.5) { if let Some(w) = window { self.close_window(w); } }
     }
 
     fn load_preset(&mut self, fam: u32, role: Role) {
@@ -662,7 +553,6 @@ impl DawSim {
         }
         self.tracks[t].pattern_mut().notes.push(SimNote { row, step });
         self.emit(DawAction::AddNote, &[row as f32, step as f32, 1.0, DEFAULT_VELOCITY]);
-        self.after_edit();
     }
 
     fn remove_note(&mut self, row: u32, step: u32) {
@@ -671,7 +561,6 @@ impl DawSim {
         if let Some(i) = p.notes.iter().position(|n| n.row == row && n.step == step) {
             p.notes.remove(i);
             self.emit(DawAction::RemoveNote, &[row as f32, step as f32]);
-            self.after_edit();
         }
     }
 
@@ -690,7 +579,6 @@ impl DawSim {
             let b = if self.chance(0.5) { a + (b - a) / 2 + 1 } else { b };
             self.tracks[t].pattern_mut().notes.retain(|n| !(n.row == row && n.step >= a && n.step <= b));
             self.emit(DawAction::EraseNotes, &[row as f32, a as f32, b as f32, (b - a + 1) as f32]);
-            self.after_edit();
         }
     }
 
@@ -705,17 +593,8 @@ impl DawSim {
             for &s in &fresh { self.tracks[t].pattern_mut().notes.push(SimNote { row, step: s }); }
             let (a, b) = (fresh[0], *fresh.last().unwrap());
             self.emit(DawAction::PaintNotes, &[row as f32, a as f32, b as f32, fresh.len() as f32]);
-            self.after_edit();
         } else {
             for s in fresh { self.add_note(row, s); }
-        }
-    }
-
-    fn preview_before_writing(&mut self, rows: &[u32]) {
-        if self.chance(self.persona.preview_prob) {
-            for &r in rows.iter().take(self.rng.gen_range(1..4)) {
-                self.emit(DawAction::PreviewNote, &[r as f32, DEFAULT_VELOCITY]);
-            }
         }
     }
 
@@ -745,7 +624,6 @@ impl DawSim {
             let mut seen = Vec::new();
             for r in rows { if !seen.contains(&r) { seen.push(r); } }
             for r in seen {
-                self.preview_before_writing(&[r]);
                 let mut steps: Vec<u32> = cells.iter().filter(|c| c.0 == r).map(|c| c.1).collect();
                 steps.sort();
                 self.write_row(r, &steps);
@@ -771,7 +649,6 @@ impl DawSim {
             _ => kicks,
         };
         let first = self.degree_row(self.progression[0]);
-        self.preview_before_writing(&[first, first + 2]);
         for bar in 0..bars {
             let root = self.degree_row(self.progression[bar as usize % self.progression.len()]);
             for &s in &rhythm {
@@ -788,7 +665,6 @@ impl DawSim {
         for bar in 0..bars {
             let root = self.degree_row(self.progression[bar as usize % self.progression.len()]);
             let voicing = [root, root + 2, root + 4];
-            self.preview_before_writing(&voicing);
             let hits: &[u32] = if restrike { &[0, 8] } else { &[0] };
             for &h in hits {
                 for &r in &voicing {
@@ -820,9 +696,6 @@ impl DawSim {
                     if answer && k + 1 == motif.len() { d = -d; }
                     if self.chance(0.08) { d *= 2; }
                     row = (row as i32 + d).clamp(0, rows as i32 - 1) as u32;
-                }
-                if self.chance(self.persona.preview_prob * 0.4) {
-                    self.emit(DawAction::PreviewNote, &[row as f32, DEFAULT_VELOCITY]);
                 }
                 self.add_note(row.min(rows - 1), bar * STEPS_PER_BAR + s);
                 if self.done() { return; }
@@ -861,10 +734,6 @@ impl DawSim {
             self.song_bars = *self.genre.song_bars().choose(&mut self.rng).unwrap();
             self.emit(DawAction::SetSongBars, &[self.song_bars as f32]);
         }
-        if self.chance(0.15) {
-            let snap = self.rng.gen_range(1..3) as f32;
-            self.emit(DawAction::SetSnap, &[snap]);
-        }
     }
 
     fn task_drums(&mut self) {
@@ -883,26 +752,22 @@ impl DawSim {
             }
             Some(s) => {
                 self.select_track(s);
-                if self.chance(self.persona.opens_windows * 0.5) { self.open_window(8); }
                 self.load_preset(family::DRUM_RACK, Role::Drums);
                 s
             }
             None => self.track_for(Role::Drums),
         };
         self.select_track(i);
-        self.view_to(view::ROLL);
         let bars = if self.genre == Genre::Trap || self.chance(0.25) { 2 } else { 1 };
         self.ensure_pattern_length(bars);
         self.write_drums(bars, false);
         self.auto_clip();
-        self.listen();
         if self.chance(0.45) {
             // A fill pattern for the ends of phrases.
             self.tracks[i].patterns.push(SimPattern::new(1.0));
             self.tracks[i].active = self.tracks[i].patterns.len() - 1;
             self.emit(DawAction::NewPattern, &[Self::pattern_bars_choice(1.0)]);
             self.write_drums(1, true);
-            self.listen();
         }
         if self.chance(0.4) {
             let gain = self.rng.gen_range(0.45..0.65);
@@ -913,7 +778,6 @@ impl DawSim {
     fn task_pitched(&mut self, role: Role) {
         let i = self.track_for(role);
         self.select_track(i);
-        self.view_to(view::ROLL);
         let bars = match role { Role::Bass | Role::Chords => if self.progression.len() >= 4 && self.chance(0.6) { 4 } else { 2 }, _ => 2 };
         self.ensure_pattern_length(bars);
         match role {
@@ -922,14 +786,12 @@ impl DawSim {
             _ => self.write_melody(bars),
         }
         self.auto_clip();
-        self.listen();
         if self.chance(self.persona.uses_moves) {
             match role {
-                Role::Bass if self.tracks.iter().any(|t| t.role == Role::Drums) => { self.emit(DawAction::MoveKickLock, &[]); self.move_taken(); }
+                Role::Bass if self.tracks.iter().any(|t| t.role == Role::Drums) => { self.emit(DawAction::MoveKickLock, &[]); }
                 Role::Lead => {
                     let mv = if self.chance(0.5) { DawAction::MoveAnswer } else { DawAction::MoveOctaveSpark };
                     self.emit(mv, &[]);
-                    self.move_taken();
                 }
                 _ => {}
             }
@@ -949,7 +811,6 @@ impl DawSim {
         self.select_track(i);
         let fam = self.tracks[i].family;
         let role = self.tracks[i].role;
-        if let Some(w) = Self::window_for(fam) { if self.chance(self.persona.opens_windows) { self.open_window(w); } }
         for _ in 0..self.persona.tweak_depth {
             match fam {
                 family::SYNTH | family::WAVETABLE => {
@@ -979,8 +840,6 @@ impl DawSim {
                 }
                 _ => self.load_preset(fam, role),
             }
-            let row = self.rng.gen_range(0..self.tracks[i].rows.min(8)) as f32;
-            self.emit(DawAction::PreviewNote, &[row, DEFAULT_VELOCITY]);
         }
         if role != Role::Bass && self.chance(0.35) {
             let big = matches!(self.genre, Genre::Cinematic | Genre::Ambient);
@@ -1004,13 +863,10 @@ impl DawSim {
                 self.emit(DawAction::SetGatePattern, &[p]);
             }
         }
-        self.listen();
-        if let Some(w) = Self::window_for(fam) { if self.chance(0.6) { self.close_window(w); } }
     }
 
     /// Lays the patterns out as intro / verse / chorus / breakdown / outro.
     fn task_arrange(&mut self) {
-        self.view_to(view::ARRANGE);
         let form: Vec<(&str, u32)> = match self.genre {
             Genre::Ambient | Genre::Cinematic => vec![("intro", 4), ("a", 8), ("b", 8), ("outro", 4)],
             _ => vec![("intro", 4), ("verse", 8), ("chorus", 8), ("break", 4), ("chorus", 8)],
@@ -1025,9 +881,8 @@ impl DawSim {
             // Replace the song-long clip the first notes gave the track.
             let auto = self.tracks[i].clips.len() == 1 && self.tracks[i].clips[0].bar == 0 && self.tracks[i].clips[0].bars >= 16;
             if auto {
-                self.select_clip(i, 0);
+                self.active = i;
                 self.tracks[i].clips.clear();
-                self.selected_clip = None;
                 self.emit(DawAction::DeleteClip, &[]);
             }
             let role = self.tracks[i].role;
@@ -1053,8 +908,6 @@ impl DawSim {
                     }
                     self.tracks[i].clips.push(SimClip { bar, bars: len, pattern });
                     prev = Some(self.tracks[i].clips.len() - 1);
-                    self.selected_clip = Some((i, prev.unwrap()));
-                    self.after_edit();
                     if self.done() { return; }
                 }
                 bar += len;
@@ -1063,10 +916,8 @@ impl DawSim {
             if role == Role::Drums && self.tracks[i].patterns.len() > 1 && self.chance(0.5) {
                 let ends: Vec<u32> = self.tracks[i].clips.iter().filter(|c| c.bars >= 8).map(|c| c.bar + c.bars - 1).collect();
                 if let Some(&end) = ends.first() {
-                    self.emit(DawAction::SelectPattern, &[1.0]);
                     self.tracks[i].active = 1;
                     self.emit(DawAction::CreateClip, &[lane as f32, end as f32, 1.0]);
-                    self.after_edit();
                 }
             }
         }
@@ -1074,7 +925,7 @@ impl DawSim {
         if self.chance(0.4) {
             if let Some(i) = (0..self.tracks.len()).find(|&i| !self.tracks[i].clips.is_empty()) {
                 let c = self.rng.gen_range(0..self.tracks[i].clips.len());
-                self.select_clip(i, c);
+                self.active = i;
                 if self.chance(0.5) {
                     let to = self.tracks[i].clips[c].bar.saturating_sub(self.rng.gen_range(0..2));
                     self.emit(DawAction::MoveClip, &[to as f32]);
@@ -1083,37 +934,20 @@ impl DawSim {
                     self.tracks[i].clips[c].bars = len;
                     self.emit(DawAction::ResizeClip, &[len as f32]);
                 }
-                self.after_edit();
             }
         }
         if self.chance(self.persona.uses_moves) {
-            let chorus = form.iter().take_while(|f| f.0 != "chorus" && f.0 != "b").map(|f| f.1).sum::<u32>();
-            self.emit(DawAction::Seek, &[chorus as f32]);
             match self.rng.gen_range(0..3) {
                 0 => { let b = *[2.0f32, 4.0].choose(&mut self.rng).unwrap(); self.emit(DawAction::MoveBuild, &[b]); }
                 1 => self.emit(DawAction::MoveDropGap, &[]),
                 _ => self.emit(DawAction::MoveEchoOut, &[]),
             }
-            self.move_taken();
-        }
-        self.play();
-        self.stop();
-    }
-
-    fn select_clip(&mut self, track: usize, clip: usize) {
-        if self.selected_clip != Some((track, clip)) {
-            self.selected_clip = Some((track, clip));
-            self.active = track;
-            let lane = self.tracks[track].lane;
-            let bar = self.tracks[track].clips[clip].bar;
-            self.emit(DawAction::SelectClip, &[lane as f32, bar as f32]);
         }
     }
 
     fn task_variation(&mut self) {
         let Some(i) = (0..self.tracks.len()).filter(|&i| !self.tracks[i].pattern().notes.is_empty()).collect::<Vec<_>>().choose(&mut self.rng).copied() else { return; };
         self.select_track(i);
-        self.view_to(view::ROLL);
         let as_new = self.chance(0.6);
         if as_new {
             let copy = self.tracks[i].pattern().clone();
@@ -1131,7 +965,6 @@ impl DawSim {
             DawAction::MoveOctaveSpark => self.emit(mv, &[]),
             _ => { let a = self.rng.gen_range(0.2..0.8); self.emit(mv, &[a]); }
         }
-        self.move_taken();
         // Hand-edit the result a little.
         for _ in 0..self.rng.gen_range(0..4) {
             let rows = self.tracks[i].rows;
@@ -1139,27 +972,17 @@ impl DawSim {
             let (r, s) = (self.rng.gen_range(0..rows.min(8)), self.rng.gen_range(0..steps));
             self.add_note(r, s);
         }
-        self.listen();
         if as_new && !self.tracks[i].clips.is_empty() {
-            let c = self.rng.gen_range(0..self.tracks[i].clips.len());
-            self.view_to(view::ARRANGE);
-            self.select_clip(i, c);
-            self.emit(DawAction::SelectPattern, &[(self.tracks[i].patterns.len() - 1) as f32]);
             self.emit(DawAction::UsePatternInClip, &[]);
-            self.after_edit();
         }
     }
 
     fn task_edit_pattern(&mut self) {
         let Some(i) = (0..self.tracks.len()).filter(|&i| !self.tracks[i].pattern().notes.is_empty()).collect::<Vec<_>>().choose(&mut self.rng).copied() else { return; };
         self.select_track(i);
-        self.view_to(view::ROLL);
         if self.tracks[i].patterns.len() > 1 && self.chance(0.5) {
             let p = self.rng.gen_range(0..self.tracks[i].patterns.len());
-            if p != self.tracks[i].active {
-                self.tracks[i].active = p;
-                self.emit(DawAction::SelectPattern, &[p as f32]);
-            }
+            self.tracks[i].active = p;
         }
         if self.chance(0.35) { self.erase_run(); }
         for _ in 0..self.rng.gen_range(1..5) {
@@ -1173,12 +996,9 @@ impl DawSim {
             let r = if melodic { self.degree_row(self.progression[(s / STEPS_PER_BAR) as usize % self.progression.len()]) + *[0, 2, 4].choose(&mut self.rng).unwrap() } else { self.rng.gen_range(0..3) };
             self.add_note(r.min(self.tracks[i].rows - 1), s);
         }
-        self.listen();
     }
 
     fn task_mix(&mut self) {
-        self.view_to(view::MIXER);
-        self.play();
         let order: Vec<usize> = (0..self.tracks.len()).collect();
         for i in order {
             if self.done() { return; }
@@ -1200,7 +1020,6 @@ impl DawSim {
                     Role::Lead => *["presence", "air"].choose(&mut self.rng).unwrap(), Role::Drums => *["boom", "presence"].choose(&mut self.rng).unwrap(),
                     Role::Texture => "dark-verb",
                 };
-                self.open_window(1);
                 self.emit(DawAction::SetEqPreset, &[EQ_PRESETS.index_of(eq).unwrap_or(0) as f32]);
             }
             if self.active == i && self.tracks[i].role != Role::Bass && self.chance(0.45) {
@@ -1209,7 +1028,6 @@ impl DawSim {
                     Genre::Techno | Genre::House => *["plate", "room"].choose(&mut self.rng).unwrap(),
                     _ => *["room", "studio", "plate"].choose(&mut self.rng).unwrap(),
                 };
-                self.open_window(1);
                 self.emit(DawAction::SetReverbPreset, &[REVERB_PRESETS.index_of(verb).unwrap_or(0) as f32]);
             }
             if self.tracks[i].solo {
@@ -1222,44 +1040,13 @@ impl DawSim {
                 self.emit(DawAction::MuteTrack, &[i as f32, on]);
             }
         }
-        if self.chance(0.5) { self.open_window(0); }
-        self.close_window(1);
-        self.stop();
     }
 
     fn task_finish(&mut self) {
-        if self.chance(0.6) {
-            self.emit(DawAction::Rewind, &[]);
-            self.playing = true;
-            self.emit(DawAction::Play, &[]);
-            self.stop();
-        }
-        self.emit(DawAction::SaveVersion, &[]);
-        self.edits_since_save = 0;
         self.emit(DawAction::ExportWav, &[]);
         if self.chance(0.12) {
-            self.open_window(10);
             self.emit(DawAction::ExportVideo, &[]);
         }
-    }
-
-    fn task_guitar(&mut self) {
-        let i = self.track_for(Role::Lead);
-        self.select_track(i);
-        self.open_window(9);
-        self.emit(DawAction::StartGuitar, &[]);
-        self.playing = true;
-        self.emit(DawAction::Play, &[]);
-        self.stop();
-        self.emit(DawAction::StopGuitar, &[]);
-        // The take becomes a chromatic pattern on the track.
-        let notes: Vec<SimNote> = (0..self.rng.gen_range(4..12)).map(|k| SimNote { row: self.rng.gen_range(0..12), step: k * 2 }).collect();
-        self.tracks[i].patterns.push(SimPattern { steps: 32, notes });
-        self.tracks[i].active = self.tracks[i].patterns.len() - 1;
-        self.tracks[i].scale = 0;
-        self.close_window(9);
-        self.view_to(view::ROLL);
-        self.listen();
     }
 
     /// An existing song to continue: tracks with written patterns and an arrangement.
@@ -1282,9 +1069,6 @@ impl DawSim {
             self.tracks[self.active].pattern_mut().steps = bars * STEPS_PER_BAR;
             let saved = self.persona.clone();
             self.persona.mistake_prob = 0.0;
-            self.persona.listen_every = u32::MAX / 4;
-            self.persona.save_every = 0;
-            self.persona.preview_prob = 0.0;
             match role {
                 Role::Drums => self.write_drums(bars, false),
                 Role::Bass => self.write_bass(bars),
@@ -1297,10 +1081,7 @@ impl DawSim {
             self.tracks[self.active].clips.push(SimClip { bar: start, bars: sb - start, pattern: 0 });
         }
         self.steps = session_steps;
-        self.edits_since_listen = 0;
-        self.edits_since_save = 0;
         self.active = 0;
-        self.view = if self.chance(0.6) { view::ARRANGE } else { view::ROLL };
     }
 
     /// Chooses the session's goals and runs them.
@@ -1328,7 +1109,6 @@ impl DawSim {
             p
         } else {
             let mut pool = vec![EditPattern, MakeVariation, SoundDesign, Arrange, Mix, WriteMelody, Finish];
-            if self.chance(0.05) { pool.push(GuitarTake); }
             pool.shuffle(&mut self.rng);
             let n = self.rng.gen_range(1..=4);
             let mut p: Vec<DawTask> = pool.into_iter().take(n).collect();
@@ -1348,8 +1128,7 @@ impl DawSim {
         } else {
             self.load_existing_song();
         }
-        let first = self.context();
-        self.steps.push(ActionStep::bos_with(first));
+        self.start = self.context();
         for task in plan {
             if self.done() { break; }
             self.tasks.push(task);
@@ -1365,12 +1144,9 @@ impl DawSim {
                 Mix => self.task_mix(),
                 Finish => self.task_finish(),
                 EditPattern => self.task_edit_pattern(),
-                GuitarTake => self.task_guitar(),
             }
         }
-        self.stop();
         self.steps.truncate(MAX_SESSION_ACTIONS);
-        self.steps.push(ActionStep::eos());
     }
 }
 
@@ -1389,15 +1165,11 @@ mod tests {
     fn sessions(n: usize, split: Split) -> Vec<Trajectory> { generate_sessions(n, 7, split) }
 
     #[test]
-    fn sessions_are_framed_and_bounded() {
+    fn sessions_hold_real_actions_and_are_bounded() {
         for t in sessions(200, Split::All) {
-            assert_eq!(t.steps.first().unwrap().action_id, BOS_ACTION);
-            assert_eq!(t.steps.last().unwrap().action_id, EOS_ACTION);
-            assert!(t.steps.len() >= 3, "{:?}", t.tasks);
-            assert!(t.steps.len() <= MAX_SESSION_ACTIONS + 1);
-            for s in &t.steps[1..t.steps.len() - 1] {
-                assert!(s.action().is_some(), "sentinel inside a session");
-            }
+            assert!(!t.steps.is_empty(), "{:?}", t.tasks);
+            assert!(t.steps.len() <= MAX_SESSION_ACTIONS);
+            assert!(t.steps.iter().all(|s| s.action().is_some()));
         }
     }
 
@@ -1411,7 +1183,7 @@ mod tests {
                     assert!(v >= spec.min && v <= spec.max, "{}.{} = {} outside {}..{}", a.name(), spec.name, v, spec.min, spec.max);
                 }
                 assert!(step.context.family < NUM_FAMILIES as u32);
-                assert!(step.context.view < NUM_VIEWS as u32);
+                assert!([8, 16, 32, 64].contains(&step.context.pattern_steps), "{}", step.context.pattern_steps);
             }
         }
     }
@@ -1439,11 +1211,13 @@ mod tests {
             let mut sim = DawSim::new(i, Split::All);
             if sim.genre != Genre::House { continue; }
             sim.run();
+            // Pattern edits and variations add notes anywhere; only grooves are checked.
+            if sim.tasks.iter().any(|t| matches!(t, DawTask::EditPattern | DawTask::MakeVariation)) { continue; }
             for (k, s) in sim.steps.iter().enumerate() {
                 // A slip (a note erased by the very next click) is not part of the groove.
                 let next = sim.steps.get(k + 1);
                 let slip = next.map(|n| n.action_id == DawAction::RemoveNote.id() && n.params[..2] == s.params[..2]).unwrap_or(false);
-                if !slip && s.action_id == DawAction::AddNote.id() && s.context.family == family::DRUM_RACK && s.params[0] == 0.0 && s.context.view == view::ROLL {
+                if !slip && s.action_id == DawAction::AddNote.id() && s.context.family == family::DRUM_RACK && s.params[0] == 0.0 {
                     kicks += 1;
                     assert_eq!(s.params[1] as u32 % 4, 0, "off-beat kick at {}", s.params[1]);
                 }
@@ -1463,24 +1237,6 @@ mod tests {
         // (The same family can still appear in another role, so this only checks the eval side strictly.)
         assert!(eval.iter().filter(|t| held_in(t)).count() * 10 >= eval.len() * 7, "eval sessions rarely use a held-out pair");
         assert!(train.iter().all(|t| t.vocab_version == DAW_VOCAB_VERSION));
-    }
-
-    #[test]
-    fn undo_only_follows_moves() {
-        let moves = [
-            DawAction::MoveVariation, DawAction::MoveThinOut, DawAction::MoveStutter, DawAction::MoveOctaveSpark,
-            DawAction::MoveAnswer, DawAction::MoveKickLock, DawAction::MoveBuild, DawAction::MoveDropGap, DawAction::MoveEchoOut,
-        ].map(|a| a.id());
-        for t in sessions(300, Split::All) {
-            let mut available = 0i32;
-            for s in &t.steps {
-                if moves.contains(&s.action_id) { available += 1; }
-                if s.action_id == DawAction::Undo.id() {
-                    assert!(available > 0, "undo with nothing to undo");
-                    available -= 1;
-                }
-            }
-        }
     }
 
     #[test]

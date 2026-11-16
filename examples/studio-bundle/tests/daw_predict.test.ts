@@ -5,7 +5,6 @@ import type { DawActionDef, PredictionContext, PredictionParamSpec } from "../sr
 import {
     ActionHistory,
     FAMILIES,
-    VIEWS,
     choiceIndex,
     formatParam,
     noteName,
@@ -25,7 +24,7 @@ import { WATER_PRESETS } from "../src/apps/daw_water";
 import { WT_INSTRUMENT_PRESETS, WT_PRESETS } from "../src/apps/daw_wavetable";
 
 const ctx = (over: Partial<PredictionContext> = {}): PredictionContext => ({
-    family: 1, view: 1, playing: false, tracks: 2, patternFill: 0, songFill: 0, ...over,
+    family: 1, tracks: 2, patternFill: 0, songFill: 0, patternSteps: 16, ...over,
 });
 
 const spec = (over: Partial<PredictionParamSpec>): PredictionParamSpec => ({
@@ -35,10 +34,10 @@ const spec = (over: Partial<PredictionParamSpec>): PredictionParamSpec => ({
 describe("Recording what the user does (ActionHistory)", () => {
     it("keeps actions oldest first, each with its params and the context after it", () => {
         const h = new ActionHistory();
-        h.record("set_bpm", [124], ctx({ view: 0 }), { now: 0 });
+        h.record("set_bpm", [124], ctx({ tracks: 3 }), { now: 0 });
         h.record("add_note", [0, 4, 1, 0.85], ctx({ patternFill: 0.06 }), { now: 10 });
         expect(h.toRequest()).toEqual([
-            { action: "set_bpm", params: [124], context: ctx({ view: 0 }) },
+            { action: "set_bpm", params: [124], context: ctx({ tracks: 3 }) },
             { action: "add_note", params: [0, 4, 1, 0.85], context: ctx({ patternFill: 0.06 }) },
         ]);
     });
@@ -63,7 +62,7 @@ describe("Recording what the user does (ActionHistory)", () => {
     it("forgets the oldest actions past its limit and bumps its revision on every change", () => {
         const h = new ActionHistory(3);
         const before = h.revision;
-        for (let i = 0; i < 5; i++) h.record("play", [], ctx(), { now: i });
+        for (let i = 0; i < 5; i++) h.record("add_note", [0, i, 1, 0.85], ctx(), { now: i });
         expect(h.length).toBe(3);
         expect(h.revision).toBe(before + 5);
         h.clear();
@@ -122,7 +121,7 @@ describe("Parameters from the model are made valid for their controls", () => {
 
 // The model's vocabulary lives in src/prediction/daw_actions.rs (Rust); the DAW maps its choice indices back to its own
 // ids. These read the Rust source so a renamed preset on either side fails here, not in a session.
-describe("The model's vocabulary matches the DAW", () => {
+describe("The brain's vocabulary matches the DAW", () => {
     const rust = readFileSync(fileURLToPath(new URL("../../../src/prediction/daw_actions.rs", import.meta.url)), "utf8");
     const list = (name: string): string[] => {
         const m = rust.match(new RegExp(`choice_list!\\(${name}, "[a-z_]+", \\[([\\s\\S]*?)\\]\\);`));
@@ -130,12 +129,11 @@ describe("The model's vocabulary matches the DAW", () => {
         return [...m[1].matchAll(/\("([^"]+)", "[^"]*"\)/g)].map(x => x[1]);
     };
 
-    it("families and views are in the order the model embeds them", () => {
+    it("families are in the order the brain reads them", () => {
         expect(list("FAMILIES")).toEqual([...FAMILIES]);
-        expect(list("VIEWS")).toEqual([...VIEWS]);
     });
 
-    it("every preset, instrument and option the model can suggest exists in the DAW", () => {
+    it("every preset, instrument and option the brain can suggest exists in the DAW", () => {
         const has = (rustList: string, ids: readonly string[]) => {
             for (const id of list(rustList)) expect(ids, `${rustList}: ${id}`).toContain(id);
         };

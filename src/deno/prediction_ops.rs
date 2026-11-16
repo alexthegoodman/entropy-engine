@@ -1,15 +1,15 @@
-//! Deno ops exposing the MoE DAW next-action prediction model (src/prediction).
+//! Deno ops exposing the DAW's next-step brain (src/prediction, a written WIR program).
 //!
-//! The DAW records each semantic action with its parameters and the app
-//! context after it (instrument family, view, transport, fill levels); these
-//! ops turn that history into a predicted plan whose steps carry predicted
-//! parameters, and export the vocabulary - every action's parameter specs and
-//! the option lists its dropdowns index - so the Suggested Next Steps panel
-//! can build real controls for each step.
+//! The DAW records each substantive action with its parameters and the song's
+//! context after it (instrument family, track count, fill levels, pattern
+//! length); these ops turn that history into a predicted plan whose steps carry
+//! predicted parameters, and export the vocabulary - every action's parameter
+//! specs and the option lists its dropdowns index - so the Suggested Next Steps
+//! panel can build real controls for each step.
 
 use deno_core::op2;
 use serde::{Deserialize, Serialize};
-use crate::prediction::daw_actions::{ParamKind, CHOICE_LISTS, DAW_VOCAB_VERSION, MAX_ACTION_PARAMS};
+use crate::prediction::daw_actions::{pattern_length_steps, ParamKind, CHOICE_LISTS, DAW_VOCAB_VERSION, MAX_ACTION_PARAMS};
 pub use crate::prediction::{ActionStep, DawAction, PlanPoll, PlanState, PredictedAction, PredictionStatus, StepContext};
 
 /// One parameter of an action, as the UI builds a control for it.
@@ -46,27 +46,32 @@ pub struct ChoiceOption {
     pub label: String,
 }
 
-/// The app context after an action, as the DAW reports it.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+/// The song's context after an action, as the DAW reports it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ContextInput {
     pub family: u32,
-    pub view: u32,
-    pub playing: bool,
     pub tracks: u32,
     pub pattern_fill: f32,
     pub song_fill: f32,
+    /// The active pattern's length in steps.
+    pub pattern_steps: u32,
+}
+
+impl Default for ContextInput {
+    fn default() -> Self {
+        Self { family: 0, tracks: 0, pattern_fill: 0.0, song_fill: 0.0, pattern_steps: pattern_length_steps(1.0) }
+    }
 }
 
 impl From<ContextInput> for StepContext {
     fn from(c: ContextInput) -> Self {
         StepContext {
             family: c.family,
-            view: c.view,
-            playing: c.playing,
             tracks: c.tracks,
             pattern_fill: c.pattern_fill,
             song_fill: c.song_fill,
+            pattern_steps: c.pattern_steps,
         }
     }
 }
@@ -106,7 +111,7 @@ fn kind_name(kind: ParamKind) -> &'static str {
     }
 }
 
-/// History entries the model understands: unknown names are dropped.
+/// History entries the brain reads: names outside the vocabulary are dropped.
 pub fn history_steps(history: &[HistoryEntry]) -> Vec<ActionStep> {
     history
         .iter()
@@ -122,10 +127,9 @@ fn plan_steps(request: &PlanRequest) -> usize {
     (request.steps.filter(|&s| s > 0).unwrap_or(5) as usize).min(12)
 }
 
-/// Queues a plan on the prediction worker thread and returns its ticket without waiting.
+/// Computes a plan and files it under a ticket for `poll_plan`.
 pub fn request_plan(request: &PlanRequest) -> u64 {
     crate::prediction::request_plan(
-        None,
         history_steps(&request.history),
         request.current.map(Into::into),
         plan_steps(request),
@@ -133,30 +137,20 @@ pub fn request_plan(request: &PlanRequest) -> u64 {
     )
 }
 
-/// Where a queued plan is: pending, done (with the plan), error, superseded or unknown.
+/// The plan filed under a ticket: done (with the plan), error or unknown.
 pub fn poll_plan(ticket: u64) -> PlanPoll {
     crate::prediction::poll_plan(ticket)
 }
 
-/// Predicts a plan from a recorded history and waits for it. Empty when no model is installed.
+/// Predicts a plan from a recorded history.
 pub fn predict_plan(request: &PlanRequest) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {
     crate::prediction::predict_plan(
-        None,
         &history_steps(&request.history),
         request.current.map(Into::into),
         plan_steps(request),
         request.alternative.unwrap_or(0) as usize,
     )
     .map_err(|e| deno_error::JsErrorBox::generic(format!("Prediction failed: {e}")))
-}
-
-/// Predict next DAW actions from a context window of recent action IDs (no context or params).
-pub fn predict_next_actions(
-    context_ids: &[u32],
-    steps: usize,
-) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {
-    crate::prediction::predict_next_actions(None, context_ids, None, steps)
-        .map_err(|e| deno_error::JsErrorBox::generic(format!("Prediction failed: {e}")))
 }
 
 /// The full action vocabulary with display names, categories, Phosphor icons and parameter specs.
@@ -203,7 +197,7 @@ pub fn prediction_choice_lists() -> std::collections::BTreeMap<String, Vec<Choic
         .collect()
 }
 
-/// Queue a plan on the prediction worker; returns a ticket for `op_prediction_poll_plan`.
+/// Compute a plan; returns a ticket for `op_prediction_poll_plan`.
 #[op2]
 pub fn op_prediction_request_plan(#[serde] request: PlanRequest) -> f64 {
     request_plan(&request) as f64
@@ -215,23 +209,11 @@ pub fn op_prediction_poll_plan(ticket: f64) -> PlanPoll {
     poll_plan(ticket.max(0.0) as u64)
 }
 
-/// Predict a plan from a history of `{ action, params, context }` entries. Blocks until the
-/// worker answers; the UI uses request/poll instead.
+/// Predict a plan from a history of `{ action, params, context }` entries.
 #[op2]
 #[serde]
 pub fn op_prediction_plan(#[serde] request: PlanRequest) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {
     predict_plan(&request)
-}
-
-/// Predict next DAW actions from a context window of recent action IDs.
-#[op2]
-#[serde]
-pub fn op_prediction_next_actions(
-    #[serde] context_ids: Vec<u32>,
-    #[smi] steps: u32,
-) -> Result<Vec<PredictedAction>, deno_error::JsErrorBox> {
-    let count = if steps == 0 { 5 } else { steps as usize };
-    predict_next_actions(&context_ids, count)
 }
 
 #[op2]
@@ -246,7 +228,7 @@ pub fn op_prediction_choice_lists() -> std::collections::BTreeMap<String, Vec<Ch
     prediction_choice_lists()
 }
 
-/// Whether a usable prediction model is installed (without loading it), and why not when it is not.
+/// Whether the brain loaded, with a one-line description, and why not when it did not.
 pub fn prediction_status() -> PredictionStatus {
     crate::prediction::prediction_status()
 }
@@ -257,7 +239,7 @@ pub fn op_prediction_status() -> PredictionStatus {
     prediction_status()
 }
 
-/// The vocabulary version this build speaks; checkpoints from another one are refused.
+/// The vocabulary version this build speaks.
 #[op2(fast)]
 pub fn op_prediction_vocab_version() -> u32 {
     DAW_VOCAB_VERSION

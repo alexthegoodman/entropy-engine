@@ -106,19 +106,13 @@ These signals can eventually support personalization without requiring the base 
 
 ---
 
-## Mixture-of-Experts Model
+## Written WIR Brain
 
-The prediction model will use the team's existing **Mixture-of-Experts (MoE)** architecture as its foundation.
+The predictor is a program written by hand in Yumon Pet's WIR language and compiled to a small ReLU network, not a trained model. (The first version was a Burn Mixture-of-Experts transformer trained on simulated sessions; the written brain replaced it, and scores higher on the same held-out sessions: see Implementation.)
 
-The intuition is that different workflows contain different behavioral patterns. Rather than requiring every part of the model to represent every type of behavior equally, specialized experts can learn different patterns while a routing mechanism determines which experts are most relevant to the current context.
+The program reads the last substantive action, a few facts about the song (the active track's instrument family, the track count, how full the pattern and the arrangement are, how far mixing has got) and the last note, clip and mixer track touched. It scores every action the way a producer would describe a session: a new song starts with the tempo; a new track gets an instrument, its preset, the song's scale, a root, a pattern length and then notes; a filter tweak goes with the envelope; a solo is followed by the level. It also outputs the parameters it can reason about (the next note's row and step, the next clip's lane, bar and length, the mixer track, solo on/off, a pattern length).
 
-Experts may naturally develop specialization around different workflow structures, action families, contexts, or behavioral patterns without requiring those categories to be manually encoded.
-
-The model receives a representation of the recent semantic action history and relevant application state and produces predictions for likely future semantic actions.
-
-The initial model should prioritize predicting a **short trajectory or plan**, rather than only predicting a single next action. This allows the Suggested Next Steps panel to represent where the workflow appears to be heading rather than continually reacting one action at a time.
-
-Implementation will use the existing MoE codebase within the **Rust Burn framework**, extending it as necessary for semantic sequence modeling and action prediction.
+The host chains steps into a short plan, so the panel shows where the session is heading rather than one action at a time.
 
 ---
 
@@ -134,7 +128,7 @@ At a high level, the system operates as:
 
 ↓
 
-**MoE Predictor**
+**WIR Brain**
 
 ↓
 
@@ -156,31 +150,35 @@ The model's responsibility ends at proposing semantic actions and their likely p
 
 Application code remains responsible for authorization, validation, rendering, and execution. This boundary is important because it allows the predictive system to remain probabilistic while actual application behavior remains deterministic and governed by existing business rules.
 
-Note: The model.bin will be downloaded from a CDN rather than embedding a single version in the git history or binary. (even though it is a small binary)
 ---
 
-## Implementation (DAW, vocabulary v2)
+## Implementation (DAW, vocabulary v3)
 
-**Vocabulary** (`src/prediction/daw_actions.rs`): 72 actions across tracks, transport, piano roll, patterns, arrangement, mixer, sound, effects, every instrument family (drum rack, synth, wavetable, bowed strings, brass, piano, Matter kit, water, VST3), Moves, views/windows, project and guitar input. Each action declares typed parameters (`knob`, `int`, `choice`, `toggle`, `note`, `track`) with range, default and, for choices, a named option list whose ids match the DAW's own preset ids. Parameters are stored in natural units and normalised to [-1, 1] only for the model. `DAW_VOCAB_VERSION` is checked when a checkpoint loads; an older checkpoint is refused with a message to retrain.
+**Vocabulary** (`src/prediction/daw_actions.rs`): 56 substantive actions across tracks, the song, piano roll, patterns, arrangement, mixer, sound, effects, every instrument family (drum rack, synth, wavetable, bowed strings, brass, piano, Matter kit, water, VST3), Moves and export. Interface actions are not in the vocabulary, so they are neither recorded nor predicted: view switches, windows, track/clip/pattern selection, play/stop/rewind/seek, loop mode, snap, note previews, undo, saving versions and guitar input on/off. Each action declares typed parameters (`knob`, `int`, `choice`, `toggle`, `note`, `track`) with range, default and, for choices, a named option list whose ids match the DAW's own preset ids.
 
-**What each step carries**: the action, its parameters (a note's row and step, a fader's track and level, a preset index...) and the context after it: the active track's instrument family, the view, whether the transport plays, the track count, the active pattern's notes per step and how much of the song is arranged.
+**What each step carries**: the action, its parameters (a note's row and step, a fader's track and level, a preset index...) and the song's context after it: the active track's instrument family, the track count, the active pattern's notes per step and length, and how much of the song is arranged.
 
-**Recording in the DAW** (`daw_predict.ts`, `daw_synth_addon.ts`): every user-facing mutation records an action. A piano-roll click is `add_note`/`remove_note`; a drag along a row is one `paint_notes`/`erase_notes`. Continuous controls (faders, knobs, filter and envelope sliders, wavetable position) coalesce into one entry per drag. View changes are recorded once per frame where they settle.
+**Recording in the DAW** (`daw_predict.ts`, `daw_synth_addon.ts`): every edit records an action. A piano-roll click is `add_note`/`remove_note`; a drag along a row is one `paint_notes`/`erase_notes`. Continuous controls (faders, knobs, filter and envelope sliders, wavetable position) coalesce into one entry per drag.
 
-**Model** (`src/prediction/model.rs`, built from `nn.rs`): the action, parameter, family, view and state embeddings are summed per step into the sparse-MoE transformer. Two heads: next action, and that action's parameters (conditioned on the action, teacher-forced in training). "Another plan" asks for the plan opening with the next most likely first action.
+**Brain** (`src/prediction/brain.rs`): the WIR program is `yumon-pet/wir/examples/daw_brain.wir`, generated with its plain-code rule by `wir daw` (`wir/src/daw.rs`), which checks the compiled network against the rule on 200k random inputs and exports `src/prediction/daw_brain.json` (sparse layers, the source, 64 test vectors). Entropy embeds the JSON, checks its action list against the vocabulary at load, reads the history into the 75 inputs, runs the network and takes softmax(score / 2) over the keys for confidences. Parameters the network does not predict are the ones last used for that action, else the defaults. "Another plan" opens with the next most likely first action.
 
-**Data** (`src/prediction/daw_sim.rs`): a simulated DAW (tracks, families, patterns, clips, view, transport) driven by sessions of chained goals (start song, drums, bass, chords, melody, sound design, arrange, variation, mix, finish, edit, guitar take), sampled personas (listening rhythm, previewing, painting vs clicking, slips, saving, Moves use) and ten genres with their own tempo, scales, progressions, grooves and instrument choices per role. Notes follow the genre's groove, chord roots, chord stacks and a motif-based melody. Four genre/role/family pairings are held out of training and make up the eval split.
+**Data** (`src/prediction/daw_sim.rs`): a simulated DAW (tracks, families, patterns, clips) driven by sessions of chained goals (start song, drums, bass, chords, melody, sound design, arrange, variation, mix, finish, edit), sampled personas (painting vs clicking, slips, Moves use, tweak depth) and ten genres with their own tempo, scales, progressions, grooves and instrument choices per role. Four genre/role/family pairings are held out and make up the eval split. The rules were written against the train split; the numbers below are the eval split.
 
-**Suggested Next Steps panel**: each step is a card with a control per parameter (knob, dropdown, checkbox; rows read as the note or pad they play), Apply / Skip / Reset, and up to two alternatives to swap in. Apply runs the same functions the DAW's controls do and records the step as a suggestion.
+**Results** (Windows 11, Intel i5-12500, release build, 1000 held-out sessions, seed 42, 66,471 next steps; queries at the start of each session and after every substantive step):
 
-**Generate and train** (from `entropy-engine/`; the checkpoint lands in `checkpoints/prediction`, which is where the DAW looks, or set `ENTROPY_PREDICTION_DIR`):
+| Predictor | Top-1 | Top-3 |
+|---|---|---|
+| Burn MoE (vocabulary v2 checkpoint, logits restricted to the 56 substantive actions, full history including interface actions) | 78.7% | 88.6% |
+| Bigram table counted on the train split (reference, not shipped) | 77.4% | 90.8% |
+| WIR brain (`wir daw --sessions`, same sessions) | 80.0% | 92.3% |
+| WIR brain in Entropy (`bench_prediction`, regenerated v3 sessions, 64,809 steps) | 80.0% | 92.0% |
+
+When the action is right, the brain's note row is right 41% of the time and its step 34% (melodic contour is not in the history), a clip's lane, bar and length together 40%, and the mixer track 87%. One ranking takes 2.5 us (median) and a 3-step plan about 10 us on the CPU.
+
+**Changing the rules** (in `yumon-pet/wir`):
 
 ```
-cargo run --release --bin gen_daw_data -- --out data/daw_sequences.json --count 20000 --eval-count 1000
-cargo run --release --bin train_prediction -- --data data/daw_sequences.json --eval-data data/daw_sequences.eval.json --out checkpoints/prediction --epochs 20
-cargo run --release --bin train_prediction -- --dry-run   # one batch through both losses, no training
+cargo run --release --bin gen_daw_data -- --out data/daw_sessions.json --count 3000 --eval-count 1000   # in entropy-engine
+cargo run --release -- daw --sessions ../../entropy-engine/data/daw_sessions.json                        # score, top misses
+cargo run --release -- daw --out examples --export ../../entropy-engine/src/prediction/daw_brain.json --vectors 64
 ```
-
-The trainer reports held-out loss and top-1/top-3 next-action accuracy per epoch and keeps the checkpoint with the best held-out loss.
-
-**No model installed**: the DAW works without one. `Prediction.status()` reports why there is none (no `checkpoints/prediction/model.bin`, an old vocabulary, a load that failed), `predictPlan` answers an empty plan, and the panel says suggestions start once a model is installed while the history keeps recording. A failed load is not retried until the checkpoint's files change, and a panic inside Burn is caught and reported.

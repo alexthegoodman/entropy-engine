@@ -1849,7 +1849,7 @@ export interface TerminalAPI {
   listFonts: () => string[];
 }
 
-/** Another action the prediction model considered for a step. */
+/** Another action the next-step brain considered for a step. */
 export interface PredictedAlternative {
   action_id: number;
   name: string;
@@ -1858,8 +1858,8 @@ export interface PredictedAlternative {
   confidence: number;
 }
 
-/** A predicted next action from the MoE UI prediction model. `params` are the model's predicted values in
- *  natural units, one per entry of the action's `DawActionDef.params`. */
+/** A predicted next action from the DAW's next-step brain (a written WIR program). `params` are in natural
+ *  units, one per entry of the action's `DawActionDef.params`. */
 export interface PredictedAction {
   action_id: number;
   name: string;
@@ -1883,7 +1883,7 @@ export interface PredictionParamSpec {
   max: number;
   default: number;
   unit: string;
-  /** Normalised on a log scale (frequencies). */
+  /** The control works on a log scale (frequencies). */
   log: boolean;
   /** For "choice": the list id in `getChoiceLists()`. */
   choices: string | null;
@@ -1901,15 +1901,14 @@ export interface DawActionDef {
   params: PredictionParamSpec[];
 }
 
-/** The app's state after an action: instrument family (index into the "families" list), view (index into
- *  "views"), transport, track count, notes per step of the active pattern and arrangement coverage (0..1). */
+/** The song's state after an action: instrument family (index into the "families" list), track count,
+ *  notes per step of the active pattern and arrangement coverage (0..1), and the pattern's length in steps. */
 export interface PredictionContext {
   family: number;
-  view: number;
-  playing: boolean;
   tracks: number;
   patternFill: number;
   songFill: number;
+  patternSteps: number;
 }
 
 /** One recorded action: its snake_case name, parameters in natural units and the context after it. */
@@ -1929,45 +1928,41 @@ export interface PredictionPlanRequest {
   alternative?: number;
 }
 
-/** Interface for DAW next-action prediction powered by Yumon Pet MoE model. */
+/** The DAW's next-step brain: a WIR program written by hand (yumon-pet `wir daw`) and compiled to a small
+ *  ReLU network embedded in the engine. Nothing to install or train. */
 export interface PredictionAPI {
-  /** Predict a plan of next actions, with predicted parameters, from a recorded history.
-   *  Empty when no model is installed; throws when one is installed but cannot be used. */
+  /** Predict a plan of next actions, with predicted parameters, from a recorded history. Names outside
+   *  the vocabulary are ignored. Throws only when the embedded brain could not be loaded. */
   predictPlan: (request: PredictionPlanRequest) => PredictedAction[];
-  /** Queues a plan on the prediction worker thread and returns its ticket at once. A newer request
-   *  supersedes this one if it has not started yet. */
+  /** Computes a plan (microseconds) and returns a ticket for `pollPlan`. */
   requestPlan: (request: PredictionPlanRequest) => number;
-  /** Where a queued plan is. Never waits on the model; safe to call every frame. */
+  /** The plan filed under a ticket. */
   pollPlan: (ticket: number) => PredictionPlanPoll;
-  /** Older entry point: action ids only, no parameters or context. */
-  predictNextActions: (contextIds?: number[], steps?: number) => PredictedAction[];
   /** The full action vocabulary with display names, categories, icons and parameter specs. */
   getActionVocab: () => DawActionDef[];
   /** Every option list a "choice" parameter indexes into, by list id. */
   getChoiceLists: () => Record<string, { id: string; label: string }[]>;
   /** The vocabulary version this build speaks. */
   vocabVersion: () => number;
-  /** Whether a usable model is installed, without loading it. `message` says why not when it is not. */
+  /** Whether the brain loaded; `message` describes it, or says why not. */
   status: () => PredictionStatus;
 }
 
 export interface PredictionPlanPoll {
-  /** "superseded": a newer request arrived before this one started, so it never ran.
-   *  "unknown": no such ticket (or forgotten after 32 newer ones). */
-  state: "pending" | "done" | "error" | "superseded" | "unknown";
+  /** "unknown": no such ticket (or forgotten after 32 newer ones). */
+  state: "done" | "error" | "unknown";
   plan: PredictedAction[];
   error: string | null;
-  /** Worker time spent on the request; a first request includes loading the model. */
+  /** Time the plan took to compute. */
   elapsed_ms: number;
 }
 
 export interface PredictionStatus {
   available: boolean;
-  checkpoint: string | null;
   message: string;
   vocab_version: number;
-  eval_top1: number | null;
-  eval_top3: number | null;
+  /** Non-zero weights in the network. */
+  weights: number;
 }
 
 /** One audio input device, from `Guitar.listInputs`. */

@@ -93,7 +93,7 @@ use crate::deno::terminal_ops::{
     op_ui_widget_terminal,
 };
 use crate::deno::prediction_ops::{
-    op_prediction_next_actions, op_prediction_action_vocab, op_prediction_plan,
+    op_prediction_action_vocab, op_prediction_plan,
     op_prediction_choice_lists, op_prediction_vocab_version, op_prediction_status,
     op_prediction_request_plan, op_prediction_poll_plan,
 };
@@ -361,7 +361,6 @@ extension!(
         op_terminal_set_cwd,
         op_terminal_list_fonts,
         op_ui_widget_terminal,
-        op_prediction_next_actions,
         op_prediction_action_vocab,
         op_prediction_plan,
         op_prediction_choice_lists,

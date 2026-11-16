@@ -1,13 +1,14 @@
-Feature: Suggested Next Steps learns from what you do and lets you tweak every step
-  Every action taken in the DAW is recorded with its parameters and the context after it, and the
-  model's suggested steps are drawn with real controls built from each action's parameters.
+Feature: Suggested Next Steps follows what you make and lets you tweak every step
+  Every edit made in the DAW is recorded with its parameters and the context after it (views,
+  windows, selection and the transport are not), and the brain's suggested steps are drawn with
+  real controls built from each action's parameters.
 
   Scenario: A note clicked into the piano roll is recorded with where it went
     Given the DAW is open with Suggested Next Steps showing
     When I open the "roll" view
     And I click the piano roll at row 3, step 6
     Then the model last saw "add_note" with params "3, 6, 1, 0.85"
-    And that action happened on a "drum_rack" track in the "roll" view
+    And that action happened on a "drum_rack" track with a 16-step pattern
 
   Scenario: Dragging along a row is one paint stroke, not four notes
     Given the DAW is open with Suggested Next Steps showing
@@ -37,13 +38,16 @@ Feature: Suggested Next Steps learns from what you do and lets you tweak every s
     And I press "br_instrument_horn"
     Then the model saw "set_instrument" with params "5"
     And the model last saw "load_brass" with params "2"
-    And that action happened on a "brass" track in the "arrange" view
+    And that action happened on a "brass" track with a 32-step pattern
 
-  Scenario: A view switch is recorded once, where it settles
+  Scenario: Views, windows and selection are not recorded
     Given the DAW is open with Suggested Next Steps showing
-    When I open the "mixer" view
-    Then the model last saw "open_view" with params "2"
-    And the model saw "open_view" 1 time
+    When I open the "roll" view
+    And I click the piano roll at row 3, step 6
+    And I open the "mixer" view
+    And I select the track "Lead"
+    And I open the "Brass" instrument window
+    Then the model saw only "add_note"
 
   Scenario: Each suggested step is drawn with controls built from its parameters
     Given the model will suggest "set_volume 1 0.3; set_reverb_preset 4; add_note 3 8 1 0.85"
@@ -81,21 +85,20 @@ Feature: Suggested Next Steps learns from what you do and lets you tweak every s
     When I press "prediction_refresh_btn"
     Then the last plan request asked for alternative 1
 
-  Scenario: With no model installed the panel waits quietly and keeps recording
-    Given no prediction model is installed
+  Scenario: A brain that cannot load says why, and the DAW keeps recording
+    Given the brain cannot load: "the DAW brain was compiled for another action vocabulary"
     And the DAW is open with Suggested Next Steps showing
     When I open the "roll" view
     And I click the piano roll at row 3, step 6
-    Then the panel shows "Suggestions start once a prediction model is installed"
-    And the panel shows "No prediction model installed"
+    Then the panel shows "The next-step brain could not be loaded"
+    And the panel shows "another action vocabulary"
     And the model was never asked for a plan
-    And the DAW recorded "add_note" for when a model arrives
+    And the DAW recorded "add_note" for when the brain loads
 
-  Scenario: A model that is installed but fails says how to get a working one
-    Given the model cannot load: "the prediction checkpoint was trained on DAW action vocabulary v1"
+  Scenario: A plan that fails shows the error
+    Given the model cannot load: "Prediction failed: no plan"
     And the DAW is open with Suggested Next Steps showing
-    Then the panel shows "vocabulary v1"
-    And the panel shows "train_prediction"
+    Then the panel shows "no plan"
 
   Scenario: Next Steps is the inspector's first tab and the one it opens on
     Given the DAW is open
@@ -110,23 +113,3 @@ Feature: Suggested Next Steps learns from what you do and lets you tweak every s
     Then the inspector is showing "next"
     When I press "toggle_predictions"
     Then the inspector is hidden
-
-  Scenario: A slow plan never holds up a frame: the last plan stays until the new one arrives
-    Given the model will suggest "set_volume 1 0.3"
-    And the DAW is open with Suggested Next Steps showing
-    And the model is slow to answer
-    When I press "prediction_refresh_btn"
-    Then the panel shows "Planning..."
-    And step 1 has a knob "pred_0_gain" at 0.3
-    Given the model will suggest "set_reverb_preset 4"
-    And the model answers
-    When I press "prediction_refresh_btn"
-    Then step 1 has a dropdown "pred_0_preset" on "Hall"
-
-  Scenario: An applied step leaves the plan at once, before the next plan arrives
-    Given the model will suggest "set_volume 1 0.3; set_reverb_preset 4"
-    And the DAW is open with Suggested Next Steps showing
-    And the model is slow to answer
-    When I press "pred_apply_0"
-    Then the track "Bass" has gain 0.3
-    And step 1 has a dropdown "pred_0_preset" on "Hall"

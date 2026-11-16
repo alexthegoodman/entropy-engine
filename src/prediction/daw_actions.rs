@@ -1,28 +1,25 @@
-//! DAW semantic action vocabulary for the UI prediction model.
+//! DAW semantic action vocabulary for the next-step brain.
 //!
-//! Defines the fixed set of semantic actions a DAW user can take, the typed
-//! parameters each one carries, the application context recorded beside every
-//! action, and the encoding the model sees. This is the shared vocabulary
-//! consumed by the procedural data generator (`daw_sim`), the training binary,
-//! the prediction model and the Entropy DAW (through `getActionVocab`).
+//! Defines the substantive actions a DAW user can take - edits to the song, its
+//! sound and its mix, never view switches, windows, selection, the transport or
+//! saving - the typed parameters each one carries, and the application context
+//! recorded beside every action. This is the shared vocabulary of the session
+//! simulator (`daw_sim`), the WIR brain (`brain`, compiled from yumon-pet's
+//! `wir daw`, which lists the same actions in the same order) and the Entropy
+//! DAW (through `getActionVocab`).
 //!
-//! Parameters are stored in their natural units (BPM, MIDI notes, steps, list
-//! indices) so trajectories stay readable, and normalised to [-1, 1] per
-//! `ParamSpec` only when they are fed to the model. The DAW builds each
-//! suggested step's controls (knobs, dropdowns, toggles) from the same specs.
+//! Parameters are in natural units (BPM, MIDI notes, steps, list indices). The
+//! DAW builds each suggested step's controls (knobs, dropdowns, toggles) from
+//! the same specs.
 
 use serde::{Deserialize, Serialize};
 
-/// Bumped whenever action ids, parameter layouts or the context encoding
-/// change. A checkpoint trained on another version is refused at load time.
-pub const DAW_VOCAB_VERSION: u32 = 2;
+/// Bumped whenever action ids, parameter layouts or the context change. The
+/// brain checks its action list against this vocabulary when it loads.
+pub const DAW_VOCAB_VERSION: u32 = 3;
 
 /// Maximum number of f32 parameters any single action carries.
 pub const MAX_ACTION_PARAMS: usize = 4;
-
-/// Scalar application-state features recorded with every step:
-/// playing, track count, active pattern fill, arrangement fill.
-pub const STATE_DIMS: usize = 4;
 
 // ── Choice lists ──────────────────────────────────────────────────────────────
 
@@ -51,7 +48,6 @@ choice_list!(FAMILIES, "families", [
     ("strings", "Bowed strings"), ("brass", "Brass"), ("piano", "Grand piano"), ("matter", "Matter kit"),
     ("water", "Water"), ("vst3", "VST3 plugin"),
 ]);
-choice_list!(VIEWS, "views", [("arrange", "Arrange"), ("roll", "Piano Roll"), ("mixer", "Mixer")]);
 choice_list!(WAVEFORMS, "waveforms", [
     ("sine", "Sine"), ("square", "Square"), ("saw", "Saw"), ("triangle", "Triangle"), ("noise", "Noise"),
 ]);
@@ -59,9 +55,7 @@ choice_list!(SCALES, "scales", [
     ("chromatic", "Chromatic"), ("major", "Major"), ("natural_minor", "Natural minor"), ("dorian", "Dorian"),
     ("pentatonic_major", "Pentatonic major"), ("pentatonic_minor", "Pentatonic minor"), ("blues", "Blues"),
 ]);
-choice_list!(TRANSPORT_MODES, "transport_modes", [("song", "Song"), ("pattern", "Pattern loop")]);
 choice_list!(PATTERN_LENGTHS, "pattern_lengths", [("0.5", "1/2 bar"), ("1", "1 bar"), ("2", "2 bars"), ("4", "4 bars")]);
-choice_list!(SNAP_MODES, "snap_modes", [("bar", "Bar"), ("beat", "Beat"), ("step", "Step")]);
 choice_list!(CHARACTER_KNOBS, "character_knobs", [
     ("pump", "Pump"), ("bounce", "Bounce"), ("gate", "Gate"), ("acid", "Acid"), ("grit", "Grit"),
     ("space", "Space"), ("humanize", "Humanize"),
@@ -104,21 +98,15 @@ choice_list!(WATER_PRESETS, "water_presets", [
     ("vases", "Filling vases"), ("lakeside", "Lakeside"), ("tent", "Rain on a tent"), ("tin-roof", "Tin roof"),
     ("window", "Rain on the window"), ("cymbal-rain", "Rain on a cymbal"),
 ]);
-choice_list!(WINDOWS, "windows", [
-    ("analyzer", "Analyzer"), ("space", "Reverb & EQ"), ("wavetable", "Wavetable"), ("strings", "Bowed strings"),
-    ("brass", "Brass"), ("piano", "Grand piano"), ("matter", "Matter kit"), ("water", "Water"),
-    ("rack", "Sample rack"), ("guitar", "Guitar input"), ("visualizer", "Music video"),
-]);
 
 /// Every choice list, for the vocabulary export.
 pub const CHOICE_LISTS: &[ChoiceList] = &[
-    FAMILIES, VIEWS, WAVEFORMS, SCALES, TRANSPORT_MODES, PATTERN_LENGTHS, SNAP_MODES, CHARACTER_KNOBS,
-    GATE_PATTERNS, STUTTER_RATES, REVERB_PRESETS, EQ_PRESETS, WAVETABLE_PRESETS, STRINGS_INSTRUMENTS,
-    BRASS_INSTRUMENTS, BRASS_MUTES, BRASS_STYLES, PIANO_PRESETS, MATTER_PRESETS, WATER_PRESETS, WINDOWS,
+    FAMILIES, WAVEFORMS, SCALES, PATTERN_LENGTHS, CHARACTER_KNOBS, GATE_PATTERNS, STUTTER_RATES, REVERB_PRESETS,
+    EQ_PRESETS, WAVETABLE_PRESETS, STRINGS_INSTRUMENTS, BRASS_INSTRUMENTS, BRASS_MUTES, BRASS_STYLES, PIANO_PRESETS,
+    MATTER_PRESETS, WATER_PRESETS,
 ];
 
 pub const NUM_FAMILIES: usize = FAMILIES.options.len();
-pub const NUM_VIEWS: usize = VIEWS.options.len();
 
 /// Instrument family ids (indices into `FAMILIES`).
 pub mod family {
@@ -132,13 +120,6 @@ pub mod family {
     pub const MATTER: u32 = 7;
     pub const WATER: u32 = 8;
     pub const VST3: u32 = 9;
-}
-
-/// View ids (indices into `VIEWS`).
-pub mod view {
-    pub const ARRANGE: u32 = 0;
-    pub const ROLL: u32 = 1;
-    pub const MIXER: u32 = 2;
 }
 
 // ── Parameter specs ───────────────────────────────────────────────────────────
@@ -171,7 +152,7 @@ pub struct ParamSpec {
     pub max: f32,
     pub default: f32,
     pub unit: &'static str,
-    /// Normalise on a log scale (frequencies).
+    /// The control works on a log scale (frequencies).
     pub log: bool,
     /// The list a `Choice` indexes into.
     pub choices: Option<ChoiceList>,
@@ -190,27 +171,10 @@ impl ParamSpec {
         }
     }
 
-    /// Maps a value in natural units to [-1, 1] for the model.
-    pub fn normalize(&self, value: f32) -> f32 {
-        if !value.is_finite() || self.max <= self.min { return 0.0; }
-        let v = value.clamp(self.min, self.max);
-        let t = if self.log && self.min > 0.0 {
-            (v / self.min).ln() / (self.max / self.min).ln()
-        } else {
-            (v - self.min) / (self.max - self.min)
-        };
-        t * 2.0 - 1.0
-    }
-
-    /// Maps a model output in [-1, 1] back to natural units, rounding the
-    /// discrete kinds so the result is always a value the control can show.
-    pub fn denormalize(&self, x: f32) -> f32 {
-        let t = ((x.clamp(-1.0, 1.0)) + 1.0) * 0.5;
-        let v = if self.log && self.min > 0.0 {
-            self.min * (self.max / self.min).powf(t)
-        } else {
-            self.min + t * (self.max - self.min)
-        };
+    /// A value the control can show: clamped to the range, whole for every kind
+    /// but knobs, the min or max for toggles, the default when not finite.
+    pub fn sanitize(&self, value: f32) -> f32 {
+        let v = if value.is_finite() { value.clamp(self.min, self.max) } else { self.default };
         match self.kind {
             ParamKind::Knob => v,
             ParamKind::Toggle => if v >= 0.5 * (self.min + self.max) { self.max } else { self.min },
@@ -225,7 +189,6 @@ const P_FAMILY: ParamSpec = ParamSpec::choice("family", "Instrument", FAMILIES, 
 const P_TRACK: ParamSpec = ParamSpec::new("track", "Track", Track, 0.0, 15.0, 0.0);
 const P_BAR: ParamSpec = ParamSpec::new("bar", "Bar", Int, 0.0, 127.0, 0.0);
 const P_BPM: ParamSpec = ParamSpec::new("bpm", "Tempo", Int, 40.0, 220.0, 120.0).unit("BPM");
-const P_TRANSPORT_MODE: ParamSpec = ParamSpec::choice("mode", "Play", TRANSPORT_MODES, 0.0);
 const P_ROW: ParamSpec = ParamSpec::new("row", "Row", Int, 0.0, 47.0, 4.0);
 const P_STEP: ParamSpec = ParamSpec::new("step", "Step", Int, 0.0, 63.0, 0.0);
 const P_END_STEP: ParamSpec = ParamSpec::new("end_step", "To step", Int, 0.0, 63.0, 15.0);
@@ -233,10 +196,8 @@ const P_LENGTH: ParamSpec = ParamSpec::new("length", "Length", Int, 1.0, 32.0, 2
 const P_VELOCITY: ParamSpec = ParamSpec::new("velocity", "Velocity", Knob, 0.0, 1.0, 0.85);
 const P_COUNT: ParamSpec = ParamSpec::new("count", "Notes", Int, 1.0, 64.0, 4.0);
 const P_PATTERN_BARS: ParamSpec = ParamSpec::choice("bars", "Length", PATTERN_LENGTHS, 1.0);
-const P_PATTERN: ParamSpec = ParamSpec::new("pattern", "Pattern", Int, 0.0, 15.0, 0.0);
 const P_LANE: ParamSpec = ParamSpec::new("lane", "Channel", Int, 0.0, 15.0, 0.0);
 const P_CLIP_BARS: ParamSpec = ParamSpec::new("bars", "Length", Int, 1.0, 32.0, 4.0).unit("bars");
-const P_SNAP: ParamSpec = ParamSpec::choice("snap", "Snap", SNAP_MODES, 0.0);
 const P_SONG_BARS: ParamSpec = ParamSpec::new("bars", "Song bars", Int, 1.0, 256.0, 16.0);
 const P_GAIN: ParamSpec = ParamSpec::new("gain", "Gain", Knob, 0.0, 1.0, 0.5);
 const P_ON: ParamSpec = ParamSpec::new("on", "On", Toggle, 0.0, 1.0, 1.0);
@@ -274,8 +235,6 @@ const P_PLUGIN: ParamSpec = ParamSpec::new("plugin", "Plugin", Int, 0.0, 31.0, 0
 const P_PAD: ParamSpec = ParamSpec::new("pad", "Pad", Int, 0.0, 15.0, 0.0);
 const P_STUTTER: ParamSpec = ParamSpec::choice("rate", "Rate", STUTTER_RATES, 1.0);
 const P_BUILD_BARS: ParamSpec = ParamSpec::new("bars", "Bars", Int, 1.0, 8.0, 4.0);
-const P_VIEW: ParamSpec = ParamSpec::choice("view", "View", VIEWS, 1.0);
-const P_WINDOW: ParamSpec = ParamSpec::choice("window", "Window", WINDOWS, 0.0);
 
 // ── Action vocabulary ─────────────────────────────────────────────────────────
 
@@ -291,8 +250,8 @@ pub struct ActionSpec {
 
 macro_rules! daw_actions {
     ($( $variant:ident => $name:literal, $display:literal, $cat:literal, $icon:literal, [$($p:ident),*]; )*) => {
-        /// Every semantic action the DAW exposes to the prediction model. The
-        /// discriminant is the action id the model predicts over.
+        /// Every substantive action the DAW records for the brain. The
+        /// discriminant is the action id the brain ranks.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         #[repr(u32)]
         pub enum DawAction { $($variant),* }
@@ -311,25 +270,17 @@ daw_actions! {
     // Tracks
     AddTrack            => "add_track", "Add Track", "Track", "plus-circle", [P_FAMILY];
     RemoveTrack         => "remove_track", "Remove Track", "Track", "trash", [P_TRACK];
-    SelectTrack         => "select_track", "Select Track", "Track", "cursor", [P_TRACK];
     SetInstrument       => "set_instrument", "Change Instrument", "Track", "swap", [P_FAMILY];
-    // Transport
-    Play                => "play", "Play", "Transport", "play", [];
-    Stop                => "stop", "Stop", "Transport", "stop", [];
-    Rewind              => "rewind", "Rewind", "Transport", "skip-back", [];
-    Seek                => "seek", "Jump to Bar", "Transport", "crosshair", [P_BAR];
-    SetBpm              => "set_bpm", "Set Tempo", "Transport", "metronome", [P_BPM];
-    SetTransportMode    => "set_transport_mode", "Song or Loop", "Transport", "repeat", [P_TRANSPORT_MODE];
+    // Song
+    SetBpm              => "set_bpm", "Set Tempo", "Song", "metronome", [P_BPM];
     // Piano roll
     AddNote             => "add_note", "Add Note", "Piano Roll", "music-note", [P_ROW, P_STEP, P_LENGTH, P_VELOCITY];
     RemoveNote          => "remove_note", "Remove Note", "Piano Roll", "eraser", [P_ROW, P_STEP];
     PaintNotes          => "paint_notes", "Paint Notes", "Piano Roll", "paint-brush", [P_ROW, P_STEP, P_END_STEP, P_COUNT];
     EraseNotes          => "erase_notes", "Erase Notes", "Piano Roll", "eraser", [P_ROW, P_STEP, P_END_STEP, P_COUNT];
-    PreviewNote         => "preview_note", "Preview Note", "Piano Roll", "headphones", [P_ROW, P_VELOCITY];
     // Patterns
     NewPattern          => "new_pattern", "New Pattern", "Pattern", "file-plus", [P_PATTERN_BARS];
     DuplicatePattern    => "duplicate_pattern", "Duplicate Pattern", "Pattern", "copy", [];
-    SelectPattern       => "select_pattern", "Select Pattern", "Pattern", "squares-four", [P_PATTERN];
     SetPatternLength    => "set_pattern_length", "Pattern Length", "Pattern", "ruler", [P_PATTERN_BARS];
     UsePatternInClip    => "use_pattern_in_clip", "Use Pattern in Clip", "Pattern", "check-circle", [];
     // Arrangement
@@ -338,8 +289,6 @@ daw_actions! {
     ResizeClip          => "resize_clip", "Resize Clip", "Arrangement", "arrows-horizontal", [P_CLIP_BARS];
     DeleteClip          => "delete_clip", "Delete Clip", "Arrangement", "scissors", [];
     DuplicateClip       => "duplicate_clip", "Duplicate Clip", "Arrangement", "copy-simple", [];
-    SelectClip          => "select_clip", "Select Clip", "Arrangement", "selection", [P_LANE, P_BAR];
-    SetSnap             => "set_snap", "Snap", "Arrangement", "magnet", [P_SNAP];
     SetSongBars         => "set_song_bars", "Song Length", "Arrangement", "timer", [P_SONG_BARS];
     // Mixer
     SetVolume           => "set_volume", "Set Gain", "Mixer", "speaker-high", [P_TRACK, P_GAIN];
@@ -382,33 +331,13 @@ daw_actions! {
     MoveBuild           => "move_build", "Build", "Moves", "trend-up", [P_BUILD_BARS];
     MoveDropGap         => "move_drop_gap", "Drop Gap", "Moves", "arrow-line-down", [];
     MoveEchoOut         => "move_echo_out", "Echo Out", "Moves", "speaker-simple-low", [];
-    Undo                => "undo", "Undo", "Moves", "arrow-u-up-left", [];
-    // View
-    OpenView            => "open_view", "Switch View", "View", "layout", [P_VIEW];
-    ToggleWindow        => "toggle_window", "Window", "View", "app-window", [P_WINDOW, P_ON];
     // Project
-    SaveVersion         => "save_version", "Save Version", "Project", "floppy-disk", [];
     ExportWav           => "export_wav", "Export WAV", "Project", "download-simple", [];
     ExportVideo         => "export_video", "Export Music Video", "Project", "film-strip", [];
-    // Guitar
-    StartGuitar         => "start_guitar", "Start Guitar Input", "Guitar", "guitar", [];
-    StopGuitar          => "stop_guitar", "Stop Guitar Input", "Guitar", "stop-circle", [];
 }
 
 /// Total number of distinct semantic actions in the DAW vocabulary.
 pub const NUM_DAW_ACTIONS: usize = DawAction::ALL.len();
-
-/// Padding action ID.
-pub const PAD_ACTION: u32 = NUM_DAW_ACTIONS as u32;
-
-/// Beginning-of-sequence sentinel.
-pub const BOS_ACTION: u32 = NUM_DAW_ACTIONS as u32 + 1;
-
-/// End-of-sequence sentinel.
-pub const EOS_ACTION: u32 = NUM_DAW_ACTIONS as u32 + 2;
-
-/// Full vocabulary size including sentinels.
-pub const ACTION_VOCAB_SIZE: usize = NUM_DAW_ACTIONS + 3;
 
 impl DawAction {
     pub fn id(self) -> u32 { self as u32 }
@@ -442,47 +371,28 @@ impl DawAction {
         p
     }
 
-    /// The model's view of `raw` parameters: each in [-1, 1], unused slots 0.
-    pub fn normalize_params(self, raw: &[f32; MAX_ACTION_PARAMS]) -> [f32; MAX_ACTION_PARAMS] {
-        let mut p = [0.0; MAX_ACTION_PARAMS];
-        for (i, spec) in self.params().iter().enumerate() { p[i] = spec.normalize(raw[i]); }
-        p
-    }
-
-    /// Parameters in natural units from the model's normalised output.
-    pub fn denormalize_params(self, norm: &[f32]) -> Vec<f32> {
-        self.params().iter().enumerate().map(|(i, s)| s.denormalize(norm.get(i).copied().unwrap_or(0.0))).collect()
+    /// `raw` (missing entries at their defaults) made valid for each spec.
+    pub fn sanitize_params(self, raw: &[f32]) -> Vec<f32> {
+        self.params().iter().enumerate().map(|(i, s)| s.sanitize(raw.get(i).copied().unwrap_or(s.default))).collect()
     }
 }
 
-/// Normalised parameters for any id, sentinels included (all zero).
-pub fn normalize_step_params(action_id: u32, raw: &[f32; MAX_ACTION_PARAMS]) -> [f32; MAX_ACTION_PARAMS] {
-    DawAction::from_id(action_id).map(|a| a.normalize_params(raw)).unwrap_or([0.0; MAX_ACTION_PARAMS])
-}
-
-/// How many parameter slots of `action_id` carry a value (0 for sentinels).
-pub fn param_mask(action_id: u32) -> [f32; MAX_ACTION_PARAMS] {
-    let n = DawAction::from_id(action_id).map(|a| a.param_count()).unwrap_or(0);
-    let mut m = [0.0; MAX_ACTION_PARAMS];
-    for slot in m.iter_mut().take(n) { *slot = 1.0; }
-    m
+/// Steps in a pattern of the `PATTERN_LENGTHS` choice `index` (16 steps a bar).
+pub fn pattern_length_steps(index: f32) -> u32 {
+    match index.round() as i32 { 0 => 8, 2 => 32, 3 => 64, _ => 16 }
 }
 
 // ── Step context ──────────────────────────────────────────────────────────────
 
-/// What the DAW looked like right after an action: the instrument family of
-/// the track being worked on, the view on screen, and a few scalars. This is
-/// the "application state" half of the model's input.
+/// What the song looked like right after an action: the instrument family of
+/// the track being worked on, the track count, how full the active pattern and
+/// the arrangement are, and the active pattern's length. Nothing about the view
+/// on screen or the transport: the brain reads what was made, not where.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct StepContext {
     /// Instrument family of the active track (index into `FAMILIES`).
     #[serde(rename = "f", default)]
     pub family: u32,
-    /// The DAW view on screen (index into `VIEWS`).
-    #[serde(rename = "v", default)]
-    pub view: u32,
-    #[serde(rename = "pl", default)]
-    pub playing: bool,
     /// Number of tracks in the song.
     #[serde(rename = "tr", default)]
     pub tracks: u32,
@@ -492,41 +402,36 @@ pub struct StepContext {
     /// Arrangement: fraction of track-bars covered by clips.
     #[serde(rename = "sf", default)]
     pub song_fill: f32,
+    /// Active pattern's length in steps (16 a bar).
+    #[serde(rename = "ps", default = "default_pattern_steps")]
+    pub pattern_steps: u32,
 }
+
+fn default_pattern_steps() -> u32 { 16 }
 
 impl Default for StepContext {
     fn default() -> Self {
-        Self { family: family::DRUM_RACK, view: view::ARRANGE, playing: false, tracks: 2, pattern_fill: 0.0, song_fill: 0.0 }
+        Self { family: family::DRUM_RACK, tracks: 2, pattern_fill: 0.0, song_fill: 0.0, pattern_steps: 16 }
     }
 }
 
 impl StepContext {
-    pub fn state_vector(&self) -> [f32; STATE_DIMS] {
-        [
-            if self.playing { 1.0 } else { 0.0 },
-            (self.tracks as f32 / 16.0).min(1.0),
-            self.pattern_fill.clamp(0.0, 1.0),
-            self.song_fill.clamp(0.0, 1.0),
-        ]
-    }
-
     /// Best-effort guess at the context after `action`, for chaining
     /// predictions without a running DAW.
     pub fn advance(&self, action: DawAction, params: &[f32]) -> Self {
         let p = |i: usize| params.get(i).copied().unwrap_or(0.0);
         let mut c = *self;
+        let note = 1.0 / c.pattern_steps.max(1) as f32;
         match action {
-            DawAction::Play => c.playing = true,
-            DawAction::Stop => c.playing = false,
             DawAction::AddTrack => { c.tracks = (c.tracks + 1).min(16); c.family = p(0) as u32; c.pattern_fill = 0.0; }
             DawAction::RemoveTrack => c.tracks = c.tracks.saturating_sub(1).max(1),
             DawAction::SetInstrument => c.family = p(0) as u32,
-            DawAction::OpenView => c.view = (p(0) as u32).min(NUM_VIEWS as u32 - 1),
-            DawAction::AddNote => c.pattern_fill = (c.pattern_fill + 1.0 / 16.0).min(1.0),
-            DawAction::PaintNotes => c.pattern_fill = (c.pattern_fill + p(3) / 16.0).min(1.0),
-            DawAction::RemoveNote => c.pattern_fill = (c.pattern_fill - 1.0 / 16.0).max(0.0),
-            DawAction::EraseNotes => c.pattern_fill = (c.pattern_fill - p(3) / 16.0).max(0.0),
-            DawAction::NewPattern => c.pattern_fill = 0.0,
+            DawAction::AddNote => c.pattern_fill = (c.pattern_fill + note).min(1.0),
+            DawAction::PaintNotes => c.pattern_fill = (c.pattern_fill + p(3) * note).min(1.0),
+            DawAction::RemoveNote => c.pattern_fill = (c.pattern_fill - note).max(0.0),
+            DawAction::EraseNotes => c.pattern_fill = (c.pattern_fill - p(3) * note).max(0.0),
+            DawAction::NewPattern => { c.pattern_fill = 0.0; c.pattern_steps = pattern_length_steps(p(0)); }
+            DawAction::SetPatternLength => c.pattern_steps = pattern_length_steps(p(0)),
             DawAction::CreateClip | DawAction::DuplicateClip => c.song_fill = (c.song_fill + 0.05).min(1.0),
             DawAction::DeleteClip => c.song_fill = (c.song_fill - 0.05).max(0.0),
             _ => {}
@@ -561,27 +466,13 @@ impl ActionStep {
         Self { action_id: action.id(), params: p, context }
     }
 
-    pub fn pad() -> Self {
-        Self { action_id: PAD_ACTION, params: [0.0; MAX_ACTION_PARAMS], context: StepContext::default() }
-    }
-
-    pub fn bos() -> Self { Self::bos_with(StepContext::default()) }
-
-    pub fn bos_with(context: StepContext) -> Self {
-        Self { action_id: BOS_ACTION, params: [0.0; MAX_ACTION_PARAMS], context }
-    }
-
-    pub fn eos() -> Self {
-        Self { action_id: EOS_ACTION, params: [0.0; MAX_ACTION_PARAMS], context: StepContext::default() }
-    }
-
     pub fn action(&self) -> Option<DawAction> { DawAction::from_id(self.action_id) }
 }
 
 // ── Trajectories ──────────────────────────────────────────────────────────────
 
 /// High-level goals the procedural generator chains into sessions. A session
-/// records the goals it pursued; the model never sees them, they exist for
+/// records the goals it pursued; the brain never sees them, they exist for
 /// data statistics and evaluation breakdowns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u32)]
@@ -597,14 +488,13 @@ pub enum DawTask {
     Mix             = 8,
     Finish          = 9,
     EditPattern     = 10,
-    GuitarTake      = 11,
 }
 
 impl DawTask {
-    pub const ALL: [DawTask; 12] = [
+    pub const ALL: [DawTask; 11] = [
         Self::StartSong, Self::BuildDrums, Self::WriteBass, Self::WriteChords, Self::WriteMelody,
         Self::SoundDesign, Self::Arrange, Self::MakeVariation, Self::Mix, Self::Finish,
-        Self::EditPattern, Self::GuitarTake,
+        Self::EditPattern,
     ];
 
     pub fn id(self) -> u32 { self as u32 }
@@ -612,7 +502,8 @@ impl DawTask {
 
 pub const NUM_DAW_TASKS: usize = DawTask::ALL.len();
 
-/// One generated session: the goals it pursued and every action taken.
+/// One generated session: the goals it pursued, the song it started from and
+/// every action taken.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trajectory {
     #[serde(default)]
@@ -620,6 +511,9 @@ pub struct Trajectory {
     pub tasks: Vec<u32>,
     #[serde(default)]
     pub genre: String,
+    /// The context before the first action.
+    #[serde(default)]
+    pub start: StepContext,
     pub steps: Vec<ActionStep>,
 }
 
@@ -655,13 +549,6 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_ids_are_distinct() {
-        assert_ne!(PAD_ACTION, BOS_ACTION);
-        assert_ne!(BOS_ACTION, EOS_ACTION);
-        assert!(PAD_ACTION >= NUM_DAW_ACTIONS as u32);
-    }
-
-    #[test]
     fn every_action_fits_the_param_slots() {
         for &a in DawAction::ALL {
             assert!(a.param_count() <= MAX_ACTION_PARAMS, "{} has too many params", a.name());
@@ -674,27 +561,26 @@ mod tests {
     }
 
     #[test]
-    fn normalize_round_trips() {
+    fn sanitize_keeps_values_showable() {
         for &a in DawAction::ALL {
             let raw = a.default_params();
-            let back = a.denormalize_params(&a.normalize_params(&raw));
-            for (i, spec) in a.params().iter().enumerate() {
-                let tol = if spec.log { spec.default * 1e-3 } else { 1e-3 * (spec.max - spec.min) };
-                assert!((back[i] - raw[i]).abs() <= tol.max(1e-4), "{}.{}: {} -> {}", a.name(), spec.name, raw[i], back[i]);
-            }
-            for v in a.normalize_params(&raw).iter() {
-                assert!((-1.0..=1.0).contains(v));
-            }
+            assert_eq!(a.sanitize_params(&raw[..a.param_count()]), raw[..a.param_count()].to_vec(), "{}", a.name());
         }
+        let step = DawAction::AddNote.params()[1];
+        assert_eq!(step.sanitize(3.6), 4.0);
+        assert_eq!(step.sanitize(99.0), 63.0);
+        assert_eq!(step.sanitize(f32::NAN), step.default);
+        let on = DawAction::SoloTrack.params()[1];
+        assert_eq!(on.sanitize(0.7), 1.0);
+        assert_eq!(DawAction::SetVolume.sanitize_params(&[2.0]), vec![2.0, 0.5]);
     }
 
     #[test]
-    fn discrete_params_denormalize_to_whole_numbers() {
-        let spec = DawAction::AddNote.params()[1];
-        assert_eq!(spec.denormalize(0.123), spec.denormalize(0.123).round());
-        let choice = DawAction::SetScale.params()[0];
-        let v = choice.denormalize(0.9);
-        assert!(v.fract() == 0.0 && v < SCALES.len() as f32);
+    fn interface_only_actions_are_not_in_the_vocabulary() {
+        for name in ["open_view", "toggle_window", "select_track", "select_clip", "select_pattern", "play", "stop", "rewind",
+            "seek", "set_transport_mode", "set_snap", "preview_note", "undo", "save_version", "start_guitar", "stop_guitar"] {
+            assert_eq!(DawAction::from_name(name), None, "{name}");
+        }
     }
 
     #[test]
@@ -703,18 +589,18 @@ mod tests {
         assert_eq!(step.action_id, DawAction::AddNote.id());
         assert_eq!(step.params[..2], [5.0, 8.0]);
         assert_eq!(step.params[2], P_LENGTH.default);
-        let play = ActionStep::new(DawAction::Play, &[1.0, 2.0, 3.0, 4.0, 5.0]);
-        assert_eq!(play.params, [0.0; MAX_ACTION_PARAMS]);
+        let dup = ActionStep::new(DawAction::DuplicateClip, &[1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(dup.params, [0.0; MAX_ACTION_PARAMS]);
     }
 
     #[test]
-    fn context_advance_tracks_transport_and_view() {
-        let c = StepContext::default().advance(DawAction::Play, &[]);
-        assert!(c.playing);
-        let c = c.advance(DawAction::OpenView, &[view::MIXER as f32]);
-        assert_eq!(c.view, view::MIXER);
-        let c = c.advance(DawAction::AddTrack, &[family::BRASS as f32]);
-        assert_eq!(c.family, family::BRASS);
+    fn context_advance_tracks_tracks_and_patterns() {
+        let c = StepContext::default().advance(DawAction::AddTrack, &[family::BRASS as f32]);
+        assert_eq!((c.family, c.tracks), (family::BRASS, 3));
+        let c = c.advance(DawAction::SetPatternLength, &[2.0]);
+        assert_eq!(c.pattern_steps, 32);
+        let c = c.advance(DawAction::AddNote, &[0.0, 0.0, 1.0, 0.85]);
+        assert_eq!(c.pattern_fill, 1.0 / 32.0);
     }
 
     #[test]

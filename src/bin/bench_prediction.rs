@@ -1,112 +1,123 @@
-#![recursion_limit = "256"]
-
-//! Times the DAW prediction model's plan inference on each backend (NdArray on the CPU, Wgpu on
-//! the GPU) against a real checkpoint, over held-out simulated sessions cut at several history
-//! lengths, and then times the worker path the DAW uses (`request_plan` + `poll_plan`).
+//! Scores and times the DAW's next-step brain (src/prediction/brain.rs, a written WIR program)
+//! on simulated sessions: at the start of every session and after every step, the brain ranks
+//! the actions and the next step's action is looked up in the ranking. Also reports how often
+//! the parameters the brain predicts match the step's when the action is right, and how long a
+//! plan takes.
 //!
-//!   cargo run --release --bin bench_prediction -- [--reps 30] [--steps 5]
+//!   cargo run --release --bin bench_prediction -- [--sessions 1000] [--seed 42] [--split eval] [--reps 200]
 
 use clap::Parser;
 use entropy_engine::prediction::{
+    brain::brain,
+    daw_actions::{DawAction, NUM_DAW_ACTIONS},
     daw_sim::{generate_sessions, Split},
-    model::{InferenceBackend, LoadedPredictor, BACKEND_ENV},
-    poll_plan, request_plan, resolve_prediction_checkpoint_dir, ActionStep, PlanState,
 };
 use std::time::Instant;
 
 #[derive(Parser)]
 struct Cli {
-    /// Timed plans per history length and backend (after one untimed warm-up).
-    #[arg(long, default_value_t = 30)]
+    /// Sessions to score.
+    #[arg(long, default_value_t = 1000)]
+    sessions: usize,
+    #[arg(long, default_value_t = 42)]
+    seed: u64,
+    /// eval (held-out genre/instrument pairs), train or all.
+    #[arg(long, default_value = "eval")]
+    split: String,
+    /// Timed plans per history length.
+    #[arg(long, default_value_t = 200)]
     reps: usize,
-    /// Steps per plan (the DAW asks for 5).
-    #[arg(long, default_value_t = 5)]
-    steps: usize,
 }
 
-fn summary(mut ms: Vec<f64>) -> String {
-    ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let at = |q: f64| ms[((ms.len() - 1) as f64 * q).round() as usize];
-    format!("median {:7.2} ms  p95 {:7.2} ms  max {:7.2} ms", at(0.5), at(0.95), ms[ms.len() - 1])
+fn summary(mut us: Vec<f64>) -> String {
+    us.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let at = |q: f64| us[((us.len() - 1) as f64 * q).round() as usize];
+    format!("median {:7.1} us  p95 {:7.1} us  max {:7.1} us", at(0.5), at(0.95), us[us.len() - 1])
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), String> {
     let cli = Cli::parse();
     let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
-    let dir = resolve_prediction_checkpoint_dir()?;
-    println!("profile: {profile}, checkpoint: {}, {} reps, {}-step plans", dir.display(), cli.reps, cli.steps);
-
-    let sessions = generate_sessions(cli.reps, 7, Split::Eval);
-    let lengths = [0usize, 8, 24, 48, 64];
-    let history = |s: usize, len: usize| -> Vec<ActionStep> {
-        let steps = &sessions[s % sessions.len()].steps;
-        steps[..len.min(steps.len())].to_vec()
+    let split = match cli.split.as_str() {
+        "eval" => Split::Eval,
+        "train" => Split::Train,
+        "all" => Split::All,
+        other => return Err(format!("unknown split {other}")),
     };
+    let t = Instant::now();
+    let b = brain()?;
+    let load_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let (worst, vectors) = b.check_vectors();
+    println!(
+        "profile: {profile}; brain: hidden {:?}, {} non-zero weights, parsed in {load_ms:.1} ms; {vectors} test vectors, worst |diff| {worst:e}",
+        b.hidden, b.weights
+    );
 
-    for backend in [InferenceBackend::Cpu, InferenceBackend::Gpu] {
-        let t = Instant::now();
-        let predictor = match LoadedPredictor::load(&dir.to_string_lossy(), backend) {
-            Ok(p) => p,
-            Err(e) => {
-                println!("{}: could not load: {e}", backend.name());
-                continue;
+    let sessions = generate_sessions(cli.sessions, cli.seed, split);
+    let (mut n, mut top1, mut top3, mut log_lik) = (0usize, 0usize, 0usize, 0f64);
+    let mut per = vec![(0usize, 0usize); NUM_DAW_ACTIONS];
+    // Parameter hits when the top action is right: (checked, exact) per kind.
+    let (mut rows, mut steps, mut clips, mut mix) = ((0, 0), (0, 0), (0, 0), (0, 0));
+    let mut times = Vec::new();
+    for s in &sessions {
+        for k in 0..s.steps.len() {
+            let history = &s.steps[..k];
+            let now = history.last().map_or(s.start, |h| h.context);
+            let started = Instant::now();
+            let ranking = b.rank(history, now);
+            times.push(started.elapsed().as_secs_f64() * 1e6);
+            let target = s.steps[k].action().unwrap();
+            let pos = ranking.ranked.iter().position(|(a, _)| *a == target).unwrap();
+            n += 1;
+            top1 += (pos == 0) as usize;
+            top3 += (pos < 3) as usize;
+            log_lik += (ranking.ranked[pos].1.max(1e-12) as f64).ln();
+            per[target.id() as usize].0 += 1;
+            per[target.id() as usize].1 += (pos == 0) as usize;
+            if pos == 0 {
+                let p = b.params(&ranking, target, history);
+                let want = &s.steps[k].params;
+                let same = |idx: &[usize]| idx.iter().all(|&i| p[i] == want[i]);
+                let tally = |t: &mut (usize, usize), ok: bool| { t.0 += 1; t.1 += ok as usize; };
+                match target {
+                    DawAction::AddNote => {
+                        tally(&mut rows, same(&[0]));
+                        tally(&mut steps, same(&[1]));
+                    }
+                    DawAction::CreateClip => tally(&mut clips, same(&[0, 1, 2])),
+                    DawAction::SetVolume | DawAction::SoloTrack => tally(&mut mix, same(&[0])),
+                    _ => {}
+                }
             }
-        };
-        println!("\n{}: load {:.1} ms", backend.name(), t.elapsed().as_secs_f64() * 1000.0);
-        let t = Instant::now();
-        predictor.predict_plan(&history(0, 8), None, cli.steps, 0);
-        println!("  first plan (cold) {:.1} ms", t.elapsed().as_secs_f64() * 1000.0);
-        for &len in &lengths {
-            let mut ms = Vec::with_capacity(cli.reps);
-            for r in 0..cli.reps {
-                let h = history(r, len);
-                let t = Instant::now();
-                let plan = predictor.predict_plan(&h, None, cli.steps, 0);
-                ms.push(t.elapsed().as_secs_f64() * 1000.0);
-                assert_eq!(plan.len(), cli.steps);
-            }
-            println!("  history {len:>2}: {}", summary(ms));
         }
     }
-
-    // The DAW's path: queue on the worker thread, poll from this one. The poll is what the UI
-    // thread pays per frame; the round trip is how long the panel waits for a plan.
-    unsafe { std::env::set_var(BACKEND_ENV, "cpu") };
-    let warm = request_plan(None, history(0, 8), None, cli.steps, 0);
-    while poll_plan(warm).state == PlanState::Pending {
-        std::thread::yield_now();
+    let pct = |a: usize, b: usize| a as f64 / b.max(1) as f64 * 100.0;
+    println!(
+        "\n{} {} sessions (seed {}), {n} next steps: top-1 {:.1}%, top-3 {:.1}%, mean ln p {:.3}",
+        sessions.len(), cli.split, cli.seed, pct(top1, n), pct(top3, n), log_lik / n.max(1) as f64
+    );
+    println!(
+        "parameters when the action is right: note row {:.1}% and step {:.1}% of {}, clip lane+bar+length {:.1}% of {}, mixer track {:.1}% of {}",
+        pct(rows.1, rows.0), pct(steps.1, steps.0), rows.0, pct(clips.1, clips.0), clips.0, pct(mix.1, mix.0), mix.0
+    );
+    let mut rows: Vec<(DawAction, (usize, usize))> = DawAction::ALL.iter().map(|&a| (a, per[a.id() as usize])).filter(|r| r.1 .0 > 0).collect();
+    rows.sort_by_key(|r| std::cmp::Reverse(r.1 .0));
+    for (a, (count, hit)) in rows.iter().take(15) {
+        println!("  {:24} {count:6}  top-1 {:5.1}%", a.name(), pct(*hit, *count));
     }
-    let (mut polls, mut trips, mut worker) = (Vec::new(), Vec::new(), Vec::new());
-    for r in 0..cli.reps {
-        let start = Instant::now();
-        let ticket = request_plan(None, history(r, 24), None, cli.steps, 0);
-        let queued = start.elapsed().as_secs_f64() * 1000.0;
-        loop {
-            let t = Instant::now();
-            let poll = poll_plan(ticket);
-            polls.push(t.elapsed().as_secs_f64() * 1000.0);
-            if poll.state != PlanState::Pending {
-                assert_eq!(poll.state, PlanState::Done, "{:?}", poll.error);
-                worker.push(poll.elapsed_ms as f64);
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_micros(200));
+
+    println!("\none ranking (features + network + softmax), every query above: {}", summary(times));
+    for len in [0usize, 8, 24, 64] {
+        let mut us = Vec::with_capacity(cli.reps);
+        for r in 0..cli.reps {
+            let s = &sessions[r % sessions.len()];
+            let h = &s.steps[..len.min(s.steps.len())];
+            let started = Instant::now();
+            let plan = b.plan(h, None, 3, 0);
+            us.push(started.elapsed().as_secs_f64() * 1e6);
+            assert_eq!(plan.len(), 3);
         }
-        trips.push(start.elapsed().as_secs_f64() * 1000.0);
-        polls.push(queued);
+        println!("3-step plan, history {len:>2}: {}", summary(us));
     }
-    println!("\nworker (cpu, history 24):");
-    println!("  request_plan + poll_plan calls: {}", summary(polls));
-    println!("  worker inference:               {}", summary(worker));
-    println!("  request to result:              {}", summary(trips));
-
-    // A burst: ten requests back to back, as a knob drag would make without the DAW's settle delay.
-    let tickets: Vec<u64> = (0..10).map(|r| request_plan(None, history(r, 24), None, cli.steps, 0)).collect();
-    let last = *tickets.last().unwrap();
-    while poll_plan(last).state == PlanState::Pending {
-        std::thread::sleep(std::time::Duration::from_micros(200));
-    }
-    let ran = tickets.iter().filter(|&&t| poll_plan(t).state == PlanState::Done).count();
-    println!("  burst of 10 requests: {ran} ran, {} superseded", tickets.len() - ran);
     Ok(())
 }

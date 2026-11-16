@@ -402,44 +402,24 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 | `Composer.enableOverride` / `disableOverride` / `enableGameComposerOverride` / `disableGameComposerOverride` | Lets one addon temporarily take over rendering/control from Studio's default composition. |
 | `Composer.setGlobalSettings` / `getGlobalSettings` | Reads/writes app-wide settings (currently: global landscape size/height/offset) shared across addons. |
 </details>
-<a id="prediction--moe-next-actions"></a>
+<a id="prediction--wir-next-steps"></a>
 
 <details>
-<summary><strong>Prediction (MoE next-action model)</strong></summary>
+<summary><strong>Prediction (WIR next-step brain)</strong></summary>
 
-Mixture-of-Experts inference (`src/prediction`) over the DAW's recorded actions, for the Suggested Next Steps panel. Each history entry is an action name, its parameters in natural units and the app context after it (instrument family, view, transport, pattern and song fill). Plans come back with predicted parameters, one per parameter spec, so the panel can draw knobs, dropdowns and toggles for each step. The model is optional: it is looked for in `checkpoints/prediction` (`metadata.json` + `model.bin`) or `ENTROPY_PREDICTION_DIR`; with none installed, plans are empty and `status()` says why. A checkpoint trained on another vocabulary version is refused. Train one with the `gen_daw_data` and `train_prediction` bins. Loading and inference run on a dedicated worker thread; UIs use `requestPlan`/`pollPlan` so a frame never waits on the model. Inference runs on the CPU (Burn NdArray) by default; `ENTROPY_PREDICTION_BACKEND=gpu` switches to Wgpu. `cargo run --release --bin bench_prediction` times both.
+The DAW's Suggested Next Steps come from a written WIR program (`src/prediction/brain.rs`): yumon-pet's `wir daw` writes the rules (`wir/examples/daw_brain.wir`), compiles them to a 5-hidden-layer ReLU network (~1.4k non-zero weights, checked exact against the rule) and exports `src/prediction/daw_brain.json`, which is embedded. Nothing to train or install. The history holds substantive edits only (vocabulary v3, 56 actions): views, windows, selection, the transport, snap, undo, saving and guitar on/off are not recorded and unknown names are ignored. Each entry is an action name, its parameters in natural units and the song context after it (instrument family, track count, pattern and song fill, pattern length). The brain ranks every action and predicts note, clip, mixer-track, solo and pattern-length parameters; other parameters are the ones last used for that action, else the spec defaults. A plan takes about 10 us.
 
-Example Training Run output:
-```
-Running `target\release\train_prediction.exe`
-Loading sessions from data/daw_sequences.json
-20000 sessions, 58972 windows of 48 steps
-Eval: 1000 held-out sessions, 2048 windows
-
-Model config: PredictionModelConfig { vocab_size: 75, num_families: 10, num_views: 3, embed_dim: 128, n_layers: 4, attn_heads: 4, ff_dim: 256, max_seq_len: 48, num_experts: 4, top_k: 1, dropout_rate: 0.05, prediction_depth: 5, aux_loss_weight: 0.01, z_loss_weight: 0.001, param_loss_weight: 0.5 }
-
-Training for 20 epochs, 1842 batches/epoch, batch_size=32
-Epoch 1/20 [00:04:24] ████████████████████████████████████████ 1842/1842 loss=0.8496                                                                                                                                                                       Epoch 1 train loss 0.8496 (action 0.8192, param 0.0324)
-  Eval loss 0.7352  top-1 72.6%  top-3 93.9%  param mse 0.0215
-  Saved best checkpoint (0.7352)
-Epoch 2/20 [00:03:29] ████████████████████████████████████████ 1842/1842 loss=0.6729                                                                                                                                                                       Epoch 2 train loss 0.6729 (action 0.6521, param 0.0201)
-  Eval loss 0.7003  top-1 73.4%  top-3 94.5%  param mse 0.0196
-  Saved best checkpoint (0.7003)
-Epoch 3/20 [00:03:19] ████████████████████████████████████████ 1842/1842 loss=0.6381                                                                                                                                                                       Epoch 3 train loss 0.6381 (action 0.6182, param 0.0187)
-  Eval loss 0.6743  top-1 74.0%  top-3 94.7%  param mse 0.0188
-  Saved best checkpoint (0.6743)
-```
+Held-out simulated sessions (`cargo run --release --bin bench_prediction`): 80.0% top-1, 92.0% top-3. To change the rules, edit `wir/src/daw.rs`, then `cargo run --release -- daw --sessions <file> --out examples --export ../../entropy-engine/src/prediction/daw_brain.json --vectors 64` in `yumon-pet/wir`; `gen_daw_data` writes session files for `--sessions`.
 
 | Call | What it does |
 |---|---|
-| `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. `[]` with no model installed; throws when one is installed but unusable. Blocks until the worker answers. |
-| `Entropy.Prediction.requestPlan({ history, current?, steps?, alternative? })` | Queues the same request on the prediction worker and returns a ticket at once. A newer request supersedes an older one that has not started. |
-| `Entropy.Prediction.pollPlan(ticket)` | `{ state, plan, error, elapsed_ms }`, `state` one of `pending`, `done`, `error`, `superseded`, `unknown`. Never waits; safe every frame. |
+| `Entropy.Prediction.predictPlan({ history, current?, steps?, alternative? })` | Predicts the next `steps` actions (default 5) with parameters, confidence and the top 3 alternatives per step. `alternative: n` starts the plan from the n-th most likely first action. Throws only when the embedded brain failed to load. |
+| `Entropy.Prediction.requestPlan({ history, current?, steps?, alternative? })` | Computes the same plan and returns a ticket for `pollPlan`. |
+| `Entropy.Prediction.pollPlan(ticket)` | `{ state, plan, error, elapsed_ms }`, `state` one of `done`, `error`, `unknown`. |
 | `Entropy.Prediction.getActionVocab()` | Every action: id, name, display name, category, Phosphor icon and parameter specs (`kind`: knob, int, choice, toggle, note, track; range, default, unit, choice list). |
-| `Entropy.Prediction.getChoiceLists()` | The option lists choice parameters index into (families, views, presets, scales, windows...), as `{ id, label }`. |
+| `Entropy.Prediction.getChoiceLists()` | The option lists choice parameters index into (families, presets, scales...), as `{ id, label }`. |
 | `Entropy.Prediction.vocabVersion()` | The vocabulary version this build speaks. |
-| `Entropy.Prediction.status()` | `{ available, checkpoint, message, vocab_version, eval_top1, eval_top3 }` without loading the model. |
-| `Entropy.Prediction.predictNextActions(contextActionIds, steps)` | Older entry point: action ids only, no parameters or context. |
+| `Entropy.Prediction.status()` | `{ available, message, vocab_version, weights }`. |
 
 </details>
 

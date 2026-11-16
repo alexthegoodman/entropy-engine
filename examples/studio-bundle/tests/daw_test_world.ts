@@ -183,13 +183,11 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             plan: [] as any[],
             requests: [] as any[],
             error: null as string | null,
-            // requestPlan tickets with the answer each was given when asked; `hold` keeps every
-            // ticket pending, as a slow inference would.
+            // requestPlan tickets with the answer each was given when asked.
             tickets: new Map<number, { plan: any[]; error: string | null }>(),
-            hold: false,
             polls: 0,
-            // What `Prediction.status` answers: a test sets `available: false` for a setup with no model.
-            status: { available: true, checkpoint: "checkpoints/prediction", message: "Trained 20 epochs on 20000 sessions", vocab_version: 2, eval_top1: null, eval_top3: null } as any,
+            // What `Prediction.status` answers: a test sets `available: false` for a brain that did not load.
+            status: { available: true, message: "Written WIR brain: 1366 weights, 5 hidden layers", vocab_version: 3, weights: 1366 } as any,
         },
     };
 
@@ -529,14 +527,12 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             getChoiceLists: () => w.prediction.vocab.choices,
             vocabVersion: () => w.prediction.vocab.version,
             status: () => JSON.parse(JSON.stringify(w.prediction.status)),
-            predictNextActions: () => [],
             predictPlan: (request: any) => {
                 w.prediction.requests.push(JSON.parse(JSON.stringify(request)));
                 if (w.prediction.error) throw new Error(w.prediction.error);
                 return JSON.parse(JSON.stringify(w.prediction.plan));
             },
-            // The worker path: the request is kept now and answered on the first poll after it
-            // (the next frame), or held "pending" while a test sets `w.prediction.hold`.
+            // The request is kept now and answered on the first poll after it (the next frame).
             requestPlan: (request: any) => {
                 w.prediction.requests.push(JSON.parse(JSON.stringify(request)));
                 const ticket = w.prediction.requests.length;
@@ -546,7 +542,6 @@ export function createWorld(initialSaved?: unknown, files = new Map<string, stri
             pollPlan: (ticket: number) => {
                 const job = w.prediction.tickets.get(ticket);
                 if (!job) return { state: "unknown", plan: [], error: null, elapsed_ms: 0 };
-                if (w.prediction.hold) return { state: "pending", plan: [], error: null, elapsed_ms: 0 };
                 w.prediction.polls++;
                 return job.error
                     ? { state: "error", plan: [], error: job.error, elapsed_ms: 1 }

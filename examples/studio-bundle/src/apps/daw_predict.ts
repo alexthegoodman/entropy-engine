@@ -1,19 +1,16 @@
-// The DAW side of the next-action prediction model (src/prediction/daw_actions.rs and
-// model.rs, through Entropy.Prediction): the recorded action history, the context each
-// action carries, how piano-roll strokes and knob drags become single actions, and the parameter
-// helpers the Suggested Next Steps panel builds its controls with. No engine calls here, so it
-// can be tested without a window; daw_synth_addon.ts wires it to the DAW.
+// The DAW side of the next-step brain (src/prediction/daw_actions.rs and brain.rs, through
+// Entropy.Prediction): the recorded history of edits, the context each one carries, how piano-roll
+// strokes and knob drags become single actions, and the parameter helpers the Suggested Next Steps
+// panel builds its controls with. Only actions in the vocabulary are recorded: views, windows,
+// selection, the transport and saving are not. No engine calls here, so it can be tested without a
+// window; daw_synth_addon.ts wires it to the DAW.
 
 import type { DawActionDef, PredictionContext, PredictionHistoryEntry, PredictionParamSpec } from "../addon";
 
-/** Instrument families, in the order of src/prediction's FAMILIES list (the model embeds the index). */
+/** Instrument families, in the order of src/prediction's FAMILIES list (the brain reads the index). */
 export const FAMILIES = ["none", "drum_rack", "synth", "wavetable", "strings", "brass", "piano", "matter", "water", "vst3"] as const;
 export type Family = typeof FAMILIES[number];
 export const familyIndex = (f: Family): number => FAMILIES.indexOf(f);
-
-/** DAW views, in the order of src/prediction's VIEWS list. */
-export const VIEWS = ["arrange", "roll", "mixer"] as const;
-export const viewIndex = (v: string): number => Math.max(0, VIEWS.indexOf(v as typeof VIEWS[number]));
 
 export interface RecordedAction {
     /** Unique per entry, for widget ids. */
@@ -39,7 +36,7 @@ export interface RecordOptions {
     now?: number;
 }
 
-/** The actions the model has seen, newest last, bounded. */
+/** The edits the brain reads, newest last, bounded. */
 export class ActionHistory {
     private items: RecordedAction[] = [];
     private serial = 0;

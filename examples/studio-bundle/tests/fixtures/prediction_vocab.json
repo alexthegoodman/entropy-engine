@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "actions": [
     {
       "id": 0,
@@ -51,30 +51,6 @@
     },
     {
       "id": 2,
-      "name": "select_track",
-      "display_name": "Select Track",
-      "category": "Track",
-      "icon": "cursor",
-      "param_count": 1,
-      "default_params": [
-        0.0
-      ],
-      "params": [
-        {
-          "name": "track",
-          "label": "Track",
-          "kind": "track",
-          "min": 0.0,
-          "max": 15.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 3,
       "name": "set_instrument",
       "display_name": "Change Instrument",
       "category": "Track",
@@ -98,64 +74,10 @@
       ]
     },
     {
-      "id": 4,
-      "name": "play",
-      "display_name": "Play",
-      "category": "Transport",
-      "icon": "play",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 5,
-      "name": "stop",
-      "display_name": "Stop",
-      "category": "Transport",
-      "icon": "stop",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 6,
-      "name": "rewind",
-      "display_name": "Rewind",
-      "category": "Transport",
-      "icon": "skip-back",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 7,
-      "name": "seek",
-      "display_name": "Jump to Bar",
-      "category": "Transport",
-      "icon": "crosshair",
-      "param_count": 1,
-      "default_params": [
-        0.0
-      ],
-      "params": [
-        {
-          "name": "bar",
-          "label": "Bar",
-          "kind": "int",
-          "min": 0.0,
-          "max": 127.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 8,
+      "id": 3,
       "name": "set_bpm",
       "display_name": "Set Tempo",
-      "category": "Transport",
+      "category": "Song",
       "icon": "metronome",
       "param_count": 1,
       "default_params": [
@@ -176,31 +98,7 @@
       ]
     },
     {
-      "id": 9,
-      "name": "set_transport_mode",
-      "display_name": "Song or Loop",
-      "category": "Transport",
-      "icon": "repeat",
-      "param_count": 1,
-      "default_params": [
-        0.0
-      ],
-      "params": [
-        {
-          "name": "mode",
-          "label": "Play",
-          "kind": "choice",
-          "min": 0.0,
-          "max": 1.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": "transport_modes"
-        }
-      ]
-    },
-    {
-      "id": 10,
+      "id": 4,
       "name": "add_note",
       "display_name": "Add Note",
       "category": "Piano Roll",
@@ -260,7 +158,7 @@
       ]
     },
     {
-      "id": 11,
+      "id": 5,
       "name": "remove_note",
       "display_name": "Remove Note",
       "category": "Piano Roll",
@@ -296,7 +194,7 @@
       ]
     },
     {
-      "id": 12,
+      "id": 6,
       "name": "paint_notes",
       "display_name": "Paint Notes",
       "category": "Piano Roll",
@@ -356,7 +254,7 @@
       ]
     },
     {
-      "id": 13,
+      "id": 7,
       "name": "erase_notes",
       "display_name": "Erase Notes",
       "category": "Piano Roll",
@@ -416,43 +314,7 @@
       ]
     },
     {
-      "id": 14,
-      "name": "preview_note",
-      "display_name": "Preview Note",
-      "category": "Piano Roll",
-      "icon": "headphones",
-      "param_count": 2,
-      "default_params": [
-        4.0,
-        0.8500000238418579
-      ],
-      "params": [
-        {
-          "name": "row",
-          "label": "Row",
-          "kind": "int",
-          "min": 0.0,
-          "max": 47.0,
-          "default": 4.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        },
-        {
-          "name": "velocity",
-          "label": "Velocity",
-          "kind": "knob",
-          "min": 0.0,
-          "max": 1.0,
-          "default": 0.8500000238418579,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 15,
+      "id": 8,
       "name": "new_pattern",
       "display_name": "New Pattern",
       "category": "Pattern",
@@ -476,7 +338,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 9,
       "name": "duplicate_pattern",
       "display_name": "Duplicate Pattern",
       "category": "Pattern",
@@ -486,31 +348,7 @@
       "params": []
     },
     {
-      "id": 17,
-      "name": "select_pattern",
-      "display_name": "Select Pattern",
-      "category": "Pattern",
-      "icon": "squares-four",
-      "param_count": 1,
-      "default_params": [
-        0.0
-      ],
-      "params": [
-        {
-          "name": "pattern",
-          "label": "Pattern",
-          "kind": "int",
-          "min": 0.0,
-          "max": 15.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 18,
+      "id": 10,
       "name": "set_pattern_length",
       "display_name": "Pattern Length",
       "category": "Pattern",
@@ -534,7 +372,7 @@
       ]
     },
     {
-      "id": 19,
+      "id": 11,
       "name": "use_pattern_in_clip",
       "display_name": "Use Pattern in Clip",
       "category": "Pattern",
@@ -544,7 +382,7 @@
       "params": []
     },
     {
-      "id": 20,
+      "id": 12,
       "name": "create_clip",
       "display_name": "Draw Clip",
       "category": "Arrangement",
@@ -592,7 +430,7 @@
       ]
     },
     {
-      "id": 21,
+      "id": 13,
       "name": "move_clip",
       "display_name": "Move Clip",
       "category": "Arrangement",
@@ -616,7 +454,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 14,
       "name": "resize_clip",
       "display_name": "Resize Clip",
       "category": "Arrangement",
@@ -640,7 +478,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 15,
       "name": "delete_clip",
       "display_name": "Delete Clip",
       "category": "Arrangement",
@@ -650,7 +488,7 @@
       "params": []
     },
     {
-      "id": 24,
+      "id": 16,
       "name": "duplicate_clip",
       "display_name": "Duplicate Clip",
       "category": "Arrangement",
@@ -660,67 +498,7 @@
       "params": []
     },
     {
-      "id": 25,
-      "name": "select_clip",
-      "display_name": "Select Clip",
-      "category": "Arrangement",
-      "icon": "selection",
-      "param_count": 2,
-      "default_params": [
-        0.0,
-        0.0
-      ],
-      "params": [
-        {
-          "name": "lane",
-          "label": "Channel",
-          "kind": "int",
-          "min": 0.0,
-          "max": 15.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        },
-        {
-          "name": "bar",
-          "label": "Bar",
-          "kind": "int",
-          "min": 0.0,
-          "max": 127.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 26,
-      "name": "set_snap",
-      "display_name": "Snap",
-      "category": "Arrangement",
-      "icon": "magnet",
-      "param_count": 1,
-      "default_params": [
-        0.0
-      ],
-      "params": [
-        {
-          "name": "snap",
-          "label": "Snap",
-          "kind": "choice",
-          "min": 0.0,
-          "max": 2.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": "snap_modes"
-        }
-      ]
-    },
-    {
-      "id": 27,
+      "id": 17,
       "name": "set_song_bars",
       "display_name": "Song Length",
       "category": "Arrangement",
@@ -744,7 +522,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 18,
       "name": "set_volume",
       "display_name": "Set Gain",
       "category": "Mixer",
@@ -780,7 +558,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 19,
       "name": "mute_track",
       "display_name": "Mute",
       "category": "Mixer",
@@ -816,7 +594,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 20,
       "name": "solo_track",
       "display_name": "Solo",
       "category": "Mixer",
@@ -852,7 +630,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 21,
       "name": "set_waveform",
       "display_name": "Waveform",
       "category": "Sound",
@@ -876,7 +654,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 22,
       "name": "set_scale",
       "display_name": "Scale",
       "category": "Sound",
@@ -900,7 +678,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 23,
       "name": "set_root_note",
       "display_name": "Root Note",
       "category": "Sound",
@@ -924,7 +702,7 @@
       ]
     },
     {
-      "id": 34,
+      "id": 24,
       "name": "set_filter",
       "display_name": "Filter",
       "category": "Sound",
@@ -960,7 +738,7 @@
       ]
     },
     {
-      "id": 35,
+      "id": 25,
       "name": "set_envelope",
       "display_name": "Envelope",
       "category": "Sound",
@@ -1020,7 +798,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 26,
       "name": "set_delay",
       "display_name": "Delay",
       "category": "Effects",
@@ -1068,7 +846,7 @@
       ]
     },
     {
-      "id": 37,
+      "id": 27,
       "name": "set_reverb",
       "display_name": "Reverb",
       "category": "Effects",
@@ -1128,7 +906,7 @@
       ]
     },
     {
-      "id": 38,
+      "id": 28,
       "name": "set_reverb_preset",
       "display_name": "Reverb Space",
       "category": "Effects",
@@ -1152,7 +930,7 @@
       ]
     },
     {
-      "id": 39,
+      "id": 29,
       "name": "set_eq_preset",
       "display_name": "EQ Preset",
       "category": "Effects",
@@ -1176,7 +954,7 @@
       ]
     },
     {
-      "id": 40,
+      "id": 30,
       "name": "set_character",
       "display_name": "Character",
       "category": "Effects",
@@ -1212,7 +990,7 @@
       ]
     },
     {
-      "id": 41,
+      "id": 31,
       "name": "set_gate_pattern",
       "display_name": "Gate Pattern",
       "category": "Effects",
@@ -1236,7 +1014,7 @@
       ]
     },
     {
-      "id": 42,
+      "id": 32,
       "name": "load_wavetable_preset",
       "display_name": "Wavetable Preset",
       "category": "Instrument",
@@ -1260,7 +1038,7 @@
       ]
     },
     {
-      "id": 43,
+      "id": 33,
       "name": "set_wavetable_position",
       "display_name": "Wavetable Position",
       "category": "Instrument",
@@ -1284,7 +1062,7 @@
       ]
     },
     {
-      "id": 44,
+      "id": 34,
       "name": "load_strings",
       "display_name": "Bowed Instrument",
       "category": "Instrument",
@@ -1308,7 +1086,7 @@
       ]
     },
     {
-      "id": 45,
+      "id": 35,
       "name": "load_brass",
       "display_name": "Brass Instrument",
       "category": "Instrument",
@@ -1332,7 +1110,7 @@
       ]
     },
     {
-      "id": 46,
+      "id": 36,
       "name": "set_brass_mute",
       "display_name": "Brass Mute",
       "category": "Instrument",
@@ -1356,7 +1134,7 @@
       ]
     },
     {
-      "id": 47,
+      "id": 37,
       "name": "set_brass_style",
       "display_name": "Brass Style",
       "category": "Instrument",
@@ -1380,7 +1158,7 @@
       ]
     },
     {
-      "id": 48,
+      "id": 38,
       "name": "load_piano_preset",
       "display_name": "Piano",
       "category": "Instrument",
@@ -1404,7 +1182,7 @@
       ]
     },
     {
-      "id": 49,
+      "id": 39,
       "name": "set_piano_pedal",
       "display_name": "Sustain Pedal",
       "category": "Instrument",
@@ -1428,7 +1206,7 @@
       ]
     },
     {
-      "id": 50,
+      "id": 40,
       "name": "load_matter_preset",
       "display_name": "Drum Kit",
       "category": "Instrument",
@@ -1452,7 +1230,7 @@
       ]
     },
     {
-      "id": 51,
+      "id": 41,
       "name": "load_water_preset",
       "display_name": "Water Preset",
       "category": "Instrument",
@@ -1476,7 +1254,7 @@
       ]
     },
     {
-      "id": 52,
+      "id": 42,
       "name": "load_vst3",
       "display_name": "VST3 Plugin",
       "category": "Instrument",
@@ -1500,7 +1278,7 @@
       ]
     },
     {
-      "id": 53,
+      "id": 43,
       "name": "assign_sample",
       "display_name": "Assign Sample",
       "category": "Instrument",
@@ -1524,7 +1302,7 @@
       ]
     },
     {
-      "id": 54,
+      "id": 44,
       "name": "add_pad",
       "display_name": "Add Pad",
       "category": "Instrument",
@@ -1534,7 +1312,7 @@
       "params": []
     },
     {
-      "id": 55,
+      "id": 45,
       "name": "move_variation",
       "display_name": "Make Variation",
       "category": "Moves",
@@ -1558,7 +1336,7 @@
       ]
     },
     {
-      "id": 56,
+      "id": 46,
       "name": "move_thin_out",
       "display_name": "Thin Out",
       "category": "Moves",
@@ -1582,7 +1360,7 @@
       ]
     },
     {
-      "id": 57,
+      "id": 47,
       "name": "move_stutter",
       "display_name": "Stutter",
       "category": "Moves",
@@ -1606,7 +1384,7 @@
       ]
     },
     {
-      "id": 58,
+      "id": 48,
       "name": "move_octave_spark",
       "display_name": "Octave Spark",
       "category": "Moves",
@@ -1616,7 +1394,7 @@
       "params": []
     },
     {
-      "id": 59,
+      "id": 49,
       "name": "move_answer",
       "display_name": "Answer Phrase",
       "category": "Moves",
@@ -1626,7 +1404,7 @@
       "params": []
     },
     {
-      "id": 60,
+      "id": 50,
       "name": "move_kick_lock",
       "display_name": "Kick Lock",
       "category": "Moves",
@@ -1636,7 +1414,7 @@
       "params": []
     },
     {
-      "id": 61,
+      "id": 51,
       "name": "move_build",
       "display_name": "Build",
       "category": "Moves",
@@ -1660,7 +1438,7 @@
       ]
     },
     {
-      "id": 62,
+      "id": 52,
       "name": "move_drop_gap",
       "display_name": "Drop Gap",
       "category": "Moves",
@@ -1670,7 +1448,7 @@
       "params": []
     },
     {
-      "id": 63,
+      "id": 53,
       "name": "move_echo_out",
       "display_name": "Echo Out",
       "category": "Moves",
@@ -1680,87 +1458,7 @@
       "params": []
     },
     {
-      "id": 64,
-      "name": "undo",
-      "display_name": "Undo",
-      "category": "Moves",
-      "icon": "arrow-u-up-left",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 65,
-      "name": "open_view",
-      "display_name": "Switch View",
-      "category": "View",
-      "icon": "layout",
-      "param_count": 1,
-      "default_params": [
-        1.0
-      ],
-      "params": [
-        {
-          "name": "view",
-          "label": "View",
-          "kind": "choice",
-          "min": 0.0,
-          "max": 2.0,
-          "default": 1.0,
-          "unit": "",
-          "log": false,
-          "choices": "views"
-        }
-      ]
-    },
-    {
-      "id": 66,
-      "name": "toggle_window",
-      "display_name": "Window",
-      "category": "View",
-      "icon": "app-window",
-      "param_count": 2,
-      "default_params": [
-        0.0,
-        1.0
-      ],
-      "params": [
-        {
-          "name": "window",
-          "label": "Window",
-          "kind": "choice",
-          "min": 0.0,
-          "max": 10.0,
-          "default": 0.0,
-          "unit": "",
-          "log": false,
-          "choices": "windows"
-        },
-        {
-          "name": "on",
-          "label": "On",
-          "kind": "toggle",
-          "min": 0.0,
-          "max": 1.0,
-          "default": 1.0,
-          "unit": "",
-          "log": false,
-          "choices": null
-        }
-      ]
-    },
-    {
-      "id": 67,
-      "name": "save_version",
-      "display_name": "Save Version",
-      "category": "Project",
-      "icon": "floppy-disk",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 68,
+      "id": 54,
       "name": "export_wav",
       "display_name": "Export WAV",
       "category": "Project",
@@ -1770,31 +1468,11 @@
       "params": []
     },
     {
-      "id": 69,
+      "id": 55,
       "name": "export_video",
       "display_name": "Export Music Video",
       "category": "Project",
       "icon": "film-strip",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 70,
-      "name": "start_guitar",
-      "display_name": "Start Guitar Input",
-      "category": "Guitar",
-      "icon": "guitar",
-      "param_count": 0,
-      "default_params": [],
-      "params": []
-    },
-    {
-      "id": 71,
-      "name": "stop_guitar",
-      "display_name": "Stop Guitar Input",
-      "category": "Guitar",
-      "icon": "stop-circle",
       "param_count": 0,
       "default_params": [],
       "params": []
@@ -2105,20 +1783,6 @@
         "label": "Blues"
       }
     ],
-    "snap_modes": [
-      {
-        "id": "bar",
-        "label": "Bar"
-      },
-      {
-        "id": "beat",
-        "label": "Beat"
-      },
-      {
-        "id": "step",
-        "label": "Step"
-      }
-    ],
     "strings_instruments": [
       {
         "id": "violin",
@@ -2165,30 +1829,6 @@
       {
         "id": "32nd",
         "label": "1/32"
-      }
-    ],
-    "transport_modes": [
-      {
-        "id": "song",
-        "label": "Song"
-      },
-      {
-        "id": "pattern",
-        "label": "Pattern loop"
-      }
-    ],
-    "views": [
-      {
-        "id": "arrange",
-        "label": "Arrange"
-      },
-      {
-        "id": "roll",
-        "label": "Piano Roll"
-      },
-      {
-        "id": "mixer",
-        "label": "Mixer"
       }
     ],
     "water_presets": [
@@ -2327,52 +1967,6 @@
       {
         "id": "glass_pluck",
         "label": "Glass Pluck"
-      }
-    ],
-    "windows": [
-      {
-        "id": "analyzer",
-        "label": "Analyzer"
-      },
-      {
-        "id": "space",
-        "label": "Reverb & EQ"
-      },
-      {
-        "id": "wavetable",
-        "label": "Wavetable"
-      },
-      {
-        "id": "strings",
-        "label": "Bowed strings"
-      },
-      {
-        "id": "brass",
-        "label": "Brass"
-      },
-      {
-        "id": "piano",
-        "label": "Grand piano"
-      },
-      {
-        "id": "matter",
-        "label": "Matter kit"
-      },
-      {
-        "id": "water",
-        "label": "Water"
-      },
-      {
-        "id": "rack",
-        "label": "Sample rack"
-      },
-      {
-        "id": "guitar",
-        "label": "Guitar input"
-      },
-      {
-        "id": "visualizer",
-        "label": "Music video"
       }
     ]
   }

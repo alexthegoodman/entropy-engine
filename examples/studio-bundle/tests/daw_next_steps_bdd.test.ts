@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorld, parseFeature } from "./daw_test_world";
 
 // tests/features/daw_next_steps.feature, run against the production addon: the piano roll, faders,
-// buttons and the panel's knobs are the real widget callbacks. The model is a stand-in that answers
+// buttons and the panel's knobs are the real widget callbacks. The brain is a stand-in that answers
 // with a scripted plan and keeps every request, so a step can read exactly the history (actions,
-// params, context) the real model would have been given.
+// params, context) the real brain would have been given.
 
 describe("Suggested Next Steps (production addon callbacks)", () => {
     afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); delete (globalThis as any).Entropy; });
@@ -17,7 +17,6 @@ describe("Suggested Next Steps (production addon callbacks)", () => {
             vi.spyOn(Date, "now").mockImplementation(() => w.clock);
             const vocab = w.prediction.vocab;
             const families: { id: string }[] = vocab.choices.families;
-            const views: { id: string }[] = vocab.choices.views;
 
             const click = (id: string) => {
                 world.render();
@@ -73,13 +72,13 @@ describe("Suggested Next Steps (production addon callbacks)", () => {
                 let m: RegExpExecArray | null;
                 if ((m = /^the model will suggest "(.+)"$/.exec(step))) {
                     w.prediction.plan = m[1].split(";").map(planStep);
-                } else if (step === "no prediction model is installed") {
-                    w.prediction.status = { available: false, checkpoint: null, message: "No prediction model installed: put metadata.json and model.bin in checkpoints/prediction", vocab_version: 2, eval_top1: null, eval_top3: null };
+                } else if ((m = /^the brain cannot load: "(.+)"$/.exec(step))) {
+                    w.prediction.status = { available: false, message: m[1], vocab_version: vocab.version, weights: 0 };
                 } else if (step === "the model was never asked for a plan") {
                     world.advance(400);
                     expect(w.prediction.requests).toEqual([]);
-                } else if ((m = /^the DAW recorded "(\w+)" for when a model arrives$/.exec(step))) {
-                    // Install a model: the next plan request carries everything recorded meanwhile.
+                } else if ((m = /^the DAW recorded "(\w+)" for when the brain loads$/.exec(step))) {
+                    // The brain loads: the next plan request carries everything recorded meanwhile.
                     w.prediction.status = { ...w.prediction.status, available: true };
                     click("prediction_refresh_btn");
                     expect(w.prediction.requests.at(-1).history.map((e: any) => e.action)).toContain(m[1]);
@@ -103,11 +102,6 @@ describe("Suggested Next Steps (production addon callbacks)", () => {
                     world.renderOnly();
                     w.tabBars.get("inspector_tab").onSelect(m[1]);
                     world.advance(400);
-                } else if (step === "the model is slow to answer") {
-                    w.prediction.hold = true;
-                } else if (step === "the model answers") {
-                    w.prediction.hold = false;
-                    world.advance(100);
                 } else if ((m = /^I open the "(\w+)" view$/.exec(step))) {
                     world.render();
                     w.tabBars.get("daw_view").onSelect(m[1]);
@@ -163,10 +157,12 @@ describe("Suggested Next Steps (production addon callbacks)", () => {
                     expect(history().filter(e => e.action === m![1]).length).toBe(Number(m[2]));
                 } else if ((m = /^the model saw no "(\w+)"$/.exec(step))) {
                     expect(history().filter(e => e.action === m![1])).toEqual([]);
-                } else if ((m = /^that action happened on a "(\w+)" track in the "(\w+)" view$/.exec(step))) {
+                } else if ((m = /^that action happened on a "(\w+)" track with a (\d+)-step pattern$/.exec(step))) {
                     const ctx = lastOf(lastAction).context;
                     expect(families[ctx.family].id).toBe(m[1]);
-                    expect(views[ctx.view].id).toBe(m[2]);
+                    expect(ctx.patternSteps).toBe(Number(m[2]));
+                } else if ((m = /^the model saw only "(\w+)"$/.exec(step))) {
+                    expect([...new Set(history().map(e => e.action))]).toEqual([m[1]]);
                 } else if ((m = /^step (\d+) has a dropdown "(\w+)" on "(.+)"$/.exec(step))) {
                     const d = dropdown(m[2]);
                     expect(d.options[d.selectedIndex]).toBe(m[3]);

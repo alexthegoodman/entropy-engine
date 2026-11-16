@@ -1,65 +1,36 @@
-#![recursion_limit = "256"]
-
-//! BDD test suite for the DAW UI prediction model and Suggested Next Steps.
+//! BDD test suite for the DAW's next-step brain and Suggested Next Steps.
 //!
-//! Verifies the action vocabulary and its parameter specs, the vocabulary fixture the studio
-//! bundle's DAW tests load, the checkpoint version gate, and plan prediction through the same
-//! `predict_plan` the Deno op calls. Inference runs against a freshly initialised (untrained)
-//! checkpoint written to a temp dir: these scenarios check the plumbing and the shape of a plan,
-//! not how good its suggestions are - that needs a trained model.
+//! Verifies the action vocabulary and its parameter specs (interface actions left out), the
+//! vocabulary fixture the studio bundle's DAW tests load, the embedded WIR brain against its
+//! rule's test vectors, and plans through the same functions the Deno ops call.
 //!
 //! Regenerate the fixture after changing the vocabulary:
 //!   UPDATE_PREDICTION_FIXTURE=1 cargo test --test daw_prediction_bdd
 
 use cucumber::{World as _, given, then, when};
 use entropy_engine::deno::prediction_ops::{
-    ActionVocabEntry, ContextInput, HistoryEntry, PlanRequest, PlanState, PredictedAction, poll_plan,
-    predict_plan, prediction_action_vocab, prediction_choice_lists,
+    ActionVocabEntry, ContextInput, HistoryEntry, PlanRequest, PlanState, PredictedAction, PredictionStatus, poll_plan,
+    predict_plan, prediction_action_vocab, prediction_choice_lists, prediction_status,
 };
-use entropy_engine::deno::prediction_ops::{PredictionStatus, prediction_status};
-use entropy_engine::prediction::daw_actions::{ACTION_VOCAB_SIZE, DAW_VOCAB_VERSION, NUM_FAMILIES, NUM_VIEWS};
-use entropy_engine::prediction::model::{CHECKPOINT_ENV, PredictionMetadata, PredictionModel, PredictionModelConfig};
+use entropy_engine::prediction::daw_actions::DAW_VOCAB_VERSION;
 
 const FIXTURE: &str = "examples/studio-bundle/tests/fixtures/prediction_vocab.json";
 
 #[derive(cucumber::World, Default)]
 pub struct PredictionWorld {
     vocab: Vec<ActionVocabEntry>,
-    checkpoint: Option<std::path::PathBuf>,
-    load_error: Option<String>,
     history: Vec<HistoryEntry>,
     current: ContextInput,
     plan: Vec<PredictedAction>,
     alternative: Vec<PredictedAction>,
     status: Option<PredictionStatus>,
-    /// Tickets from `request_plan`, oldest first, and how long queuing the last one took.
-    tickets: Vec<u64>,
-    queue_ms: f64,
+    ticket: u64,
 }
 
 impl std::fmt::Debug for PredictionWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PredictionWorld(history={}, plan={})", self.history.len(), self.plan.len())
     }
-}
-
-fn tiny_config() -> PredictionModelConfig {
-    PredictionModelConfig::new()
-        .with_vocab_size(ACTION_VOCAB_SIZE)
-        .with_num_families(NUM_FAMILIES)
-        .with_num_views(NUM_VIEWS)
-        .with_embed_dim(32)
-        .with_n_layers(2)
-        .with_attn_heads(2)
-        .with_ff_dim(64)
-        .with_max_seq_len(32)
-        .with_num_experts(4)
-        .with_top_k(1)
-        .with_dropout_rate(0.0)
-}
-
-fn temp_checkpoint(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("entropy-prediction-{tag}-{}", uuid::Uuid::new_v4()))
 }
 
 /// The vocabulary and choice lists exactly as the fixture stores them.
@@ -71,6 +42,26 @@ fn vocab_json() -> serde_json::Value {
     })
 }
 
+/// "add_note 0 4 1 0.85; play" as history entries, all with `context`.
+fn parse_history(actions: &str, context: ContextInput) -> Vec<HistoryEntry> {
+    actions
+        .split(';')
+        .map(|entry| {
+            let mut parts = entry.split_whitespace();
+            let action = parts.next().unwrap().to_string();
+            HistoryEntry { action, params: parts.map(|p| p.parse().unwrap()).collect(), context }
+        })
+        .collect()
+}
+
+fn plan_request(world: &PredictionWorld, history: Vec<HistoryEntry>, steps: u32, alternative: u32) -> PlanRequest {
+    PlanRequest { history, current: Some(world.current), steps: Some(steps), alternative: Some(alternative) }
+}
+
+fn request(world: &PredictionWorld, history: Vec<HistoryEntry>, steps: u32, alternative: u32) -> Vec<PredictedAction> {
+    predict_plan(&plan_request(world, history, steps, alternative)).unwrap_or_else(|e| panic!("predict_plan failed: {e:?}"))
+}
+
 // ── Given ─────────────────────────────────────────────────────────────────────
 
 #[given(expr = "the DAW action vocabulary is loaded")]
@@ -78,144 +69,42 @@ fn vocab_loaded(world: &mut PredictionWorld) {
     world.vocab = prediction_action_vocab();
 }
 
-#[given(expr = "a prediction checkpoint saved with vocabulary version {int}")]
-fn old_checkpoint(world: &mut PredictionWorld, version: u32) {
-    let dir = temp_checkpoint("old");
-    let config = tiny_config();
-    let mut meta = PredictionMetadata::from_config(&config);
-    let device = Default::default();
-    let model: PredictionModel<burn::backend::Wgpu> = config.init(&device);
-    model.save(dir.to_str().unwrap(), &meta).unwrap();
-    meta.vocab_version = version;
-    meta.vocab_size = 35;
-    std::fs::write(dir.join("metadata.json"), serde_json::to_string(&meta).unwrap()).unwrap();
-    world.checkpoint = Some(dir);
-}
-
-#[given(expr = "a freshly initialised prediction checkpoint")]
-fn fresh_checkpoint(world: &mut PredictionWorld) {
-    let dir = temp_checkpoint("fresh");
-    let config = tiny_config();
-    let device = Default::default();
-    let model: PredictionModel<burn::backend::Wgpu> = config.init(&device);
-    model.save(dir.to_str().unwrap(), &PredictionMetadata::from_config(&config)).unwrap();
-    // The op resolves its checkpoint through this variable when it is set.
-    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
-    world.checkpoint = Some(dir);
-}
-
-#[given(expr = "no prediction model is installed")]
-fn no_model(world: &mut PredictionWorld) {
-    let dir = temp_checkpoint("empty");
-    std::fs::create_dir_all(&dir).unwrap();
-    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
-    world.checkpoint = Some(dir);
-}
-
-#[given(expr = "a checkpoint with metadata but no model.bin")]
-fn no_weights(world: &mut PredictionWorld) {
-    let dir = temp_checkpoint("noweights");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("metadata.json"), serde_json::to_string(&PredictionMetadata::from_config(&tiny_config())).unwrap()).unwrap();
-    unsafe { std::env::set_var(CHECKPOINT_ENV, &dir) };
-    world.checkpoint = Some(dir);
-}
-
-#[given(expr = "a history of {string} on a {string} track in the {string} view")]
-fn history(world: &mut PredictionWorld, actions: String, family: String, view: String) {
+#[given(expr = "a history of {string} on a {string} track")]
+fn history(world: &mut PredictionWorld, actions: String, family: String) {
     let choices = prediction_choice_lists();
-    let index = |list: &str, id: &str| choices[list].iter().position(|o| o.id == id).unwrap_or_else(|| panic!("no {id} in {list}")) as u32;
-    world.current = ContextInput { family: index("families", &family), view: index("views", &view), tracks: 2, ..Default::default() };
-    world.history = actions
-        .split(';')
-        .map(|entry| {
-            let mut parts = entry.split_whitespace();
-            let action = parts.next().unwrap().to_string();
-            HistoryEntry { action, params: parts.map(|p| p.parse().unwrap()).collect(), context: world.current }
-        })
-        .collect();
+    let family = choices["families"].iter().position(|o| o.id == family).unwrap_or_else(|| panic!("no family {family}")) as u32;
+    world.current = ContextInput { family, tracks: 3, ..Default::default() };
+    world.history = parse_history(&actions, world.current);
 }
 
 // ── When ──────────────────────────────────────────────────────────────────────
 
-#[when(expr = "I try to load that checkpoint")]
-fn try_load(world: &mut PredictionWorld) {
-    let dir = world.checkpoint.as_ref().unwrap();
-    let device = Default::default();
-    world.load_error = PredictionModel::<burn::backend::Wgpu>::load(dir.to_str().unwrap(), &device).err().map(|e| e.to_string());
-}
-
-fn request(world: &PredictionWorld, steps: u32, alternative: u32) -> Vec<PredictedAction> {
-    predict_plan(&PlanRequest {
-        history: world.history.clone(),
-        current: Some(world.current),
-        steps: Some(steps),
-        alternative: Some(alternative),
-    })
-    .unwrap_or_else(|e| panic!("predict_plan failed: {e:?}"))
-}
-
-#[when(expr = "I ask whether a model is installed")]
+#[when(expr = "I ask whether the brain is available")]
 fn ask_status(world: &mut PredictionWorld) {
     world.status = Some(prediction_status());
 }
 
 #[when(expr = "I request a plan of {int} steps")]
 fn request_plan(world: &mut PredictionWorld, steps: u32) {
-    world.plan = request(world, steps, 0);
+    world.plan = request(world, world.history.clone(), steps, 0);
 }
 
 #[when(expr = "I request alternative plan {int} of {int} steps")]
 fn request_alternative(world: &mut PredictionWorld, alternative: u32, steps: u32) {
-    world.alternative = request(world, steps, alternative);
+    world.alternative = request(world, world.history.clone(), steps, alternative);
 }
 
-fn plan_request(world: &PredictionWorld, steps: u32) -> PlanRequest {
-    PlanRequest { history: world.history.clone(), current: Some(world.current), steps: Some(steps), alternative: Some(0) }
+#[when(expr = "I request a plan of {int} steps through a ticket")]
+fn request_ticket(world: &mut PredictionWorld, steps: u32) {
+    let req = plan_request(world, world.history.clone(), steps, 0);
+    world.ticket = entropy_engine::deno::prediction_ops::request_plan(&req);
 }
 
-#[when(expr = "I queue {int} plans of {int} steps back to back")]
-fn queue_plans(world: &mut PredictionWorld, count: usize, steps: u32) {
-    for _ in 0..count {
-        let request = plan_request(world, steps);
-        let started = std::time::Instant::now();
-        world.tickets.push(entropy_engine::deno::prediction_ops::request_plan(&request));
-        world.queue_ms = started.elapsed().as_secs_f64() * 1000.0;
-    }
-}
-
-#[when("I poll the newest plan until it is finished")]
-fn poll_newest(world: &mut PredictionWorld) {
-    let ticket = *world.tickets.last().expect("no plan was queued");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-    loop {
-        let poll = poll_plan(ticket);
-        match poll.state {
-            PlanState::Pending => {
-                assert!(std::time::Instant::now() < deadline, "plan {ticket} still pending after 120 s");
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-            PlanState::Done => {
-                world.plan = poll.plan;
-                return;
-            }
-            other => panic!("plan {ticket} ended {other:?}: {:?}", poll.error),
-        }
-    }
-}
-
-#[then(expr = "queuing a plan took under {int} ms")]
-fn queue_fast(world: &mut PredictionWorld, ms: u32) {
-    assert!(world.queue_ms < ms as f64, "queuing took {:.3} ms", world.queue_ms);
-}
-
-#[then(expr = "at least {int} of the earlier plans were superseded without running")]
-fn superseded(world: &mut PredictionWorld, count: usize) {
-    let earlier = &world.tickets[..world.tickets.len() - 1];
-    let states: Vec<PlanState> = earlier.iter().map(|&t| poll_plan(t).state).collect();
-    assert!(states.iter().all(|s| matches!(s, PlanState::Done | PlanState::Superseded)), "{states:?}");
-    let n = states.iter().filter(|&&s| s == PlanState::Superseded).count();
-    assert!(n >= count, "only {n} superseded: {states:?}");
+#[when("I poll that ticket once")]
+fn poll_once(world: &mut PredictionWorld) {
+    let poll = poll_plan(world.ticket);
+    assert_eq!(poll.state, PlanState::Done, "{:?}", poll.error);
+    world.plan = poll.plan;
 }
 
 // ── Then ──────────────────────────────────────────────────────────────────────
@@ -229,6 +118,13 @@ fn vocab_min_count(world: &mut PredictionWorld, count: usize) {
 fn vocab_includes_action(world: &mut PredictionWorld, name: String, category: String) {
     let entry = world.vocab.iter().find(|a| a.name == name).unwrap_or_else(|| panic!("action '{name}' not found"));
     assert_eq!(entry.category, category, "category of {name}");
+}
+
+#[then(expr = "the vocabulary should not include {string}")]
+fn vocab_excludes(world: &mut PredictionWorld, names: String) {
+    for name in names.split(',').map(str::trim) {
+        assert!(world.vocab.iter().all(|a| a.name != name), "{name} is in the vocabulary");
+    }
 }
 
 #[then(expr = "action {string} should have parameters {string}")]
@@ -273,24 +169,20 @@ fn fixture_matches(_world: &mut PredictionWorld) {
     assert!(have == want, "{FIXTURE} is out of date: rerun with UPDATE_PREDICTION_FIXTURE=1");
 }
 
-#[then(expr = "loading should fail with a message naming vocabulary {string}")]
-fn load_failed(world: &mut PredictionWorld, version: String) {
-    let err = world.load_error.as_ref().expect("the old checkpoint loaded");
-    assert!(err.contains(&format!("vocabulary {version}")), "{err}");
-    assert!(err.contains("retrain"), "{err}");
-}
-
-#[then(expr = "the model should be unavailable, saying {string}")]
-fn unavailable(world: &mut PredictionWorld, text: String) {
-    let status = world.status.as_ref().unwrap();
-    assert!(!status.available, "{status:?}");
-    assert!(status.message.contains(&text), "{}", status.message);
-}
-
-#[then(expr = "the model should be available")]
+#[then(expr = "the brain should be available")]
 fn available(world: &mut PredictionWorld) {
     let status = world.status.as_ref().unwrap();
     assert!(status.available, "{status:?}");
+    assert!(status.weights > 0, "{status:?}");
+    assert!(status.message.contains("WIR"), "{}", status.message);
+}
+
+#[then(expr = "the runtime should reproduce the rule's test vectors exactly")]
+fn vectors_exact(_world: &mut PredictionWorld) {
+    let brain = entropy_engine::prediction::brain::brain().unwrap();
+    let (worst, n) = brain.check_vectors();
+    assert!(n > 0, "the brain has no test vectors");
+    assert_eq!(worst, 0.0, "worst difference over {n} vectors");
 }
 
 #[then(expr = "the plan should have {int} steps")]
@@ -306,7 +198,9 @@ fn plan_params(world: &mut PredictionWorld) {
         assert_eq!(step.params.len(), def.params.len(), "{} params", step.name);
         for (v, spec) in step.params.iter().zip(&def.params) {
             assert!(*v >= spec.min && *v <= spec.max, "{}.{} = {v} outside {}..{}", step.name, spec.name, spec.min, spec.max);
-            if spec.kind != "knob" { assert_eq!(v.fract(), 0.0, "{}.{} = {v} is not whole", step.name, spec.name); }
+            if spec.kind != "knob" {
+                assert_eq!(v.fract(), 0.0, "{}.{} = {v} is not whole", step.name, spec.name);
+            }
         }
     }
 }
@@ -318,9 +212,31 @@ fn plan_confidence(world: &mut PredictionWorld) {
     }
 }
 
+#[then(expr = "step {int} should be {string} with parameters {string}")]
+fn step_is(world: &mut PredictionWorld, index: usize, name: String, params: String) {
+    let step = &world.plan[index - 1];
+    assert_eq!(step.name, name);
+    let want: Vec<f32> = params.split(',').map(|p| p.trim().parse().unwrap()).collect();
+    assert_eq!(step.params, want, "{name} parameters");
+}
+
+#[then(expr = "the plan should be {string}")]
+fn plan_is(world: &mut PredictionWorld, names: String) {
+    let got: Vec<&str> = world.plan.iter().map(|p| p.name.as_str()).collect();
+    let want: Vec<&str> = names.split(',').map(str::trim).collect();
+    assert_eq!(got, want);
+}
+
 #[then(expr = "the alternative plan should open with a different action")]
 fn alternative_differs(world: &mut PredictionWorld) {
     assert_ne!(world.plan[0].action_id, world.alternative[0].action_id);
+}
+
+#[then(expr = "the plan should be the same as for {string}")]
+fn same_plan(world: &mut PredictionWorld, actions: String) {
+    let other = request(world, parse_history(&actions, world.current), world.plan.len() as u32, 0);
+    let view = |p: &[PredictedAction]| p.iter().map(|s| (s.name.clone(), s.params.clone())).collect::<Vec<_>>();
+    assert_eq!(view(&world.plan), view(&other));
 }
 
 fn main() {

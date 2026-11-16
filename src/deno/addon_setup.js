@@ -357,23 +357,18 @@ const planRequest = (request) => ({
 });
 
 const predictionAPI = {
-    predictNextActions: (contextIds = [], steps = 5) => {
-        return ops.op_prediction_next_actions(contextIds, steps);
-    },
     getActionVocab: () => {
         return ops.op_prediction_action_vocab();
     },
-    // history: [{ action, params, context }], oldest first. [] when no model is installed; throws when
-    // one is installed but unusable (old vocabulary, failed load). Blocks until the model answers:
-    // UIs use requestPlan/pollPlan instead.
+    // history: [{ action, params, context }], oldest first. Throws only when the brain failed to load.
     predictPlan: (request = {}) => ops.op_prediction_plan(planRequest(request)),
-    // Queues the plan on the prediction worker thread and returns a ticket at once.
+    // Computes the plan (microseconds) and returns a ticket for pollPlan.
     requestPlan: (request = {}) => ops.op_prediction_request_plan(planRequest(request)),
-    // { state: "pending" | "done" | "error" | "superseded" | "unknown", plan, error, elapsed_ms }.
+    // { state: "done" | "error" | "unknown", plan, error, elapsed_ms }.
     pollPlan: (ticket) => ops.op_prediction_poll_plan(ticket),
     getChoiceLists: () => ops.op_prediction_choice_lists(),
     vocabVersion: () => ops.op_prediction_vocab_version(),
-    // { available, checkpoint, message, vocab_version, eval_top1, eval_top3 } without loading the model.
+    // { available, message, vocab_version, weights }.
     status: () => ops.op_prediction_status(),
 };
 

@@ -221,14 +221,10 @@ harness = false
 name = "daw_prediction_bdd"
 harness = false
 
-# The DAW prediction model's data generator and trainer (src/prediction).
+# The DAW next-step brain's session generator and benchmark (src/prediction).
 [[bin]]
 name = "gen_daw_data"
 path = "src/bin/gen_daw_data.rs"
-
-[[bin]]
-name = "train_prediction"
-path = "src/bin/train_prediction.rs"
 
 [[bin]]
 name = "bench_prediction"
