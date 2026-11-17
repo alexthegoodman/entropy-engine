@@ -1,0 +1,21 @@
+﻿Armor_ID,Name,Component_Slot,Armor_Class,Weight_kg,Ballistic_Protection,Explosive_Protection,Visual_Signature,Thermal_Signature,Noise_Modifier,Description,Status
+AR001,Scout Helmet,Helmet,Scout,0.8,25%,10%,x0.92,x0.95,x0.95,Low-profile head protection,Proposed
+AR002,Standard Helmet,Helmet,Standard,1.4,40%,20%,x1.00,x1.00,x1.00,General-purpose head protection,Proposed
+AR003,Heavy Helmet,Helmet,Heavy,2.6,60%,35%,x1.12,x1.05,x1.05,Enhanced head protection with weight and visibility trade-offs,Proposed
+AR004,Light Chest Rig,Chest,Scout/Light,2.5,15%,10%,x0.92,x0.95,x0.90,Minimal torso protection and limited storage 6 inventory points.,Proposed
+AR005,Standard Plate Carrier,Chest,Standard,7,40%,30%,x1.00,x1.00,x1.00,Balanced torso protection and storage 8 inventory points.,Proposed
+AR006,Heavy Composite Chest Plate,Chest,Heavy,14,60%,50%,x1.20,x1.10,x1.30,High protection with significant weight 10 inventory points.,Proposed
+AR007L,Shoulder Armor Set (Light),Shoulders,Light,0.8,12%,10%,x0.98,x1.00,x1.00,Modular shoulder protection,Proposed
+AR007S,Shoulder Armor Set (Standard),Shoulders,Standard,1.6,25%,20%,x1.03,x1.00,x1.02,Modular shoulder protection,Proposed
+AR007H,Shoulder Armor Set (Heavy),Shoulders,Heavy,3.2,40%,30%,x1.08,x1.02,x1.05,Modular shoulder protection,Proposed
+AR008L,Arm Guards (Light),Arms,Light,0.6,12%,8%,x0.98,x1.00,x1.00,Modular arm protection,Proposed
+AR008S,Arm Guards (Standard),Arms,Standard,1.2,25%,15%,x1.02,x1.00,x1.02,Modular arm protection,Proposed
+AR008H,Arm Guards (Heavy),Arms,Heavy,2.4,40%,25%,x1.06,x1.02,x1.05,Modular arm protection,Proposed
+AR009L,Leg Guards (Light),Legs,Light,1,12%,10%,x0.98,x1.00,x1.00,Modular leg protection,Proposed
+AR009S,Leg Guards (Standard),Legs,Standard,2,25%,20%,x1.02,x1.00,x1.04,Modular leg protection,Proposed
+AR009H,Leg Guards (Heavy),Legs,Heavy,4,40%,30%,x1.06,x1.02,x1.10,Modular leg protection,Proposed
+AR010,Thermal-Dampening Cloak,Utility,Scout/Light,3,0%,-5%,x0.85,x0.30,x0.95,Reduces thermal signature at a cost to durability or mobility,Concept
+AR011,Powered Exoskeleton Frame,Exoskeleton,Assault,9,5%,5%,x1.10,x1.25,x1.20,Supports heavy equipment and may offset carried load Carries 22 kg of load.,Concept
+AR012,Heavy Exoskeleton Frame,Exoskeleton,Heavy Assault,18,10%,10%,x1.35,x1.50,x1.60,High-load frame; loud and visually conspicuous. Lets an HMG-75 or AMR-76 fire undeployed Carries 48 kg of load.,Concept
+AR013,Mimetic Plate Coating,Finish,Any,2.5,3%,0%,x0.62,x0.90,x1.00,"Adaptive pigment layer over plates: heavier and a little stronger, much harder to see",Added v0.2
+AR014,Biome Camouflage Finish,Finish,Any,0.3,0%,0%,x0.80,x1.00,x1.00,Printed pattern matched to the map's ground,Added v0.2

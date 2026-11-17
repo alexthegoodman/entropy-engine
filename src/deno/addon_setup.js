@@ -3360,6 +3360,10 @@ globalThis.Entropy = {
                 if (idx !== -1) listeners[name].splice(idx, 1);
             };
         },
+        // Pointer lock for first-person mouse look: hides and locks the cursor (Escape releases
+        // it); takeMouseLook() returns [dx, dy, locked] - raw motion since the last call.
+        setPointerLock: (enabled) => ops.op_input_set_pointer_lock(!!enabled),
+        takeMouseLook: () => ops.op_input_take_mouse_look(),
         onMouseDown: (callback) => globalThis.Entropy.Input._on("onMouseDown", callback),
         onMouseMove: (callback) => globalThis.Entropy.Input._on("onMouseMove", callback),
         onMouseUp: (callback) => globalThis.Entropy.Input._on("onMouseUp", callback),

@@ -1,0 +1,12 @@
+﻿Equipment_ID,Name,Category,Deployment_Type,Weight_kg,Inventory_Cost,Description,Status
+E001,Anti-Personnel Mine,Mine,Deployable,TBD,TBD,Infantry area denial; detection and disarm counterplay required,Proposed
+E002,Anti-Vehicle Mine,Mine,Deployable,TBD,TBD,Vehicle area denial; placement and friendly-fire rules TBD,Proposed
+E003,Fragmentation Grenade,Grenade,Throwable,TBD,TBD,General-purpose explosive,Proposed
+E004,Smoke Grenade,Grenade,Throwable,TBD,TBD,Visual concealment; thermal interaction TBD,Proposed
+E005,EMP Grenade,Grenade,Throwable,TBD,TBD,Short-range disruption of electronic systems,Concept
+E006,Medical Kit,Medical,Carried,TBD,TBD,Self or squad medical support; healing rules TBD,Proposed
+E007,Repair Tool,Engineering,Carried,TBD,TBD,Repairs vehicles and selected deployables,Proposed
+E008,Portable Ammo Crate,Supply,Deployable,TBD,TBD,Provides limited ammunition resupply,Proposed
+E009,Deployable Cover,Fortification,Deployable,TBD,TBD,Creates temporary infantry cover,Concept
+E010,Automatic Turret,Fortification,Deployable,TBD,TBD,Automated defensive weapon; targeting rules TBD,Concept
+E011,Recon Beacon,Recon,Deployable,TBD,TBD,Provides local sensor or squad awareness,Concept

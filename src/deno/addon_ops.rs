@@ -2052,6 +2052,11 @@ pub struct AddonContext {
     pub modifiers: Modifiers,
     pub window_size: [u32; 2],
     pub pending_fullscreen: Option<bool>,
+    /// Pointer lock (Entropy.Input.setPointerLock): the request, whether the window holds it now,
+    /// and the raw mouse motion gathered while it does (taken by Entropy.Input.takeMouseLook).
+    pub pending_pointer_lock: Option<bool>,
+    pub pointer_locked: bool,
+    pub mouse_look: [f32; 2],
     pub selected_entity_id: Option<String>,
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
@@ -4822,6 +4827,24 @@ pub fn op_window_get_size(state: &mut OpState) -> Result<(u32, u32), deno_error:
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
     }
+}
+
+#[op2(fast)]
+pub fn op_input_set_pointer_lock(state: &mut OpState, enabled: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_pointer_lock = Some(enabled);
+    }
+}
+
+/// Raw mouse motion since the last call while the pointer is locked: [dx, dy, locked (0/1)].
+#[op2]
+#[serde]
+pub fn op_input_take_mouse_look(state: &mut OpState) -> Vec<f32> {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let d = std::mem::take(&mut ctx.mouse_look);
+        return vec![d[0], d[1], if ctx.pointer_locked { 1.0 } else { 0.0 }];
+    }
+    vec![0.0, 0.0, 0.0]
 }
 
 #[op2(fast)]

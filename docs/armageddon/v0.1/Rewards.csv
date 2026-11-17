@@ -1,0 +1,17 @@
+﻿Reward_ID,Name,Reward_Type,Proposed_Requirement,Effect,Payload_or_Uses,Cooldown_s,Counterplay_or_Notes,Status
+R001,Recon Drone,Killstreak,3,Temporary local enemy detection,TBD,TBD,Can be countered by concealment or electronic warfare,Proposed
+R002,Supply Drop,Killstreak,4,Delivers ammunition and supplies,TBD,TBD,Drop location may be contested,Proposed
+R003,Combat Drone,Killstreak,5,Temporary AI aerial support,TBD,TBD,Vulnerable to anti-air and electronic warfare,Proposed
+R004,Artillery Strike,Killstreak,7,Area bombardment,TBD,TBD,Warning and counterplay recommended,Proposed
+R005,Attack Helicopter,Killstreak,9,Temporary aerial fire support,TBD,TBD,Can be engaged by anti-air systems,Proposed
+R006,Tactical Airstrike,Killstreak,12,Precision bombardment,TBD,TBD,Requires target designation,Proposed
+R007,Hunter Protocol,Killstreak,15,Attempts to neutralize up to 16 targets in a designated field; proposed 80% per-target success,TBD,TBD,"Success definition, cooldown, and countermeasures require balancing",Concept
+R101,Mine Kit,Underdog,TBD,Deploys 16 mines in one kit,16 mines,TBD,"Mine type mix, persistence, detection, and disarm rules TBD",Proposed
+R102,Emergency Ammunition,Underdog,TBD,Restocks ammunition,TBD,TBD,Availability and supply limits TBD,Concept
+R103,Reinforcement Squad,Underdog,TBD,Deploys an AI infantry reinforcement squad,8 soldiers (proposed),TBD,Spawn rules and team population cap TBD,Concept
+R104,Field Repair Kit,Underdog,TBD,Repairs eligible vehicles,TBD,TBD,Repair amount and restrictions TBD,Concept
+R105,Portable Turret,Underdog,TBD,Deploys an automated defensive weapon,1 turret,TBD,"Ammunition, health, and placement rules TBD",Concept
+R106,Anti-Armor Kit,Underdog,TBD,Provides specialized anti-vehicle equipment,TBD,TBD,Loadout contents TBD,Concept
+R107,Emergency Recon,Underdog,TBD,Temporary enemy detection,TBD,TBD,Scope and duration TBD,Concept
+R108,EMP Charge,Underdog,TBD,Disrupts nearby electronic equipment,TBD,TBD,"Radius, duration, and affected systems TBD",Concept
+R109,Emergency Extraction,Underdog,TBD,Calls a transport vehicle to a designated pickup point,TBD,TBD,Availability and extraction safety rules TBD,Concept

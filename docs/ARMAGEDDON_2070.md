@@ -1,0 +1,167 @@
+# Armageddon 2070
+
+Large-scale squad tactical combat in first person: 128 vs 128 on four battlefields, Conquer only.
+Multiplayer comes later; for now every other soldier, every vehicle crew, every squad and both
+teams' commands are bots, and every one of their decisions comes from a WIR network (Yumon Pet's
+WIR language, compiled to ReLU weights and checked exact against its program).
+
+> 2070. Fusion gave the world abundance. Abundance gave it decay, then the Directorates, then the
+> war. The first fusion bombs fell on the Indian subcontinent; it is gone, and its glow still lights
+> the southern sky. Now the Meridian Directorate and the Ember Ascendancy fight for what is left on
+> the rim of the ash.
+
+```bash
+cd examples/studio-bundle && npm run build-armageddon && cd ../..
+cargo run --bin example --release -- armageddon-2070
+```
+
+Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and battle setup):
+`../armageddon-data`. Design database: `docs/armageddon/v0.1` (as delivered) and
+`docs/armageddon/v0.2` (every TBD filled; written from the game data by `npm run armageddon:csv`).
+
+## Playing
+
+- **Title -> Battle**: pick a map, a side, 32/64/128 per team, vehicles on or off. **Deploy** picks a
+  spawn: headquarters, any territory your team holds, or a squad mate. You respawn within 5 s.
+- **Keys**: WASD move, Shift sprint, Space jump, C crouch, Z prone, mouse look (click once to lock
+  the pointer; Esc releases it; middle-drag and the arrow keys also look), LMB fire, RMB aim down
+  sights, R reload, 1/2/3 primary/sidearm/launcher, G grenade, F equipment (in a vehicle: smoke or
+  flares), E enter/exit the nearest friendly vehicle, Q call your squad to the crosshair, 5-9 use a
+  reward at the crosshair, Tab scoreboard, M map, V third person, P screen pass, H help.
+- **Vehicles**: W/S throttle, A/D steer, Space/Ctrl climb and descend in aircraft, the mouse aims
+  the seat's gun, LMB fires, G drops the heavy transport aircraft's payload.
+- **The armory** builds a loadout: a primary and its attachments (only ones that fit), ammunition,
+  sidearm, launcher, up to four kits (inventory points come from the chest rig), and armor per slot:
+  helmet, chest, shoulders, arms, legs, a utility cloak, an exoskeleton and a finish. The panel shows
+  weight, speed, protection per hit location, visual/thermal/noise signature, inventory and the
+  fitted weapon's numbers. Armor makes you heavier and stronger; the Mimetic Plate Coating makes you
+  heavier, a little stronger and much harder to see. Role presets fill everything in at once.
+
+## Conquer
+
+- Each team has 1,600 tickets; a death costs one. Every 10 s the team holding fewer territories
+  loses 2 tickets per territory it is behind. A team at 0 tickets loses when its last soldier falls
+  (or at once if it also holds nothing).
+- A territory flips by standing in it: progress runs at sqrt(attackers - defenders) / 16 s, a
+  neutral middle, a flag that rises, contested territories marked gold.
+- Each team starts with the territory nearest its base. Bases cannot be captured.
+- **Killstreaks** (kills, vehicle kills and captures without dying): Recon Drone 3, Supply Drop 4,
+  Combat Drone 5, Artillery Strike 7, Attack Helicopter 9, Tactical Airstrike 12, Hunter Protocol 15.
+  Hunter Protocol sends up to 16 seeker bolts into a 60 m field after 2 s; each neutralizes its
+  target with 80% (halved under a roof, in smoke or in a thermal cloak; each AA vehicle within 150 m
+  shoots two bolts down).
+- **Underdog rewards**: every 150 s spent in the bottom quarter of your team's leaderboard earns one
+  (a rotating deck): the Mine Kit (16 mines in one go: 12 anti-personnel, 4 anti-vehicle, in an arc
+  across the aim point), Emergency Ammunition, a Reinforcement Squad (8 bots who follow your calls for
+  120 s, one per team at a time), Field Repair Kit, Portable Turret, Anti-Armor Kit, Emergency Recon,
+  EMP Charge, Emergency Extraction (an AI transport helicopter). Bots get and use rewards too.
+- **Mecha**: one per side at a time. A team's mecha unlocks while it holds half the territories or
+  trails by 300 tickets; it walks out of the base with a bot pilot (Titan, Wraith or Bastion).
+- **Vehicles**: each team fields the database's ground and air vehicles (buggies to tanks, AA and
+  artillery, logistics and recovery, drones, attack/transport/heavy helicopters, fighter, attack
+  aircraft, heavy transport aircraft). The heavy transport helicopter carries 16. When a team is
+  short of tanks, its heavy transport aircraft flies a tank to its most forward territory and drops
+  it under parachutes. Heavy vehicles crush light cover and run soldiers over.
+- **Squads** of 8 (standard, recon, support, anti-armor mixes from Squads.csv). They stick together
+  but split to flank. Q calls your squad to the crosshair: members within 250 m come (the squad's WIR
+  mode becomes regroup), for 30 s.
+
+## The balance scale (Design Database v0.2)
+
+A soldier has 100 HP; vehicles use the same HP. Damage is per hit at point blank, falling to the
+weapon's minimum at its effective range. Armor stops `protection x (1 - penetration)` of a hit per
+location (head 10% of hits x2, torso 45%, arms 20% x0.75, legs 25% x0.8; protection capped at 80%).
+A soldier carries 18 kg freely; speed falls to 55% at 70 kg (exoskeletons carry 22 or 48 kg for
+you). Bots see a standing, moving soldier with signature 1 at 190 m, scaled by visual signature,
+stance, movement, vegetation and recent muzzle flash. Every table is in `docs/armageddon/v0.2`,
+including `Balance_Scale.csv`. Some database rows changed shape: the modular shoulder, arm and leg
+armor became Light/Standard/Heavy rows (`AR007L/S/H` ...), and two finishes were added (`AR013`
+Mimetic Plate Coating, `AR014` Biome Camouflage Finish). Vehicle fuel is a fusion cell with no
+refuelling in Conquer.
+
+## The maps
+
+Four 1,024 m battlefields, each a seed plus a hand-placed layout (`ar_map.ts`):
+
+| map | biome | territories | notes |
+|---|---|---|---|
+| Glass Coast | coast | 10 | the Makran shore: a container port, a breeze-block town, dunes fused to glass, the sea |
+| Kush Corridor | mountain | 9 | a pass between snow-capped walls: qalat compounds, terraced farms, a broken bridge, pines |
+| Fusion Plant Seven | industrial | 11 | reactor domes, cooling towers, pipe racks, a rail yard, containers |
+| Lhasa Arcology | city | 12 | a grid of shattered blocks, plazas, a monastery on the hill |
+
+**Cover is the point.** Every solid is a box rasterized into a 1 m cover grid holding up to two
+spans per cell (so windows are gaps from sill to lintel and doors gaps from the floor). Territories
+are sites (port, town, city, village, compound, industrial, reactor, plaza, checkpoint, outpost) of
+ruined buildings with doors, windows, partitions and broken tops, low walls, sandbag nests, jersey
+barriers, hesco, containers, wrecks, rubble, crates, towers. A fill pass then walks each territory
+on a 5 m lattice and drops mixed cover wherever nothing at least 0.9 m tall stands within 6 m. The
+tests hold every territory to: cover within 6 m of at least 85% of open spots (measured: 96-100%),
+at least four kinds of cover, and fewer than 75% of 15 m+ sightlines clear (measured 7-63%). The
+open ground between sites gets rocks, wrecks, low walls, rubble and nests. Bullets damage
+destructible cover (sandbags, barriers, wrecks, crates, deployable cover) until it collapses.
+
+Foliage is billboard cards cut out in the shader (grass, bushes, broadleaf, pines, palms, dead
+trees, reeds), about 2,000-6,000 placed plants per map plus grass scattered in 32 m chunks around
+the camera. Bushes and reeds conceal: they cut how far bots see you.
+
+## The bots think with WIR
+
+`yumon-pet/wir/src/armageddon.rs` writes 23 WIR 0.2 programs (`wir armageddon --out
+examples/armageddon --export armageddon.json`), compiles each and checks the network against the
+program on random in-domain inputs; `tools/ar_import_wir.mjs` imports the weights into
+`ar_wir_data.ts`. `ar_wir.ts` runs them and holds the same rules as plain TypeScript; the tests and
+`ar_config {check: true}` compare every live decision with its rule. The chain follows
+`WIR_Behaviors.csv`:
+
+| network | layer | decides | inputs | hidden | weights |
+|---|---|---|---|---|---|
+| `ar_sense` | all ground and air agents | a 5 x 5 grid program: grades of 4 fields per heading, exposure, friends per sector, blocked headings | 74 taps | 8 layers | 2,216 |
+| `ar_strategic_brain` | team | which of up to 12 territories each squad goes for (value, owner, contest, distance, squads already sent, enemy strength) | 108 | [120, 168, 12, 132, 12] | 1,212 |
+| `ar_squad_brain` | squad | advance, assault, defend, regroup, flank, fall back, mount | 22 | 6 layers | 325 |
+| `ar_{rifle,support,marksman,antiarmor}_brain` | soldier | heading or hold, fire, reload, crouch, grenade, launcher | 84 | [83, 114, 171, 19, 82, 19] | 1,284 |
+| `ar_tank_{mbt,destroyer,antiair,artillery}` | tank | hull heading/hull-down hold, target class for the turret, main gun, coax, smoke | 80 | 6 layers | 1,158-1,295 |
+| `ar_apc_{apc,ifv,light}` | transports, logistics | heading, pick up, deliver, dismount, support fire, ATGM, smoke | 79 | 7 layers | 1,369-1,375 |
+| `ar_heli_{attack,transport,drone}` | helicopters, drones | heading on a 16 m air grid or hover, altitude band, land, fire, flares; random bits vary approaches | 91 | 7 layers | 1,206 |
+| `ar_jet_{fighter,attack,transport}` | aircraft | patrol, attack run, pull out, evade, return; fire, flares, drop (bombs or a vehicle) | 16 | 6 layers | 185-238 |
+| `ar_mecha_{titan,wraith,bastion}` | mecha | heading or hold (lame legs favour holding), weapon by arm health, brace | 77 | 6 layers | 1,142-1,163 |
+
+The infantry brain is the tactical grunt (`docs/WIR.md` "Tactical enemies") upgraded for a chain of
+command: drives are response curves (fear from hit points, an empty magazine and suppression;
+approach to a preferred range shifted by the squad's mode; the pull of the objective by mode; squad
+cohesion with a leash plus the player's call; cover; peek; plant to shoot), each multiplied by a field
+grade per heading, plus spacing, inertia and a blocked penalty. Vehicles split hull and turret: the
+network chooses where the hull goes and which class of target the turret takes, and the host aims.
+Each bot fills its fields locally: the path distance to its objective (Dial's algorithm per territory,
+cached), the distance to its threat, cover facing that threat within a 9 x 9 window, exposure by line
+of sight from up to two seen enemies, its squad anchor (leader or call point), walls and friends.
+
+The Electronic Warfare WIR (AI010) is deferred.
+
+## Tests
+
+- `npm run test:armageddon` (in `examples/studio-bundle`, ~2 min): the database (audit, the brief's
+  numbers, armor trade-offs, damage, the v0.2 CSVs current), the maps (territory counts,
+  reachability on foot and by vehicle from both bases, the cover metrics above, windows and doors,
+  foliage), every WIR network against its rule (3,000 random inputs each, the senses on 5,000 random
+  windows), and the battle: 128 vs 128 for 150 s with every decision checked (0 mismatches), respawn
+  within 5 s, the Mine Kit's 16 mines, Hunter Protocol's 16 targets at about 80%, underdog and
+  killstreak rewards, the squad call, the 16-seat helicopter, the aircraft's vehicle drop, one mecha
+  per side, the end of a battle.
+- `cargo test --release --test armageddon` in `yumon-pet/wir`: all 23 networks compile and match
+  their programs.
+- `xvfb-run -a cargo test --release --test armageddon_live`: four scenarios in the real window
+  (tests/features/armageddon_live.feature), 19 captures: menus, the armory, a 128 vs 128 battle in
+  first person, the scoreboard and map, the squad call, the Mine Kit and Hunter Protocol, a tank and
+  the heavy helicopter, all four maps, the debrief.
+
+## Numbers and limits
+
+- Headless (Deno, 4 cores of a cloud VM): a full 128 vs 128 battle with vehicles steps in 9-17 ms
+  per 1/30 s step (the bots about 70% of it), with occasional 120-180 ms steps when a new path field is
+  built. A battle runs 15-20 minutes. The live window runs the same step; performance figures under
+  Xvfb (software rendering) mean nothing.
+- Looks are deliberately simple: boxes, cylinders and spheres for soldiers, vehicles and buildings,
+  procedural materials, no shadow maps, a fog/tone-map screen pass.
+- Not built yet: multiplayer, the EW WIR, player control of the heavy transport aircraft's drop
+  point, recoil feedback on the view, ballistic drop.

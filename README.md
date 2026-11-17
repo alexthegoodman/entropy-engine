@@ -233,6 +233,7 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 |---|---|
 | `Input.onMouseDown/Move/Up`, `onKeyDown/Up` | Subscribes to raw mouse/keyboard events; each returns an unsubscribe function. |
 | `Input.onGamepadButton` / `onGamepadAxis` | Subscribes to gamepad button presses and stick positions. |
+| `Input.setPointerLock(on)` / `Input.takeMouseLook()` | Locks and hides the cursor for first-person mouse look (Escape releases it); `takeMouseLook()` returns `[dx, dy, locked]`, the raw mouse motion since the last call. Armageddon 2070 aims with it. |
 | `Input.onStylusDown/Move/Up` | Subscribes to real pressure and tilt pen/stylus input. Windows only; it never fires for mouse or finger touch. |
 | `Input.isKeyPressed` / `isCtrlPressed` / `isShiftPressed` / `isAltPressed` | One-shot polling checks instead of subscribing to events. |
 | `Input.isPointerOverUI()` | True if the cursor is over an Entropy UI window/widget. Check this before treating a click as a world or game interaction, since UI and world input are not otherwise mutually exclusive. |
@@ -503,6 +504,10 @@ cargo run --bin example --release -- allegiance
 npm run build-world-of-music
 cargo run --bin example --release -- world-of-music
 
+// 128 vs 128 squad tactical combat whose bots think with WIR networks (Armageddon 2070, see docs/ARMAGEDDON_2070.md)
+npm run build-armageddon
+cargo run --bin example --release -- armageddon-2070
+
 // a bare wall of PBR material for parallax occlusion work (Material Lab, see docs/MATERIAL_LAB.md)
 npm run build-material-lab
 cargo run --bin example --release -- material-lab
@@ -584,6 +589,7 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
 | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
 | ![World of Music / Landfall Cove](public/world-of-music-vista.png "World of Music / Landfall Cove") | ![World of Music / Agent Tom and his Tones](public/world-of-music-agent-tom.png "World of Music / Agent Tom and his Tones") |
+| ![Armageddon 2070 / Glass Coast's fish market](public/armageddon-glass-coast.png "Armageddon 2070 / Glass Coast's fish market") | ![Armageddon 2070 / the Caravanserai in the Kush Corridor](public/armageddon-kush-caravanserai.png "Armageddon 2070 / the Caravanserai in the Kush Corridor") |
 | ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |
 
 ## P2P development

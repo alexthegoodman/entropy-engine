@@ -1,0 +1,12 @@
+﻿Equipment_ID,Name,Category,Deployment_Type,Weight_kg,Inventory_Cost,Description,Status
+E001,Anti-Personnel Mine,Mine,Deployable,0.8,1 pt (2 carried),"Infantry area denial; seen within 6 m, disarmed with a Repair Tool in 3 s. Effect 110. Radius 4 m. 240 s.",Proposed
+E002,Anti-Vehicle Mine,Mine,Deployable,6,3 pt (1 carried),Vehicle area denial; ignores infantry; friendly vehicles pass safely. Effect 1800. Radius 3 m. 300 s.,Proposed
+E003,Fragmentation Grenade,Grenade,Throwable,0.4,1 pt (2 carried),General-purpose explosive. Effect 120. Radius 7 m. 3.2 s.,Proposed
+E004,Smoke Grenade,Grenade,Throwable,0.35,1 pt (2 carried),Visual concealment; thermal sights see through it. Radius 8 m. 18 s.,Proposed
+E005,EMP Grenade,Grenade,Throwable,0.5,2 pt (1 carried),Short-range disruption of electronic systems. Radius 10 m. 6 s.,Concept
+E006,Medical Kit,Medical,Carried,1.2,2 pt (4 carried),Heals 60 HP to self or a squad mate within 3 m over 3 s. Effect 60. Radius 3 m. 3 s.,Proposed
+E007,Repair Tool,Engineering,Carried,2.5,2 pt (1 carried),Repairs vehicles and selected deployables at 90 HP/s; disarms mines. Effect 90. Radius 4 m.,Proposed
+E008,Portable Ammo Crate,Supply,Deployable,6,3 pt (1 carried),Six full resupplies for soldiers within 6 m. Effect 6. Radius 6 m. 120 s. 200 HP.,Proposed
+E009,Deployable Cover,Fortification,Deployable,9,3 pt (1 carried),"A 2.6 m wide, 1.2 m high ballistic shield wall. Radius 1.3 m. 300 s. 450 HP.",Concept
+E010,Automatic Turret,Fortification,Deployable,14,4 pt (1 carried),Automated defensive LMG; fires at the nearest enemy infantry in sight. Effect 18. Radius 120 m. 120 s. 400 HP.,Concept
+E011,Recon Beacon,Recon,Deployable,1.5,2 pt (1 carried),Spots enemies within 45 m for the whole squad. Radius 45 m. 90 s. 60 HP.,Concept

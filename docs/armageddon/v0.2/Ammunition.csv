@@ -1,0 +1,9 @@
+﻿Ammo_ID,Name,Ammo_Type,Damage_Modifier,Penetration,Description,Status
+AM001,Standard Ball,Ballistic,x1.00,20%,General-purpose ammunition,Proposed
+AM002,Armor-Piercing,Ballistic,x0.90,60%,Improved penetration; possible trade-off against unarmored targets Range x1.05.,Concept
+AM003,Hollow-Point,Ballistic,x1.20 (x0.65 vs armor),0%,Potentially higher effect against unarmored targets; reduced armor performance Range x0.90.,Concept
+AM004,Subsonic,Ballistic,x0.90,15%,Reduced report and velocity; range and damage trade-offs Shot signature x0.60. Range x0.80.,Concept
+AM005,Tracer,Ballistic,x1.00,20%,Visible trajectory for observation and fire correction (tighter aimed spread) Shot signature x1.40.,Proposed
+AM006,High-Explosive,Explosive,x1.00,0%,Explosive payload for compatible launchers,Proposed
+AM007,Smoke,Special,x0.00,0%,Creates visual obscuration,Proposed
+AM008,EMP,Electromagnetic,x0.30,0%,Disrupts compatible electronic targets,Concept

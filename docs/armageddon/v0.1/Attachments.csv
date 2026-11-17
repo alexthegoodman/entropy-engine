@@ -1,0 +1,20 @@
+﻿Attachment_ID,Name,Slot_Type,Compatibility,Weight_kg,Aim_Time_Modifier,Recoil_Modifier,Description,Status
+A001,Iron Sights,Optic,Any compatible rifle,TBD,TBD,TBD,Baseline sight; no electronic signature,Proposed
+A002,Red Dot Sight,Optic,Compatible small arms,TBD,TBD,TBD,Fast close-to-medium range aiming,Proposed
+A003,Holographic Sight,Optic,Compatible small arms,TBD,TBD,TBD,Open sight picture for rapid target acquisition,Proposed
+A004,2x Combat Optic,Optic,Compatible rifles,TBD,TBD,TBD,Low magnification for general-purpose engagements,Proposed
+A005,4x Optic,Optic,Compatible rifles,TBD,TBD,TBD,Medium magnification,Proposed
+A006,8x Precision Optic,Optic,Compatible precision rifles,TBD,TBD,TBD,High magnification; narrower situational awareness,Proposed
+A007,Suppressor,Muzzle,Compatible firearms,TBD,TBD,TBD,Reduces muzzle report and detection range; may reduce performance,Proposed
+A008,Compensator,Muzzle,Compatible firearms,TBD,TBD,TBD,Reduces recoil; may increase muzzle signature,Proposed
+A009,Flash Hider,Muzzle,Compatible firearms,TBD,TBD,TBD,Reduces visible muzzle flash,Proposed
+A010,Short Barrel,Barrel,Compatible firearms,TBD,TBD,TBD,Improves handling; may reduce velocity and range,Proposed
+A011,Extended Barrel,Barrel,Compatible firearms,TBD,TBD,TBD,May improve velocity and range; increases weight and handling time,Proposed
+A012,Heavy Barrel,Barrel,Compatible firearms,TBD,TBD,TBD,Improves sustained-fire stability; adds weight,Proposed
+A013,Vertical Foregrip,Underbarrel,Compatible firearms,TBD,TBD,TBD,Improves recoil control; adds weight,Proposed
+A014,Bipod,Underbarrel,Compatible support weapons,TBD,TBD,TBD,Improves stability when deployed,Proposed
+A015,Underbarrel Grenade Launcher,Underbarrel,Selected assault rifles,TBD,TBD,TBD,Adds limited indirect explosive capability,Concept
+A016,Extended Magazine,Magazine,Compatible firearms,TBD,TBD,TBD,Increases ammunition capacity; may slow handling,Proposed
+A017,Laser Designator,Utility,Compatible firearms,TBD,TBD,TBD,Aiming aid; may reveal position to sensors,Concept
+A018,Weapon Flashlight,Utility,Compatible firearms,TBD,TBD,TBD,Illuminates dark areas; visible when active,Proposed
+A019,Rangefinder,Utility,Selected optics,TBD,TBD,TBD,Provides distance estimate,Concept

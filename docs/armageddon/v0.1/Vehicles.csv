@@ -1,0 +1,19 @@
+﻿Vehicle_ID,Name,Domain,Passenger_or_Crew_Capacity,Primary_Role,Size_Class,Health,Armor,Top_Speed_kmh,Armament,Fuel_or_Energy_Capacity,Description,Status
+V001,Scout Buggy,Ground,2,Reconnaissance,Light,TBD,TBD,TBD,TBD,TBD,Fast reconnaissance vehicle,Proposed
+V002,Armored Jeep,Ground,4,Squad Mobility,Light,TBD,TBD,TBD,TBD,TBD,Protected light transport,Proposed
+V003,Armored Personnel Carrier,Ground,8,Troop Transport,Medium,TBD,TBD,TBD,TBD,TBD,Protected squad transport,Proposed
+V004,Infantry Fighting Vehicle,Ground,8,Infantry Support,Medium,TBD,TBD,TBD,TBD,TBD,Armed troop carrier with infantry support role,Proposed
+V005,Main Battle Tank,Ground,3,Heavy Armor,Heavy,TBD,TBD,TBD,TBD,TBD,Primary heavy direct-fire platform,Proposed
+V006,Tank Destroyer,Ground,2,Anti-Armor,Heavy,TBD,TBD,TBD,TBD,TBD,Specialized anti-vehicle platform,Proposed
+V007,Mobile Anti-Air Vehicle,Ground,3,Air Defense,Medium,TBD,TBD,TBD,TBD,TBD,Mobile defense against aircraft and drones,Proposed
+V008,Self-Propelled Artillery,Ground,3,Indirect Fire,Heavy,TBD,TBD,TBD,TBD,TBD,Long-range fire support,Concept
+V009,Logistics Truck,Ground,4,Supply,Medium,TBD,TBD,TBD,TBD,TBD,Carries ammunition and field supplies,Proposed
+V010,Recovery Vehicle,Ground,3,Repair/Recovery,Heavy,TBD,TBD,TBD,TBD,TBD,Recovers or repairs damaged vehicles,Concept
+V011,Scout Drone,Air,0,Reconnaissance,Small,TBD,TBD,TBD,TBD,TBD,Uncrewed surveillance platform,Proposed
+V012,Attack Drone,Air,0,Precision Attack,Small,TBD,TBD,TBD,TBD,TBD,Uncrewed attack platform,Concept
+V013,Attack Helicopter,Air,2,Air Support,Medium,TBD,TBD,TBD,TBD,TBD,Armed helicopter for close air support,Proposed
+V014,Transport Helicopter,Air,8,Troop Transport,Large,TBD,TBD,TBD,TBD,TBD,Squad transport helicopter,Proposed
+V015,Heavy Transport Helicopter,Air,16,Troop Transport,Very Large,TBD,TBD,TBD,TBD,TBD,Heavy lift troop transport,Proposed
+V016,Fighter,Air,1,Air Superiority,Medium,TBD,TBD,TBD,TBD,TBD,Fast aircraft focused on air-to-air combat,Proposed
+V017,Attack Aircraft,Air,1,Ground Attack,Large,TBD,TBD,TBD,TBD,TBD,Fixed-wing close air support platform,Proposed
+V018,Heavy Transport Aircraft,Air,Crew TBD,Vehicle Delivery,Very Large,TBD,TBD,TBD,TBD,TBD,Can deliver a compatible vehicle as payload,Proposed
