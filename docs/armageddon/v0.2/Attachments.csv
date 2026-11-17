@@ -1,0 +1,20 @@
+﻿Attachment_ID,Name,Slot_Type,Compatibility,Weight_kg,Aim_Time_Modifier,Recoil_Modifier,Description,Status
+A001,Iron Sights,Optic,Any compatible rifle (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0,x1.00,x1.00,Baseline sight; no electronic signature Zoom 1.15x.,Proposed
+A002,Red Dot Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.15,x0.92,x1.00,Fast close-to-medium range aiming Zoom 1.2x.,Proposed
+A003,Holographic Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.3,x0.88,x1.00,Open sight picture for rapid target acquisition Zoom 1.25x.,Proposed
+A004,2x Combat Optic,Optic,Compatible rifles (W001 W002 W003 W006 W008 W009 W016),0.45,x1.10,x1.00,Low magnification for general-purpose engagements Zoom 2x.,Proposed
+A005,4x Optic,Optic,Compatible rifles (W001 W002 W003 W006 W008 W009 W016),0.6,x1.25,x1.00,Medium magnification Zoom 4x.,Proposed
+A006,8x Precision Optic,Optic,Compatible precision rifles (W008 W009 W010 W016 W003),0.9,x1.45,x1.00,High magnification; narrower situational awareness Zoom 8x.,Proposed
+A007,Suppressor,Muzzle,Compatible firearms (W001 W002 W003 W004 W006 W008 W009 W010 W011 W012 W016),0.5,x1.05,x0.92,Reduces muzzle report and detection range; may reduce performance Range x0.85. Shot signature x0.45.,Proposed
+A008,Compensator,Muzzle,Compatible firearms (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0.25,x1.00,x0.78,Reduces recoil; may increase muzzle signature Shot signature x1.20.,Proposed
+A009,Flash Hider,Muzzle,Compatible firearms (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0.15,x1.00,x0.95,Reduces visible muzzle flash Shot signature x0.80.,Proposed
+A010,Short Barrel,Barrel,Compatible firearms (W001 W002 W003 W004 W005 W006 W009),-0.4,x0.85,x1.08,Improves handling; may reduce velocity and range Range x0.80.,Proposed
+A011,Extended Barrel,Barrel,Compatible firearms (W001 W002 W003 W005 W006 W008 W009),0.5,x1.12,x0.95,May improve velocity and range; increases weight and handling time Range x1.25.,Proposed
+A012,Heavy Barrel,Barrel,Compatible firearms (W001 W003 W006 W009),0.9,x1.15,x0.80,Improves sustained-fire stability; adds weight Range x1.10.,Proposed
+A013,Vertical Foregrip,Underbarrel,Compatible firearms (W001 W002 W003 W004 W005 W006 W009),0.2,x1.03,x0.82,Improves recoil control; adds weight,Proposed
+A014,Bipod,Underbarrel,Compatible support weapons (W006 W007 W008 W009 W010 W003),0.4,x1.05,x0.55,Improves stability when deployed (crouched or prone),Proposed
+A015,Underbarrel Grenade Launcher,Underbarrel,Selected assault rifles (W001 W003),1.4,x1.10,x0.95,"Adds limited indirect explosive capability: 4 HE grenades, 90 HP within 5 m",Concept
+A016,Extended Magazine,Magazine,Compatible firearms (W001 W002 W003 W004 W005 W009 W011 W012),0.35,x1.06,x1.00,Increases ammunition capacity; may slow handling Magazine x1.50.,Proposed
+A017,Laser Designator,Utility,Compatible firearms (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0.2,x1.00,x1.00,Aiming aid; may reveal position to sensors. Paints targets for airstrikes Shot signature x1.30.,Concept
+A018,Weapon Flashlight,Utility,Compatible firearms (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0.15,x1.00,x1.00,Illuminates dark areas; visible when active Shot signature x1.25.,Proposed
+A019,Rangefinder,Utility,Selected optics (W003 W008 W009 W010 W016),0.25,x1.00,x1.00,Provides distance estimate; shows bullet drop on the reticle,Concept

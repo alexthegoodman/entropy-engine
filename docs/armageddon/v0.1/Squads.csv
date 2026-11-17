@@ -1,0 +1,5 @@
+﻿Squad_ID,Name,Squad_Size,Organization,Primary_Role,Available_Commands,Behavior_Notes,Status
+S001,Standard Infantry Squad,8,1 squad leader + 2 fireteams of 4 (proposed),Cohesion with local autonomy,Follow; Move; Attack; Defend; Hold Fire; Engage Freely; Regroup; Enter Vehicle; Exit Vehicle,Squad generally stays together but may split to maneuver,Proposed
+S002,Recon Squad,8,Role mix TBD,Stealth and information gathering,Follow; Recon Area; Mark Target; Hold Position; Regroup,Prioritizes concealment and observation,Concept
+S003,Support Squad,8,Role mix TBD,Suppression and resupply,Follow; Defend; Suppress; Resupply; Regroup,Prioritizes friendly force support,Concept
+S004,Anti-Armor Squad,8,Role mix TBD,Threaten enemy vehicles,Follow; Attack Vehicle; Ambush; Defend; Regroup,Prioritizes armor threats and covered firing positions,Concept

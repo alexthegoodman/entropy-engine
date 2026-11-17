@@ -1,0 +1,17 @@
+﻿Weapon_ID,Name,Category,Slot,Damage_Type,Damage,Effective_Range_m,Rate_of_Fire_RPM,Magazine_Capacity,Reload_Time_s,Recoil_Profile,Weight_kg,Description,Status
+W001,AR-70,Assault Rifle,Primary,Ballistic,25 (18 at range),300,750,30,2.3,Moderate vertical (0.45 deg/shot),3.6,Standard issue assault rifle; baseline infantry weapon,Proposed
+W002,AR-70C,Compact Assault Rifle,Primary,Ballistic,23 (15 at range),180,850,30,2.1,"Fast, moderate (0.5 deg/shot)",3,Compact variant optimized for close quarters,Proposed
+W003,BR-71,Battle Rifle,Primary,Ballistic,38 (30 at range),450,450,20,2.6,Heavy vertical (0.9 deg/shot),4.4,Higher-powered rifle for medium-to-long engagements,Proposed
+W004,SMG-70,Submachine Gun,Primary,Ballistic,20 (11 at range),90,950,35,1.9,"Light, jittery (0.3 deg/shot)",2.6,Close-quarters automatic weapon,Proposed
+W005,SG-70,Shotgun,Primary,Ballistic,14x9 pellets (3 at range),30,75,7,3.6,Heavy kick (2.5 deg/shot),3.4,Close-quarters weapon with strong short-range stopping power,Proposed
+W006,LMG-72,Light Machine Gun,Primary,Ballistic,26 (19 at range),350,700,100,5.5,"Steady, wanders (0.55 deg/shot)",7.8,Squad suppression and sustained fire,Proposed
+W007,HMG-75,Heavy Machine Gun,Heavy,Ballistic,45 (38 at range); 30 vs vehicles,900,550,100,7,Severe unless deployed (1.2 deg/shot),38,Heavy support weapon; likely requires deployment or high strength,Proposed
+W008,SR-70,Sniper Rifle,Primary,Ballistic,95 (80 at range),1000,50,5,3.2,Single heavy kick (3 deg/shot),7,Long-range precision rifle,Proposed
+W009,DMR-71,Designated Marksman Rifle,Primary,Ballistic,48 (40 at range),600,220,15,2.5,Sharp vertical (1.3 deg/shot),4.9,Semi-automatic precision weapon for medium and long range,Proposed
+W010,AMR-76,Anti-Materiel Rifle,Heavy,Ballistic,160 (140 at range); 140 vs vehicles,1500,40,5,4.2,Brutal (4.5 deg/shot),14,Heavy precision weapon intended to threaten equipment and light vehicles,Proposed
+W011,P-70,Pistol,Sidearm,Ballistic,30 (18 at range),50,400,15,1.4,Snappy (0.6 deg/shot),0.9,Standard sidearm,Proposed
+W012,MP-70,Machine Pistol,Sidearm,Ballistic,18 (9 at range),40,1100,25,1.6,Climbs fast (0.4 deg/shot),1.4,Automatic sidearm for close-range defense,Proposed
+W013,AT-Disposable-70,Disposable Anti-Tank Launcher,Launcher,Explosive,70; 650 vs vehicles,250,1,1,0,Backblast (2 deg/shot),6,Single-use anti-vehicle launcher,Concept
+W014,AT-Reusable-70,Reusable Anti-Vehicle Launcher,Launcher,Guided/Explosive,80; 800 vs vehicles,600,10,1,4.5,Backblast (2 deg/shot),12,Reloadable launcher for anti-armor operations,Concept
+W015,AA-70,Guided Anti-Air Launcher,Launcher,Guided,60; 900 vs vehicles,1200,10,1,5,Backblast (1.5 deg/shot),14,Shoulder-fired anti-air system,Concept
+W016,EMR-70,Electromagnetic Rifle,Special,Electromagnetic,70 (62 at range); 90 vs vehicles,800,120,8,3,Recoilless but heavy (1.6 deg/shot),6.5,Advanced weapon; role and balance to be determined. v0.2: rail slug that pierces cover up to 0.5 m and stuns vehicle electronics for 1.5 s,Concept

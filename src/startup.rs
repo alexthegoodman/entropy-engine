@@ -223,6 +223,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real Allegiance game is running in test mode"
         || text == "the real Abyss game is running in test mode"
         || text == "the real Nebula Kingdom game is running in test mode"
+        || text == "the real Armageddon 2070 game is running in test mode"
         || text == "the real World of Music game is running in test mode"
         || text == "the real Material Lab is running in test mode"
         || text == "the real Guitar Tabs app is running in test mode"
@@ -361,9 +362,11 @@ impl BrowserBddDriver {
         let nebula = std::env::var_os("ENTROPY_NEBULA_BDD_RESULT").is_some();
         // World of Music too.
         let wom = std::env::var_os("ENTROPY_WOM_BDD_RESULT").is_some();
+        // Armageddon 2070 too.
+        let armageddon = std::env::var_os("ENTROPY_ARMAGEDDON_BDD_RESULT").is_some();
         // The Material Lab (a bare wall for parallax work) rides it as well.
         let materiallab = std::env::var_os("ENTROPY_MATERIALLAB_BDD_RESULT").is_some();
-        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || wom || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
+        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || wom || armageddon || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
         let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
         let forum = std::env::var_os("ENTROPY_P2P_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if forum {
@@ -394,6 +397,8 @@ impl BrowserBddDriver {
             "ENTROPY_ABYSS_BDD_RESULT"
         } else if quadplanet && nebula {
             "ENTROPY_NEBULA_BDD_RESULT"
+        } else if quadplanet && armageddon {
+            "ENTROPY_ARMAGEDDON_BDD_RESULT"
         } else if quadplanet && wom {
             "ENTROPY_WOM_BDD_RESULT"
         } else if quadplanet && materiallab {
@@ -452,6 +457,12 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_NEBULA_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/nebula_live.feature"),
+            }
+        } else if quadplanet && armageddon {
+            // ENTROPY_ARMAGEDDON_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
+            match std::env::var("ENTROPY_ARMAGEDDON_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/armageddon_live.feature"),
             }
         } else if quadplanet && wom {
             // ENTROPY_WOM_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
@@ -1600,7 +1611,20 @@ impl ApplicationHandler<UserEvent> for Application {
         // info!("Device {device_id:?} event: {event:?}");
 
         if let DeviceEvent::MouseMotion { delta } = event {                                                                                            
-            for window in self.windows.values_mut() {                                                                                                  
+            for window in self.windows.values_mut() {
+                // Raw motion for addons that locked the pointer (Entropy.Input.takeMouseLook).
+                if window.cursor_grab != CursorGrabMode::None {
+                    if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                        let op_state = editor.addon_engine.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        if let Some(context) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                            if context.pointer_locked {
+                                context.mouse_look[0] += delta.0 as f32;
+                                context.mouse_look[1] += delta.1 as f32;
+                            }
+                        }
+                    }
+                }                                                                                                  
                 if window.game_mode && window.cursor_grab != CursorGrabMode::None {
                     if let Some(editor) = &mut window.pipeline.export_editor {
                         // handle_mouse_move(false, None, delta.0 as f32, delta.1 as f32, editor);
@@ -1643,6 +1667,20 @@ impl ApplicationHandler<UserEvent> for Application {
                     if let Some(enabled) = context.pending_fullscreen.take() {
                         window.window.set_fullscreen(if enabled { Some(Fullscreen::Borderless(None)) } else { None });
                     }
+                    if let Some(enabled) = context.pending_pointer_lock.take() {
+                        if enabled {
+                            let mode = if window.window.set_cursor_grab(CursorGrabMode::Locked).is_ok() { CursorGrabMode::Locked } else if window.window.set_cursor_grab(CursorGrabMode::Confined).is_ok() { CursorGrabMode::Confined } else { CursorGrabMode::None };
+                            window.window.set_cursor_visible(mode == CursorGrabMode::None);
+                            window.cursor_hidden = mode != CursorGrabMode::None;
+                            window.cursor_grab = mode;
+                        } else {
+                            let _ = window.window.set_cursor_grab(CursorGrabMode::None);
+                            window.window.set_cursor_visible(true);
+                            window.cursor_hidden = false;
+                            window.cursor_grab = CursorGrabMode::None;
+                        }
+                    }
+                    context.pointer_locked = window.cursor_grab != CursorGrabMode::None;
                 }
             }
         }

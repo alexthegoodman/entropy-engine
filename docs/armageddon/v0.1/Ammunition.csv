@@ -1,0 +1,9 @@
+﻿Ammo_ID,Name,Ammo_Type,Damage_Modifier,Penetration,Description,Status
+AM001,Standard Ball,Ballistic,TBD,TBD,General-purpose ammunition,Proposed
+AM002,Armor-Piercing,Ballistic,TBD,TBD,Improved penetration; possible trade-off against unarmored targets,Concept
+AM003,Hollow-Point,Ballistic,TBD,TBD,Potentially higher effect against unarmored targets; reduced armor performance,Concept
+AM004,Subsonic,Ballistic,TBD,TBD,Reduced report and velocity; range and damage trade-offs,Concept
+AM005,Tracer,Ballistic,TBD,TBD,Visible trajectory for observation and fire correction,Proposed
+AM006,High-Explosive,Explosive,TBD,TBD,Explosive payload for compatible launchers,Proposed
+AM007,Smoke,Special,TBD,TBD,Creates visual obscuration,Proposed
+AM008,EMP,Electromagnetic,TBD,TBD,Disrupts compatible electronic targets,Concept

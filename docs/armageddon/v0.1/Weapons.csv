@@ -1,0 +1,17 @@
+﻿Weapon_ID,Name,Category,Slot,Damage_Type,Damage,Effective_Range_m,Rate_of_Fire_RPM,Magazine_Capacity,Reload_Time_s,Recoil_Profile,Weight_kg,Description,Status
+W001,AR-70,Assault Rifle,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Standard issue assault rifle; baseline infantry weapon,Proposed
+W002,AR-70C,Compact Assault Rifle,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Compact variant optimized for close quarters,Proposed
+W003,BR-71,Battle Rifle,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Higher-powered rifle for medium-to-long engagements,Proposed
+W004,SMG-70,Submachine Gun,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Close-quarters automatic weapon,Proposed
+W005,SG-70,Shotgun,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Close-quarters weapon with strong short-range stopping power,Proposed
+W006,LMG-72,Light Machine Gun,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Squad suppression and sustained fire,Proposed
+W007,HMG-75,Heavy Machine Gun,Heavy,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Heavy support weapon; likely requires deployment or high strength,Proposed
+W008,SR-70,Sniper Rifle,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Long-range precision rifle,Proposed
+W009,DMR-71,Designated Marksman Rifle,Primary,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Semi-automatic precision weapon for medium and long range,Proposed
+W010,AMR-76,Anti-Materiel Rifle,Heavy,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Heavy precision weapon intended to threaten equipment and light vehicles,Proposed
+W011,P-70,Pistol,Sidearm,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Standard sidearm,Proposed
+W012,MP-70,Machine Pistol,Sidearm,Ballistic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Automatic sidearm for close-range defense,Proposed
+W013,AT-Disposable-70,Disposable Anti-Tank Launcher,Launcher,Explosive,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Single-use anti-vehicle launcher,Concept
+W014,AT-Reusable-70,Reusable Anti-Vehicle Launcher,Launcher,Guided/Explosive,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Reloadable launcher for anti-armor operations,Concept
+W015,AA-70,Guided Anti-Air Launcher,Launcher,Guided,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Shoulder-fired anti-air system,Concept
+W016,EMR-70,Electromagnetic Rifle,Special,Electromagnetic,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Advanced weapon; role and balance to be determined,Concept

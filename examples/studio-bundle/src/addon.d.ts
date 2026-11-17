@@ -4783,6 +4783,10 @@ export interface EntropyAPI {
    * Every on* returns an unsubscribe function.
    */
   Input: {
+    /** Locks and hides the cursor for first-person mouse look (Escape releases it). */
+    setPointerLock?: (enabled: boolean) => void;
+    /** Raw mouse motion since the last call while the pointer is locked: [dx, dy, locked (0 or 1)]. */
+    takeMouseLook?: () => [number, number, number];
     onMouseDown: (callback: (button: number, x: number, y: number) => void) => () => void;
     onMouseMove: (callback: (x: number, y: number) => void) => () => void;
     onMouseUp: (callback: (button: number) => void) => () => void;

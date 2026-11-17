@@ -1,0 +1,17 @@
+﻿Reward_ID,Name,Reward_Type,Proposed_Requirement,Effect,Payload_or_Uses,Cooldown_s,Counterplay_or_Notes,Status
+R001,Recon Drone,Killstreak,3,Temporary local enemy detection,Spots enemies within 120 m for 30 s,60,Can be countered by concealment or electronic warfare: thermal cloaks and EMP hide you from it,Proposed
+R002,Supply Drop,Killstreak,4,Delivers ammunition and supplies,"One crate: full ammo, grenades and 100 HP for everyone within 8 m, 3 uses",60,Drop location may be contested,Proposed
+R003,Combat Drone,Killstreak,5,Temporary AI aerial support,AI attack drone for 45 s (WIR helicopter network),90,Vulnerable to anti-air and electronic warfare,Proposed
+R004,Artillery Strike,Killstreak,7,Area bombardment,10 shells in 25 m over 6 s after a 3 s warning,120,Warning and counterplay recommended: a red ring marks the area for 3 s,Proposed
+R005,Attack Helicopter,Killstreak,9,Temporary aerial fire support,AI attack helicopter for 60 s,150,Can be engaged by anti-air systems,Proposed
+R006,Tactical Airstrike,Killstreak,12,Precision bombardment,4 guided bombs along a 60 m line,150,Requires target designation: the line must be in the caller's sight,Proposed
+R007,Hunter Protocol,Killstreak,15,Attempts to neutralize up to 16 targets in a designated field; proposed 80% per-target success,16 seeker bolts into a 60 m field after 2 s; each neutralizes its target with 80% chance,240,"Targets under a roof, in smoke or in a thermal cloak halve the chance; AA vehicles within 150 m shoot down 1 bolt per second",Concept
+R101,Mine Kit,Underdog,150 s in the bottom 25% of the team leaderboard,Deploys 16 mines in one kit,"16 mines (12 anti-personnel, 4 anti-vehicle) in an arc, line or ring",0,Mines are seen within 6 m and disarmed with a Repair Tool; they expire after 300 s,Proposed
+R102,Emergency Ammunition,Underdog,150 s in the bottom 25% of the team leaderboard,Restocks ammunition,"Full ammo, launchers and grenades, now",0,One use,Concept
+R103,Reinforcement Squad,Underdog,150 s in the bottom 25% of the team leaderboard,Deploys an AI infantry reinforcement squad,8 soldiers (proposed) who follow your calls for 120 s,0,May exceed the team cap by 8; one per team at a time,Concept
+R104,Field Repair Kit,Underdog,150 s in the bottom 25% of the team leaderboard,Repairs eligible vehicles,"1500 HP to the vehicle you are in or next to, over 8 s",0,Interrupted if the vehicle moves,Concept
+R105,Portable Turret,Underdog,150 s in the bottom 25% of the team leaderboard,Deploys an automated defensive weapon,"1 turret: 600 HP, HMG, 150 s",0,Fires only at what it can see; explosives kill it fast,Concept
+R106,Anti-Armor Kit,Underdog,150 s in the bottom 25% of the team leaderboard,Provides specialized anti-vehicle equipment,3 AT-Disposable-70 and 2 anti-vehicle mines,0,Weighs 30 kg,Concept
+R107,Emergency Recon,Underdog,150 s in the bottom 25% of the team leaderboard,Temporary enemy detection,Every enemy within 220 m shown for 20 s,0,Thermal cloaks hide you from it,Concept
+R108,EMP Charge,Underdog,150 s in the bottom 25% of the team leaderboard,Disrupts nearby electronic equipment,"30 m pulse: vehicles stall, drones fall, optics and minimaps go dark for 8 s",0,Affects your own side too,Concept
+R109,Emergency Extraction,Underdog,150 s in the bottom 25% of the team leaderboard,Calls a transport vehicle to a designated pickup point,"An AI transport helicopter lands at the point, waits 15 s, flies to your nearest territory",0,The landing zone must be open; it waves off under heavy AA,Concept

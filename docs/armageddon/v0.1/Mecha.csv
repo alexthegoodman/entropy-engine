@@ -1,0 +1,4 @@
+﻿Mecha_ID,Name,Role,Weight_t,Armor,Mobility,Primary_Weapons,Secondary_Weapons,Power_Source,Special_Systems,Description,Status
+M001,M-70 Titan,Heavy Assault,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Heavy assault platform with cannons and missiles,Proposed
+M002,M-71 Wraith,Recon/Ambush,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Mobile low-signature platform focused on scouting and precision attacks,Proposed
+M003,M-72 Bastion,Defense/Support,TBD,TBD,TBD,TBD,TBD,TBD,TBD,Heavily protected platform for area defense and suppression,Proposed

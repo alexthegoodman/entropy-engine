@@ -1,0 +1,13 @@
+﻿Armor_ID,Name,Component_Slot,Armor_Class,Weight_kg,Ballistic_Protection,Explosive_Protection,Visual_Signature,Thermal_Signature,Noise_Modifier,Description,Status
+AR001,Scout Helmet,Helmet,Scout,TBD,TBD,TBD,TBD,TBD,TBD,Low-profile head protection,Proposed
+AR002,Standard Helmet,Helmet,Standard,TBD,TBD,TBD,TBD,TBD,TBD,General-purpose head protection,Proposed
+AR003,Heavy Helmet,Helmet,Heavy,TBD,TBD,TBD,TBD,TBD,TBD,Enhanced head protection with weight and visibility trade-offs,Proposed
+AR004,Light Chest Rig,Chest,Scout/Light,TBD,TBD,TBD,TBD,TBD,TBD,Minimal torso protection and limited storage,Proposed
+AR005,Standard Plate Carrier,Chest,Standard,TBD,TBD,TBD,TBD,TBD,TBD,Balanced torso protection and storage,Proposed
+AR006,Heavy Composite Chest Plate,Chest,Heavy,TBD,TBD,TBD,TBD,TBD,TBD,High protection with significant weight,Proposed
+AR007,Shoulder Armor Set,Shoulders,Light/Standard/Heavy,TBD,TBD,TBD,TBD,TBD,TBD,Modular shoulder protection,Proposed
+AR008,Arm Guards,Arms,Light/Standard/Heavy,TBD,TBD,TBD,TBD,TBD,TBD,Modular arm protection,Proposed
+AR009,Leg Guards,Legs,Light/Standard/Heavy,TBD,TBD,TBD,TBD,TBD,TBD,Modular leg protection,Proposed
+AR010,Thermal-Dampening Cloak,Utility,Scout/Light,TBD,TBD,TBD,TBD,TBD,TBD,Reduces thermal signature at a cost to durability or mobility,Concept
+AR011,Powered Exoskeleton Frame,Exoskeleton,Assault,TBD,TBD,TBD,TBD,TBD,TBD,Supports heavy equipment and may offset carried load,Concept
+AR012,Heavy Exoskeleton Frame,Exoskeleton,Heavy Assault,TBD,TBD,TBD,TBD,TBD,TBD,High-load frame; loud and visually conspicuous,Concept

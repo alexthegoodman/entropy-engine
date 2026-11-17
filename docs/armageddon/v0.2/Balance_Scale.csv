@@ -1,0 +1,16 @@
+﻿Quantity,Value,Notes
+Soldier health,100,HP; vehicles and mecha use the same HP
+Free load,18,kg carried before speed drops
+Full-penalty load,70,kg at which speed is 55%
+Walk / run / sprint,2 / 4.6 / 6.6,m/s
+Crouch / prone,2.2 / 0.9,m/s
+Hit locations,head 10% x2; torso 45%; arms 20% x0.75; legs 25% x0.8,share of hits and damage multiplier
+Damage falloff,"full to 25% of range, linear to minimum at range, zero at 2x range",
+Armor,damage x (1 - protection x (1 - penetration)),protection capped at 80% per location
+Sight range,190,"m for a standing, moving soldier with signature 1"
+Respawn,5,s (Conquer: everyone respawns within 5 s)
+Capture,16,s for one soldier; more soldiers capture faster (sqrt)
+Tickets,1600,per team; a death costs 1
+Territory drain,2,"tickets per extra territory held, per 10 s"
+Underdog,150 s in the bottom 25%,earns one underdog reward
+Teams,128 vs 128,16 squads of 8 per side
