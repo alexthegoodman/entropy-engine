@@ -142,3 +142,95 @@ Feature: Armageddon 2070
     # Enemies wear red marks.
     And I call the tool "ar_act" with {"action": "teleport", "to": "enemy", "distance": 6}
     Then I capture "22-enemy-red-marks"
+
+  Scenario: Weapons - aiming per optic, the viewmodels, launchers and the UGL, a supply drop, a vehicle by gamepad
+    Given the real Armageddon 2070 game is running in test mode
+    When I call the tool "ar_config" with {"fixedStep": 0.0167, "sound": false, "help": false}
+    And I call the tool "ar_start" with {"map": "glass-coast", "size": 32, "seed": 4, "screen": "play"}
+    And I call the tool "ar_act" with {"action": "banner"}
+    And I call the tool "ar_act" with {"action": "teleport", "to": "T2", "distance": 40}
+    And I advance 20 frames
+    Then I call the tool "ar_expect" with {"slot": "primary", "ads": false, "zoomed": false}
+    And I capture "23-rifle-hip-holographic"
+    # The rifleman's holographic sight: 1.45x, a ring reticle.
+    When I press the mouse button "right"
+    And I advance 30 frames
+    Then I call the tool "ar_expect" with {"ads": true, "zoomed": true}
+    And I capture "24-rifle-aimed-holographic"
+    When I release the mouse button "right"
+    # The recon rifle's 8x precision optic.
+    And I call the tool "ar_act" with {"action": "loadout", "role": "recon"}
+    And I hold the key "1" for 1 frame
+    And I press the mouse button "right"
+    And I advance 40 frames
+    Then I call the tool "ar_expect" with {"ads": true, "zoomed": true}
+    And I capture "25-sniper-8x-scope"
+    When I release the mouse button "right"
+    # The support gunner's LMG with a 2x combat optic (a chevron).
+    And I call the tool "ar_act" with {"action": "loadout", "role": "support"}
+    And I advance 20 frames
+    Then I capture "26-lmg-hip"
+    When I press the mouse button "right"
+    And I advance 40 frames
+    Then I capture "27-lmg-2x-combat-optic"
+    When I release the mouse button "right"
+    # The anti-armor launcher: hip, then its sight, then a rocket away.
+    And I call the tool "ar_act" with {"action": "loadout", "role": "antiarmor"}
+    And I hold the key "3" for 1 frame
+    And I advance 40 frames
+    Then I call the tool "ar_expect" with {"slot": "launcher", "launcherRounds": 4}
+    And I capture "28-launcher-hip"
+    When I press the mouse button "right"
+    And I advance 30 frames
+    Then I capture "29-launcher-aimed"
+    When I hold the mouse button "left" for 1 frame
+    And I advance 2 frames
+    And I hold the mouse button "left" for 2 frames
+    And I advance 4 frames
+    Then I call the tool "ar_expect" with {"launcherRounds": 3}
+    And I capture "30-rocket-away"
+    When I release the mouse button "right"
+    And I advance 360 frames
+    Then I call the tool "ar_expect" with {"launcherRounds": 3}
+    # A second rocket: the launcher carries four.
+    When I hold the mouse button "left" for 1 frame
+    And I advance 2 frames
+    And I hold the mouse button "left" for 2 frames
+    And I advance 4 frames
+    Then I call the tool "ar_expect" with {"launcherRounds": 2}
+    # A supply drop at T2 under a parachute; walking up to it restocks the launcher.
+    When I call the tool "ar_act" with {"action": "reward", "id": "R002", "to": "T2", "frames": 100}
+    Then I capture "31-supply-drop-falling"
+    When I call the tool "ar_act" with {"action": "wait", "frames": 200}
+    And I call the tool "ar_act" with {"action": "teleport", "to": "T2", "distance": 9}
+    And I advance 3 frames
+    Then I capture "32-supply-drop-landed"
+    When I call the tool "ar_act" with {"action": "teleport", "to": "T2", "distance": 2}
+    And I advance 90 frames
+    Then I call the tool "ar_expect" with {"launcherRounds": 4}
+    # The squad leader's underbarrel grenade launcher on 3, and the pistol on 2.
+    When I call the tool "ar_act" with {"action": "loadout", "role": "leader"}
+    And I hold the key "3" for 1 frame
+    And I advance 40 frames
+    Then I call the tool "ar_expect" with {"slot": "launcher", "launcherRounds": 4}
+    And I capture "33-underbarrel-grenade-launcher"
+    When I hold the key "2" for 1 frame
+    And I press the mouse button "right"
+    And I advance 40 frames
+    Then I call the tool "ar_expect" with {"slot": "sidearm", "ads": true}
+    And I capture "34-pistol-aimed"
+    When I release the mouse button "right"
+    # Into a tank with the gamepad's Y (beside the hull), out with D-pad up, back in with D-pad up.
+    And I call the tool "ar_act" with {"action": "teleport", "to": "vehicle:V005", "distance": 6}
+    And I advance 3 frames
+    Then I capture "35-tank-prompt"
+    When I hold the gamepad button "North" for 1 frame
+    And I advance 4 frames
+    Then I call the tool "ar_expect" with {"inVehicle": true, "device": "pad"}
+    And I capture "36-tank-entered-with-gamepad"
+    When I hold the gamepad button "DPadUp" for 1 frame
+    And I advance 4 frames
+    Then I call the tool "ar_expect" with {"inVehicle": false}
+    When I hold the gamepad button "DPadUp" for 1 frame
+    And I advance 4 frames
+    Then I call the tool "ar_expect" with {"inVehicle": true}

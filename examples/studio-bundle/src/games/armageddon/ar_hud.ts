@@ -226,7 +226,50 @@ export function drawMap(p: Painter, b: Battle, me: Soldier | null, x: number, y:
 
 // --- the battle HUD ----------------------------------------------------------------------------------
 
-export interface HudExtra { hitMarker: number; hurt: number; toasts: { text: string; age: number; color: Color }[]; banner: { title: string; text: string; age: number } | null; device: string; ads: boolean; spread: number; zoom: number; scoreboard: boolean; mapOpen: boolean; showHelp: boolean; fps: number; lockHint: boolean; point: string }
+export interface HudExtra {
+    hitMarker: number; killMarker: number; headMarker: number; hurt: number; toasts: { text: string; age: number; color: Color }[]; banner: { title: string; text: string; age: number } | null; device: string;
+    /** Aiming down sights (held), how far in (0..1), the sight (iron, dot, holo, scope, launcher) and its zoom. */
+    ads: boolean; adsT: number; sight: string; spread: number; zoom: number;
+    scoreboard: boolean; mapOpen: boolean; showHelp: boolean; fps: number; lockHint: boolean; point: string;
+    /** A guided launcher's lock: the target on screen (px), the box's half size, progress 0..1. */
+    lock: { x: number; y: number; r: number; p: number; locked: boolean } | null;
+    /** "[E] ENTER ..." under the crosshair; a warning (no ammo, unbraced, low ammo); reload progress (-1: none); holding breath. */
+    prompt: string; hint: string; reloadP: number; steady: boolean;
+}
+
+/** A ring of `n` small squares (the painter has no circles). */
+function ring(p: Painter, cx: number, cy: number, r: number, size: number, c: Color, n = 24): void {
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; p.rect(cx + Math.cos(a) * r - size / 2, cy + Math.sin(a) * r - size / 2, size, size, c); }
+}
+
+/** Looking through a magnified optic: the round field of view in black, a lens shadow, the reticle (a red
+ * chevron in the 2x, mil-dots in the 4x and 8x), the magnification. */
+function drawScope(p: Painter, w: number, h: number, zoom: number, steady: boolean): void {
+    const R = h * (zoom < 3 ? 0.47 : zoom < 6 ? 0.44 : 0.41), dark: Color = [0, 0, 0, 0.96], strips = 72, cx = w / 2, cy = h / 2;
+    p.rect(0, 0, cx - R, h, dark); p.rect(cx + R, 0, cx - R, h, dark);
+    p.rect(cx - R, 0, 2 * R, cy - R, dark); p.rect(cx - R, cy + R, 2 * R, cy - R, dark);
+    for (let i = 0; i < strips; i++) {
+        const y0 = cy - R + (i * 2 * R) / strips, yc = y0 + R / strips - cy;
+        const half = Math.sqrt(Math.max(0, R * R - yc * yc));
+        p.rect(cx - R, y0, R - half, (2 * R) / strips + 1, dark); p.rect(cx + half, y0, R - half, (2 * R) / strips + 1, dark);
+    }
+    const line: Color = [0, 0, 0, 0.9];
+    if (zoom < 3) {
+        // A combat optic: a red chevron over a thin post.
+        for (let i = 0; i < 6; i++) { p.rect(cx - i * 1.6 - 1, cy + i * 2, 2.4, 2.4, [1, 0.2, 0.12, 1]); p.rect(cx + i * 1.6 - 1, cy + i * 2, 2.4, 2.4, [1, 0.2, 0.12, 1]); }
+        p.rect(cx - 1, cy + 14, 2, R - 14, line);
+        p.rect(cx - R, cy - 1, R * 0.6, 2, line); p.rect(cx + R * 0.4, cy - 1, R * 0.6, 2, line);
+    } else {
+        // Mil-dots on a fine crosshair, heavy posts toward the rim.
+        p.rect(cx - R * 0.5, cy - 0.5, R, 1, line); p.rect(cx - 0.5, cy - R * 0.5, 1, R, line);
+        p.rect(cx - R, cy - 2, R * 0.5, 4, line); p.rect(cx + R * 0.5, cy - 2, R * 0.5, 4, line);
+        p.rect(cx - 2, cy + R * 0.5, 4, R * 0.5, line); p.rect(cx - 2, cy - R, 4, R * 0.5, line);
+        for (let i = 1; i <= 4; i++) { const d = i * R * 0.1; for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) p.rect(cx + dx - 2, cy + dy - 2, 4, 4, line); }
+        p.rect(cx - 1.5, cy - 1.5, 3, 3, [1, 0.2, 0.12, 0.9]);
+    }
+    p.textC(`${zoom}x`, cx + R * 0.72, cy + R * 0.62, 12, [0.8, 0.8, 0.75, 0.8], H);
+    if (!steady && zoom >= 4) p.textC("SHIFT / L3  hold breath", cx, cy + R * 0.8, 11, [0.8, 0.8, 0.75, 0.55], B);
+}
 
 export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier, x: HudExtra): void {
     // Tickets and territories (top center).
@@ -251,32 +294,41 @@ export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier
         p.bar(cx - 150, 72, 300, 6, prog, C.team[me.team]);
         p.textR(`${here.counts[me.team]} v ${here.counts[1 - me.team]}`, cx + 150, 54, 12, C.dim, N);
     }
-    // Crosshair (spread circle as four ticks), hit marker.
-    if (me.vehicle < 0 && !x.mapOpen && x.ads) {
-        // Aiming down sights: a scope picture for magnified optics, a red-dot reticle otherwise.
-        if (x.zoom >= 2.5) {
-            const R = h * 0.42, dark: Color = [0, 0, 0, 0.94], strips = 64;
-            p.rect(0, 0, w / 2 - R, h, dark); p.rect(w / 2 + R, 0, w / 2 - R, h, dark);
-            for (let i = 0; i < strips; i++) {
-                const y0 = h / 2 - R + (i * 2 * R) / strips, yc = y0 + R / strips - h / 2;
-                const half = Math.sqrt(Math.max(0, R * R - yc * yc));
-                p.rect(w / 2 - R, y0, R - half, (2 * R) / strips + 1, dark); p.rect(w / 2 + half, y0, R - half, (2 * R) / strips + 1, dark);
-            }
-            p.rect(0, 0, w, h / 2 - R, dark); p.rect(0, h / 2 + R, w, h / 2 - R, dark);
-            const line: Color = [0, 0, 0, 0.85];
-            p.rect(w / 2 - R, h / 2 - 1, R - 14, 2, line); p.rect(w / 2 + 14, h / 2 - 1, R - 14, 2, line);
-            p.rect(w / 2 - 1, h / 2 + 14, 2, R - 14, line); p.rect(w / 2 - 1, h / 2 - R, 2, R - 40, line);
+    // Crosshair: the hip crosshair (spread as four ticks) fades out as the sights come up and the sight's
+    // own reticle fades in; a scope picture for magnified optics. Then hit/kill markers, reload, lock.
+    if (me.vehicle < 0 && !x.mapOpen) {
+        const cx = w / 2, cy = h / 2, a = x.ads ? x.adsT : x.adsT * 0.5;
+        if (x.ads && x.sight === "scope" && x.adsT > 0.85) drawScope(p, w, h, x.zoom, x.steady);
+        if (a < 0.9) {
+            const g = Math.max(4, x.spread), col: Color = [1, 1, 1, 0.85 * (1 - a)];
+            p.rect(cx - 1, cy - g - 8, 2, 8, col); p.rect(cx - 1, cy + g, 2, 8, col);
+            p.rect(cx - g - 8, cy - 1, 8, 2, col); p.rect(cx + g, cy - 1, 8, 2, col);
+            p.rect(cx - 1, cy - 1, 2, 2, [1, 0.4, 0.2, 0.9 * (1 - a)]);
         }
-        p.rect(w / 2 - 3, h / 2 - 3, 6, 6, [0, 0, 0, 0.5]);
-        p.rect(w / 2 - 2, h / 2 - 2, 4, 4, [1, 0.15, 0.1, 1]);
-        if (x.hitMarker > 0) { const a = Math.min(1, x.hitMarker * 3); for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) p.rect(w / 2 + dx * 9 - 3, h / 2 + dy * 9 - 3, 6, 6, [1, 1, 1, a]); }
-    } else if (me.vehicle < 0 && !x.mapOpen) {
-        const g = Math.max(4, x.spread);
-        const col: Color = x.ads ? [1, 1, 1, 0.5] : [1, 1, 1, 0.85];
-        p.rect(w / 2 - 1, h / 2 - g - 8, 2, 8, col); p.rect(w / 2 - 1, h / 2 + g, 2, 8, col);
-        p.rect(w / 2 - g - 8, h / 2 - 1, 8, 2, col); p.rect(w / 2 + g, h / 2 - 1, 8, 2, col);
-        p.rect(w / 2 - 1, h / 2 - 1, 2, 2, [1, 0.4, 0.2, 0.9]);
-        if (x.hitMarker > 0) { const a = Math.min(1, x.hitMarker * 3); for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) p.rect(w / 2 + dx * 9 - 3, h / 2 + dy * 9 - 3, 6, 6, [1, 1, 1, a]); }
+        if (a > 0.3 && x.sight !== "scope") {
+            const k = Math.min(1, (a - 0.3) / 0.5);
+            if (x.sight === "dot") { p.rect(cx - 3, cy - 3, 6, 6, [1, 0.2, 0.1, 0.25 * k]); p.rect(cx - 2, cy - 2, 4, 4, [1, 0.15, 0.1, k]); }
+            else if (x.sight === "holo") { ring(p, cx, cy, 14, 2, [1, 0.25, 0.15, 0.85 * k], 28); p.rect(cx - 1.5, cy - 1.5, 3, 3, [1, 0.2, 0.1, k]); }
+            else if (x.sight === "launcher") {
+                // Range ladder: a chevron for the aim point, ticks below for 100, 200 and 300 m.
+                const c: Color = [0.4, 1, 0.5, 0.9 * k];
+                p.rect(cx - 12, cy - 1, 8, 2, c); p.rect(cx + 4, cy - 1, 8, 2, c); p.rect(cx - 1, cy + 4, 2, 6, c);
+                [1, 2, 3].forEach(i => { p.rect(cx - 6 - i * 2, cy + 10 + i * 12, 12 + i * 4, 1.5, c); p.text(`${i}00`, cx + 12 + i * 2, cy + 4 + i * 12, 9, c, B); });
+            } else p.rect(cx - 1, cy - 1, 2, 2, [1, 1, 1, 0.35 * k]);
+        }
+        const mark = (t: number, c: Color, s: number) => { const al = Math.min(1, t * 4); for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { p.rect(cx + dx * s - 3, cy + dy * s - 3, 6, 6, [...c.slice(0, 3), al] as Color); p.rect(cx + dx * (s + 5) - 2, cy + dy * (s + 5) - 2, 4, 4, [...c.slice(0, 3), al * 0.8] as Color); } };
+        if (x.killMarker > 0) mark(x.killMarker, x.headMarker > 0 ? C.gold : C.red, 11);
+        else if (x.hitMarker > 0) mark(x.hitMarker, [1, 1, 1, 1], 9);
+        if (x.reloadP >= 0) { p.rect(cx - 31, cy + 27, 62, 6, [0, 0, 0, 0.5]); p.rect(cx - 30, cy + 28, 60 * x.reloadP, 4, C.warn); }
+        if (x.lock) {
+            const { r } = x.lock, blink = x.lock.locked || Math.floor(Date.now() / 150) % 2 === 0;
+            const c: Color = x.lock.locked ? C.red : [1, 0.75, 0.2, blink ? 1 : 0.4];
+            const s = r * (1.6 - 0.6 * x.lock.p), L = Math.max(6, s * 0.4);
+            for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { p.rect(x.lock.x + sx * s - (sx > 0 ? L : 0), x.lock.y + sy * s - 1, L, 2, c); p.rect(x.lock.x + sx * s - 1, x.lock.y + sy * s - (sy > 0 ? L : 0), 2, L, c); }
+            p.textC(x.lock.locked ? "LOCKED" : "LOCKING", x.lock.x, x.lock.y + s + 6, 11, c, H);
+        }
+        if (x.prompt) { const tw = textWidth(x.prompt, 13, H) + 24; p.rect(cx - tw / 2, cy + 60, tw, 24, [0, 0, 0, 0.55]); p.textC(x.prompt, cx, cy + 64, 13, C.text, H); }
+        if (x.hint) p.textC(x.hint, cx, cy + 92, 13, x.hint.startsWith("LOW") ? C.warn : C.red, H);
     } else if (me.vehicle >= 0) {
         p.rect(w / 2 - 14, h / 2 - 1, 28, 2, [1, 1, 1, 0.8]); p.rect(w / 2 - 1, h / 2 - 14, 2, 28, [1, 1, 1, 0.8]);
     }
@@ -288,14 +340,18 @@ export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier
     p.text(`${me.stance.toUpperCase()}   ${Math.round(me.stats.speedShare * 100)}% SPEED   ${me.stats.weight} KG`, 32, h - 46, 11, C.dim, B);
     // Weapon and ammo (bottom right).
     if (me.vehicle < 0) {
-        const wpn = b.weaponOf(me);
-        p.rect(w - 330, h - 92, 310, 72, [0, 0, 0, 0.55]);
-        p.text(wpn.name, w - 318, h - 86, 13, C.text, H);
-        p.text(`${me.mag[me.slot]}`, w - 318, h - 66, 30, me.mag[me.slot] === 0 ? C.red : C.text, N);
-        p.text(`/ ${me.reserve[me.slot]}`, w - 318 + textWidth(String(me.mag[me.slot]), 30, N) + 14, h - 56, 16, C.dim, N);
-        p.textR(`GRENADES ${me.grenades}`, w - 30, h - 66, 11, C.dim, H);
+        const wpn = b.weaponOf(me), size = Math.max(1, b.magSize(me, me.slot)), mag = me.mag[me.slot];
+        p.rect(w - 330, h - 96, 310, 76, [0, 0, 0, 0.55]);
+        p.text(wpn.name, w - 318, h - 90, 13, C.text, H);
+        p.textR(`${me.slot.toUpperCase()}  ${wpn.action.toUpperCase()}${x.ads ? `  ${x.zoom}x` : ""}`, w - 30, h - 89, 10, C.dim, H);
+        p.text(`${mag}`, w - 318, h - 72, 30, mag === 0 ? C.red : mag <= size * 0.25 && size > 3 ? C.warn : C.text, N);
+        p.text(`/ ${me.reserve[me.slot]}`, w - 318 + textWidth(String(mag), 30, N) + 14, h - 62, 16, C.dim, N);
+        // The magazine as pips (up to 40 rounds), else a bar.
+        if (size <= 40) { const pw = Math.min(8, 190 / size); for (let i = 0; i < size; i++) p.rect(w - 318 + i * pw, h - 32, Math.max(1, pw - 2), 6, i < mag ? C.text : [1, 1, 1, 0.15]); }
+        else p.bar(w - 318, h - 32, 190, 6, mag / size, C.text);
+        p.textR(`GRENADES ${me.grenades}`, w - 30, h - 68, 11, C.dim, H);
         const eq = me.equipment.find(e => e.left > 0);
-        p.textR(eq ? `[F] ${EQUIP.get(eq.id)!.name} x${eq.left}` : "[F] -", w - 30, h - 46, 11, C.dim, B);
+        p.textR(eq ? `[F] ${EQUIP.get(eq.id)!.name} x${eq.left}` : "[F] -", w - 30, h - 50, 11, C.dim, B);
         if (me.reloadUntil > 0) p.textC("RELOADING", w / 2, h / 2 + 40, 13, C.warn, H);
     } else {
         const v = b.vehicles[me.vehicle];
@@ -357,12 +413,12 @@ export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier
 function drawHelp(p: Painter, w: number, h: number, pad: boolean): void {
     const lines = pad ? [
         "LEFT STICK move   RIGHT STICK look   RT fire   LT aim   L3 sprint   A jump   B crouch   D-PAD DOWN prone",
-        "X reload   Y switch weapon   LB grenade   RB equipment / vehicle smoke   D-PAD UP enter / exit vehicle",
+        "X reload   Y switch weapon (near a vehicle or crate: enter / exit, resupply)   LB grenade   RB equipment   D-PAD UP enter / exit",
         "D-PAD LEFT call your squad   D-PAD RIGHT use a reward   R3 third person   BACK map   START deploy screen",
         "Vehicles: left stick throttle and steer, A/B climb and descend (aircraft), right stick aims, RT fires",
     ] : [
         "WASD move   SHIFT sprint   SPACE jump   C crouch   Z prone   MOUSE look   LMB fire   RMB aim",
-        "R reload   1 primary  2 sidearm  3 launcher   G grenade   F equipment / vehicle smoke   E enter / exit vehicle",
+        "R reload   1 primary  2 sidearm  3 launcher / UGL   G grenade   F equipment   E enter / exit vehicle, resupply   SHIFT aimed: hold breath",
         "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   H help",
         "Vehicles: W/S throttle, A/D steer, SPACE/CTRL climb and descend (aircraft), mouse aims the gun, LMB fires",
     ];

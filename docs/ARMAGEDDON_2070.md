@@ -25,13 +25,14 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   spawn: headquarters, any territory your team holds, or a squad mate. You respawn within 5 s.
 - **Keys**: WASD move, Shift sprint, Space jump, C crouch, Z prone, mouse look (click once to lock
   the pointer; Esc releases it; middle-drag and the arrow keys also look), LMB fire, RMB aim down
-  sights, R reload, 1/2/3 primary/sidearm/launcher, G grenade, F equipment (in a vehicle: smoke or
-  flares), E enter/exit the nearest friendly vehicle, Q call your squad to the crosshair, 5-9 use a
-  reward at the crosshair, Tab scoreboard, M map, V third person, P screen pass, H help. Arrow keys
-  pick the spawn point on the deploy screen. Aiming down sights shows a red dot, or a scope picture
-  for optics of 2.5x and up.
+  sights, R reload, 1/2/3 primary/sidearm/launcher (or the underbarrel grenade launcher), G grenade,
+  F equipment (in a vehicle: smoke or flares), E enter/exit a friendly vehicle whose hull is within
+  3 m (a full one makes room) or take from a supply crate, Shift while aiming holds your breath, Q
+  call your squad to the crosshair, 5-9 use a reward at the crosshair, Tab scoreboard, M map, V third
+  person, P screen pass, H help. Arrow keys pick the spawn point on the deploy screen.
 - **Gamepad** (gilrs names, Xbox layout): left stick move, right stick look, RT fire, LT aim down
-  sights, L3 sprint, A jump, B crouch, D-pad down prone, X reload, Y next weapon, LB grenade, RB
+  sights, L3 sprint (aimed: hold breath), A jump, B crouch, D-pad down prone, X reload, Y next
+  weapon (next to a vehicle or crate: enter/exit or resupply), LB grenade, RB
   equipment, D-pad up enter/exit vehicle, D-pad left squad call, D-pad right first reward, R3 third
   person, Back map, Start deploy screen. Menus: A confirm, B back, D-pad navigates. In vehicles the
   left stick drives, A/B climb and descend, the right stick aims.
@@ -43,6 +44,31 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   weight, speed, protection per hit location, visual/thermal/noise signature, inventory and the
   fitted weapon's numbers. Armor makes you heavier and stronger; the Mimetic Plate Coating makes you
   heavier, a little stronger and much harder to see. Role presets fill everything in at once.
+
+## Weapons
+
+- **Aiming down sights** zooms optically (the view's FOV is 70 deg divided by the magnification, in
+  tangent space) and eases in over the fitted aim time. Iron sights 1.3x, red dot 1.4x, holographic
+  1.45x (a ring reticle), 2x combat optic (a red chevron), 4x and 8x (mil-dots); sidearms 1.2x,
+  launchers 1.5-2.5x with a range ladder. Optics of 2x and up show the scope picture. Look speed
+  scales with the zoom. Scopes sway with breathing (less crouched, prone or on a braced bipod; Shift
+  or L3 steadies).
+- **Recoil** climbs the view by the weapon's deg/shot (x0.6, less aimed, crouched, prone, braced);
+  about 60% comes back after the trigger is released.
+- **Triggers**: AR-70, AR-70C, SMG-70, LMG-72, HMG-75 and MP-70 are automatic; everything else fires
+  once per pull (the SR-70 and AMR-76 cycle a bolt, the SG-70 a pump). The player reloads
+  automatically when a magazine runs dry. The HMG and AMR fire standing without a Heavy Exoskeleton,
+  with 3x spread and 2x kick.
+- **Launchers**: AT-Disposable-70 carries two tubes (1.5 s to unsling the next), AT-Reusable-70 four
+  rockets, AA-70 three missiles. Guided launchers lock a vehicle held in the crosshair for the lock
+  time (1.2 s ground, 2 s air); only a full lock guides. A box, a beep and "LOCKED" show it.
+- **Underbarrel grenade launcher** (A015, the squad leader's rifle): slot 3 when no launcher is
+  carried, four 40 mm HE grenades in an arc, 90 HP within 5 m.
+- Every weapon has its own first-person model and fitted attachments, muzzle flash, brass, and sound.
+- **Supply drops** (Supply Drop killstreak) fall under a parachute at the crosshair (never more than
+  120 m out), land in 3 s, smoke in the team colour and stay 120 s. Crates and drops give anyone near
+  who is short of anything (ammunition, launcher rounds, grenades) a full restock once a second;
+  E or Y takes at once.
 
 ## Conquer
 
@@ -167,11 +193,11 @@ The Electronic Warfare WIR (AI010) is deferred.
   within 5 s, the Mine Kit's 16 mines, Hunter Protocol's 16 targets at about 80%, underdog and
   killstreak rewards, the squad call, the 16-seat helicopter, the aircraft's vehicle drop, one mecha
   per side, the end of a battle. `ar_fixes.test.ts`: vehicles spawn inside every map, crewed aircraft
-  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle.
+  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle. `ar_weapons.test.ts`: every weapon fires for the player, launcher rounds, semi-auto triggers, guided locks, the UGL, supply drops, entering vehicles.
 - `cargo test --release --test armageddon` in `yumon-pet/wir`: all 23 networks compile and match
   their programs.
-- `xvfb-run -a cargo test --release --test armageddon_live`: five scenarios in the real window
-  (tests/features/armageddon_live.feature), 22 captures: menus, the armory, a 128 vs 128 battle in
+- `xvfb-run -a cargo test --release --test armageddon_live`: six scenarios in the real window
+  (tests/features/armageddon_live.feature), 36 captures: menus, the armory, a 128 vs 128 battle in
   first person, the scoreboard and map, the squad call, the Mine Kit and Hunter Protocol, a tank and
   the heavy helicopter, all four maps, the debrief; and real input through the engine's event queue
   (`I hold the key`, `I press the mouse button`, `I hold the gamepad button/sticks`, checked with the
@@ -188,4 +214,4 @@ The Electronic Warfare WIR (AI010) is deferred.
 - Transport helicopters wait landed at their base until a squad picks one for a "mount"; few squads
   do yet, so they mostly sit there.
 - Not built yet: multiplayer, the EW WIR, player control of the heavy transport aircraft's drop
-  point, recoil feedback on the view, ballistic drop.
+  point, ballistic drop, bots using the underbarrel grenade launcher.

@@ -1,7 +1,7 @@
 ﻿Attachment_ID,Name,Slot_Type,Compatibility,Weight_kg,Aim_Time_Modifier,Recoil_Modifier,Description,Status
-A001,Iron Sights,Optic,Any compatible rifle (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0,x1.00,x1.00,Baseline sight; no electronic signature Zoom 1.15x.,Proposed
-A002,Red Dot Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.15,x0.92,x1.00,Fast close-to-medium range aiming Zoom 1.2x.,Proposed
-A003,Holographic Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.3,x0.88,x1.00,Open sight picture for rapid target acquisition Zoom 1.25x.,Proposed
+A001,Iron Sights,Optic,Any compatible rifle (W001 W002 W003 W004 W005 W006 W007 W008 W009 W010 W011 W012 W016),0,x1.00,x1.00,Baseline sight; no electronic signature Zoom 1.3x.,Proposed
+A002,Red Dot Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.15,x0.92,x1.00,Fast close-to-medium range aiming Zoom 1.4x.,Proposed
+A003,Holographic Sight,Optic,Compatible small arms (W001 W002 W003 W004 W005 W006 W009 W011 W012),0.3,x0.88,x1.00,Open sight picture for rapid target acquisition Zoom 1.45x.,Proposed
 A004,2x Combat Optic,Optic,Compatible rifles (W001 W002 W003 W006 W008 W009 W016),0.45,x1.10,x1.00,Low magnification for general-purpose engagements Zoom 2x.,Proposed
 A005,4x Optic,Optic,Compatible rifles (W001 W002 W003 W006 W008 W009 W016),0.6,x1.25,x1.00,Medium magnification Zoom 4x.,Proposed
 A006,8x Precision Optic,Optic,Compatible precision rifles (W008 W009 W010 W016 W003),0.9,x1.45,x1.00,High magnification; narrower situational awareness Zoom 8x.,Proposed

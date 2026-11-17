@@ -9,7 +9,7 @@
 // The simulation is deterministic (seeded) and runs headless: the addon steps it and draws it,
 // tests step it to the end of whole battles. Bots think in ar_bots.ts with the WIR networks.
 
-import { BALANCE, WEAPON, ATTACHMENT, AMMO_BY_ID, ARMOR_BY_ID, EQUIP, VEHICLES, VEHICLE, MECHA, MECHA_BY_ID, REWARD, SQUADS, ROLE_LOADOUTS, MECHA_RULE, KILLSTREAKS, UNDERDOG, loadoutStats, falloff, afterArmor, type Loadout, type LoadoutStats, type Role, type Vehicle, type Gun, type RewardId, type Mecha as MechaDef, type Weapon } from "./ar_data";
+import { BALANCE, WEAPON, ATTACHMENT, AMMO_BY_ID, ARMOR_BY_ID, EQUIP, VEHICLES, VEHICLE, MECHA, MECHA_BY_ID, REWARD, SQUADS, ROLE_LOADOUTS, MECHA_RULE, KILLSTREAKS, UNDERDOG, loadoutStats, falloff, afterArmor, type Loadout, type LoadoutStats, type Role, type Vehicle, type Gun, type RewardId, type Mecha as MechaDef, type Weapon, UGL } from "./ar_data";
 import { World, worldFor, HALF, NAV_INF, NI, type Territory } from "./ar_map";
 import { Rng, clamp, type V3 } from "../nebula/nk_math";
 import { Wir, type Mode } from "./ar_wir";
@@ -30,6 +30,9 @@ export interface Soldier {
     loadout: Loadout; stats: LoadoutStats;
     slot: Slot; mag: Record<Slot, number>; reserve: Record<Slot, number>;
     reloadUntil: number; nextShot: number; bloom: number; aimedSince: number; lastShot: number;
+    /** The player's trigger on the previous step (semi-auto weapons fire once per pull), and the guided
+     * launcher's lock: the vehicle under the crosshair and since when (-1: none). */
+    trigger: boolean; lock: { target: number; since: number };
     grenades: number; equipment: { id: string; left: number }[];
     vehicle: number; seat: number;
     suppression: number; lastHitBy: number; lastHitAt: number; healUntil: number;
@@ -78,13 +81,16 @@ export interface Projectile {
     target: number; targetKind: "soldier" | "vehicle" | ""; guided: boolean; fuse: number; weapon: string; chance: number;
 }
 export interface Mine { id: number; x: number; z: number; y: number; team: Team; owner: number; av: boolean; until: number }
-export interface Deployable { id: number; kind: "turret" | "cover" | "crate" | "beacon" | "supply"; team: Team; owner: number; x: number; z: number; y: number; yaw: number; hp: number; until: number; uses: number; nextShot: number; box: number }
+/** `born`: when it was placed (a supply drop falls for SUPPLY_FALL s and cannot be used until it lands). */
+export interface Deployable { id: number; kind: "turret" | "cover" | "crate" | "beacon" | "supply"; team: Team; owner: number; x: number; z: number; y: number; yaw: number; hp: number; until: number; uses: number; nextShot: number; box: number; born: number }
+export const SUPPLY_FALL = 3;
 export interface Cloud { x: number; z: number; y: number; r: number; until: number; kind: "smoke" | "emp" }
 export interface Strike { kind: RewardId; team: Team; owner: number; x: number; z: number; at: number; shots: number; yaw: number; done: boolean }
 export interface TerritoryState { def: Territory; owner: Team | -1; progress: number; contested: boolean; counts: [number, number] }
 
 export type BattleEvent =
-    | { kind: "shot"; from: V3; to: V3; team: Team; heavy: boolean; shooter: number }
+    | { kind: "shot"; from: V3; to: V3; team: Team; heavy: boolean; shooter: number; weapon?: string; impact?: boolean }
+    | { kind: "resupply"; soldier: number }
     | { kind: "hit"; at: V3; vehicle: boolean; target: number }
     | { kind: "explode"; at: V3; radius: number }
     | { kind: "kill"; killer: number; victim: number; weapon: string; head: boolean }
@@ -228,7 +234,7 @@ export class Battle {
             pos: [0, 0, 0], vel: [0, 0, 0], yaw: team === 0 ? 0 : Math.PI, pitch: 0, stance: "stand",
             hp: BALANCE.soldierHp, alive: false, respawnAt: 0, spawnedAt: 0, loadout, stats: loadoutStats(loadout),
             slot: "primary", mag: { primary: 0, sidearm: 0, launcher: 0 }, reserve: { primary: 0, sidearm: 0, launcher: 0 },
-            reloadUntil: 0, nextShot: 0, bloom: 0, aimedSince: 0, lastShot: -10, grenades: 0, equipment: [],
+            reloadUntil: 0, nextShot: 0, bloom: 0, aimedSince: 0, lastShot: -10, trigger: false, lock: { target: -1, since: 0 }, grenades: 0, equipment: [],
             vehicle: -1, seat: -1, suppression: 0, lastHitBy: -1, lastHitAt: -10, healUntil: 0,
             option: 8, thinkAt: this.rng.range(0, 0.4), goal: null, target: -1, targetKind: "", aimTime: 0, burst: 0, fireWanted: false, crouchWanted: false, seenBy: 0,
             kills: 0, deaths: 0, score: 0, streak: 0, best: 0, captures: 0, vehicleKills: 0, underdogTime: 0, rewards: [], earned: new Set(), expires: 0,
@@ -246,7 +252,7 @@ export class Battle {
 
     /** Full ammunition, grenades and equipment. */
     restock(s: Soldier): void {
-        const st = s.stats, p = WEAPON.get(s.loadout.primary)!, sa = WEAPON.get(s.loadout.sidearm)!, la = s.loadout.launcher ? WEAPON.get(s.loadout.launcher) : null;
+        const st = s.stats, p = WEAPON.get(s.loadout.primary)!, sa = WEAPON.get(s.loadout.sidearm)!, la = launcherOf(s);
         s.mag.primary = st.mag; s.reserve.primary = st.mag * p.spare;
         s.mag.sidearm = sa.mag; s.reserve.sidearm = sa.mag * sa.spare;
         s.mag.launcher = la ? la.mag : 0; s.reserve.launcher = la ? la.spare : 0;
@@ -454,7 +460,7 @@ export class Battle {
 
     // --- weapons ----------------------------------------------------------------------------
 
-    weaponOf(s: Soldier): Weapon { return WEAPON.get(s.slot === "primary" ? s.loadout.primary : s.slot === "sidearm" ? s.loadout.sidearm : s.loadout.launcher ?? s.loadout.primary)!; }
+    weaponOf(s: Soldier): Weapon { return s.slot === "primary" ? WEAPON.get(s.loadout.primary)! : s.slot === "sidearm" ? WEAPON.get(s.loadout.sidearm)! : launcherOf(s) ?? WEAPON.get(s.loadout.primary)!; }
 
     startReload(s: Soldier): void {
         const w = this.weaponOf(s);
@@ -465,14 +471,56 @@ export class Battle {
         const size = this.magSize(s, s.slot), need = size - s.mag[s.slot], got = Math.min(need, s.reserve[s.slot]);
         s.mag[s.slot] += got; s.reserve[s.slot] -= got; s.reloadUntil = 0;
     }
-    magSize(s: Soldier, slot: Slot): number { return slot === "primary" ? s.stats.mag : WEAPON.get(slot === "sidearm" ? s.loadout.sidearm : s.loadout.launcher ?? "W013")!.mag; }
+    magSize(s: Soldier, slot: Slot): number { return slot === "primary" ? s.stats.mag : slot === "sidearm" ? WEAPON.get(s.loadout.sidearm)!.mag : launcherOf(s)?.mag ?? 0; }
+
+    /** Whether a soldier is short of anything a crate gives: ammunition, launcher rounds, grenades, health. */
+    needsSupply(o: Soldier, health = false): boolean {
+        const p = WEAPON.get(o.loadout.primary)!, sa = WEAPON.get(o.loadout.sidearm)!, la = launcherOf(o);
+        const grenades = o.loadout.equipment.filter(e => e === "E003").length * EQUIP.get("E003")!.uses;
+        return o.mag.primary + o.reserve.primary < o.stats.mag * (p.spare + 1) || o.mag.sidearm + o.reserve.sidearm < sa.mag * (sa.spare + 1)
+            || (!!la && o.mag.launcher + o.reserve.launcher < la.mag * (la.spare + 1)) || o.grenades < grenades || (health && o.hp < BALANCE.soldierHp - 1);
+    }
+
+    /** A friendly supply drop or ammo crate within `r` m, landed and with uses left, or null. */
+    supplyNear(o: Soldier, r: number): Deployable | null {
+        return this.deployables.find(d => (d.kind === "crate" || d.kind === "supply") && d.team === o.team && d.uses > 0 && this.time - d.born >= (d.kind === "supply" ? SUPPLY_FALL : 0) && Math.hypot(d.x - o.pos[0], d.z - o.pos[2]) < r) ?? null;
+    }
+
+    /** Takes from a crate: everything back to full (a supply drop also heals). */
+    resupply(o: Soldier, d: Deployable): void {
+        const slot = o.slot;
+        this.restock(o);
+        o.slot = slot; o.reloadUntil = 0;
+        if (d.kind === "supply") o.hp = BALANCE.soldierHp;
+        d.uses--;
+        if (d.owner !== o.id) this.soldiers[d.owner].score += 10;
+        if (!o.bot) this.events.push({ kind: "resupply", soldier: o.id });
+    }
+
+    /** The friendly vehicle whose hull is within 3 m of the soldier (nearest first). With `anyFull`, full
+     * vehicles count too (the player takes a bot's seat). */
+    vehicleNear(s: Soldier, anyFull = false): VehicleState | null {
+        let best: VehicleState | null = null, bd = Infinity;
+        for (const v of this.vehicles) {
+            if (!v.alive || v.team !== s.team || v.seats.length === 0) continue;
+            if (!anyFull && !v.seats.includes(-1)) continue;
+            const [L, W] = v.def.dims;
+            const dx = s.pos[0] - v.pos[0], dz = s.pos[2] - v.pos[2], c = Math.cos(v.yaw), sn = Math.sin(v.yaw);
+            const lx = dx * c - dz * sn, lz = dx * sn + dz * c;
+            const out = Math.hypot(Math.max(0, Math.abs(lx) - W / 2), Math.max(0, Math.abs(lz) - L / 2));
+            const d = out + (v.def.domain === "Air" ? Math.max(0, v.pos[1] - s.pos[1] - 4) : 0);
+            if (d < 3 && d < bd) { bd = d; best = v; }
+        }
+        return best;
+    }
 
     /** Fires the soldier's current weapon along (yaw, pitch); returns false when it could not. */
     fire(s: Soldier, yaw: number, pitch: number, aimed: boolean, target = -1, targetKind: "soldier" | "vehicle" | "" = ""): boolean {
         if (!s.alive || s.vehicle >= 0 || this.time < s.nextShot || s.reloadUntil > 0) return false;
         const w = this.weaponOf(s);
         if (s.mag[s.slot] <= 0) { this.startReload(s); return false; }
-        if (w.heavy && !s.stats.heavyOk && s.stance === "stand") return false;
+        // The HMG and AMR fire unbraced too, with three times the spread and twice the kick.
+        const wild = w.heavy && !s.stats.heavyOk && s.stance === "stand";
         s.mag[s.slot]--;
         s.nextShot = this.time + 60 / w.rpm;
         s.lastShot = this.time;
@@ -482,17 +530,18 @@ export class Battle {
             // Launchers: a projectile (guided ones home on a locked target).
             const d = dirOf(yaw, pitch);
             const muzzle: V3 = [eye[0] + d[0] * 0.8, eye[1] + d[1] * 0.8, eye[2] + d[2] * 0.8];
-            this.projectiles.push({ kind: w.locks === "air" ? "missile" : "rocket", pos: muzzle, vel: [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed], owner: s.id, ownerVehicle: -1, team: s.team, damage: w.damage, vsVehicle: w.vsVehicle, splash: w.splash, life: w.range / w.speed + 1, target, targetKind, guided: w.lock > 0 && target >= 0, fuse: 0, weapon: w.name, chance: 1 });
-            this.events.push({ kind: "shot", from: muzzle, to: [muzzle[0] + d[0] * 6, muzzle[1] + d[1] * 6, muzzle[2] + d[2] * 6], team: s.team, heavy: true, shooter: s.id });
+            this.projectiles.push({ kind: w.id === UGL.id ? "mortar" : w.locks === "air" ? "missile" : "rocket", pos: muzzle, vel: [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed], owner: s.id, ownerVehicle: -1, team: s.team, damage: w.damage, vsVehicle: w.vsVehicle, splash: w.splash, life: w.range / w.speed + 1, target, targetKind, guided: w.lock > 0 && target >= 0, fuse: 0, weapon: w.name, chance: 1 });
+            this.events.push({ kind: "shot", from: muzzle, to: [muzzle[0] + d[0] * 6, muzzle[1] + d[1] * 6, muzzle[2] + d[2] * 6], team: s.team, heavy: true, shooter: s.id, weapon: w.id });
             if (s.slot === "launcher" && w.id === "W013" && s.mag.launcher <= 0 && s.reserve.launcher <= 0) s.slot = "primary";
+            else if (!s.bot && s.mag[s.slot] <= 0) this.startReload(s);
             return true;
         }
         const st = s.stats;
         const moving = Math.hypot(s.vel[0], s.vel[2]) > 0.8 ? 1.6 : 1;
         const base = s.slot === "primary" ? (aimed ? st.spread : w.hip) : aimed ? w.aim : w.hip;
         const stance = s.stance === "prone" ? 0.6 : s.stance === "crouch" ? 0.8 : 1;
-        const spreadDeg = (base + s.bloom) * moving * stance * (1 + s.suppression * 0.25);
-        const recoil = (s.slot === "primary" ? st.recoil : w.recoil) * (s.stance !== "stand" && s.loadout.attachments.Underbarrel === "A014" ? 0.55 : 1);
+        const spreadDeg = (base + s.bloom) * moving * stance * (1 + s.suppression * 0.25) * (wild ? 3 : 1);
+        const recoil = (s.slot === "primary" ? st.recoil : w.recoil) * (s.stance !== "stand" && s.loadout.attachments.Underbarrel === "A014" ? 0.55 : 1) * (wild ? 2 : 1);
         s.bloom = Math.min(4, s.bloom + recoil * 0.35);
         const range = (s.slot === "primary" ? st.range : w.range);
         const ammo = AMMO_BY_ID.get(s.loadout.ammo)!;
@@ -502,6 +551,8 @@ export class Battle {
             const d = dirOf(yaw + Math.cos(a) * m, pitch + Math.sin(a) * m);
             this.bullet(s, eye, d, range, w, ammo.id);
         }
+        // The player reloads on their own when the magazine runs dry.
+        if (!s.bot && s.mag[s.slot] <= 0) this.startReload(s);
         return true;
     }
 
@@ -545,7 +596,7 @@ export class Battle {
             if (t > 0 && t < best && !(v.seats.includes(s.id))) { best = t; hit = { kind: "vehicle", id: v.id, loc: "torso" }; }
         }
         const end: V3 = [from[0] + d[0] * best, from[1] + d[1] * best, from[2] + d[2] * best];
-        this.events.push({ kind: "shot", from, to: end, team: s.team, heavy: w.damage >= 45, shooter: s.id });
+        this.events.push({ kind: "shot", from, to: end, team: s.team, heavy: w.damage >= 45, shooter: s.id, weapon: w.id, impact: !hit && f < 1 });
         const ammo = AMMO_BY_ID.get(ammoId)!;
         if (hit?.kind === "soldier") {
             const o = this.soldiers[hit.id];
@@ -909,13 +960,14 @@ export class Battle {
                     o.suppression = Math.min(4, o.suppression + 0.3);
                 }
             }
-            if ((d.kind === "crate" || d.kind === "supply") && d.uses > 0 && Math.floor(this.time) !== Math.floor(this.time - dt)) {
+            // Crates hand out to anyone near who is short of anything (a drop only once it has landed). The old
+            // rule only looked at the primary's reserve, so a spent launcher or grenades never restocked.
+            if ((d.kind === "crate" || d.kind === "supply") && d.uses > 0 && this.time - d.born >= (d.kind === "supply" ? SUPPLY_FALL : 0) && Math.floor(this.time) !== Math.floor(this.time - dt)) {
                 const ids: number[] = [];
                 for (const id of this.near(d.x, d.z, d.kind === "supply" ? 8 : 6, ids)) {
                     const o = this.soldiers[id];
-                    if (o.team !== d.team || d.uses <= 0) continue;
-                    const full = WEAPON.get(o.loadout.primary)!.spare * o.stats.mag;
-                    if (o.reserve.primary < full * 0.6 || (d.kind === "supply" && o.hp < 70)) { this.restock(o); if (d.kind === "supply") o.hp = BALANCE.soldierHp; d.uses--; this.soldiers[d.owner].score += 10; }
+                    if (o.team !== d.team || d.uses <= 0 || !o.alive || o.vehicle >= 0) continue;
+                    if (this.needsSupply(o, d.kind === "supply" && o.hp < 70)) this.resupply(o, d);
                 }
             }
             if (d.kind === "beacon") { const ids: number[] = []; for (const id of this.near(d.x, d.z, 45, ids)) { const o = this.soldiers[id]; if (o.team !== d.team) this.spotted[d.team].set(o.id, this.time + 1); } }
@@ -929,7 +981,7 @@ export class Battle {
 
     deploy(s: Soldier, kind: Deployable["kind"], x: number, z: number, hp: number, life: number, uses = 0): Deployable {
         const y = this.world.height(x, z);
-        const d: Deployable = { id: this.nextId++, kind, team: s.team, owner: s.id, x, z, y, yaw: s.yaw, hp, until: this.time + life, uses, nextShot: this.time + 1, box: -1 };
+        const d: Deployable = { id: this.nextId++, kind, team: s.team, owner: s.id, x, z, y, yaw: s.yaw, hp, until: this.time + life, uses, nextShot: this.time + 1, box: -1, born: this.time };
         if (kind === "cover") {
             const box = { x, z, y, hx: 0.3, hz: 1.3, h: 1.2, lift: 0, yaw: s.yaw + Math.PI / 2, mat: "barrier" as const, tint: 0, seed: 1, kind: "cover" as const, hp };
             this.world.boxes.push(box);
@@ -1036,7 +1088,13 @@ export class Battle {
         const x = p[0], z = p[2];
         switch (id) {
             case "R001": for (const o of this.soldiers) if (o.team !== s.team && o.alive && Math.hypot(o.pos[0] - s.pos[0], o.pos[2] - s.pos[2]) < r.radius && o.loadout.armor.Utility !== "AR010") this.spotted[s.team].set(o.id, this.time + r.duration); break;
-            case "R002": this.deploy(s, "supply", x, z, 300, 60, 3 * 8); break;
+            case "R002": {
+                // The drop lands at the crosshair, never more than 120 m out, on open ground.
+                const dx = x - s.pos[0], dz = z - s.pos[2], d = Math.hypot(dx, dz), k = d > 120 ? 120 / d : 1;
+                const [px, pz] = this.world.openNear(s.pos[0] + dx * k, s.pos[2] + dz * k);
+                this.deploy(s, "supply", px, pz, 300, 120, 3 * 8);
+                break;
+            }
             case "R003": this.temporaryAircraft(s, "V012", r.duration); break;
             case "R004": this.strikes.push({ kind: id, team: s.team, owner: s.id, x, z, at: this.time + 3, shots: r.count, yaw: s.yaw, done: false }); break;
             case "R005": this.temporaryAircraft(s, "V013", r.duration); break;
@@ -1186,10 +1244,19 @@ export class Battle {
         if (!s.alive) return;
         s.yaw = inp.yaw; s.pitch = inp.pitch;
         if (inp.use) {
+            const crate = s.vehicle < 0 ? this.supplyNear(s, 4) : null;
             if (s.vehicle >= 0) this.exitVehicle(s);
+            else if (crate && this.needsSupply(s, crate.kind === "supply")) this.resupply(s, crate);
             else {
-                const v = this.vehicles.filter(o => o.alive && o.team === s.team && Math.hypot(o.pos[0] - s.pos[0], o.pos[2] - s.pos[2]) < Math.max(5, o.def.dims[0] * 0.7) && o.seats.includes(-1)).sort((a, b) => Math.hypot(a.pos[0] - s.pos[0], a.pos[2] - s.pos[2]) - Math.hypot(b.pos[0] - s.pos[0], b.pos[2] - s.pos[2]))[0];
+                // Any friendly hull within 3 m (the old test measured from the vehicle's centre, so the
+                // player had to stand almost inside a long vehicle). A full vehicle makes room: its last
+                // bot passenger gets out.
+                const v = this.vehicleNear(s, true);
                 if (v) {
+                    if (!v.seats.includes(-1)) {
+                        const out = [...v.seats].reverse().find(id => id >= 0 && this.soldiers[id].bot);
+                        if (out !== undefined) this.exitVehicle(this.soldiers[out]);
+                    }
                     // The player takes the driver's seat when it is free, else the first free seat.
                     const freeSeat = v.seats.findIndex((x, i) => i > 0 && x === -1);
                     if (v.seats[0] >= 0 && this.soldiers[v.seats[0]].bot && freeSeat > 0) { const bot = this.soldiers[v.seats[0]]; v.seats[0] = -1; v.seats[freeSeat] = bot.id; bot.seat = freeSeat; }
@@ -1204,7 +1271,7 @@ export class Battle {
             sq.thinkAt = this.time;
         }
         if (s.vehicle >= 0) { this.playerDrive(s, inp, dt); return; }
-        if (inp.slot && inp.slot !== s.slot && (inp.slot !== "launcher" || s.loadout.launcher)) { s.slot = inp.slot; s.reloadUntil = 0; s.nextShot = this.time + 0.4; }
+        if (inp.slot && inp.slot !== s.slot && (inp.slot !== "launcher" || launcherOf(s))) { s.slot = inp.slot; s.reloadUntil = 0; s.nextShot = this.time + 0.4; s.lock.target = -1; }
         s.stance = inp.prone ? "prone" : inp.crouch ? "crouch" : "stand";
         const speedBase = s.stance === "prone" ? BALANCE.prone : s.stance === "crouch" ? BALANCE.crouch : inp.sprint && !inp.aim ? BALANCE.sprint : inp.aim ? BALANCE.walk * 1.2 : BALANCE.run;
         const sp = speedBase * s.stats.speedShare;
@@ -1215,21 +1282,32 @@ export class Battle {
         if (inp.jump && s.pos[1] <= this.world.height(s.pos[0], s.pos[2]) + 0.05 && s.stance === "stand") { s.vel[1] = 4.2; s.pos[1] += 0.05; }
         if (inp.aim) { if (!s.aimedSince) s.aimedSince = this.time; } else s.aimedSince = 0;
         if (inp.reload) this.startReload(s);
-        if (inp.fire) {
-            const w = this.weaponOf(s);
-            const lockT = w.lock > 0 ? this.lockTarget(s, w.locks as "ground" | "air") : -1;
-            if (w.rpm > 120 || this.time - s.lastShot > 60 / w.rpm) this.fire(s, s.yaw, s.pitch, inp.aim && this.time - s.aimedSince >= s.stats.aimTime, lockT, lockT >= 0 ? "vehicle" : "");
+        const w = this.weaponOf(s);
+        // Guided launchers lock a vehicle held under the crosshair for `w.lock` seconds; only a full lock guides.
+        if (w.lock > 0) {
+            const t = this.lockTarget(s, w.locks as "ground" | "air");
+            if (t !== s.lock.target) s.lock = { target: t, since: this.time };
+        } else s.lock.target = -1;
+        const locked = s.lock.target >= 0 && this.time - s.lock.since >= w.lock ? s.lock.target : -1;
+        // Automatic weapons fire while the trigger is held; everything else once per pull. (Rate is the
+        // weapon's own nextShot: the old extra `60 / rpm since the last shot of any weapon` test locked a
+        // launcher out for 6-60 s after a rifle burst.)
+        if (inp.fire && (w.action === "auto" || !s.trigger)) {
+            const aimed = inp.aim && this.time - s.aimedSince >= s.stats.aimTime * (s.slot === "primary" ? 1 : 0.6);
+            this.fire(s, s.yaw, s.pitch, aimed, locked, locked >= 0 ? "vehicle" : "");
         }
+        s.trigger = inp.fire;
         if (inp.grenade && s.grenades > 0) this.throwGrenade(s, s.yaw, s.pitch, "Fragmentation Grenade");
         if (inp.equipment) this.useEquipment(s, inp.point);
     }
 
     /** The enemy vehicle closest to the crosshair within the lock cone (guided launchers). */
     lockTarget(s: Soldier, kind: "ground" | "air"): number {
-        const d = dirOf(s.yaw, s.pitch), e = eyeOf(s);
+        const d = dirOf(s.yaw, s.pitch), e = eyeOf(s), range = (launcherOf(s)?.range ?? 600) * 1.25;
         let best = -1, bd = 0.97;
         for (const v of this.vehicles) {
             if (!v.alive || v.team === s.team || (v.def.domain === "Air") !== (kind === "air")) continue;
+            if (Math.hypot(v.pos[0] - e[0], v.pos[1] - e[1], v.pos[2] - e[2]) > range) continue;
             const to = norm3([v.pos[0] - e[0], v.pos[1] + 1 - e[1], v.pos[2] - e[2]]);
             const c = to[0] * d[0] + to[1] * d[1] + to[2] * d[2];
             if (c > bd) { bd = c; best = v.id; }
@@ -1305,6 +1383,12 @@ export function driveVehicle(b: Battle, v: VehicleState, throttle: number, steer
             if (lift < -0.1 && v.altitude <= ground + 1.5 && b.world.slope(v.pos[0], v.pos[2]) < 0.3) { v.landed = true; v.speed = 0; }
         }
     }
+}
+
+/** The weapon in a soldier's launcher slot: the carried launcher, else the primary's underbarrel grenade launcher, else none. */
+export function launcherOf(s: Soldier): Weapon | null {
+    if (s.loadout.launcher) return WEAPON.get(s.loadout.launcher) ?? null;
+    return s.loadout.attachments.Underbarrel === UGL.id ? UGL : null;
 }
 
 export function dirOf(yaw: number, pitch: number): V3 { return [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)]; }

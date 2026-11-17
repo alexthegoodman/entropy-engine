@@ -46,13 +46,33 @@ export class Sound {
         }
     }
 
-    shot(at: V3, heavy: boolean, mine: boolean): void {
+    /** A gunshot. Each weapon has its own voice (VOICE): the crack's pitch, length and brightness, the body's
+     * thump, and a low tail for the big rifles; launchers whoosh; the EMR zaps. Unknown sources (vehicle guns,
+     * turrets) fall back to light or heavy. */
+    shot(at: V3, heavy: boolean, mine: boolean, weapon?: string): void {
         if (!mine && !this.gap(`shot${Math.round(at[0] / 30)}${Math.round(at[2] / 30)}`, 0.05)) return;
-        const { k, pan, muffle } = mine ? { k: 1, pan: 0, muffle: 0 } : this.place(at, heavy ? 1100 : 700, heavy ? 45 : 22);
+        const v = (weapon && VOICE[weapon]) || (heavy ? VOICE.heavy : VOICE.light);
+        const { k, pan, muffle } = mine ? { k: 1, pan: 0, muffle: 0 } : this.place(at, v.reach, v.ref);
         if (k <= 0.01) return;
-        this.play({ freq: heavy ? 90 : 140, waveform: "noise", duration: heavy ? 0.25 : 0.12, attack: 0.001, decay: heavy ? 0.2 : 0.09, sustain: 0, release: 0.05, gain: (mine ? 0.32 : 0.3) * k, cutoff: mine ? 5200 : 3400, pan, muffle });
-        if (heavy || mine) this.play({ freq: heavy ? 60 : 110, waveform: "kick", duration: 0.15, gain: (mine ? 0.25 : 0.2) * k, pan, muffle });
+        const g = v.gain * k * (mine ? 1.05 : 0.95);
+        if (v.zap) {
+            this.play({ freq: 1400, waveform: "square", duration: 0.08, attack: 0.001, decay: 0.07, sustain: 0, release: 0.03, gain: 0.08 * g, cutoff: 5000, pan, muffle });
+            this.play({ freq: 330, waveform: "sawtooth", duration: 0.22, attack: 0.001, decay: 0.2, sustain: 0, release: 0.05, gain: 0.12 * g, cutoff: 2600, pan, muffle });
+        }
+        if (v.whoosh) this.play({ freq: 200, waveform: "noise", duration: 0.9, attack: 0.02, decay: 0.8, sustain: 0.1, release: 0.3, gain: 0.22 * g, cutoff: 1400, pan, muffle });
+        this.play({ freq: v.f, waveform: "noise", duration: v.d, attack: 0.001, decay: v.d * 0.8, sustain: 0, release: 0.05, gain: 0.3 * g, cutoff: mine ? v.c * 1.4 : v.c, pan, muffle });
+        if (v.kick && (mine || heavy || v.gain > 1.1)) this.play({ freq: v.kick, waveform: "kick", duration: 0.15, gain: 0.24 * g, pan, muffle });
+        if (v.tail && (mine || k > 0.25)) this.play({ freq: 60, waveform: "noise", duration: v.tail, attack: 0.01, decay: v.tail * 0.9, sustain: 0, release: 0.2, gain: 0.12 * g, cutoff: 700, pan, muffle: Math.min(0.95, muffle + 0.3) });
     }
+
+    /** The player's weapon handling: magazine out / home, a bolt or pump cycling, a dry trigger, a swap. */
+    reload(home: boolean): void { this.play({ freq: home ? 1500 : 900, waveform: "square", duration: 0.03, attack: 0.001, decay: 0.025, sustain: 0, release: 0.01, gain: 0.07, cutoff: 3000 }); this.play({ freq: home ? 220 : 160, waveform: "noise", duration: 0.06, attack: 0.001, decay: 0.05, sustain: 0, release: 0.02, gain: 0.12, cutoff: 2400 }); }
+    cycle(pump: boolean): void { this.play({ freq: pump ? 180 : 260, waveform: "noise", duration: pump ? 0.12 : 0.08, attack: 0.002, decay: 0.07, sustain: 0, release: 0.03, gain: 0.14, cutoff: 2600 }); this.play({ freq: pump ? 700 : 1100, waveform: "square", duration: 0.025, gain: 0.05, cutoff: 3000 }); }
+    dry(): void { if (this.gap("dry", 0.12)) this.play({ freq: 2400, waveform: "square", duration: 0.02, attack: 0.001, decay: 0.015, sustain: 0, release: 0.01, gain: 0.06, cutoff: 5000 }); }
+    swap(): void { this.play({ freq: 300, waveform: "noise", duration: 0.1, attack: 0.005, decay: 0.08, sustain: 0, release: 0.03, gain: 0.08, cutoff: 1800 }); }
+    /** Guided launcher: a short beep while locking, a high one once locked. */
+    lockTone(locked: boolean): void { this.play({ freq: locked ? 1320 : 880, waveform: "sine", duration: locked ? 0.06 : 0.05, gain: 0.07 }); }
+    resupply(): void { this.play({ freq: 520, waveform: "triangle", duration: 0.08, gain: 0.1 }); this.play({ freq: 780, waveform: "triangle", duration: 0.12, gain: 0.08 }); this.reload(true); }
 
     explode(at: V3, radius: number): void {
         if (!this.gap(`boom${Math.round(at[0] / 20)}${Math.round(at[2] / 20)}`, 0.08)) return;
@@ -65,11 +85,36 @@ export class Sound {
 
     hit(): void { if (this.gap("hit", 0.04)) this.play({ freq: 1800, waveform: "square", duration: 0.04, attack: 0.001, decay: 0.03, sustain: 0, release: 0.02, gain: 0.08 }); }
     hurt(): void { if (this.gap("hurt", 0.25)) this.play({ freq: 120, waveform: "noise", duration: 0.2, attack: 0.002, decay: 0.15, sustain: 0, release: 0.05, gain: 0.25, cutoff: 600 }); }
-    kill(): void { this.play({ freq: 880, waveform: "triangle", duration: 0.1, gain: 0.12 }); this.play({ freq: 1320, waveform: "triangle", duration: 0.14, gain: 0.1 }); }
+    kill(head = false): void { this.play({ freq: 880, waveform: "triangle", duration: 0.1, gain: 0.12 }); this.play({ freq: head ? 1760 : 1320, waveform: "triangle", duration: 0.14, gain: 0.1 }); }
     reward(): void { [0, 4, 7, 12].forEach((s, i) => setTimeoutish(() => this.play({ freq: 440 * Math.pow(2, s / 12), waveform: "sine", duration: 0.25, gain: 0.12 }), i)); }
     capture(ours: boolean): void { this.play({ freq: ours ? 523 : 311, waveform: "sawtooth", duration: 0.5, attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.3, gain: 0.1, cutoff: 1800 }); }
     ui(): void { this.play({ freq: 660, waveform: "sine", duration: 0.05, gain: 0.06 }); }
 }
+
+/** A weapon's voice: crack pitch f (Hz), length d (s), brightness c (cutoff Hz), body thump (kick Hz, 0 none),
+ * loudness, how far it carries (reach m, half volume at ref m), a low tail (s), a rocket whoosh, an EMR zap. */
+interface Voice { f: number; d: number; c: number; kick: number; gain: number; reach: number; ref: number; tail?: number; whoosh?: boolean; zap?: boolean }
+const VOICE: Record<string, Voice> = {
+    light: { f: 140, d: 0.12, c: 3400, kick: 110, gain: 1, reach: 700, ref: 22 },
+    heavy: { f: 90, d: 0.25, c: 2600, kick: 60, gain: 1.1, reach: 1100, ref: 45 },
+    W001: { f: 150, d: 0.12, c: 3800, kick: 110, gain: 1, reach: 750, ref: 24 },
+    W002: { f: 170, d: 0.1, c: 4200, kick: 120, gain: 0.95, reach: 650, ref: 22 },
+    W003: { f: 120, d: 0.16, c: 3300, kick: 95, gain: 1.15, reach: 900, ref: 30, tail: 0.4 },
+    W004: { f: 200, d: 0.08, c: 4600, kick: 140, gain: 0.8, reach: 500, ref: 18 },
+    W005: { f: 85, d: 0.3, c: 2400, kick: 70, gain: 1.3, reach: 700, ref: 26, tail: 0.5 },
+    W006: { f: 125, d: 0.14, c: 3000, kick: 95, gain: 1.1, reach: 900, ref: 28 },
+    W007: { f: 70, d: 0.22, c: 2200, kick: 55, gain: 1.35, reach: 1300, ref: 50, tail: 0.6 },
+    W008: { f: 95, d: 0.28, c: 3600, kick: 60, gain: 1.4, reach: 1400, ref: 50, tail: 1.1 },
+    W009: { f: 115, d: 0.18, c: 3400, kick: 85, gain: 1.2, reach: 1000, ref: 34, tail: 0.5 },
+    W010: { f: 55, d: 0.4, c: 2600, kick: 45, gain: 1.6, reach: 1600, ref: 60, tail: 1.4 },
+    W011: { f: 210, d: 0.09, c: 4400, kick: 150, gain: 0.85, reach: 500, ref: 18 },
+    W012: { f: 230, d: 0.07, c: 4800, kick: 160, gain: 0.75, reach: 450, ref: 16 },
+    W013: { f: 60, d: 0.5, c: 1600, kick: 50, gain: 1.3, reach: 1100, ref: 40, tail: 0.7, whoosh: true },
+    W014: { f: 60, d: 0.5, c: 1600, kick: 50, gain: 1.3, reach: 1100, ref: 40, tail: 0.7, whoosh: true },
+    W015: { f: 70, d: 0.45, c: 1900, kick: 55, gain: 1.25, reach: 1100, ref: 40, tail: 0.6, whoosh: true },
+    W016: { f: 160, d: 0.1, c: 3000, kick: 90, gain: 1, reach: 800, ref: 26, zap: true },
+    A015: { f: 110, d: 0.12, c: 1100, kick: 70, gain: 1, reach: 500, ref: 18 },
+};
 
 /** Arpeggio helper without timers: plays at once with a rising pitch offset (the engine has no setTimeout guarantee). */
 function setTimeoutish(fn: () => void, _i: number): void { fn(); }

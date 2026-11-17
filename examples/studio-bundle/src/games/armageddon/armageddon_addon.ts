@@ -9,7 +9,7 @@
 // and sound from battle events, every screen, saving the loadout, and the MCP tools the live test
 // (tests/armageddon_live.rs) drives.
 
-import { Battle, STEP, NO_INPUT, eyeOf, dirOf, TEAM_NAMES, type PlayerInput, type Team, type Soldier, type Slot, type BattleEvent } from "./ar_sim";
+import { Battle, STEP, NO_INPUT, SUPPLY_FALL, eyeOf, dirOf, launcherOf, TEAM_NAMES, type PlayerInput, type Team, type Soldier, type Slot, type BattleEvent } from "./ar_sim";
 import { think } from "./ar_bots";
 import { MAPS, worldFor, HALF } from "./ar_map";
 import { ROLE_LOADOUTS, REWARD, WEAPON, loadoutStats, type Loadout } from "./ar_data";
@@ -65,14 +65,49 @@ let lookYaw = 0, lookPitch = 0;
 let crouch = false, prone = false;
 let scripted: (Partial<PlayerInput> & { frames: number }) | null = null;
 let scoreboard = false, mapOpen = false, showHelp = true;
-let lockSupported = false, locked = false;
+let lockSupported = false, locked = false, lockAskedAt = -99;
 const pad = new Controller();
 let padSprint = false;
 const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(k.toUpperCase());
 const tapped = (k: string) => pressed.has(k) || pressed.has(k.toLowerCase()) || pressed.has(k.toUpperCase());
 
-const hud: HudExtra = { hitMarker: 0, hurt: 0, toasts: [], banner: null, device: "keys", ads: false, spread: 8, zoom: 1, scoreboard: false, mapOpen: false, showHelp: true, fps: 0, lockHint: false, point: "" };
+const hud: HudExtra = { hitMarker: 0, killMarker: 0, headMarker: 0, hurt: 0, toasts: [], banner: null, device: "keys", ads: false, adsT: 0, sight: "iron", spread: 8, zoom: 1, scoreboard: false, mapOpen: false, showHelp: true, fps: 0, lockHint: false, point: "", lock: null, prompt: "", hint: "", reloadP: -1, steady: false };
 let flash = 0;
+
+// --- weapon feel ----------------------------------------------------------------------------------
+
+const HIP_FOV = 70;
+/** How far into aiming down sights the view is (0 hip .. 1 aimed); eases in over the weapon's aim time. */
+let adsT = 0;
+/** Recoil still to be applied to the view (rad), and how much of the climb the player gets back. */
+let kickPitch = 0, kickYaw = 0, recoilDebt = 0;
+/** The viewmodel's kick (1 on a shot, decays), screen shake, the scope's breathing sway (rad). */
+let viewKick = 0, shake = 0, sway: [number, number] = [0, 0];
+/** What the frame loop last saw of the player's weapon: the last shot, the reload it started, the slot. */
+let seenShot = -10, reloadFrom = 0, seenSlot: Slot = "primary", slotAt = -10, boltSounded = true;
+/** The gun trails fast turns (rad of yaw/pitch per second, smoothed). */
+let gunLag: [number, number] = [0, 0], prevLook: [number, number] = [0, 0];
+let lockBeepAt = 0;
+/** Where the first-person muzzle and ejection port were drawn last (tracers and brass start there). */
+let muzzleAt: V3 | null = null, portAt: V3 | null = null;
+let sprintingNow = false;
+let fireWas = false;
+
+type SightKind = "iron" | "dot" | "holo" | "scope" | "launcher";
+/** Magnification and reticle aiming down sights: the fitted optic (primary only), else the weapon's own sights. */
+function sightOf(b: Battle, me: Soldier): { zoom: number; kind: SightKind } {
+    const w = b.weaponOf(me);
+    if (me.slot === "launcher") return { zoom: w.sight, kind: "launcher" };
+    if (me.slot === "primary") {
+        const o = me.loadout.attachments.Optic;
+        if (o && o !== "A001") return { zoom: me.stats.zoom, kind: me.stats.zoom >= 2 ? "scope" : o === "A003" ? "holo" : "dot" };
+        if (o === "A001") return { zoom: me.stats.zoom, kind: "iron" };
+    }
+    return { zoom: w.sight, kind: "iron" };
+}
+/** The zoom right now: optical (tan of the half angle), eased by adsT. */
+function zoomNow(): number { const e = adsT * adsT * (3 - 2 * adsT); return 1 + (Math.max(1, hud.zoom) - 1) * e; }
+function fovFor(zoom: number): number { return (2 * Math.atan(Math.tan((HIP_FOV * Math.PI) / 360) / zoom) * 180) / Math.PI; }
 
 function toast(text: string, color: Color = [1, 1, 1, 1]): void { hud.toasts.unshift({ text, age: 0, color }); if (hud.toasts.length > 4) hud.toasts.pop(); }
 
@@ -102,12 +137,14 @@ function readInput(dt: number): PlayerInput {
     if (lx || ly || rx || ry || pad.triggers[0] > 0.1 || pad.triggers[1] > 0.1) hud.device = "pad";
     else if (look[0] || look[1]) hud.device = "keys";
     if (playing) {
-        const sens = (hud.ads ? 0.0011 / Math.max(1, hud.zoom * 0.6) : 0.0024);
+        // Look speed follows the zoom, so a target crosses the screen at the same speed at 1x and 8x.
+        const z = zoomNow(), adsK = 1 - 0.2 * adsT;
+        const sens = (0.0024 / z) * adsK;
         lookYaw -= look[0] * sens; lookPitch -= look[1] * sens;
-        if (key("ArrowLeft")) lookYaw += 0.04; if (key("ArrowRight")) lookYaw -= 0.04;
-        if (key("ArrowUp")) lookPitch += 0.03; if (key("ArrowDown")) lookPitch -= 0.03;
+        if (key("ArrowLeft")) lookYaw += 0.04 / z; if (key("ArrowRight")) lookYaw -= 0.04 / z;
+        if (key("ArrowUp")) lookPitch += 0.03 / z; if (key("ArrowDown")) lookPitch -= 0.03 / z;
         // Right stick: a response curve (fine aim near the centre), slower while aiming down sights.
-        const rate = (hud.ads ? 1.3 / Math.max(1, hud.zoom * 0.6) : 3.2) * dt;
+        const rate = (3.2 / z) * adsK * dt;
         lookYaw -= Math.sign(rx) * rx * rx * rate; lookPitch += Math.sign(ry) * ry * ry * rate * 0.75;
         lookPitch = clamp(lookPitch, -1.4, 1.35);
     }
@@ -139,7 +176,7 @@ function readInput(dt: number): PlayerInput {
 /** The next weapon slot the soldier carries (Y on the gamepad). */
 function nextSlot(me: Soldier | null | undefined): Slot | null {
     if (!me) return null;
-    const order: Slot[] = me.loadout.launcher ? ["primary", "sidearm", "launcher"] : ["primary", "sidearm"];
+    const order: Slot[] = launcherOf(me) ? ["primary", "sidearm", "launcher"] : ["primary", "sidearm"];
     return order[(order.indexOf(me.slot) + 1) % order.length];
 }
 
@@ -152,7 +189,9 @@ function padKey(button: string): string | null {
         case "South": return menu ? "Enter" : " ";
         case "East": return menu ? "Escape" : inVeh ? "Control" : "c";
         case "West": return "r";
-        case "North": return "NextWeapon";
+        // Y: get in or out of a vehicle, or take from a supply crate, when there is one at hand; else the
+        // next weapon. (D-pad up also enters and exits.)
+        case "North": return menu ? null : useTarget() ? "e" : "NextWeapon";
         case "DPadUp": return menu ? "ArrowUp" : "e";
         case "DPadDown": return menu ? "ArrowDown" : "z";
         case "DPadLeft": return menu ? "ArrowLeft" : "q";
@@ -166,6 +205,17 @@ function padKey(button: string): string | null {
     }
 }
 const padSent = new Map<string, string>();
+
+/** What "use" (E, Y, D-pad up) would do right now: leave the vehicle, take from a crate, get in a vehicle, or nothing. */
+function useTarget(): string {
+    const b = battle, me = b?.me;
+    if (!b || !me || !me.alive || mode !== "play") return "";
+    if (me.vehicle >= 0) return "Exit";
+    const crate = b.supplyNear(me, 4);
+    if (crate && b.needsSupply(me, crate.kind === "supply")) return "Resupply";
+    const v = b.vehicleNear(me, true);
+    return v ? `Enter ${v.def.name}${v.seats.includes(-1) ? "" : " (a passenger makes room)"}` : "";
+}
 
 function keyDown(k: string): void {
     {
@@ -226,7 +276,9 @@ function setupInput(): void {
         const hit = painter?.hit(x, y);
         if (hit) { act(hit.id); return; }
         if (mode !== "play") return;
-        if (lockSupported && !locked && button === 0) { (Entropy.Input as { setPointerLock?: (b: boolean) => void }).setPointerLock?.(true); return; }
+        // The first click asks for pointer lock; if the lock does not take (some windows refuse it), later
+        // clicks fire instead of asking forever (the left button used to never fire then).
+        if (lockSupported && !locked && button === 0 && realTime - lockAskedAt > 3) { lockAskedAt = realTime; (Entropy.Input as { setPointerLock?: (b: boolean) => void }).setPointerLock?.(true); return; }
         mouseButtons.add(button);
         if (button === 0) clicked = true;
         if (button === 1) rightHeld = true;
@@ -313,14 +365,23 @@ function onEvents(b: Battle, events: BattleEvent[]): void {
     for (const e of events) {
         switch (e.kind) {
             case "shot": {
+                const mine = !!me && e.shooter === me.id && me.vehicle < 0;
                 const d = Math.hypot(e.from[0] - camPos[0], e.from[2] - camPos[2]);
                 if (d < 450 && effects.length < 900) {
-                    if (rnd() < (e.shooter === me?.id ? 1 : 0.45)) effects.push({ kind: "tracer", pos: [...e.from], to: [...e.to], vel: [0, 0, 0], life: 0.07, max: 0.07, size: e.heavy ? 0.09 : 0.04, color: e.team === 0 ? [0.6, 0.9, 1] : [1, 0.75, 0.4], seed: rnd() });
-                    effects.push({ kind: "flash", pos: [...e.from], to: [0, 0, 0], vel: [0, 0, 0], life: 0.05, max: 0.05, size: e.heavy ? 0.9 : 0.4, color: [1, 0.8, 0.45], seed: rnd() });
+                    // The player's own rounds leave from the drawn muzzle, not the eye, so the tracer is seen.
+                    const from: V3 = mine && muzzleAt && !thirdPerson ? [...muzzleAt] : [...e.from];
+                    if (rnd() < (mine ? 1 : 0.45)) effects.push({ kind: "tracer", pos: from, to: [...e.to], vel: [0, 0, 0], life: mine ? 0.09 : 0.07, max: mine ? 0.09 : 0.07, size: e.heavy ? 0.09 : mine ? 0.03 : 0.04, color: e.team === 0 ? [0.6, 0.9, 1] : [1, 0.75, 0.4], seed: rnd() });
+                    if (!mine || thirdPerson) effects.push({ kind: "flash", pos: [...e.from], to: [0, 0, 0], vel: [0, 0, 0], life: 0.05, max: 0.05, size: e.heavy ? 0.9 : 0.4, color: [1, 0.8, 0.45], seed: rnd() });
+                    // Rounds that hit the world kick up dust and sparks where they land.
+                    if (e.impact && Math.hypot(e.to[0] - camPos[0], e.to[2] - camPos[2]) < 160) {
+                        effects.push({ kind: "smoke", pos: [...e.to], to: [0, 0, 0], vel: [0, 0.6, 0], life: 0.7, max: 0.7, size: e.heavy ? 0.7 : 0.35, color: [0.5, 0.45, 0.38], seed: rnd() });
+                        for (let i = 0; i < (mine ? 3 : 1); i++) effects.push({ kind: "spark", pos: [...e.to], to: [0, 0, 0], vel: [(rnd() - 0.5) * 5, 1 + rnd() * 3, (rnd() - 0.5) * 5], life: 0.18, max: 0.18, size: 0.05, color: [1, 0.8, 0.5], seed: rnd() });
+                    }
                 }
-                sound.shot(e.from, e.heavy, e.shooter === me?.id);
+                sound.shot(e.from, e.heavy, mine, e.weapon);
                 break;
             }
+            case "resupply": if (me && e.soldier === me.id) { toast("Resupplied: ammunition, launcher and grenades", [0.6, 1, 0.6, 1]); sound.resupply(); } break;
             case "hit":
                 if (me && b.soldiers[me.id] && b.time - me.lastShot < 0.3 && !e.vehicle && b.soldiers[e.target]?.team !== me.team) { hud.hitMarker = 0.25; sound.hit(); }
                 if (effects.length < 900) for (let i = 0; i < 3; i++) effects.push({ kind: "spark", pos: [...e.at], to: [0, 0, 0], vel: [(rnd() - 0.5) * 4, rnd() * 3, (rnd() - 0.5) * 4], life: 0.25, max: 0.25, size: 0.12, color: e.vehicle ? [1, 0.8, 0.4] : [0.7, 0.1, 0.08], seed: rnd() });
@@ -335,10 +396,11 @@ function onEvents(b: Battle, events: BattleEvent[]): void {
                     for (let i = 0; i < 6; i++) effects.push({ kind: "debris", pos: [...e.at], to: [0, 0, 0], vel: [(rnd() - 0.5) * 12, 4 + rnd() * 8, (rnd() - 0.5) * 12], life: 1.2, max: 1.2, size: 0.15 + rnd() * 0.2, color: [0.25, 0.22, 0.2], seed: rnd() });
                 }
                 if (me && Math.hypot(e.at[0] - me.pos[0], e.at[2] - me.pos[2]) < e.radius * 3) flash = Math.max(flash, 0.25);
+                if (me) shake = Math.max(shake, clamp(e.radius * 2.5 / (4 + Math.hypot(e.at[0] - me.pos[0], e.at[1] - me.pos[1], e.at[2] - me.pos[2])), 0, 1));
                 break;
             }
             case "kill":
-                if (me && e.killer === me.id) { toast(`${e.head ? "HEADSHOT  " : ""}${b.soldiers[e.victim].name}  +${e.head ? 130 : 100}`, [1, 0.85, 0.4, 1]); sound.kill(); }
+                if (me && e.killer === me.id) { toast(`${e.head ? "HEADSHOT  " : ""}${b.soldiers[e.victim].name}  +${e.head ? 130 : 100}`, [1, 0.85, 0.4, 1]); sound.kill(e.head); hud.killMarker = 0.45; if (e.head) hud.headMarker = 0.45; }
                 if (me && e.victim === me.id) { hud.banner = { title: "YOU WERE KILLED", text: e.killer >= 0 ? `by ${b.soldiers[e.killer].name} (${e.weapon})` : e.weapon, age: 0 }; }
                 break;
             case "vehicleKill": if (me && e.killer === me.id) toast(`${b.vehicles[e.vehicle].def.name} destroyed`, [1, 0.85, 0.4, 1]); break;
@@ -396,9 +458,10 @@ function cameraNow(): { pos: V3; target: V3; fov: number } {
         return { pos, target: [v.pos[0] + d[0] * 40, v.pos[1] + 2 + d[1] * 40, v.pos[2] + d[2] * 40], fov: 65 };
     }
     const eye = eyeOf(me);
-    const d = dirOf(lookYaw, lookPitch);
-    const zoom = hud.ads ? hud.zoom : 1;
-    const fov = 70 / Math.pow(Math.max(1, zoom), 0.75);
+    // Shake (explosions, heavy weapons) moves where the camera looks, not where the bullets go.
+    const sh = shake * shake * 0.03, t = realTime * 37;
+    const d = dirOf(lookYaw + Math.sin(t) * sh, lookPitch + Math.sin(t * 1.3 + 1) * sh);
+    const fov = fovFor(zoomNow());
     if (thirdPerson) {
         const r: V3 = [Math.cos(lookYaw), 0, -Math.sin(lookYaw)];
         const pos: V3 = [eye[0] - d[0] * 3.2 + r[0] * 0.7, eye[1] + 0.4 - d[1] * 3.2, eye[2] - d[2] * 3.2 + r[2] * 0.7];
@@ -432,17 +495,110 @@ function frame(dt: number, show = true): void {
         consumed = n > 0;
         const me = b.me;
         if (me && !me.alive && mode === "play") { setMode("deploy"); spawnPick = "HQ"; }
-        if (me) {
-            hud.ads = (aimHeld() || !!scripted?.aim) && me.alive && me.vehicle < 0;
-            hud.zoom = me.slot === "primary" ? me.stats.zoom : 1.2;
-        }
+        if (me) weaponFeel(b, me, dt, input);
         stepEffects(dt, b);
     }
     if (consumed) { pressed.clear(); clicked = false; }
     hud.hitMarker = Math.max(0, hud.hitMarker - dt);
+    hud.killMarker = Math.max(0, hud.killMarker - dt);
+    hud.headMarker = Math.max(0, hud.headMarker - dt);
     hud.hurt = Math.max(0, hud.hurt - dt * 0.6);
     flash = Math.max(0, flash - dt * 1.5);
     if (show) draw(dt);
+}
+
+/** Per frame: aiming down sights (eased, zoom per sight), recoil on the view and its recovery, the scope's
+ * breathing sway, reload/bolt/lock sounds, the guided launcher's lock box, and the HUD's prompt and hints. */
+function weaponFeel(b: Battle, me: Soldier, dt: number, input: PlayerInput): void {
+    const onFoot = me.alive && me.vehicle < 0 && mode === "play";
+    const w = b.weaponOf(me);
+    const sight = sightOf(b, me);
+    hud.ads = (aimHeld() || !!scripted?.aim) && onFoot;
+    hud.zoom = sight.zoom; hud.sight = sight.kind;
+    const aimTime = me.slot === "primary" ? me.stats.aimTime : 0.22;
+    adsT = clamp(adsT + (hud.ads ? 1 : -1.6) * dt / Math.max(0.08, aimTime * 0.8));
+    hud.adsT = adsT;
+    sprintingNow = input.sprint && !hud.ads && Math.hypot(me.vel[0], me.vel[2]) > 4;
+    if (!onFoot) { kickPitch = kickYaw = recoilDebt = 0; hud.lock = null; hud.prompt = ""; hud.hint = ""; hud.reloadP = -1; seenShot = me.lastShot; return; }
+    // Slot changes and the swap animation.
+    if (me.slot !== seenSlot) { seenSlot = me.slot; slotAt = b.time; sound.swap(); }
+    // A new shot: recoil on the view (most of the climb comes back once the trigger is let go), the
+    // viewmodel's kick, brass, shake for the big guns.
+    if (me.lastShot !== seenShot) {
+        seenShot = me.lastShot;
+        const braced = me.stance !== "stand" && me.loadout.attachments.Underbarrel === "A014" && me.slot === "primary";
+        const wild = w.heavy && !me.stats.heavyOk && me.stance === "stand";
+        const deg = (me.slot === "primary" ? me.stats.recoil : w.recoil) * 0.6 * (hud.ads ? 0.8 : 1) * (me.stance === "prone" ? 0.55 : me.stance === "crouch" ? 0.8 : 1) * (braced ? 0.55 : 1) * (wild ? 2 : 1);
+        const rad = (deg * Math.PI) / 180;
+        kickPitch += rad * (0.85 + rnd() * 0.3);
+        kickYaw += rad * (rnd() - 0.5) * 0.7;
+        viewKick = 1;
+        shake = Math.max(shake, w.speed > 0 ? 0.55 : clamp(deg / 6, 0, 0.45));
+        boltSounded = !(w.action === "bolt" || w.action === "pump");
+        if (portAt && w.speed === 0 && !thirdPerson && effects.length < 900) {
+            const r: V3 = [-Math.cos(lookYaw), 0, Math.sin(lookYaw)];
+            effects.push({ kind: "debris", pos: [...portAt], to: [0, 0, 0], vel: [r[0] * (1.4 + rnd()) + me.vel[0], 1.6 + rnd(), r[2] * (1.4 + rnd()) + me.vel[2]], life: 0.6, max: 0.6, size: 0.006, color: [0.75, 0.6, 0.25], seed: rnd() });
+        }
+    }
+    // The bolt or pump cycles a beat after the shot.
+    if (!boltSounded && b.time - me.lastShot > 0.3) { boltSounded = true; sound.cycle(w.action === "pump"); }
+    const a = Math.min(1, dt * 30);
+    const kp = kickPitch * a, ky = kickYaw * a;
+    lookPitch = clamp(lookPitch + kp, -1.4, 1.35); lookYaw += ky;
+    kickPitch -= kp; kickYaw -= ky; recoilDebt += kp * 0.6;
+    if (b.time - me.lastShot > 0.14 && recoilDebt > 0) { const r = recoilDebt * Math.min(1, dt * 7); lookPitch -= r; recoilDebt -= r; }
+    viewKick = Math.max(0, viewKick - dt * 9);
+    shake = Math.max(0, shake - dt * 2.5);
+    // Breathing sway while aiming, strongest through a scope; crouch, prone and a braced bipod calm it, and
+    // holding Shift (or L3 on the pad) steadies it while aiming.
+    hud.steady = hud.ads && (key("Shift") || padSprint);
+    const braced = me.stance !== "stand" && me.loadout.attachments.Underbarrel === "A014";
+    const amp = 0.0008 * Math.sqrt(hud.zoom) * (me.stance === "prone" ? 0.35 : me.stance === "crouch" ? 0.65 : 1) * (braced ? 0.4 : 1) * (hud.steady ? 0.12 : 1) * adsT;
+    const want: [number, number] = [amp * (Math.sin(realTime * 0.83) + 0.5 * Math.sin(realTime * 1.91 + 1)), amp * 0.8 * (Math.sin(realTime * 1.17 + 2) + 0.4 * Math.sin(realTime * 2.3))];
+    lookYaw += want[0] - sway[0]; lookPitch += want[1] - sway[1]; sway = want;
+    // The gun trails the view a little on fast turns.
+    const dy = lookYaw - prevLook[0], dp = lookPitch - prevLook[1];
+    prevLook = [lookYaw, lookPitch];
+    const k = Math.min(1, dt * 12);
+    gunLag = [gunLag[0] + (clamp(dy / Math.max(dt, 1e-3), -6, 6) * 0.012 - gunLag[0]) * k, gunLag[1] + (clamp(dp / Math.max(dt, 1e-3), -6, 6) * 0.012 - gunLag[1]) * k];
+    // Reloads: a sound when the magazine comes out and when it goes home.
+    if (me.reloadUntil > 0 && reloadFrom === 0) { reloadFrom = b.time; sound.reload(false); }
+    if (me.reloadUntil === 0 && reloadFrom !== 0) { reloadFrom = 0; sound.reload(true); }
+    hud.reloadP = me.reloadUntil > 0 ? clamp((b.time - reloadFrom) / Math.max(0.1, me.reloadUntil - reloadFrom)) : -1;
+    // A dry trigger: a click.
+    if (input.fire && !fireWas && me.mag[me.slot] === 0 && me.reserve[me.slot] === 0) sound.dry();
+    fireWas = input.fire;
+    // Guided launchers: a box on the vehicle being locked, a beep that speeds up, a steady tone once locked.
+    hud.lock = null;
+    if (w.lock > 0 && me.lock.target >= 0) {
+        const v = b.vehicles[me.lock.target];
+        const p = Math.min(1, (b.time - me.lock.since) / w.lock);
+        const s = v ? project([v.pos[0], v.pos[1] + 1, v.pos[2]]) : null;
+        if (s) hud.lock = { x: s[0], y: s[1], r: clamp(Math.max(v.def.dims[0], 4) * s[2], 18, 160), p, locked: p >= 1 };
+        if (realTime >= lockBeepAt) { lockBeepAt = realTime + (p >= 1 ? 0.07 : 0.3 - p * 0.18); sound.lockTone(p >= 1); }
+    }
+    // Prompts and hints.
+    const use = useTarget();
+    hud.prompt = use ? `[${hud.device === "pad" ? "Y" : "E"}] ${use.toUpperCase()}` : "";
+    const sz = b.magSize(me, me.slot);
+    hud.hint = me.mag[me.slot] === 0 && me.reserve[me.slot] === 0 ? (me.slot === "primary" ? "NO AMMO  -  switch weapons or find a supply crate" : "EMPTY  -  find a supply crate")
+        : w.heavy && !me.stats.heavyOk && me.stance === "stand" && me.slot === "primary" ? "UNBRACED  -  crouch or go prone to fire accurately"
+        : me.reloadUntil === 0 && sz > 3 && me.mag[me.slot] <= sz * 0.25 ? "LOW AMMO  -  reload" : "";
+}
+
+/** A world point on screen: [x, y, pixels per metre at that distance], or null behind the camera. */
+function project(p: V3): [number, number, number] | null {
+    const cam = cameraNow();
+    const [w, h] = Entropy.Window.getSize();
+    const f = norm([cam.target[0] - cam.pos[0], cam.target[1] - cam.pos[1], cam.target[2] - cam.pos[2]]);
+    const r = norm([-f[2], 0, f[0]]);
+    const u: V3 = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    const d: V3 = [p[0] - cam.pos[0], p[1] - cam.pos[1], p[2] - cam.pos[2]];
+    const z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+    if (z < 0.5) return null;
+    const t = Math.tan((cam.fov * Math.PI) / 360), half = h / 2;
+    const x = (d[0] * r[0] + d[1] * r[1] + d[2] * r[2]) / z, y = (d[0] * u[0] + d[1] * u[1] + d[2] * u[2]) / z;
+    return [w / 2 + (x / t) * half, half - (y / t) * half, half / (t * z)];
 }
 
 function ensureLevel(b: Battle): void {
@@ -532,6 +688,14 @@ function drawBattle(b: Battle, cam: { pos: V3 }): void {
     // Projectiles, mines, deployables, clouds, strikes, the squad call.
     for (const p of b.projectiles) {
         if (p.kind === "bolt") { renderer.glow(placed(p.pos, 1.2), [1, 0.25, 0.15, 1], GLOW.dot); continue; }
+        if (p.kind === "rocket" || p.kind === "missile") {
+            // A body along its flight and a hot motor at the tail.
+            const sp = Math.hypot(...p.vel) || 1, dv: V3 = [p.vel[0] / sp, p.vel[1] / sp, p.vel[2] / sp];
+            const tail: V3 = [p.pos[0] - dv[0] * 0.9, p.pos[1] - dv[1] * 0.9, p.pos[2] - dv[2] * 0.9];
+            renderer.solid("cyl", between(tail, p.pos, 0.06), [0.3, 0.32, 0.28, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
+            renderer.glow(placed(tail, 0.45 + 0.15 * Math.sin(realTime * 60 + p.pos[0])), [1, 0.75, 0.4, 1.6], GLOW.dot);
+            continue;
+        }
         renderer.glow(placed(p.pos, p.kind === "grenade" ? 0.2 : 0.6), p.kind === "grenade" ? [0.4, 0.4, 0.4, 0.3] : [1, 0.7, 0.35, 1], GLOW.dot);
         if (p.kind === "grenade" || p.kind === "bomb" || p.kind === "mortar") renderer.solid("sphere-1", placed(p.pos, p.kind === "grenade" ? 0.07 : 0.3), [0.2, 0.22, 0.2, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
     }
@@ -543,7 +707,8 @@ function drawBattle(b: Battle, cam: { pos: V3 }): void {
     }
     for (const d of b.deployables) {
         if (d.kind === "turret") { renderer.solid("cyl", yawed([d.x, d.y, d.z], 0, 0.35, 0.9, 0.35), [0.3, 0.32, 0.3, 1], [LIT.body, 0, 0, 0], [0, BODY.hull, 0, 0]); renderer.solid("cube", yawed([d.x, d.y + 1.1, d.z], d.yaw, 0.25, 0.2, 0.6), [0.15, 0.15, 0.15, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]); }
-        else if (d.kind === "crate" || d.kind === "supply") renderer.solid("cube", yawed([d.x, d.y + 0.4, d.z], d.yaw, 0.6, 0.4, 0.4), d.kind === "supply" ? [0.25, 0.35, 0.2, 1] : [0.35, 0.33, 0.2, 1], [LIT.body, 0, 0, 0], [0, BODY.plate, 0, 0]);
+        else if (d.kind === "crate") renderer.solid("cube", yawed([d.x, d.y + 0.4, d.z], d.yaw, 0.6, 0.4, 0.4), [0.35, 0.33, 0.2, 1], [LIT.body, 0, 0, 0], [0, BODY.plate, 0, 0]);
+        else if (d.kind === "supply") drawSupplyDrop(b, d);
         else if (d.kind === "beacon") { renderer.solid("cyl", yawed([d.x, d.y, d.z], 0, 0.05, 1.2, 0.05), [0.2, 0.2, 0.2, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]); renderer.glow(placed([d.x, d.y + 1.25, d.z], 0.3 + 0.1 * Math.sin(realTime * 6)), [...TEAM_COLOR[d.team], 1], GLOW.dot); }
     }
     for (const c of b.clouds) {
@@ -570,34 +735,222 @@ function drawBattle(b: Battle, cam: { pos: V3 }): void {
     if (me && me.alive && me.vehicle < 0 && !thirdPerson && !freeCam) drawViewModel(me);
 }
 
+type Rgba = readonly [number, number, number, number];
+const VM = {
+    body: [0.16, 0.17, 0.17, 1] as Rgba, dark: [0.07, 0.07, 0.08, 1] as Rgba, steel: [0.3, 0.31, 0.33, 1] as Rgba,
+    tan: [0.42, 0.35, 0.24, 1] as Rgba, olive: [0.27, 0.3, 0.22, 1] as Rgba, sand: [0.55, 0.5, 0.38, 1] as Rgba, glove: [0.2, 0.2, 0.18, 1] as Rgba,
+};
+/** Rifle-family shapes (metres in model space, bore along +z, the receiver centred on z = 0). */
+interface GunShape { recv: number; h: number; barrel: number; br: number; mag: "curved" | "box" | "long" | "drum" | "belt" | "tube" | "none"; stock: "full" | "short" | "thumb" | "spade"; furn: Rgba; bolt?: boolean; brake?: boolean; coils?: boolean; jacket?: boolean }
+const SHAPES: Record<string, GunShape> = {
+    W001: { recv: 0.15, h: 0.04, barrel: 0.5, br: 0.009, mag: "curved", stock: "full", furn: VM.body },
+    W002: { recv: 0.13, h: 0.038, barrel: 0.36, br: 0.009, mag: "curved", stock: "short", furn: VM.body },
+    W003: { recv: 0.16, h: 0.042, barrel: 0.56, br: 0.011, mag: "box", stock: "full", furn: VM.tan },
+    W004: { recv: 0.11, h: 0.036, barrel: 0.26, br: 0.008, mag: "long", stock: "short", furn: VM.body },
+    W005: { recv: 0.14, h: 0.04, barrel: 0.56, br: 0.012, mag: "tube", stock: "full", furn: VM.tan },
+    W006: { recv: 0.2, h: 0.05, barrel: 0.62, br: 0.013, mag: "drum", stock: "full", furn: VM.olive, jacket: true },
+    W007: { recv: 0.24, h: 0.06, barrel: 0.8, br: 0.018, mag: "belt", stock: "spade", furn: VM.olive, jacket: true },
+    W008: { recv: 0.18, h: 0.04, barrel: 0.78, br: 0.01, mag: "box", stock: "thumb", furn: VM.sand, bolt: true },
+    W009: { recv: 0.17, h: 0.042, barrel: 0.6, br: 0.01, mag: "box", stock: "full", furn: VM.tan },
+    W010: { recv: 0.22, h: 0.055, barrel: 0.95, br: 0.016, mag: "box", stock: "thumb", furn: VM.olive, bolt: true, brake: true },
+    W016: { recv: 0.18, h: 0.045, barrel: 0.55, br: 0.012, mag: "box", stock: "full", furn: VM.steel, coils: true },
+};
+
+/** A supply drop: it falls under a parachute for SUPPLY_FALL s, then sits with a coloured smoke plume and a
+ * marker over it (seen across the battlefield) while it has uses left. */
+function drawSupplyDrop(b: Battle, d: Battle["deployables"][number]): void {
+    const fall = clamp(1 - (b.time - d.born) / SUPPLY_FALL);
+    const y = d.y + fall * fall * 70;
+    const team: [number, number, number] = TEAM_COLOR[d.team];
+    const crate: [number, number, number, number] = d.uses > 0 ? [0.25, 0.35, 0.2, 1] : [0.2, 0.2, 0.18, 1];
+    renderer.solid("cube", yawed([d.x, y + 0.5, d.z], d.yaw, 0.8, 0.5, 0.55), crate, [LIT.body, 0, 0, 0], [0, BODY.plate, 0, 0]);
+    renderer.solid("cube", yawed([d.x, y + 0.5, d.z], d.yaw, 0.82, 0.52, 0.06), [0.12, 0.12, 0.1, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]); // strap
+    renderer.solid("cube", yawed([d.x, y + 1.02, d.z], d.yaw, 0.3, 0.02, 0.3), [...team, 1], [LIT.emissive, 0, 0.4, 0], [0, 0, 0, 0]);
+    if (fall > 0) {
+        // The parachute: a canopy and its lines.
+        const top: V3 = [d.x, y + 7, d.z];
+        renderer.solid("sphere-1", yawed(top, d.yaw, 3.2, 1.1, 3.2), [0.85, 0.82, 0.72, 1], [LIT.body, 0, 0, 0], [0, BODY.cloth, 0, 0]);
+        for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) renderer.solid("cyl", between([d.x + sx * 0.5, y + 1, d.z + sz * 0.5], [d.x + sx * 2.6, y + 6.6, d.z + sz * 2.6], 0.015), [0.6, 0.6, 0.55, 1], [LIT.body, 0, 0, 0], [0, BODY.cloth, 0, 0]);
+    } else if (d.uses > 0) {
+        if (rnd() < 0.25 && effects.length < 900) effects.push({ kind: "smoke", pos: [d.x + (rnd() - 0.5) * 0.4, d.y + 1.2, d.z + (rnd() - 0.5) * 0.4], to: [0, 0, 0], vel: [(rnd() - 0.5) * 0.4, 2.2 + rnd(), (rnd() - 0.5) * 0.4], life: 3.5, max: 3.5, size: 0.7, color: [team[0] * 0.8 + 0.15, team[1] * 0.8 + 0.15, team[2] * 0.8 + 0.15], seed: rnd() });
+        const cam = cameraNow().pos, dist = Math.hypot(d.x - cam[0], d.z - cam[2]);
+        if (dist > 12 && battle?.me && battle.me.team === d.team) renderer.glow(placed([d.x, d.y + 4 + dist * 0.02, d.z], 0.6 + dist * 0.01), [0.6, 1, 0.6, 0.9], GLOW.marker, 0.1);
+    }
+}
+
+/** The player's weapon in first person. Each weapon has its own shape and fitted attachments; aiming brings
+ * its sight onto the view axis (and scales the model with the zoom so it keeps its size on screen), and it
+ * kicks on a shot, cycles a bolt or pump, dips and tilts through a reload, drops on a weapon swap, lowers
+ * while sprinting and trails fast turns. */
 function drawViewModel(me: Soldier): void {
-    if (hud.ads && hud.zoom >= 2.5) return; // looking through the scope (ar_hud draws it)
+    const b = battle!;
+    const w = b.weaponOf(me);
+    const sight = sightOf(b, me);
+    if (sight.kind === "scope" && hud.ads && adsT > 0.85) { muzzleAt = null; portAt = null; return; } // looking through the scope (ar_hud draws it)
     const eye = eyeOf(me);
-    const f = dirOf(lookYaw, lookPitch);
-    const r = norm([-f[2], 0, f[0]]);
-    const u: V3 = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    const f0 = dirOf(lookYaw, lookPitch);
+    const r0 = norm([-f0[2], 0, f0[0]]);
+    const u0: V3 = [r0[1] * f0[2] - r0[2] * f0[1], r0[2] * f0[0] - r0[0] * f0[2], r0[0] * f0[1] - r0[1] * f0[0]];
+    const ads = adsT * adsT * (3 - 2 * adsT);
+    const since = b.time - me.lastShot, cycle = 60 / w.rpm;
     const moving = Math.min(1, Math.hypot(me.vel[0], me.vel[2]) / 4);
-    const bob = Math.sin(realTime * 9) * moving * 0.008, sway = Math.cos(realTime * 4.5) * moving * 0.006;
-    const kick = Math.max(0, 0.06 - (battle!.time - me.lastShot)) * 0.6;
-    const ads = hud.ads ? 1 : 0;
-    const off = (x: number, y: number, z: number): V3 => [eye[0] + r[0] * x + u[0] * y + f[0] * z, eye[1] + r[1] * x + u[1] * y + f[1] * z, eye[2] + r[2] * x + u[2] * y + f[2] * z];
-    const x0 = (ads ? 0 : 0.15) + sway * (1 - ads * 0.8), y0 = (ads ? -0.078 : -0.15) + bob * (1 - ads * 0.8), z0 = 0.6 - kick;
-    const k = 0.62;
-    const wpn = WEAPON.get(me.slot === "primary" ? me.loadout.primary : me.slot === "sidearm" ? me.loadout.sidearm : me.loadout.launcher ?? me.loadout.primary)!;
-    const len = me.slot === "launcher" ? 0.9 : me.slot === "sidearm" ? 0.12 : wpn.id === "W008" || wpn.id === "W010" ? 0.55 : 0.4;
-    const body: [number, number, number, number] = [0.16, 0.17, 0.17, 1], dark: [number, number, number, number] = [0.07, 0.07, 0.08, 1];
-    const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, c: readonly number[]) => renderer.solid("cube", aligned2(off(x0 + (x - x0) * k, y0 + (y - y0) * k, z0 + (z - z0) * k), f, u, sx * k, sy * k, sz * k), c, [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
-    if (me.slot === "launcher") { renderer.solid("cyl", between(off(x0, y0 + 0.02, z0 - 0.35), off(x0, y0 + 0.02, z0 + len), 0.05), [0.28, 0.3, 0.24, 1], [LIT.body, 0, 0, 0], [0, BODY.plate, 0, 0]); return; }
-    box(x0, y0, z0, 0.025, 0.04, me.slot === "sidearm" ? 0.07 : 0.16, body);                 // receiver
-    renderer.solid("cyl", between(off(x0, y0 + 0.012 * k, z0 + 0.1 * k), off(x0, y0 + 0.012 * k, z0 + (0.1 + len) * k), 0.009 * k), dark, [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]); // barrel
-    box(x0, y0 + 0.01, z0 + 0.2, 0.022, 0.025, 0.09, body);                                  // handguard
-    box(x0, y0 - 0.06, z0 + 0.04, 0.012, 0.045, 0.02, dark);                                 // magazine
-    if (me.slot !== "sidearm") box(x0, y0 - 0.015, z0 - 0.2, 0.018, 0.035, 0.07, body);      // stock
-    if (me.loadout.attachments.Optic && me.loadout.attachments.Optic !== "A001" && me.slot === "primary") box(x0, y0 + 0.055, z0, 0.014, 0.018, 0.05, dark);
-    // Gloved hands.
-    renderer.solid("sphere-1", placed(off(x0 + 0.003, y0 - 0.022, z0 - 0.025), 0.02), [0.2, 0.2, 0.18, 1], [LIT.body, 0, 0, 0], [0, BODY.cloth, 0, 0]);
-    renderer.solid("sphere-1", placed(off(x0 - 0.006, y0 - 0.012, z0 + 0.14), 0.02), [0.2, 0.2, 0.18, 1], [LIT.body, 0, 0, 0], [0, BODY.cloth, 0, 0]);
-    if (battle!.time - me.lastShot < 0.05) renderer.glow(placed(off(x0, y0 + 0.008, z0 + (0.12 + len) * k), 0.06), [1, 0.8, 0.45, 2], GLOW.dot);
+    const sprint = sprintingNow ? 1 : 0;
+    const bob = Math.sin(realTime * (sprint ? 12 : 9)) * moving * (0.008 + sprint * 0.01), swayX = Math.cos(realTime * (sprint ? 6 : 4.5)) * moving * (0.006 + sprint * 0.008);
+    // Reload: dip and roll in, magazine out and back, roll out. Swap: the weapon comes up from below.
+    const rl = hud.reloadP >= 0 ? hud.reloadP : -1;
+    const dip = rl >= 0 ? Math.sin(Math.min(1, rl * 1.15) * Math.PI) : 0;
+    const magOut = rl >= 0 ? Math.max(0, Math.sin(clamp((rl - 0.12) / 0.6) * Math.PI)) : 0;
+    const swap = clamp(1 - (b.time - slotAt) / 0.4);
+    const kick = viewKick * viewKick;
+    // The weapon's model and where its sight sits (x, y in model space).
+    const launcher = me.slot === "launcher" && w.id !== "A015";
+    const shape = me.slot === "primary" || w.id === "A015" ? SHAPES[me.loadout.primary] ?? SHAPES.W001 : null;
+    const optic = me.slot === "primary" ? me.loadout.attachments.Optic : undefined;
+    const sightPt: [number, number] = launcher ? [-0.11, 0.06] : shape ? [0, shape.h + (optic && optic !== "A001" ? (optic === "A003" ? 0.042 : 0.036) : 0.036)] : [0, 0.052];
+    // Model scale: the old view model's 0.62, times the zoom so the gun keeps its size on screen.
+    const zs = zoomNow(), K = 0.62 * zs;
+    // The anchor (view space, metres): hip, or the sight on the view axis when aimed.
+    const hip: V3 = launcher ? [0.16, -0.11, 0.36] : me.slot === "sidearm" ? [0.12, -0.12, 0.42] : [0.13, -0.14, 0.42];
+    const aim: V3 = [-sightPt[0] * K, -sightPt[1] * K, 0.38];
+    const lag = gunLag;
+    const ax = (hip[0] + (aim[0] / zs - hip[0]) * ads) + swayX * (1 - ads * 0.85) - lag[0] * (1 - ads * 0.7) * 0.5 + sprint * 0.04;
+    const ay = (hip[1] + (aim[1] / zs - hip[1]) * ads) + bob * (1 - ads * 0.85) + lag[1] * (1 - ads * 0.7) * 0.4 - dip * 0.06 - swap * 0.2 - sprint * 0.05;
+    const az = (hip[2] + (aim[2] - hip[2]) * ads) - kick * (launcher ? 0.06 : 0.035) - dip * 0.04;
+    // Orientation: kick pitches the muzzle up, a reload rolls the gun, sprinting tilts it away, a swap
+    // brings it up from pointing down, and fast turns yaw it behind the view.
+    const pitch = kick * (launcher ? 0.12 : 0.08) * (1 - ads * 0.6) - sprint * 0.55 - swap * 0.9 + dip * 0.15 - lag[1] * 0.6 * (1 - ads);
+    const yaw = sprint * 0.55 + lag[0] * 0.8 * (1 - ads);
+    const roll = dip * 0.5 + sprint * 0.25;
+    let F = f0, U = u0, R = r0;
+    [F, U] = rot2(F, U, pitch);
+    [F, R] = rot2(F, R, yaw);
+    [R, U] = rot2(R, U, roll);
+    const O: V3 = [eye[0] + (r0[0] * ax + u0[0] * ay + f0[0] * az) * zs, eye[1] + (r0[1] * ax + u0[1] * ay + f0[1] * az) * zs, eye[2] + (r0[2] * ax + u0[2] * ay + f0[2] * az) * zs];
+    const at = (x: number, y: number, z: number): V3 => [O[0] + (R[0] * x + U[0] * y + F[0] * z) * K, O[1] + (R[1] * x + U[1] * y + F[1] * z) * K, O[2] + (R[2] * x + U[2] * y + F[2] * z) * K];
+    const box = (x: number, y: number, z: number, sx: number, sy: number, sz: number, c: Rgba) => renderer.solid("cube", aligned2(at(x, y, z), F, U, sx * K, sy * K, sz * K), c, [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
+    const tube = (x: number, y: number, z0: number, z1: number, rad: number, c: Rgba) => renderer.solid("cyl", between(at(x, y, z0), at(x, y, z1), rad * K), c, [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
+    const dot = (x: number, y: number, z: number, size: number, c: readonly number[]) => renderer.glow(placed(at(x, y, z), size * K), c, GLOW.dot);
+    const hand = (x: number, y: number, z: number) => renderer.solid("sphere-1", placed(at(x, y, z), 0.022 * K), VM.glove, [LIT.body, 0, 0, 0], [0, BODY.cloth, 0, 0]);
+    /** A see-through sight frame (four thin bars) centred on (x, y). */
+    const frame = (x: number, y: number, z: number, hw: number, hh: number, t: number, c: Rgba) => { box(x - hw, y, z, t, hh + t, t, c); box(x + hw, y, z, t, hh + t, t, c); box(x, y + hh, z, hw, t, t, c); box(x, y - hh, z, hw, t, t, c); };
+    let muzzle = 0.5, flashSize = 1, portZ = 0, portY = 0;
+
+    if (launcher) {
+        // Shoulder-fired tubes: the sight sits left of the tube, on the view axis when aimed.
+        const big = w.id === "W015" ? 1.2 : w.id === "W014" ? 1 : 0.8;
+        const c = w.id === "W015" ? VM.sand : w.id === "W014" ? VM.olive : [0.32, 0.34, 0.25, 1] as Rgba;
+        const r = 0.05 * big, z0 = -0.45 * big, z1 = 0.6 * big;
+        tube(0, 0, z0, z1, r, c);
+        tube(0, 0, z0 - 0.02, z0 + 0.06, r * 1.25, VM.dark);                  // venturi
+        tube(0, 0, z1 - 0.04, z1 + 0.01, r * 1.12, VM.dark);                  // muzzle ring
+        box(0, -r - 0.04, 0.05, 0.012, 0.04, 0.02, VM.dark);                    // grip
+        box(0, -r - 0.03, 0.3 * big, 0.012, 0.03, 0.018, VM.dark);             // fore grip
+        if (w.id === "W014") { box(-0.165, -0.005, 0.05, 0.02, 0.026, 0.05, VM.dark); renderer.glow(placed(at(-0.165, -0.005, -0.002), 0.01 * K), [0.3, 1, 0.5, 0.9], GLOW.dot); } // the sight unit, left of the sight frame
+        if (w.id === "W015") { box(0, -r - 0.05, -0.1, 0.03, 0.03, 0.06, VM.dark); tube(-0.03, r + 0.04, 0.1, 0.32, 0.004, VM.steel); }
+        frame(sightPt[0], sightPt[1], 0.12 * big, 0.022 * big, 0.018 * big, 0.003, VM.dark);
+        box(sightPt[0] / 2, sightPt[1] / 2, 0.12 * big, Math.abs(sightPt[0]) / 2, 0.004, 0.004, VM.dark);   // the sight's arm
+        // A loaded round shows at the front.
+        if (me.mag.launcher > 0 && me.reloadUntil === 0) renderer.solid("sphere-1", placed(at(0, 0, z1 + 0.03), r * 0.9 * K), w.id === "W015" ? [0.8, 0.8, 0.75, 1] : [0.3, 0.32, 0.25, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);
+        hand(0, -r - 0.03, 0.04); hand(0, -r - 0.02, 0.3 * big);
+        muzzle = z1 + 0.05; flashSize = 2.2;
+        // Backblast behind the shooter.
+        if (since < 0.1) renderer.glow(placed(at(0, 0, z0 - 0.1), 0.25 * K), [1, 0.7, 0.4, 2 * (1 - since * 10)], GLOW.dot);
+    } else if (shape) {
+        const s = shape, h = s.h, rz = s.recv;
+        const att = me.loadout.attachments;
+        box(0, 0, 0, 0.026 * (h / 0.04), h, rz, VM.body);                                     // receiver
+        box(0, h + 0.004, -0.01, 0.011, 0.005, rz * 0.9, VM.dark);                            // top rail
+        if (s.jacket) tube(0, 0.012, rz, rz + s.barrel * 0.6, s.br * 1.9, VM.dark);           // barrel jacket / heat shield
+        tube(0, 0.012, rz, rz + s.barrel, s.br, VM.dark);                                      // barrel
+        box(0, 0.006, rz + s.barrel * 0.28, 0.022 * (h / 0.04), 0.026 * (h / 0.04), s.barrel * 0.26, s.furn); // handguard
+        box(0, -h - 0.032, -rz * 0.45, 0.012, 0.036, 0.016, VM.dark);                         // pistol grip
+        // Magazine (it drops out and comes back through a reload); an extended magazine is longer.
+        const ext = att.Magazine === "A016" ? 1.4 : 1, my = -magOut * 0.22;
+        if (s.mag === "curved") { box(0, -h - 0.04 * ext + my, rz * 0.3, 0.011, 0.04 * ext, 0.022, VM.dark); box(0, -h - 0.08 * ext - 0.012 + my, rz * 0.3 + 0.014, 0.011, 0.016, 0.02, VM.dark); }
+        else if (s.mag === "box") box(0, -h - 0.028 * ext + my, rz * 0.3, 0.012, 0.028 * ext, 0.03, VM.dark);
+        else if (s.mag === "long") box(0, -h - 0.06 * ext + my, rz * 0.3, 0.01, 0.06 * ext, 0.014, VM.dark);
+        else if (s.mag === "drum") { box(0, -h - 0.036 + my, rz * 0.25, 0.036, 0.036, 0.04, VM.olive); }
+        else if (s.mag === "belt") { box(-0.07, -0.02 + my, 0, 0.03, 0.045, 0.07, VM.olive); box(-0.035, 0.01, 0, 0.012, 0.006, 0.02, [0.7, 0.55, 0.25, 1]); }
+        else if (s.mag === "tube") tube(0, -0.024, rz, rz + s.barrel * 0.85, 0.011, VM.dark);
+        // Stock.
+        if (s.stock === "full") { box(0, -0.008, -rz - 0.12, 0.017, 0.034, 0.12, s.furn); box(0, -0.012, -rz - 0.245, 0.019, 0.042, 0.008, VM.dark); }
+        else if (s.stock === "short") { box(0, 0.004, -rz - 0.07, 0.006, 0.006, 0.07, VM.dark); box(0, -0.01, -rz - 0.14, 0.014, 0.03, 0.008, VM.dark); }
+        else if (s.stock === "thumb") { box(0, -0.016, -rz - 0.13, 0.019, 0.045, 0.13, s.furn); box(0, 0.035, -rz - 0.1, 0.012, 0.012, 0.06, s.furn); }
+        else { box(-0.03, -0.03, -rz - 0.03, 0.008, 0.035, 0.008, VM.dark); box(0.03, -0.03, -rz - 0.03, 0.008, 0.035, 0.008, VM.dark); }
+        // Shotgun pump, bolt handle: they cycle a beat after the shot.
+        const cyc = since > 0.1 && since < Math.min(0.55, cycle) ? Math.sin(((since - 0.1) / (Math.min(0.55, cycle) - 0.1)) * Math.PI) : 0;
+        if (s.mag === "tube") { box(0, -0.024, rz + s.barrel * 0.4 - cyc * 0.08, 0.02, 0.022, 0.07, s.furn); hand(0, -0.04, rz + s.barrel * 0.4 - cyc * 0.08); }
+        if (s.bolt) { box(0.035, 0.012, -rz * 0.25 - cyc * 0.07, 0.012, 0.005, 0.005, VM.steel); renderer.solid("sphere-1", placed(at(0.048, 0.012, -rz * 0.25 - cyc * 0.07), 0.009 * K), VM.steel, [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]); }
+        if (s.brake) box(0, 0.012, rz + s.barrel + 0.03, 0.026, 0.016, 0.03, VM.dark);
+        if (s.coils) { const glowK = 0.5 + 0.5 * Math.max(0, 1 - since * 2); for (let i = 0; i < 4; i++) { tube(0, 0.012, rz + 0.06 + i * 0.1, rz + 0.09 + i * 0.1, s.br * 2.1, VM.steel); dot(0, 0.012 + s.br * 2.2, rz + 0.075 + i * 0.1, 0.012, [0.35, 0.7, 1, 1.5 * glowK]); } box(0.016, 0.03, rz + s.barrel * 0.5, 0.003, 0.004, s.barrel * 0.45, VM.dark); box(-0.016, 0.03, rz + s.barrel * 0.5, 0.003, 0.004, s.barrel * 0.45, VM.dark); }
+        if (s.mag === "drum" || s.mag === "belt") { box(0, h + 0.03, 0.02, 0.006, 0.02, 0.05, VM.dark); }  // carry handle
+        // Sights.
+        const sy = sightPt[1];
+        if (!optic || optic === "A001") {
+            box(0, sy - 0.016, rz + s.barrel * 0.82, 0.0022, 0.016, 0.002, VM.dark);          // front post (its tip is the aim point)
+            box(0, h + 0.012, rz + s.barrel * 0.82, 0.01, 0.008, 0.006, VM.dark);
+            box(-0.008, sy - 0.006, -rz * 0.55, 0.003, 0.012, 0.004, VM.dark); box(0.008, sy - 0.006, -rz * 0.55, 0.003, 0.012, 0.004, VM.dark); // rear notch
+        } else if (optic === "A002") {
+            box(0, h + 0.012, 0, 0.012, 0.006, 0.022, VM.dark);
+            frame(0, sy, 0.01, 0.016, 0.014, 0.0025, VM.dark);
+            dot(0, sy, 0.0, 0.004, [1, 0.15, 0.1, 0.6]);
+        } else if (optic === "A003") {
+            box(0, h + 0.012, 0, 0.016, 0.006, 0.03, VM.dark);
+            frame(0, sy, -0.02, 0.022, 0.017, 0.003, VM.dark); frame(0, sy, 0.03, 0.022, 0.017, 0.003, VM.dark);
+            box(-0.022, sy, 0.005, 0.003, 0.017, 0.025, VM.dark); box(0.022, sy, 0.005, 0.003, 0.017, 0.025, VM.dark);
+        } else {
+            const len = optic === "A004" ? 0.07 : optic === "A005" ? 0.1 : 0.14, rad = optic === "A006" ? 0.02 : 0.017;
+            box(0, h + 0.016, 0, 0.01, 0.008, 0.03, VM.dark);
+            tube(0, sy, -len, len, rad, VM.dark);
+            tube(0, sy, len * 0.75, len + 0.01, rad * 1.35, VM.dark);
+            tube(0, sy, -len - 0.01, -len * 0.75, rad * 1.15, VM.dark);
+            renderer.glow(placed(at(0, sy, len + 0.012), rad * 1.1 * K), [0.3, 0.45, 0.6, 0.5], GLOW.dot);
+        }
+        // Muzzle devices and underbarrel / utility attachments.
+        muzzle = rz + s.barrel + (s.brake ? 0.06 : 0);
+        if (att.Muzzle === "A007") { tube(0, 0.012, muzzle - 0.01, muzzle + 0.14, s.br * 1.9, VM.dark); muzzle += 0.14; flashSize = 0.35; }
+        else if (att.Muzzle === "A008") { box(0, 0.012, muzzle + 0.025, 0.014, 0.014, 0.025, VM.dark); muzzle += 0.05; flashSize = 1.3; }
+        else if (att.Muzzle === "A009") { tube(0, 0.012, muzzle - 0.005, muzzle + 0.045, s.br * 1.3, VM.dark); muzzle += 0.045; flashSize = 0.6; }
+        const fore = rz + s.barrel * 0.32;
+        if (att.Underbarrel === "A013") box(0, -0.055, fore, 0.01, 0.04, 0.012, VM.dark);
+        if (att.Underbarrel === "A014") { const open = me.stance !== "stand" ? 1 : 0; box(-0.012, -0.03 - open * 0.05, rz + s.barrel * 0.55 + (1 - open) * 0.05, 0.004, 0.012 + open * 0.05, 0.05 - open * 0.045, VM.dark); box(0.012, -0.03 - open * 0.05, rz + s.barrel * 0.55 + (1 - open) * 0.05, 0.004, 0.012 + open * 0.05, 0.05 - open * 0.045, VM.dark); }
+        if (att.Underbarrel === "A015") { tube(0, -0.036, rz * 0.5, rz + s.barrel * 0.35, 0.021, VM.olive); box(0, -0.06, rz * 0.6, 0.006, 0.02, 0.008, VM.dark); }
+        if (att.Utility === "A017") { box(0.03, 0.005, rz + s.barrel * 0.35, 0.01, 0.012, 0.03, VM.dark); dot(0.03, 0.005, rz + s.barrel * 0.35 + 0.032, 0.006, [1, 0.1, 0.1, 1.2]); }
+        if (att.Utility === "A018") { tube(-0.03, 0.005, rz + s.barrel * 0.25, rz + s.barrel * 0.45, 0.012, VM.dark); dot(-0.03, 0.005, rz + s.barrel * 0.45 + 0.004, 0.012, [1, 1, 0.9, 0.8]); }
+        // Hands: grip, and the support hand on the handguard (on the magazine through a reload).
+        hand(0.003, -h - 0.02, -rz * 0.45);
+        if (s.mag !== "tube") magOut > 0.05 ? hand(0, -h - 0.05 - magOut * 0.1, rz * 0.3) : hand(-0.004, -0.02, w.id === "A015" ? rz * 0.9 : fore);
+        portZ = rz * 0.1; portY = h * 0.5;
+        if (w.id === "A015") { muzzle = rz + s.barrel * 0.35; flashSize = 0.8; }
+    } else {
+        // Sidearms: a slide that runs back on the shot.
+        const slide = Math.max(0, 1 - since / 0.06) * 0.035;
+        box(0, 0.03, 0.03 - slide, 0.014, 0.017, 0.09, VM.body);
+        box(0, 0.005, 0.02, 0.013, 0.012, 0.08, VM.dark);
+        box(0, -0.042, -0.04, 0.013, 0.046, 0.021, VM.dark);
+        if (w.id === "W012") box(0, -0.1 + magOut * -0.2, -0.04, 0.011, 0.03, 0.017, VM.dark);
+        else if (magOut > 0) box(0, -0.06 - magOut * 0.2, -0.04, 0.011, 0.03, 0.017, VM.dark);
+        box(0, 0.052 - 0.006, 0.11 - slide, 0.002, 0.006, 0.002, VM.dark);                           // front sight
+        box(-0.007, 0.05 - 0.004, -0.05 - slide, 0.003, 0.006, 0.003, VM.dark); box(0.007, 0.05 - 0.004, -0.05 - slide, 0.003, 0.006, 0.003, VM.dark);
+        hand(0.004, -0.04, -0.04); hand(-0.008, -0.05, -0.02);
+        muzzle = 0.13; flashSize = 0.8; portZ = 0.02; portY = 0.045;
+    }
+    // Muzzle flash: a hot core and a short flame along the bore for a couple of frames.
+    muzzleAt = at(0, launcher ? 0 : 0.012, muzzle);
+    portAt = at(0.03, portY, portZ);
+    if (since < 0.05 && w.id !== "W016") {
+        const fl = flashSize * (0.8 + 0.4 * ((realTime * 977) % 1));
+        renderer.glow(placed(muzzleAt, 0.05 * fl * K), [1, 0.8, 0.45, 2.4], GLOW.dot);
+        const tip = at(0, launcher ? 0 : 0.012, muzzle + 0.12 * fl);
+        const ax: V3 = [tip[0] - muzzleAt[0], tip[1] - muzzleAt[1], tip[2] - muzzleAt[2]], sz = 0.025 * fl * K;
+        renderer.glow([sz, 0, 0, 0, 0, sz, 0, 0, ax[0], ax[1], ax[2], 0, muzzleAt[0], muzzleAt[1], muzzleAt[2], 1], [1, 0.7, 0.35, 1.8], GLOW.beam);
+    } else if (since < 0.08 && w.id === "W016") renderer.glow(placed(muzzleAt, 0.08 * K), [0.4, 0.75, 1, 2.5], GLOW.dot);
+}
+
+/** Rotates the pair (a, b) by `ang` in their plane: a toward b. */
+function rot2(a: V3, b: V3, ang: number): [V3, V3] {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    return [[a[0] * c + b[0] * s, a[1] * c + b[1] * s, a[2] * c + b[2] * s], [b[0] * c - a[0] * s, b[1] * c - a[1] * s, b[2] * c - a[2] * s]];
 }
 
 function aligned2(p: V3, f: V3, u: V3, sx: number, sy: number, sz: number): Mat4 {
@@ -713,13 +1066,13 @@ function registerTools(): void {
     const tools: { name: string; description: string; parameters: object; run: (a: Args) => object }[] = [
         { name: "ar_state", description: "Armageddon 2070's state: mode, the loadout, the battle (tickets, territories, squads and their WIR modes, vehicles, WIR stats), the player.", parameters: { type: "object", properties: {} }, run: () => snapshot() },
         {
-            name: "ar_expect", description: "Asserts the player's input state (fails the call on a mismatch): slot, ads (bool), stance, device (keys|pad), moved / turned (bool: since the previous ar_expect), mode. Use after real key, mouse or gamepad input.",
-            parameters: { type: "object", properties: { slot: { type: "string" }, ads: { type: "boolean" }, stance: { type: "string" }, device: { type: "string" }, moved: { type: "boolean" }, turned: { type: "boolean" }, mode: { type: "string" } } },
+            name: "ar_expect", description: "Asserts the player's input state (fails the call on a mismatch): slot, ads (bool), stance, device (keys|pad), moved / turned (bool: since the previous ar_expect), mode, inVehicle (bool), launcherRounds (loaded + spare), zoomed (bool: the view is narrower than the hip FOV). Use after real key, mouse or gamepad input.",
+            parameters: { type: "object", properties: { slot: { type: "string" }, ads: { type: "boolean" }, stance: { type: "string" }, device: { type: "string" }, moved: { type: "boolean" }, turned: { type: "boolean" }, mode: { type: "string" }, inVehicle: { type: "boolean" }, launcherRounds: { type: "number" }, zoomed: { type: "boolean" } } },
             run: a => {
                 const me = battle?.me;
                 const now = { slot: me?.slot, ads: hud.ads, stance: me?.stance, device: hud.device, mode, pos: me ? [...me.pos] : [0, 0, 0], yaw: lookYaw };
                 const moved = Math.hypot(now.pos[0] - expectMark.pos[0], now.pos[2] - expectMark.pos[2]) > 0.5, turned = Math.abs(now.yaw - expectMark.yaw) > 0.05;
-                const got: Record<string, unknown> = { slot: now.slot, ads: now.ads, stance: now.stance, device: now.device, mode, moved, turned };
+                const got: Record<string, unknown> = { slot: now.slot, ads: now.ads, stance: now.stance, device: now.device, mode, moved, turned, inVehicle: !!me && me.vehicle >= 0, launcherRounds: me ? me.mag.launcher + me.reserve.launcher : 0, zoomed: cameraNow().fov < HIP_FOV - 1 };
                 expectMark = { pos: now.pos, yaw: now.yaw };
                 const wrong = Object.keys(a).filter(k => k in got && got[k] !== a[k]);
                 if (wrong.length) throw new Error(`expected ${wrong.map(k => `${k}=${String(a[k])}`).join(", ")}; got ${wrong.map(k => `${k}=${String(got[k])}`).join(", ")}`);
