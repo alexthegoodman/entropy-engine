@@ -92,6 +92,8 @@ export type BattleEvent =
     | { kind: "shot"; from: V3; to: V3; team: Team; heavy: boolean; shooter: number; weapon?: string; impact?: boolean }
     | { kind: "resupply"; soldier: number }
     | { kind: "hit"; at: V3; vehicle: boolean; target: number }
+    /** Damage that landed on an enemy soldier (`by`: who dealt it): the shooter's hit marker. */
+    | { kind: "dealt"; by: number; target: number; amount: number }
     | { kind: "explode"; at: V3; radius: number }
     | { kind: "kill"; killer: number; victim: number; weapon: string; head: boolean }
     | { kind: "vehicleKill"; killer: number; vehicle: number }
@@ -632,6 +634,7 @@ export class Battle {
         if (!o.alive || amount <= 0) return;
         if (kind === "explosive") amount *= 1 - o.stats.explosive;
         o.hp -= amount;
+        if (by >= 0 && this.soldiers[by] && this.soldiers[by].team !== o.team) this.events.push({ kind: "dealt", by, target: o.id, amount });
         o.lastHitBy = by; o.lastHitAt = this.time;
         o.suppression = Math.min(4, o.suppression + 0.8);
         if (o.hp <= 0) this.kill(o, by, weapon, loc === "head");

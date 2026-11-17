@@ -21,6 +21,8 @@ export const TERRAIN_STEP = 4;
 export const TN = MAP_SIZE / TERRAIN_STEP + 1;
 /** Cover grid: one cell per metre. */
 export const CN = MAP_SIZE;
+/** Boxes are also bucketed per 8 m so a trace can check the real block where the grid says solid. */
+const BUCKET = 8, NB = MAP_SIZE / BUCKET;
 /** Infantry navigation: 2 m cells; vehicles: 4 m cells. */
 export const NAV_INF = 2, NI = MAP_SIZE / NAV_INF;
 export const NAV_VEH = 4, NV = MAP_SIZE / NAV_VEH;
@@ -186,6 +188,11 @@ export class World {
     readonly owner = new Int32Array(CN * CN);
     /** Under a roof (blocks air strikes and Hunter Protocol bolts): per 2 m cell. */
     readonly roofed = new Uint8Array(NI * NI);
+    /** Cover cells solid because of a tree trunk (not a box). */
+    private readonly trunk = new Uint8Array(CN * CN);
+    /** Box indices per 8 m bucket (every bucket a box's footprint touches). */
+    private readonly buckets: number[][] = Array.from({ length: NB * NB }, () => []);
+    private readonly bucketed = new Set<number>();
     boxes: Box[] = [];
     foliage: Foliage[] = [];
     territories: Territory[] = [];
@@ -205,6 +212,7 @@ export class World {
         this.buildTerrain();
         this.buildSites(rng);
         this.buildBetween(rng);
+        this.buildLanes(new Rng(def.seed * 7 + 3));
         this.buildFoliage(rng);
         this.rasterizeAll();
         this.buildNav();
@@ -368,14 +376,22 @@ export class World {
     private building(x: number, z: number, w: number, d: number, floors: number, mat: Material, rng: Rng, opts: { roof?: boolean; broken?: number; doors?: number } = {}): void {
         const H = floors * 3.2, t = 0.5, y = this.height(x, z) - 0.1;
         const sides: [number, number, number, number][] = [[x - w / 2, z - d / 2, x + w / 2, z - d / 2], [x + w / 2, z - d / 2, x + w / 2, z + d / 2], [x + w / 2, z + d / 2, x - w / 2, z + d / 2], [x - w / 2, z + d / 2, x - w / 2, z - d / 2]];
+        // At least two doors on different sides (usually opposite), so a building is a way through
+        // and not a dead end; some walls also have a breach blown through at floor level.
         const doorSides = new Set<number>();
-        const nd = opts.doors ?? rng.int(1, 3);
+        const nd = Math.max(2, opts.doors ?? rng.int(2, 3));
+        const first = rng.int(0, 3);
+        doorSides.add(first);
+        if (rng.next() < 0.7) doorSides.add((first + 2) % 4);
         while (doorSides.size < nd) doorSides.add(rng.int(0, 3));
+        const breach = opts.broken === 0 ? -1 : rng.next() < 0.4 ? rng.int(0, 3) : -1;
         sides.forEach(([ax, az, bx, bz], s) => {
             const L = Math.hypot(bx - ax, bz - az), ops: [number, number, number, number][] = [];
             const door = doorSides.has(s) ? Math.round(rng.range(2, L - 2) / 2) * 2 : -1;
             if (door > 0) ops.push([door, 2, 0, 2.3]);
-            for (let p = 2; p < L - 1.5; p += rng.range(2.6, 3.8)) if (Math.abs(p - door) > 2.4) ops.push([p, 1.2, 1.0, 2.1]);
+            const hole = s === breach && !doorSides.has(s) && L >= 6 ? Math.round(rng.range(2, L - 2) * 2) / 2 : -1;
+            if (hole > 0) ops.push([hole, 1.8, 0, rng.range(1.7, 2.2)]);
+            for (let p = 2; p < L - 1.5; p += rng.range(2.6, 3.8)) if (Math.abs(p - door) > 2.4 && Math.abs(p - hole) > 2.3) ops.push([p, 1.2, 1.0, 2.1]);
             const broken = opts.broken ?? 0.35;
             if (floors > 1) {
                 this.wall(ax, az, bx, bz, 3.2, t, mat, ops, y);
@@ -384,10 +400,21 @@ export class World {
                 this.wall(ax, az, bx, bz, H - 3.2, t, mat, up, y + 3.2, broken, rng);
             } else this.wall(ax, az, bx, bz, H, t, mat, ops, y, broken, rng);
         });
-        // An interior partition with a doorway in bigger buildings.
-        if (w > 10 && d > 8) {
+        // Rooms: a partition with a doorway in most buildings, a second one across the bigger ones,
+        // and a little low cover inside (a counter, crates, a fallen slab) for fights through rooms.
+        if (w >= 8 && d >= 6) {
             const px = x + rng.range(-w / 6, w / 6);
-            this.wall(px, z - d / 2 + t, px, z + d / 2 - t, 3.0, 0.3, "plaster", [[Math.round(rng.range(2, d - 2)), 1.6, 0, 2.2]], y);
+            this.wall(px, z - d / 2 + t, px, z + d / 2 - t, 3.0, 0.3, "plaster", [[Math.round(rng.range(1.5, d - 2)), 1.6, 0, 2.2]], y);
+            if (w > 10 && d > 8) {
+                const pz = z + rng.range(-d / 6, d / 6), side = rng.next() < 0.5 ? -1 : 1;
+                const xa = side < 0 ? x - w / 2 + t : px + 0.15, xb = side < 0 ? px - 0.15 : x + w / 2 - t;
+                if (xb - xa > 3) this.wall(xa, pz, xb, pz, 3.0, 0.3, "plaster", [[(xb - xa) / 2, 1.6, 0, 2.2]], y);
+            }
+        }
+        if (opts.broken !== 0) for (let i = 0, n = w * d > 60 ? 2 : 1; i < n; i++) {
+            const ix = x + rng.range(-w / 2 + 1.4, w / 2 - 1.4), iz = z + rng.range(-d / 2 + 1.4, d / 2 - 1.4);
+            const m: Material = rng.next() < 0.5 ? "wood" : opts.roof ? "concrete" : "rubble";
+            this.add({ x: ix, z: iz, y: y + 0.1, hx: rng.range(0.35, 0.6), hz: rng.range(0.5, 0.9), h: rng.range(0.9, 1.1), lift: 0, yaw: rng.next() < 0.5 ? 0 : Math.PI / 2, mat: m, kind: "cover" });
         }
         if (opts.roof) { this.add({ x, z, y: y + H, hx: w / 2, hz: d / 2, h: 0.35, lift: 0, yaw: 0, mat: "concrete", kind: "deco" }); this.markRoof(x, z, w / 2, d / 2); }
         // Rubble against the outside and debris inside.
@@ -634,6 +661,8 @@ export class World {
         this.add({ x: t.x, z: t.z, hx: 0.8, hz: 0.8, h: 5, lift: 0, yaw: 0.4, mat: "concrete", kind: "prop" });
         for (let i = 0; i < 8; i++) { const [x, z] = this.around(t, rng, 0.3, 0.8); this.add({ x, z, hx: rng.range(0.6, 1.4), hz: rng.range(1.5, 2.5), h: rng.range(0.9, 1.2), lift: 0, yaw: rng.range(0, 3), mat: i % 2 ? "concrete" : "wood", kind: "cover" }); }
         for (let i = 0; i < 4; i++) { const [x, z] = this.around(t, rng, 0.25, 0.7); this.wreck(x, z, rng.range(0, 6.28), rng); }
+        // Market kiosks: head-high boxes that break the square's long sightlines.
+        for (let i = 0; i < 5; i++) { const [x, z] = this.around(t, rng, 0.3, 0.8); this.add({ x, z, hx: rng.range(1.0, 1.4), hz: rng.range(1.2, 1.8), h: rng.range(2.3, 2.7), lift: 0, yaw: rng.range(0, 3), mat: i % 2 ? "metal" : "wood", kind: "prop" }); }
     }
 
     private checkpoint(t: Territory, rng: Rng): void {
@@ -645,6 +674,12 @@ export class World {
         for (const s of [-1, 1]) { const [hx, hz] = rot(s * 14, 0, yaw); this.hesco(t.x + hx, t.z + hz, yaw, 8); }
         for (let i = 0; i < 4; i++) { const [x, z] = this.around(t, rng, 0.4, 1.0); this.nest(x, z, rng.range(0, 6.28), rng); }
         const [tx, tz] = rot(-10, 8, yaw); this.tower(t.x + tx, t.z + tz, rng);
+        // Concrete T-walls in pairs and a container: cover to stand behind, not only to crouch behind.
+        for (let i = 0; i < 3; i++) {
+            const [x, z] = this.around(t, rng, 0.35, 0.85), a = rng.range(0, Math.PI), ux = Math.sin(a), uz = Math.cos(a);
+            for (const k of [-0.65, 0.65]) this.add({ x: x + ux * k, z: z + uz * k, hx: 0.3, hz: 0.62, h: 3.2, lift: 0, yaw: a, mat: "barrier", kind: "cover", hp: 2400 });
+        }
+        { const [x, z] = this.around(t, rng, 0.4, 0.8); this.container(x, z, rng.range(0, 6.28), rng); }
         for (let i = 0; i < 3; i++) { const [x, z] = this.around(t, rng, 0.3, 1.0); this.wreck(x, z, rng.range(0, 6.28), rng); }
     }
 
@@ -658,6 +693,16 @@ export class World {
         }
         this.building(Math.round(t.x / 2) * 2 + 4, Math.round(t.z / 2) * 2, 8, 6, 1, "concrete", rng, { roof: true, doors: 2, broken: 0.05 });
         this.tower(t.x - 6, t.z - 5, rng);
+        // Inside the ring: a second, ruined bunker and sandbag lines across the middle, so the hill
+        // is fought over from position to position rather than across an open top.
+        const [bx, bz] = this.around(t, rng, 0.35, 0.5);
+        this.building(Math.round(bx / 2) * 2, Math.round(bz / 2) * 2, 6, 6, 1, "concrete", rng, { broken: 0.5 });
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2 + rng.range(0, 0.8), r = t.radius * rng.range(0.25, 0.5);
+            const x = t.x + Math.cos(a) * r, z = t.z + Math.sin(a) * r;
+            if (i % 2) this.sandbags(x, z, a, rng.range(3, 5), rng, rng.next() < 0.5);
+            else { this.rubble(x, z, rng); this.sandbags(x + Math.cos(a) * 2, z + Math.sin(a) * 2, a + Math.PI / 2, 3, rng); }
+        }
         for (let i = 0; i < 8; i++) { const [x, z] = this.around(t, rng, 0.9, 1.6); this.rock(x, z, rng.range(1.2, 3), rng); }
     }
 
@@ -694,6 +739,125 @@ export class World {
         }
     }
 
+    /**
+     * Covered approaches between neighbouring sites, so the ground between territories is a place to
+     * move through rather than a killing field. Each site and HQ is linked to its three nearest (HQs
+     * to territories only); each link gets a centre lane and, when it is long, a flanking lane
+     * bowed out to either side. Along a lane a piece of cover stands every 8-13 m, alternating sides
+     * (low walls along the lane to move behind crouched, ruined corners with a window, wrecks, rocks,
+     * sandbag nests and the biome's own pieces), and a long link gets a small waystation at its middle
+     * to fight over (steep slopes get boulders only). Roads, water and the headquarters stay clear.
+     */
+    private buildLanes(rng: Rng): void {
+        const nodes = [...this.territories.map(t => ({ x: t.x, z: t.z, r: t.radius, base: false })), ...this.bases.map(b => ({ x: b.x, z: b.z, r: b.radius + 6, base: true }))];
+        const links = new Set<string>();
+        nodes.forEach((a, i) => {
+            const near = nodes.map((b, j) => ({ j, d: Math.hypot(a.x - b.x, a.z - b.z) })).filter(q => q.j !== i && !(a.base && nodes[q.j].base)).sort((p, q) => p.d - q.d).slice(0, 3);
+            for (const q of near) links.add(`${Math.min(i, q.j)},${Math.max(i, q.j)}`);
+        });
+        const biome = this.def.biome, mat: Material = biome === "mountain" ? "adobe" : biome === "coast" ? "plaster" : biome === "industrial" ? "concrete" : "brick";
+        const placed: [number, number, number][] = [];
+        const free = (x: number, z: number, r: number, steep = 0.5) => {
+            if (!this.inBounds(x, z, 8) || this.wet(x, z) || this.slope(x, z) > steep || this.inBase(x, z) || this.onRoad(x, z, r * 0.6 + 1)) return false;
+            for (const t of this.territories) if (Math.hypot(x - t.x, z - t.z) < t.radius * 0.9) return false;
+            for (const [px, pz, pr] of placed) if (Math.hypot(x - px, z - pz) < r + pr) return false;
+            for (const b of this.boxes) {
+                if (b.kind === "deco") continue;
+                const e = Math.max(b.hx, b.hz) + r;
+                if (Math.abs(b.x - x) < e && Math.abs(b.z - z) < e && Math.hypot(b.x - x, b.z - z) < e) return false;
+            }
+            return true;
+        };
+        // One piece of cover at (x, z), its long side along the lane direction `yaw`.
+        const piece = (x: number, z: number, yaw: number): boolean => {
+            const roll = rng.next(), c = Math.cos(yaw), sn = Math.sin(yaw), y = this.height(x, z) - 0.05;
+            // Steep ground only takes boulders.
+            if (this.slope(x, z) > 0.5) {
+                if (!free(x, z, 3.5, 0.9)) return false;
+                this.rock(x, z, rng.range(1.4, 2.4), rng);
+                this.rock(x + rng.range(-2.5, 2.5), z + rng.range(-2.5, 2.5), rng.range(1.0, 1.8), rng);
+                placed.push([x, z, 3.5]);
+                return true;
+            }
+            if (roll < 0.24) {
+                // A low wall along the lane: move behind it crouched.
+                if (!free(x, z, 4)) return false;
+                const len = rng.range(4, 7);
+                this.wall(x - sn * len / 2, z - c * len / 2, x + sn * len / 2, z + c * len / 2, rng.range(1.15, 1.3), 0.5, biome === "mountain" ? "adobe" : "brick", [], y, 0.3, rng);
+                placed.push([x, z, 4]);
+            } else if (roll < 0.4) {
+                // A ruined corner: two walls head high with a window, cover from two directions.
+                if (!free(x, z, 4.5)) return false;
+                const h = rng.range(2.3, 3), L = rng.range(4, 6);
+                const ax = x - sn * L / 2, az = z - c * L / 2, bx = x + sn * L / 2, bz = z + c * L / 2;
+                this.wall(ax, az, bx, bz, h, 0.5, mat, [[L * rng.range(0.35, 0.65), 1.2, 1.0, 2.1]], y, 0.4, rng);
+                const k = rng.next() < 0.5 ? 1 : -1, arm = rng.range(3, 4.5);
+                this.wall(bx, bz, bx + c * k * arm, bz - sn * k * arm, h, 0.5, mat, [], y, 0.5, rng);
+                this.rubble(x + c * k * 1.6, z - sn * k * 1.6, rng);
+                placed.push([x, z, 4.5]);
+            } else if (roll < 0.52) {
+                if (!free(x, z, 4)) return false;
+                this.wreck(x, z, yaw + rng.range(-0.4, 0.4), rng);
+                placed.push([x, z, 4]);
+            } else if (roll < 0.64) {
+                if (!free(x, z, 3.5)) return false;
+                this.rock(x, z, rng.range(1.3, 2.2), rng);
+                this.rock(x + rng.range(-2.5, 2.5), z + rng.range(-2.5, 2.5), rng.range(1.0, 1.6), rng);
+                placed.push([x, z, 3.5]);
+            } else if (roll < 0.74) {
+                if (!free(x, z, 3.5)) return false;
+                this.nest(x, z, yaw + (rng.next() < 0.5 ? Math.PI / 2 : -Math.PI / 2), rng);
+                placed.push([x, z, 3.5]);
+            } else if (roll < 0.82) {
+                if (!free(x, z, 3)) return false;
+                this.rubble(x, z, rng);
+                this.rubble(x + rng.range(-2, 2), z + rng.range(-2, 2), rng);
+                placed.push([x, z, 3]);
+            } else {
+                if (!free(x, z, 4)) return false;
+                if (biome === "industrial") { if (rng.next() < 0.5) this.container(x, z, yaw, rng); else this.hesco(x, z, yaw + Math.PI / 2, 4); }
+                else if (biome === "city") { if (rng.next() < 0.5) this.barrier(x, z, yaw + Math.PI / 2, 3); else this.sandbags(x, z, yaw, 4, rng); }
+                else if (biome === "coast") this.add({ x, z, hx: rng.range(1.2, 2.2), hz: rng.range(1, 1.8), h: rng.range(1.2, 2.2), lift: 0, yaw: rng.range(0, 3), mat: "glass", kind: "cover" });
+                else { this.add({ x, z, hx: 0.6, hz: 0.6, h: 1.2, lift: 0, yaw, mat: "wood", kind: "cover" }); this.add({ x: x + 1.4, z: z + 0.3, hx: 0.5, hz: 0.5, h: 1.0, lift: 0, yaw: yaw + 0.4, mat: "wood", kind: "cover" }); }
+                placed.push([x, z, 4]);
+            }
+            return true;
+        };
+        // A small waystation halfway along a long link: a ruined house, a low wall, a nest.
+        const waystation = (x: number, z: number, yaw: number): boolean => {
+            if (!free(x, z, 9)) return false;
+            const c = Math.cos(yaw), sn = Math.sin(yaw), y = this.height(x, z) - 0.05;
+            const hx = Math.round((x + c * 5) / 2) * 2, hz = Math.round((z - sn * 5) / 2) * 2;
+            if (biome === "industrial") { this.container(x - c * 5, z + sn * 5, yaw, rng); this.building(hx, hz, 6, 6, 1, "concrete", rng, { roof: true, broken: 0.1 }); }
+            else this.building(hx, hz, rng.int(3, 4) * 2, 6, 1, mat, rng, { roof: rng.next() < 0.4, broken: 0.4 });
+            this.wall(x - c * 9 - sn * 3, z + sn * 9 - c * 3, x - c * 9 + sn * 3, z + sn * 9 + c * 3, 1.2, 0.5, mat, [], y, 0.3, rng);
+            this.nest(x - c * 2 + sn * 6, z + sn * 2 + c * 6, yaw, rng);
+            placed.push([x, z, 10]);
+            return true;
+        };
+        for (const key of links) {
+            const [i, j] = key.split(",").map(Number), a = nodes[i], b = nodes[j];
+            const L = Math.hypot(b.x - a.x, b.z - a.z), ux = (b.x - a.x) / L, uz = (b.z - a.z) / L, nx = -uz, nz = ux;
+            const s0 = a.r * 0.85, s1 = L - b.r * 0.85, gap = s1 - s0;
+            if (gap < 16) continue;
+            for (const bow of gap > 70 ? [0, 1, -1] : [0]) {
+                const off = bow * Math.min(45, Math.max(18, gap * 0.22));
+                let side = rng.next() < 0.5 ? 1 : -1, station = bow !== 0 || gap <= 110;
+                for (let s = s0 + rng.range(2, 6); s < s1; s += rng.range(8, 13)) {
+                    const f = (s - s0) / gap, bend = off * 4 * f * (1 - f);
+                    // The lane's direction (with the bow's slope) lays the cover's long side along it.
+                    const slope = off * 4 * (1 - 2 * f) / gap, yaw = Math.atan2(ux + nx * slope, uz + nz * slope);
+                    const cx = a.x + ux * s + nx * bend, cz = a.z + uz * s + nz * bend;
+                    if (!station && f > 0.42 && waystation(cx, cz, yaw)) { station = true; continue; }
+                    // Beside the lane, or the other side, or out past a road's shoulder when the lane is a road.
+                    const d = side * rng.range(2.5, 5);
+                    for (const o of [d, -d, d * 2.8, -d * 2.8, 12, -12]) if (piece(cx + nx * o, cz + nz * o, yaw)) break;
+                    side = -side;
+                }
+            }
+        }
+    }
+
     private buildFoliage(rng: Rng): void {
         const b = this.def.biome;
         const kinds: Foliage["kind"][] = b === "coast" ? ["palm", "dead", "bush", "reed"] : b === "mountain" ? ["pine", "pine", "bush", "tree"] : b === "industrial" ? ["dead", "bush", "tree"] : ["tree", "bush", "pine", "bush"];
@@ -723,7 +887,7 @@ export class World {
         }
     }
 
-    private onRoad(x: number, z: number): boolean { for (const r of this.roads) if (roadDistance(r, x, z).d < r.width * 0.5 + 1.5) return true; return false; }
+    private onRoad(x: number, z: number, pad = 1.5): boolean { for (const r of this.roads) if (roadDistance(r, x, z).d < r.width * 0.5 + pad) return true; return false; }
     private inBase(x: number, z: number): boolean { for (const b of this.bases) if (Math.abs(x - b.x) < b.radius + 4 && Math.abs(z - b.z) < b.radius + 4) return true; return false; }
     private nearBox(x: number, z: number): boolean {
         const i = Math.floor(x + HALF), j = Math.floor(z + HALF);
@@ -739,7 +903,7 @@ export class World {
         for (const f of this.foliage) {
             if (f.kind === "bush" || f.kind === "reed") continue;
             const i = Math.floor(f.x + HALF), j = Math.floor(f.z + HALF);
-            if (i >= 0 && j >= 0 && i < CN && j < CN) { const k = j * CN + i; this.lo[k] = Math.max(this.lo[k], Math.min(255, Math.round(f.size * 6))); }
+            if (i >= 0 && j >= 0 && i < CN && j < CN) { const k = j * CN + i; this.lo[k] = Math.max(this.lo[k], Math.min(255, Math.round(f.size * 6))); this.trunk[k] = 1; }
         }
     }
 
@@ -749,6 +913,12 @@ export class World {
         const ex = Math.abs(c) * b.hx + Math.abs(s) * b.hz, ez = Math.abs(s) * b.hx + Math.abs(c) * b.hz;
         const i0 = Math.max(0, Math.floor(b.x - ex + HALF)), i1 = Math.min(CN - 1, Math.floor(b.x + ex + HALF));
         const j0 = Math.max(0, Math.floor(b.z - ez + HALF)), j1 = Math.min(CN - 1, Math.floor(b.z + ez + HALF));
+        if (!this.bucketed.has(index)) {
+            this.bucketed.add(index);
+            for (let bj = Math.floor((j0 - 1) / BUCKET); bj <= Math.floor((j1 + 1) / BUCKET); bj++)
+                for (let bi = Math.floor((i0 - 1) / BUCKET); bi <= Math.floor((i1 + 1) / BUCKET); bi++)
+                    if (bi >= 0 && bj >= 0 && bi < NB && bj < NB) this.buckets[bj * NB + bi].push(index);
+        }
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
             const px = i - HALF + 0.5 - b.x, pz = j - HALF + 0.5 - b.z;
             // Box local axes: x' = (c, -s), z' = (s, c) for a yaw about +y (0 faces +z).
@@ -812,6 +982,9 @@ export class World {
     /**
      * The first solid point on the segment a -> b, as a fraction (1: clear). Steps through the 1 m
      * cover grid (DDA) and checks the ray's height above the ground at each cell boundary and middle.
+     * The grid is coarse (boxes are padded a quarter metre into it, so a 1.2 m window keeps at most
+     * one open cell), so where it says solid the real blocks in that cell are tested and the ray
+     * goes on if it misses them all: shots and sight pass through windows, doors and gaps as drawn.
      */
     trace(ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
         const dx = bx - ax, dy = by - ay, dz = bz - az, L = Math.hypot(dx, dz);
@@ -831,13 +1004,57 @@ export class World {
                 const x = ax + dx * f, y = ay + dy * f, z = az + dz * f;
                 const k = j * CN + i, h = (y - this.height(x, z)) * 10;
                 if (h < 0) return f;
-                if (h < this.lo[k] || (this.gap[k] > 0 && h >= this.gap[k] && h < this.hi[k])) return f;
+                if (h < this.lo[k] || (this.gap[k] > 0 && h >= this.gap[k] && h < this.hi[k])) {
+                    const e = this.exact(ax, ay, az, dx, dy, dz, i, j, t, tn);
+                    if (e >= 0) return e;
+                    break;
+                }
             }
             if (tn >= 1) break;
             t = tn;
             if (tx < tz) { tx += tdx; i += si; } else { tz += tdz; j += sj; }
         }
         return 1;
+    }
+
+    /**
+     * The first hit, as a fraction of the segment within [t0, t1] (a little slack either side), on
+     * the blocks that fill cover cell (i, j), or -1 when the segment slips past them all. Trunks,
+     * rocks and domes are not boxes when drawn, so the grid stands for them: their cells always hit.
+     */
+    private exact(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, i: number, j: number, t0: number, t1: number): number {
+        const k = j * CN + i;
+        if (this.trunk[k]) return t0;
+        const cx = i - HALF + 0.5, cz = j - HALF + 0.5;
+        const list = this.buckets[Math.floor(j / BUCKET) * NB + Math.floor(i / BUCKET)];
+        let best = Infinity, any = false;
+        for (const n of list) {
+            const b = this.boxes[n];
+            if (b.kind === "deco") continue;
+            const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
+            // Does the box reach this cell at all (as rasterized)?
+            const qx = cx - b.x, qz = cz - b.z;
+            if (Math.abs(qx * c - qz * s) > b.hx + 0.25 + 0.71 || Math.abs(qx * s + qz * c) > b.hz + 0.25 + 0.71) continue;
+            if (b.mat === "rock" || b.mat === "dome") return t0;
+            any = true;
+            // Slab test in the box's frame: x' = (c, -s), z' = (s, c), y from b.y to b.y + h.
+            const ox = (ax - b.x) * c - (az - b.z) * s, oz = (ax - b.x) * s + (az - b.z) * c, oy = ay - b.y;
+            const vx = dx * c - dz * s, vz = dx * s + dz * c, vy = dy;
+            let lo = -Infinity, hi = Infinity;
+            for (const [o, v, a, z] of [[ox, vx, -b.hx, b.hx], [oy, vy, 0, b.h], [oz, vz, -b.hz, b.hz]]) {
+                if (Math.abs(v) < 1e-12) { if (o < a || o > z) { lo = Infinity; break; } continue; }
+                let p = (a - o) / v, q = (z - o) / v;
+                if (p > q) { const w = p; p = q; q = w; }
+                if (p > lo) lo = p;
+                if (q < hi) hi = q;
+            }
+            if (lo > hi || hi < 0) continue;
+            const at = Math.max(lo, 0);
+            if (at <= t1 + 0.02 / Math.max(1e-6, Math.hypot(dx, dz)) + 1e-6 && at < best) best = at;
+        }
+        // A solid cell no box claims: the grid stands.
+        if (!any) return t0;
+        return best === Infinity ? -1 : best;
     }
 
     /** The box blocking a trace at fraction f, if any (for destructible cover). */

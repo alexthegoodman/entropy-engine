@@ -160,4 +160,23 @@ describe("Armageddon weapons", () => {
         expect(me.vehicle).toBe(tank.id);
         expect(me.seat).toBe(0);
     });
+    it("the hit marker is the player's own: damage they dealt to an enemy, never a miss or a teammate's hit", () => {
+        const b = battle();
+        const me = b.me!;
+        const enemy = b.soldiers.find(o => o.team !== me.team && o.alive)!, mate = b.soldiers.find(o => o.team === me.team && o.id !== me.id && o.alive)!;
+        const mine = (ev: BattleEvent[]) => ev.filter(e => e.kind === "dealt" && e.by === me.id);
+        // Shooting at the sky while a teammate hits an enemy (the marker used to light for any enemy hit within 0.3 s of a shot).
+        enemy.pos = [me.pos[0] + 300, me.pos[1], me.pos[2]];
+        let ev = run(b, 6, i => { if (i === 2) b.damageSoldier(enemy, 5, "ballistic", mate.id, "AR-70", "torso"); return { fire: true, pitch: 1.2 }; });
+        expect(ev.some(e => e.kind === "shot" && e.shooter === me.id)).toBe(true);
+        expect(ev.some(e => e.kind === "dealt" && e.by === mate.id)).toBe(true);
+        expect(mine(ev)).toHaveLength(0);
+        // An enemy standing 8 m in front of the sights: the player's rounds land and are the player's.
+        enemy.hp = 100; enemy.stance = "stand";
+        enemy.pos = [me.pos[0] + Math.sin(me.yaw) * 8, me.pos[1], me.pos[2] + Math.cos(me.yaw) * 8];
+        enemy.vel = [0, 0, 0];
+        ev = run(b, 12, () => ({ fire: true, aim: true, pitch: 0 }));
+        expect(mine(ev).length).toBeGreaterThan(0);
+        expect(mine(ev).every(e => e.kind === "dealt" && e.target === enemy.id)).toBe(true);
+    });
 });

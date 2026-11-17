@@ -419,7 +419,7 @@ function drawHelp(p: Painter, w: number, h: number, pad: boolean): void {
     ] : [
         "WASD move   SHIFT sprint   SPACE jump   C crouch   Z prone   MOUSE look   LMB fire   RMB aim",
         "R reload   1 primary  2 sidearm  3 launcher / UGL   G grenade   F equipment   E enter / exit vehicle, resupply   SHIFT aimed: hold breath",
-        "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   H help",
+        "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   [ ] look speed   H help",
         "Vehicles: W/S throttle, A/D steer, SPACE/CTRL climb and descend (aircraft), mouse aims the gun, LMB fires",
     ];
     p.rect(w / 2 - 430, h * 0.62, 860, lines.length * 22 + 16, [0, 0, 0, 0.65]);

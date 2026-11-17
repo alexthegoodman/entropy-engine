@@ -68,7 +68,7 @@
     "test:world-of-music": "vitest run tests/wom_world.test.ts tests/wom_game.test.ts tests/wom_render.test.ts",
     "typecheck:world-of-music": "tsc --project tsconfig.wom.json --noEmit",
     "build-armageddon": "npm run ensure-dist && deno bundle src/games/armageddon/armageddon_addon.ts --output dist/armageddon.js",
-    "test:armageddon": "vitest run tests/ar_data.test.ts tests/ar_map.test.ts tests/ar_wir.test.ts tests/ar_battle.test.ts tests/ar_fixes.test.ts tests/ar_weapons.test.ts",
+    "test:armageddon": "vitest run tests/ar_data.test.ts tests/ar_map.test.ts tests/ar_wir.test.ts tests/ar_battle.test.ts tests/ar_fixes.test.ts tests/ar_weapons.test.ts tests/ar_aim.test.ts",
     "typecheck:armageddon": "tsc --project tsconfig.armageddon.json --noEmit",
     "armageddon:csv": "deno run -A --unstable-sloppy-imports tools/ar_export_csv.ts",
     "build-allegiance": "npm run ensure-dist && deno bundle src/games/allegiance/allegiance_addon.ts --output dist/allegiance.js && npm run build-house-worker",

@@ -9,7 +9,7 @@
 // and sound from battle events, every screen, saving the loadout, and the MCP tools the live test
 // (tests/armageddon_live.rs) drives.
 
-import { Battle, STEP, NO_INPUT, SUPPLY_FALL, eyeOf, dirOf, launcherOf, TEAM_NAMES, type PlayerInput, type Team, type Soldier, type Slot, type BattleEvent } from "./ar_sim";
+import { Battle, STEP, NO_INPUT, SUPPLY_FALL, eyeOf, chestOf, dirOf, launcherOf, TEAM_NAMES, type PlayerInput, type Team, type Soldier, type Slot, type BattleEvent } from "./ar_sim";
 import { think } from "./ar_bots";
 import { MAPS, worldFor, HALF } from "./ar_map";
 import { ROLE_LOADOUTS, REWARD, WEAPON, loadoutStats, type Loadout } from "./ar_data";
@@ -22,6 +22,7 @@ import { enginePainter, type Painter, type DrawApi, type Color } from "../allegi
 import { yawed, placed, between, type Mat4 } from "../world_of_music/wom_render";
 import { clamp, type V3 } from "../nebula/nk_math";
 import { Controller } from "../allegiance/al_controller";
+import { MouseEase, StickLook, frictionWeight, frictionScale } from "./ar_aim";
 
 const addon = Entropy.AddonAtom.register({
     name: "Armageddon 2070",
@@ -126,6 +127,17 @@ function crosshairPoint(): V3 | null {
 /** Aiming down sights: the right mouse button or the left trigger. */
 const aimHeld = () => rightHeld || pad.triggers[0] > 0.35 || pad.held.has("LeftTrigger2");
 
+/** Look feel (ar_aim.ts), and the player's look speed multiplier ([ and ] change it; saved). */
+const mouseEase = new MouseEase(), stickLook = new StickLook();
+let lookSens = 1;
+/** How much the crosshair is on a visible enemy soldier right now (0..1). */
+function frictionNow(me: Soldier): number {
+    const b = battle!;
+    const eye = eyeOf(me);
+    const chests = b.soldiers.filter(s => s.alive && s.team !== me.team && s.vehicle < 0).map(chestOf);
+    return frictionWeight(eye, dirOf(lookYaw, lookPitch), chests, zoomNow(), p => b.world.trace(eye[0], eye[1], eye[2], p[0], p[1], p[2]) >= 1);
+}
+
 function readInput(dt: number): PlayerInput {
     const me = battle?.me;
     const playing = mode === "play" && !!me?.alive;
@@ -137,17 +149,25 @@ function readInput(dt: number): PlayerInput {
     if (lx || ly || rx || ry || pad.triggers[0] > 0.1 || pad.triggers[1] > 0.1) hud.device = "pad";
     else if (look[0] || look[1]) hud.device = "keys";
     if (playing) {
-        // Look speed follows the zoom, so a target crosses the screen at the same speed at 1x and 8x.
-        const z = zoomNow(), adsK = 1 - 0.2 * adsT;
-        const sens = (0.0024 / z) * adsK;
-        lookYaw -= look[0] * sens; lookPitch -= look[1] * sens;
+        // Look speed follows the zoom, so a target crosses the screen at the same speed at 1x and 8x. The
+        // mouse is eased over a few ms and the stick has its own curve and easing (ar_aim.ts); both slow
+        // down over a visible enemy so the crosshair stops on them rather than past them.
+        const z = zoomNow(), adsK = (1 - 0.2 * adsT) * lookSens;
+        const w = me!.vehicle < 0 ? frictionNow(me!) : 0;
+        const [mx, my] = mouseEase.take(look[0], look[1], dt);
+        const sens = (0.0024 / z) * adsK * frictionScale(w, false, adsT);
+        const pitchWas = lookPitch;
+        lookYaw -= mx * sens; lookPitch -= my * sens;
         if (key("ArrowLeft")) lookYaw += 0.04 / z; if (key("ArrowRight")) lookYaw -= 0.04 / z;
         if (key("ArrowUp")) lookPitch += 0.03 / z; if (key("ArrowDown")) lookPitch -= 0.03 / z;
-        // Right stick: a response curve (fine aim near the centre), slower while aiming down sights.
-        const rate = (3.2 / z) * adsK * dt;
-        lookYaw -= Math.sign(rx) * rx * rx * rate; lookPitch += Math.sign(ry) * ry * ry * rate * 0.75;
+        const [sx, sy] = stickLook.step(rx, ry, dt);
+        const rate = (adsK / z) * frictionScale(w, true, adsT) * dt;
+        lookYaw -= sx * rate; lookPitch += sy * rate * 0.75;
         lookPitch = clamp(lookPitch, -1.4, 1.35);
-    }
+        // Pulling down against recoil pays off the climb that recovery would otherwise also take back
+        // (recovery on top of the player's own correction dragged the crosshair under the target).
+        if (lookPitch < pitchWas) recoilDebt = Math.max(0, recoilDebt - (pitchWas - lookPitch));
+    } else { mouseEase.reset(); stickLook.reset(); }
     const slot: Slot | null = tapped("1") ? "primary" : tapped("2") ? "sidearm" : tapped("3") ? "launcher" : tapped("NextWeapon") ? nextSlot(me) : null;
     const rewardKey = ["5", "6", "7", "8", "9"].findIndex(k => tapped(k));
     const inVeh = !!me && me.vehicle >= 0;
@@ -254,6 +274,7 @@ function keyDown(k: string): void {
             if (lower === "p") { postOn = !postOn; renderer.setScreen(postOn); }
             if (lower === "c") { crouch = !crouch; prone = false; }
             if (lower === "z") { prone = !prone; crouch = false; }
+            if (k === "[" || k === "]") { lookSens = clamp(Math.round(lookSens * (k === "]" ? 1.1 : 1 / 1.1) * 100) / 100, 0.2, 4); toast(`Look speed ${lookSens.toFixed(2)}x`); save(); }
             if ((k === "Escape" && !locked) || k === "PadStart") { setMode("deploy"); }
         }
     }
@@ -343,13 +364,14 @@ function deploy(): void {
 function load(): void {
     try {
         const text = addon.IO.store.read(SAVE_PATH);
-        const d = text ? (JSON.parse(text) as { v?: number; loadout?: Loadout; setup?: SetupView }) : null;
+        const d = text ? (JSON.parse(text) as { v?: number; loadout?: Loadout; setup?: SetupView; look?: number }) : null;
         if (d?.v === 1 && d.loadout && loadoutStats(d.loadout).problems.length === 0) { loadout = d.loadout; hadSave = true; }
         if (d?.setup) Object.assign(setup, d.setup);
+        if (typeof d?.look === "number" && isFinite(d.look)) lookSens = clamp(d.look, 0.2, 4);
     } catch { /* no save yet */ }
 }
 function save(): void {
-    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ v: 1, loadout, setup })); } catch { /* no data folder */ }
+    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ v: 1, loadout, setup, look: lookSens })); } catch { /* no data folder */ }
 }
 
 // --- effects ------------------------------------------------------------------------------------------
@@ -383,10 +405,11 @@ function onEvents(b: Battle, events: BattleEvent[]): void {
             }
             case "resupply": if (me && e.soldier === me.id) { toast("Resupplied: ammunition, launcher and grenades", [0.6, 1, 0.6, 1]); sound.resupply(); } break;
             case "hit":
-                if (me && b.soldiers[me.id] && b.time - me.lastShot < 0.3 && !e.vehicle && b.soldiers[e.target]?.team !== me.team) { hud.hitMarker = 0.25; sound.hit(); }
                 if (effects.length < 900) for (let i = 0; i < 3; i++) effects.push({ kind: "spark", pos: [...e.at], to: [0, 0, 0], vel: [(rnd() - 0.5) * 4, rnd() * 3, (rnd() - 0.5) * 4], life: 0.25, max: 0.25, size: 0.12, color: e.vehicle ? [1, 0.8, 0.4] : [0.7, 0.1, 0.08], seed: rnd() });
                 if (me && e.target === me.id && !e.vehicle) { hud.hurt = Math.min(1, hud.hurt + 0.35); sound.hurt(); }
                 break;
+            // The hit marker and its click only for damage the player actually dealt to an enemy.
+            case "dealt": if (me && e.by === me.id) { hud.hitMarker = 0.25; sound.hit(); } break;
             case "explode": {
                 sound.explode(e.at, e.radius);
                 const d = Math.hypot(e.at[0] - camPos[0], e.at[2] - camPos[2]);
@@ -472,6 +495,31 @@ function cameraNow(): { pos: V3; target: V3; fov: number } {
 
 // --- the frame ----------------------------------------------------------------------------------------
 
+/** Where each soldier and vehicle stood before the last battle step. The battle steps at 30 Hz but frames
+ * run faster: drawn from the raw positions, the camera and everyone in view moved in 33 ms jumps while the
+ * view turned every frame, which made tracking a target judder. Drawing blends between the last two steps. */
+const drawnFrom = new WeakMap<object, V3>();
+let lastStepAt = -1;
+function rememberPositions(b: Battle): void {
+    for (const o of [...b.soldiers, ...b.vehicles]) {
+        const p = drawnFrom.get(o);
+        if (p) { p[0] = o.pos[0]; p[1] = o.pos[1]; p[2] = o.pos[2]; } else drawnFrom.set(o, [o.pos[0], o.pos[1], o.pos[2]]);
+    }
+}
+/** Runs `f` with soldiers and vehicles at their blended positions, then puts the real ones back. */
+function blended(b: Battle, f: () => void): void {
+    const a = realTime - lastStepAt > 0.1 ? 1 : clamp(accum / STEP);
+    const real: [{ pos: V3 }, V3][] = [];
+    for (const o of [...b.soldiers, ...b.vehicles]) {
+        const p = drawnFrom.get(o), c = o.pos;
+        // Not seen before, or teleported (a respawn, entering a vehicle): no blend.
+        if (!p || Math.abs(c[0] - p[0]) + Math.abs(c[1] - p[1]) + Math.abs(c[2] - p[2]) > 25) continue;
+        real.push([o, c]);
+        o.pos = [p[0] + (c[0] - p[0]) * a, p[1] + (c[1] - p[1]) * a, p[2] + (c[2] - p[2]) * a];
+    }
+    try { f(); } finally { for (const [o, c] of real) o.pos = c; }
+}
+
 function frame(dt: number, show = true): void {
     realTime += dt; modeAge += dt; frames++;
     const b = battle;
@@ -485,6 +533,7 @@ function frame(dt: number, show = true): void {
         let n = 0;
         while (accum >= STEP && n < 3) {
             accum -= STEP; n++;
+            rememberPositions(b); lastStepAt = realTime;
             b.step(STEP, mode === "play" ? input : NO_INPUT, think);
             if (n === 1) { input.use = false; input.reward = -1; input.call = false; input.grenade = false; input.equipment = false; input.jump = false; input.reload = false; input.slot = null; }
             onEvents(b, b.events);
@@ -504,7 +553,7 @@ function frame(dt: number, show = true): void {
     hud.headMarker = Math.max(0, hud.headMarker - dt);
     hud.hurt = Math.max(0, hud.hurt - dt * 0.6);
     flash = Math.max(0, flash - dt * 1.5);
-    if (show) draw(dt);
+    if (show) { if (b) blended(b, () => draw(dt)); else draw(dt); }
 }
 
 /** Per frame: aiming down sights (eased, zoom per sight), recoil on the view and its recovery, the scope's

@@ -36,12 +36,61 @@ describe("Armageddon maps", () => {
             }
         });
     }
+    it("no dead ground between neighbouring sites: cover within 8 m along the way, no open run past 32 m", () => {
+        for (const w of worlds) {
+            const nodes = [...w.territories.map(t => ({ x: t.x, z: t.z, r: t.radius, name: t.name })), ...w.bases.map(b => ({ x: b.x, z: b.z, r: b.radius, name: `HQ ${b.team}` }))];
+            const links = new Set<string>();
+            nodes.forEach((a, i) => { for (const { j } of nodes.map((b, j) => ({ j, d: Math.hypot(a.x - b.x, a.z - b.z) })).filter(q => q.j !== i).sort((p, q) => p.d - q.d).slice(0, 3)) links.add(`${Math.min(i, j)},${Math.max(i, j)}`); });
+            let covered = 0, all = 0;
+            for (const key of links) {
+                const [a, b] = key.split(",").map(n => nodes[Number(n)]);
+                const L = Math.hypot(b.x - a.x, b.z - a.z), ux = (b.x - a.x) / L, uz = (b.z - a.z) / L;
+                let run = 0, worst = 0;
+                for (let s = a.r; s <= L - b.r; s += 2) {
+                    const x = a.x + ux * s, z = a.z + uz * s;
+                    if (w.wet(x, z)) { run = 0; continue; }
+                    let found = false;
+                    for (let dz = -8; dz <= 8 && !found; dz++) for (let dx = -8; dx <= 8 && !found; dx++) if (dx * dx + dz * dz <= 64 && w.coverHeight(x + dx, z + dz) >= 0.9) found = true;
+                    all++;
+                    if (found) { covered++; run = 0; } else { run += 2; worst = Math.max(worst, run); }
+                }
+                expect(worst, `${w.def.name}: ${a.name} to ${b.name} open run (m)`).toBeLessThanOrEqual(32);
+            }
+            expect(covered / all, `${w.def.name}: share of the way with cover within 8 m`).toBeGreaterThanOrEqual(0.93);
+        }
+    });
+    it("buildings are ways through: two doors or more, rooms inside", () => {
+        // Partitions are 0.3 m plaster walls; every map has hundreds of them.
+        for (const w of worlds) expect(w.boxes.filter(b => b.kind === "wall" && b.mat === "plaster" && Math.abs(b.hx - 0.15) < 1e-6).length, w.def.name).toBeGreaterThan(100);
+    });
     it("windows and doors are gaps: a ray passes through a doorway and is stopped by the wall beside it", () => {
         const w = worlds[0];
         let door = 0, wall = 0;
         for (let k = 0; k < w.lo.length; k += 7) { if (w.gap[k] > 0 && w.lo[k] === 0) door++; if (w.lo[k] >= 30) wall++; }
         expect(door).toBeGreaterThan(50);
         expect(wall).toBeGreaterThan(500);
+    });
+    it("rounds and sight pass through windows as drawn, square on and at 30 degrees, and stop at the wall", () => {
+        for (const w of worlds) {
+            let tries = 0, square = 0, angled = 0, walls = 0;
+            for (const b of w.boxes) {
+                // A window's sill: a 1.2 m wall segment 1 m tall (the lintel sits 2.1 m up).
+                if (b.kind !== "wall" || Math.abs(b.h - 1.0) > 1e-6 || Math.abs(b.hz - 0.6) > 1e-6) continue;
+                const nx = Math.cos(b.yaw), nz = -Math.sin(b.yaw), ux = Math.sin(b.yaw), uz = Math.cos(b.yaw), y = b.y + 1.55;
+                const ray = (side: number) => w.trace(b.x - nx * 3 - ux * side, y, b.z - nz * 3 - uz * side, b.x + nx * 3 + ux * side, y, b.z + nz * 3 + uz * side);
+                if (w.solidAt(b.x - nx * 3, y, b.z - nz * 3) || w.solidAt(b.x + nx * 3, y, b.z + nz * 3)) continue;
+                tries++;
+                if (ray(0) >= 0.999) square++;
+                if (ray(1.73) >= 0.999 || ray(-1.73) >= 0.999) angled++;
+                // 2 m along the wall the same ray hits brick (unless that is another opening).
+                const wx = b.x + ux * 2.2, wz = b.z + uz * 2.2;
+                if (w.trace(wx - nx * 3, y - 1.2, wz - nz * 3, wx + nx * 3, y - 1.2, wz + nz * 3) < 0.999) walls++;
+            }
+            expect(tries, w.def.name).toBeGreaterThan(100);
+            expect(square / tries, `${w.def.name} square through windows`).toBeGreaterThan(0.9);
+            expect(angled / tries, `${w.def.name} angled through windows`).toBeGreaterThan(0.8);
+            expect(walls / tries, `${w.def.name} the wall under the sill line still stops rounds`).toBeGreaterThan(0.8);
+        }
     });
     it("billboard foliage and concealment: bushes hide soldiers", () => {
         for (const w of worlds) { expect(w.foliage.length).toBeGreaterThan(1500); expect(w.conceal.some(v => v > 100)).toBe(true); }

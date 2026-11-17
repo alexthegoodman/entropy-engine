@@ -29,7 +29,8 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   F equipment (in a vehicle: smoke or flares), E enter/exit a friendly vehicle whose hull is within
   3 m (a full one makes room) or take from a supply crate, Shift while aiming holds your breath, Q
   call your squad to the crosshair, 5-9 use a reward at the crosshair, Tab scoreboard, M map, V third
-  person, P screen pass, H help. Arrow keys pick the spawn point on the deploy screen.
+  person, P screen pass, [ and ] look speed (saved), H help. Arrow keys pick the spawn point on the
+  deploy screen.
 - **Gamepad** (gilrs names, Xbox layout): left stick move, right stick look, RT fire, LT aim down
   sights, L3 sprint (aimed: hold breath), A jump, B crouch, D-pad down prone, X reload, Y next
   weapon (next to a vehicle or crate: enter/exit or resupply), LB grenade, RB
@@ -53,8 +54,13 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   launchers 1.5-2.5x with a range ladder. Optics of 2x and up show the scope picture. Look speed
   scales with the zoom. Scopes sway with breathing (less crouched, prone or on a braced bipod; Shift
   or L3 steadies).
+- **Look feel** (`ar_aim.ts`): mouse counts are eased over ~12 ms (every count still arrives). The
+  right stick has a 0.12 radial dead zone, a curve for fine aim near the centre, 3 rad/s at the rim
+  rising to 4.65 after the rim is held 0.15 s, and a rate that eases up (60 ms) but stops in 12 ms.
+  Over a visible enemy soldier the look slows (mouse 20%/35% hip/aimed, pad 40%/55%); it never pulls
+  the view. Soldiers, vehicles and the camera are drawn blended between the last two 30 Hz steps.
 - **Recoil** climbs the view by the weapon's deg/shot (x0.6, less aimed, crouched, prone, braced);
-  about 60% comes back after the trigger is released.
+  about 60% comes back after the trigger is released, minus whatever the player already pulled down.
 - **Triggers**: AR-70, AR-70C, SMG-70, LMG-72, HMG-75 and MP-70 are automatic; everything else fires
   once per pull (the SR-70 and AMR-76 cycle a bolt, the SG-70 a pump). The player reloads
   automatically when a magazine runs dry. The HMG and AMR fire standing without a Heavy Exoskeleton,
@@ -136,15 +142,30 @@ Four 1,024 m battlefields, each a seed plus a hand-placed layout (`ar_map.ts`):
 | Lhasa Arcology | city | 12 | a grid of shattered blocks, plazas, a monastery on the hill |
 
 **Cover is the point.** Every solid is a box rasterized into a 1 m cover grid holding up to two
-spans per cell (so windows are gaps from sill to lintel and doors gaps from the floor). Territories
-are sites (port, town, city, village, compound, industrial, reactor, plaza, checkpoint, outpost) of
-ruined buildings with doors, windows, partitions and broken tops, low walls, sandbag nests, jersey
-barriers, hesco, containers, wrecks, rubble, crates, towers. A fill pass then walks each territory
-on a 5 m lattice and drops mixed cover wherever nothing at least 0.9 m tall stands within 6 m. The
-tests hold every territory to: cover within 6 m of at least 85% of open spots (measured: 96-100%),
-at least four kinds of cover, and fewer than 75% of 15 m+ sightlines clear (measured 7-63%). The
-open ground between sites gets rocks, wrecks, low walls, rubble and nests. Bullets damage
-destructible cover (sandbags, barriers, wrecks, crates, deployable cover) until it collapses.
+spans per cell (so windows are gaps from sill to lintel and doors gaps from the floor). The grid is
+coarse, so wherever a trace (bullets, sight, sound) finds a solid cell it tests the real boxes in
+that cell and goes on if it misses them: shots and sight pass through windows, doors and gaps as
+drawn (95-98% of square-on shots through a window centre get through; 49% did on the grid alone).
+Territories are sites (port, town, city, village, compound, industrial, reactor, plaza, checkpoint,
+outpost) of ruined buildings, low walls, sandbag nests, jersey barriers and T-walls, hesco,
+containers, kiosks, wrecks, rubble, crates, towers. A building has at least two doors on different
+sides (usually opposite, so it is a way through), windows, sometimes a breach at floor level, rooms
+(a partition with a doorway in most, a second across the bigger ones), low cover inside and broken
+tops. A fill pass then walks each territory on a 5 m lattice and drops mixed cover wherever nothing
+at least 0.9 m tall stands within 6 m. The tests hold every territory to: cover within 6 m of at
+least 85% of open spots (measured: 96-100%), at least four kinds of cover, and fewer than 75% of
+15 m+ sightlines clear (measured 8-65%).
+
+Between sites, every territory and HQ is linked to its three nearest; each link gets a centre lane
+and, past 70 m, a flanking lane bowed out to each side. Along a lane a piece of cover stands every
+8-13 m, alternating sides: low walls along the lane to move behind crouched, ruined corners head
+high with a window, wrecks, boulders (the only thing on steep slopes), nests, rubble and the biome's
+pieces (containers and hesco, barriers, glass slabs, crates); a link past 110 m gets a waystation
+(a ruined house, a low wall, a nest) at its middle. Roads stay drivable. On the straight line
+between linked sites, cover stands within 8 m of 97-99% of the way and the longest open run is
+10-26 m (was 41-51% and 68-246 m; the test holds 93% and 32 m). Random rocks, wrecks, walls,
+rubble and nests are scattered over the rest. Bullets damage destructible cover (sandbags,
+barriers, wrecks, crates, deployable cover) until it collapses.
 
 Foliage is billboard cards cut out in the shader (grass, bushes, broadleaf, pines, palms, dead
 trees, reeds), about 2,000-6,000 placed plants per map plus grass scattered in 32 m chunks around
@@ -193,9 +214,12 @@ The Electronic Warfare WIR (AI010) is deferred.
   within 5 s, the Mine Kit's 16 mines, Hunter Protocol's 16 targets at about 80%, underdog and
   killstreak rewards, the squad call, the 16-seat helicopter, the aircraft's vehicle drop, one mecha
   per side, the end of a battle. `ar_fixes.test.ts`: vehicles spawn inside every map, crewed aircraft
-  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle. `ar_weapons.test.ts`: every weapon fires for the player, launcher rounds, semi-auto triggers, guided locks, the UGL, supply drops, entering vehicles.
+  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle. `ar_weapons.test.ts`: every weapon fires for the player, launcher rounds, semi-auto triggers, guided locks, the UGL, supply drops, entering vehicles. `ar_aim.test.ts`: eased mouse keeps every count, stick dead zone / easing / rim boost / stop, friction only on a visible target.
 - `cargo test --release --test armageddon` in `yumon-pet/wir`: all 23 networks compile and match
   their programs.
+- `tests/features/armageddon_maps.feature` (played with `ENTROPY_ARMAGEDDON_BDD_FEATURE`): aerial and
+  on-foot captures of the ground between territories on all four maps and an HQ wall from 0.6 m, for
+  reviewing cover and near-wall rendering.
 - `xvfb-run -a cargo test --release --test armageddon_live`: six scenarios in the real window
   (tests/features/armageddon_live.feature), 36 captures: menus, the armory, a 128 vs 128 battle in
   first person, the scoreboard and map, the squad call, the Mine Kit and Hunter Protocol, a tank and
@@ -209,6 +233,9 @@ The Electronic Warfare WIR (AI010) is deferred.
   per 1/30 s step (the bots about 70% of it), with occasional 120-180 ms steps when a new path field is
   built. A battle runs 15-20 minutes. The live window runs the same step; performance figures under
   Xvfb (software rendering) mean nothing.
+- Depth is written per fragment (w / (w + 200), so the screen pass recovers distance) from the
+  interpolated view depth; written per vertex, a big face beside the camera came out metres too deep
+  and whatever was behind it showed through.
 - Looks are deliberately simple: boxes, cylinders and spheres for soldiers, vehicles and buildings,
   procedural materials, no shadow maps, a fog/tone-map screen pass.
 - Transport helicopters wait landed at their base until a squad picks one for a "mount"; few squads

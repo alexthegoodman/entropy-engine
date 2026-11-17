@@ -10,7 +10,11 @@
 //   SMOKE    alpha-blended soft puffs: smoke grenades, burning wrecks, dust.
 //   SCREEN   distance fog from depth, filmic tone curve, vignette, hurt and flash, EMP static.
 //
-// Depth is written as w / (w + DEPTH_K) so the screen pass recovers distance (w = K d / (1 - d)).
+// Depth is written as w / (w + DEPTH_K) so the screen pass recovers distance (w = K d / (1 - d)). It
+// is written per fragment from the interpolated view depth: written per vertex, the rasterizer would
+// interpolate the curve linearly across a triangle, and a big face close to the camera (a wall you
+// stand beside) came out metres deeper than it is, so whatever stood behind it showed through. The
+// clip z stays an ordinary 1 - NEAR / w so near-plane clipping is right.
 
 export const DEPTH_K = 200;
 export const WORLD_FLOATS = 8 * 4;
@@ -64,12 +68,14 @@ struct VOut {
     @location(6) @interpolate(flat) params: vec4<f32>,
     @location(7) @interpolate(flat) extra: vec4<f32>,
     @location(8) scale: vec3<f32>,
+    @location(9) view_w: f32,
 };
+struct FOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 };
 
 fn far_depth(c: vec4<f32>) -> vec4<f32> {
-    let w = max(c.w, 0.0001);
-    return vec4<f32>(c.xy, c.w * (w / (w + ${DEPTH_K.toFixed(1)})), c.w);
+    return vec4<f32>(c.xy, c.w - 0.05, c.w);
 }
+fn depth_of(w: f32) -> f32 { let v = max(w, 0.0); return v / (v + ${DEPTH_K.toFixed(1)}); }
 fn hash2(p: vec2<f32>) -> f32 { var q = fract(p * vec2<f32>(123.34, 456.21)); q = q + dot(q, q + 45.32); return fract(q.x * q.y); }
 fn vnoise(p: vec2<f32>) -> f32 {
     let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
@@ -101,6 +107,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
         let sway = sin(world.time.x * 1.4 + it.params.y * 13.0 + c.x * 0.21 + c.z * 0.17) * 0.06 * t * t * sx;
         let wp = c + r * (in.position.x * sx + sway) + vec3<f32>(0.0, t * sy, 0.0);
         out.clip = far_depth(camera.view_proj * vec4<f32>(wp, 1.0));
+        out.view_w = out.clip.w;
         out.world_pos = wp;
         out.normal = normalize(f * 0.5 + vec3<f32>(0.0, 1.0, 0.0));
         out.uv = in.tex_coords;
@@ -118,7 +125,8 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
     if (kind == 2) { wp.y = wp.y + sin(wp.x * 0.11 + world.time.x * 0.9) * 0.15 + cos(wp.z * 0.09 + world.time.x * 0.7) * 0.15; }
     let clip = camera.view_proj * vec4<f32>(wp, 1.0);
     out.clip = far_depth(clip);
-    if (kind == 3) { out.clip = vec4<f32>(clip.xy, clip.w * 0.99999, clip.w); }
+    out.view_w = clip.w;
+    if (kind == 3) { out.clip = vec4<f32>(clip.xy, clip.w * 0.99999, clip.w); out.view_w = 1e9; }
     out.world_pos = wp;
     out.normal = n;
     out.uv = in.tex_coords;
@@ -260,8 +268,7 @@ fn shade(albedo: vec3<f32>, n: vec3<f32>, wp: vec3<f32>, spec: f32, rough: f32) 
     return albedo * (world.suncol.rgb * diff * world.sun.w + ambient(n)) + world.suncol.rgb * sp * step(0.0, ndl);
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+fn fs_color(in: VOut) -> vec4<f32> {
     let kind = i32(in.params.x + 0.5);
     let wp = in.world_pos;
     let p = wp.xz;
@@ -418,6 +425,14 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     col = col + emit;
     return vec4<f32>(col, 1.0);
 }
+
+@fragment
+fn fs_main(in: VOut) -> FOut {
+    var o: FOut;
+    o.color = fs_color(in);
+    o.depth = min(depth_of(in.view_w), 0.99999);
+    return o;
+}
 `;
 
 const GLOW_SRC = /* wgsl */ `
@@ -448,6 +463,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
         wp = center + r * in.position.x * sx + u * in.position.y * sy;
     }
     out.clip = far_depth(camera.view_proj * vec4<f32>(wp, 1.0));
+        out.view_w = out.clip.w;
     out.world_pos = wp;
     out.normal = vec3<f32>(0.0, 1.0, 0.0);
     out.uv = in.position.xy;
@@ -460,8 +476,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
     return out;
 }
 
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+fn fs_color(in: VOut) -> vec4<f32> {
     let kind = i32(in.params.x + 0.5);
     let p = in.uv;
     let d = length(p);
@@ -484,19 +499,34 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (d > 1.0 && kind != 2) { a = 0.0; }
     return vec4<f32>(in.color.rgb * in.color.a, a);
 }
+
+@fragment
+fn fs_main(in: VOut) -> FOut {
+    var o: FOut;
+    o.color = fs_color(in);
+    o.depth = min(depth_of(in.view_w), 0.99999);
+    return o;
+}
 `;
 
 const SMOKE_SRC = /* wgsl */ `
 ${COMMON}
-${GLOW_SRC.slice(GLOW_SRC.indexOf("@vertex"), GLOW_SRC.indexOf("@fragment"))}
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+${GLOW_SRC.slice(GLOW_SRC.indexOf("@vertex"), GLOW_SRC.indexOf("fn fs_color"))}
+fn fs_color(in: VOut) -> vec4<f32> {
     let p = in.uv;
     let n = vnoise(p * 2.5 + vec2<f32>(in.params.y * 5.0, world.time.x * 0.15)) * 0.6 + vnoise(p * 5.0 + vec2<f32>(in.params.y)) * 0.4;
     let a = smoothstep(1.0, 0.25, length(p) + (n - 0.5) * 0.7) * in.color.a;
     let lit = 0.75 + 0.35 * (p.y * 0.5 + 0.5);
     let col = in.color.rgb * lit * (world.suncol.rgb * 0.6 + vec3<f32>(world.suncol.w));
     return vec4<f32>(col, a);
+}
+
+@fragment
+fn fs_main(in: VOut) -> FOut {
+    var o: FOut;
+    o.color = fs_color(in);
+    o.depth = min(depth_of(in.view_w), 0.99999);
+    return o;
 }
 `;
 
