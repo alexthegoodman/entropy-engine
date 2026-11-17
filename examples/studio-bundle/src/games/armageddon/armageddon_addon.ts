@@ -14,13 +14,14 @@ import { think } from "./ar_bots";
 import { MAPS, worldFor, HALF } from "./ar_map";
 import { ROLE_LOADOUTS, REWARD, WEAPON, loadoutStats, type Loadout } from "./ar_data";
 import { Renderer, terrainMesh, seaMesh } from "./ar_render";
-import { packStatics, packGrass, drawSoldier, drawVehicle, groundTint, TEAM_COLOR } from "./ar_scene";
+import { packStatics, packGrass, drawSoldier, drawVehicle, groundTint, TEAM_COLOR, ENEMY_MARK } from "./ar_scene";
 import { LIT, GLOW, BODY } from "./ar_shader";
 import { drawTitle, drawSetup, drawArmory, drawDeploy, drawHud, drawDebrief, armoryRows, cycleArmory, type SetupView, type HudExtra } from "./ar_hud";
 import { Sound } from "./ar_audio";
 import { enginePainter, type Painter, type DrawApi, type Color } from "../allegiance/al_ui";
 import { yawed, placed, between, type Mat4 } from "../world_of_music/wom_render";
 import { clamp, type V3 } from "../nebula/nk_math";
+import { Controller } from "../allegiance/al_controller";
 
 const addon = Entropy.AddonAtom.register({
     name: "Armageddon 2070",
@@ -65,6 +66,8 @@ let crouch = false, prone = false;
 let scripted: (Partial<PlayerInput> & { frames: number }) | null = null;
 let scoreboard = false, mapOpen = false, showHelp = true;
 let lockSupported = false, locked = false;
+const pad = new Controller();
+let padSprint = false;
 const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(k.toUpperCase());
 const tapped = (k: string) => pressed.has(k) || pressed.has(k.toLowerCase()) || pressed.has(k.toUpperCase());
 
@@ -85,34 +88,44 @@ function crosshairPoint(): V3 | null {
     return [cam.pos[0] + d[0] * L * f, cam.pos[1] + d[1] * L * f, cam.pos[2] + d[2] * L * f];
 }
 
-function readInput(): PlayerInput {
+/** Aiming down sights: the right mouse button or the left trigger. */
+const aimHeld = () => rightHeld || pad.triggers[0] > 0.35 || pad.held.has("LeftTrigger2");
+
+function readInput(dt: number): PlayerInput {
     const me = battle?.me;
     const playing = mode === "play" && !!me?.alive;
     const look = (Entropy.Input as { takeMouseLook?: () => number[] }).takeMouseLook?.() ?? [0, 0, 0];
     locked = look[2] > 0.5;
+    // Sticks and triggers go stale when a pad stops reporting; buttons get real releases (also on disconnect).
+    if (realTime - pad.lastAxis > 0.5) { pad.left = [0, 0]; pad.right = [0, 0]; pad.triggers = [0, 0]; }
+    const [lx, ly] = pad.left, [rx, ry] = pad.right;
+    if (lx || ly || rx || ry || pad.triggers[0] > 0.1 || pad.triggers[1] > 0.1) hud.device = "pad";
+    else if (look[0] || look[1]) hud.device = "keys";
     if (playing) {
         const sens = (hud.ads ? 0.0011 / Math.max(1, hud.zoom * 0.6) : 0.0024);
         lookYaw -= look[0] * sens; lookPitch -= look[1] * sens;
         if (key("ArrowLeft")) lookYaw += 0.04; if (key("ArrowRight")) lookYaw -= 0.04;
         if (key("ArrowUp")) lookPitch += 0.03; if (key("ArrowDown")) lookPitch -= 0.03;
+        // Right stick: a response curve (fine aim near the centre), slower while aiming down sights.
+        const rate = (hud.ads ? 1.3 / Math.max(1, hud.zoom * 0.6) : 3.2) * dt;
+        lookYaw -= Math.sign(rx) * rx * rx * rate; lookPitch += Math.sign(ry) * ry * ry * rate * 0.75;
         lookPitch = clamp(lookPitch, -1.4, 1.35);
     }
-    if (tapped("c")) { crouch = !crouch; prone = false; }
-    if (tapped("z")) { prone = !prone; crouch = false; }
-    const slot: Slot | null = tapped("1") ? "primary" : tapped("2") ? "sidearm" : tapped("3") ? "launcher" : null;
+    const slot: Slot | null = tapped("1") ? "primary" : tapped("2") ? "sidearm" : tapped("3") ? "launcher" : tapped("NextWeapon") ? nextSlot(me) : null;
     const rewardKey = ["5", "6", "7", "8", "9"].findIndex(k => tapped(k));
     const inVeh = !!me && me.vehicle >= 0;
+    const kx = (key("d") ? 1 : 0) - (key("a") ? 1 : 0), kz = (key("w") ? 1 : 0) - (key("s") ? 1 : 0);
+    if (padSprint && Math.hypot(lx, ly) < 0.3) padSprint = false;
     const input: PlayerInput = {
-        move: playing && !inVeh ? [(key("d") ? 1 : 0) - (key("a") ? 1 : 0), (key("w") ? 1 : 0) - (key("s") ? 1 : 0)] : [0, 0],
+        move: playing && !inVeh ? [clamp(kx + lx, -1, 1), clamp(kz + ly, -1, 1)] : [0, 0],
         yaw: lookYaw, pitch: lookPitch,
-        fire: playing && (mouseButtons.has(0) || clicked) && !mapOpen, aim: playing && rightHeld, reload: playing && tapped("r"),
-        jump: playing && tapped(" ") && !inVeh, sprint: key("Shift"), crouch: crouch && !inVeh, prone: prone && !inVeh,
+        fire: playing && (mouseButtons.has(0) || clicked || pad.triggers[1] > 0.5 || pad.held.has("RightTrigger2")) && !mapOpen, aim: playing && aimHeld(), reload: playing && tapped("r"),
+        jump: playing && tapped(" ") && !inVeh, sprint: key("Shift") || padSprint, crouch: crouch && !inVeh, prone: prone && !inVeh,
         use: playing && tapped("e"), slot, grenade: playing && tapped("g"), equipment: playing && tapped("f"),
         call: playing && tapped("q"), reward: playing ? rewardKey : -1, point: playing ? crosshairPoint() : null,
-        throttle: inVeh ? (key("w") ? 1 : 0) - (key("s") ? 1 : 0) : 0, steer: inVeh ? (key("a") ? 1 : 0) - (key("d") ? 1 : 0) : 0,
+        throttle: inVeh ? clamp(kz + ly, -1, 1) : 0, steer: inVeh ? clamp(-kx - lx, -1, 1) : 0,
         lift: inVeh ? (key(" ") ? 1 : 0) - (key("Control") ? 1 : 0) : 0,
     };
-    clicked = false;
     if (scripted) {
         const { frames: _n, ...rest } = scripted;
         Object.assign(input, rest);
@@ -123,8 +136,39 @@ function readInput(): PlayerInput {
     return input;
 }
 
-function setupInput(): void {
-    Entropy.Input.onKeyDown((k: string) => {
+/** The next weapon slot the soldier carries (Y on the gamepad). */
+function nextSlot(me: Soldier | null | undefined): Slot | null {
+    if (!me) return null;
+    const order: Slot[] = me.loadout.launcher ? ["primary", "sidearm", "launcher"] : ["primary", "sidearm"];
+    return order[(order.indexOf(me.slot) + 1) % order.length];
+}
+
+/** Gamepad buttons drive the same keys as the keyboard (menus included); what a button means can depend
+ * on the moment (B is crouch on foot, descend in an aircraft), so each press remembers the key it sent. */
+function padKey(button: string): string | null {
+    const inVeh = !!battle?.me && battle.me.vehicle >= 0 && mode === "play";
+    const menu = mode !== "play";
+    switch (button) {
+        case "South": return menu ? "Enter" : " ";
+        case "East": return menu ? "Escape" : inVeh ? "Control" : "c";
+        case "West": return "r";
+        case "North": return "NextWeapon";
+        case "DPadUp": return menu ? "ArrowUp" : "e";
+        case "DPadDown": return menu ? "ArrowDown" : "z";
+        case "DPadLeft": return menu ? "ArrowLeft" : "q";
+        case "DPadRight": return menu ? "ArrowRight" : "5";
+        case "LeftTrigger": return "g";
+        case "RightTrigger": return "f";
+        case "RightThumb": return "v";
+        case "Select": return "m";
+        case "Start": return "PadStart";
+        default: return null;
+    }
+}
+const padSent = new Map<string, string>();
+
+function keyDown(k: string): void {
+    {
         const repeat = held.has(k);
         held.add(k);
         if (repeat) return;
@@ -139,7 +183,18 @@ function setupInput(): void {
             else if (k === "ArrowRight" || k === "ArrowLeft") { loadout = cycleArmory(loadout, armoryCursor, k === "ArrowRight" ? 1 : -1, roleIndex); sound.ui(); save(); }
             return;
         }
-        if (mode === "deploy") { if (k === "Enter" || k === " ") act("deploy"); else if (k === "Escape") act("title"); return; }
+        if (mode === "deploy") {
+            if (k === "Enter" || k === " " || k === "PadStart") act("deploy");
+            else if (k === "Escape") act("title");
+            else if ((k === "ArrowRight" || k === "ArrowLeft" || k === "ArrowDown" || k === "ArrowUp") && battle?.me) {
+                // Cycle the spawn point (keyboard and D-pad).
+                const ids = battle.spawnOptions(battle.me).map(o => o.id);
+                const step = k === "ArrowRight" || k === "ArrowDown" ? 1 : ids.length - 1;
+                spawnPick = ids[(Math.max(0, ids.indexOf(spawnPick)) + step) % ids.length];
+                sound.ui();
+            }
+            return;
+        }
         if (mode === "end") { if (k === "Enter") act("again"); else if (k === "Escape") act("title"); return; }
         if (mode === "play") {
             if (k === "Tab") scoreboard = true;
@@ -147,10 +202,26 @@ function setupInput(): void {
             if (lower === "h") showHelp = !showHelp;
             if (lower === "v") thirdPerson = !thirdPerson;
             if (lower === "p") { postOn = !postOn; renderer.setScreen(postOn); }
-            if (k === "Escape" && !locked) { setMode("deploy"); }
+            if (lower === "c") { crouch = !crouch; prone = false; }
+            if (lower === "z") { prone = !prone; crouch = false; }
+            if ((k === "Escape" && !locked) || k === "PadStart") { setMode("deploy"); }
         }
+    }
+}
+function keyUp(k: string): void { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); if (k === "Tab") scoreboard = false; }
+
+function setupInput(): void {
+    Entropy.Input.onKeyDown((k: string) => { hud.device = "keys"; keyDown(k); });
+    Entropy.Input.onKeyUp((k: string) => keyUp(k));
+    Entropy.Input.onGamepadAxis((l, r, triggers) => pad.axis(l, r, realTime, triggers));
+    Entropy.Input.onGamepadButton((button: string, down: boolean) => {
+        const fresh = pad.button(button, down);
+        hud.device = "pad";
+        if (button === "LeftThumb") { if (fresh) padSprint = !padSprint; return; }
+        if (fresh) { const k = padKey(button); if (k) { padSent.set(button, k); keyDown(k); } }
+        else if (!down) { const k = padSent.get(button); if (k) { padSent.delete(button); keyUp(k); } }
     });
-    Entropy.Input.onKeyUp((k: string) => { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); if (k === "Tab") scoreboard = false; });
+    // Entropy's addon mouse buttons: 0 left, 1 right, 2 middle (src/handlers.rs).
     Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
         const hit = painter?.hit(x, y);
         if (hit) { act(hit.id); return; }
@@ -158,10 +229,10 @@ function setupInput(): void {
         if (lockSupported && !locked && button === 0) { (Entropy.Input as { setPointerLock?: (b: boolean) => void }).setPointerLock?.(true); return; }
         mouseButtons.add(button);
         if (button === 0) clicked = true;
-        if (button === 2) rightHeld = true;
-        if (button === 1) lookDrag = [x, y];
+        if (button === 1) rightHeld = true;
+        if (button === 2) lookDrag = [x, y];
     });
-    Entropy.Input.onMouseUp((button: number) => { mouseButtons.delete(button); if (button === 2) rightHeld = false; if (button === 1) lookDrag = null; });
+    Entropy.Input.onMouseUp((button: number) => { mouseButtons.delete(button); if (button === 1) rightHeld = false; if (button === 2) lookDrag = null; });
     Entropy.Input.onMouseMove((x: number, y: number) => {
         if (painter) painter.hover = painter.hit(x, y)?.id ?? null;
         if (lookDrag && !locked) { lookYaw -= (x - lookDrag[0]) * 0.004; lookPitch = clamp(lookPitch - (y - lookDrag[1]) * 0.004, -1.4, 1.35); lookDrag = [x, y]; }
@@ -283,7 +354,7 @@ function onEvents(b: Battle, events: BattleEvent[]): void {
             case "mecha": toast(`${b.vehicles[e.vehicle].def.name} mecha deployed by ${TEAM_NAMES[e.team]}`, TEAM_COLOR[e.team].concat(1) as Color); break;
             case "airdrop": toast(`${TEAM_NAMES[e.team]} air-dropped a ${b.vehicles[e.vehicle].def.name}`, [0.9, 0.9, 0.9, 1]); break;
             case "end": setMode("end"); break;
-            case "spawn": case "hit": break;
+            case "spawn": break;
         }
     }
 }
@@ -341,7 +412,11 @@ function cameraNow(): { pos: V3; target: V3; fov: number } {
 function frame(dt: number, show = true): void {
     realTime += dt; modeAge += dt; frames++;
     const b = battle;
-    const input = readInput();
+    const input = readInput(dt);
+    // One-shot taps (weapon keys, reload, use, grenade, a semi-auto click...) stay latched until a battle
+    // step has consumed them: the battle steps at 30 Hz, so at 60+ fps about half of all frames run no step
+    // and a tap cleared on such a frame was simply lost.
+    let consumed = true;
     if (b && (mode === "play" || mode === "deploy" || mode === "end") && b.winner === -1) {
         accum += dt;
         let n = 0;
@@ -354,15 +429,16 @@ function frame(dt: number, show = true): void {
             b.events = [];
         }
         if (n === 3) accum = 0;
+        consumed = n > 0;
         const me = b.me;
         if (me && !me.alive && mode === "play") { setMode("deploy"); spawnPick = "HQ"; }
         if (me) {
-            hud.ads = rightHeld || !!scripted?.aim;
+            hud.ads = (aimHeld() || !!scripted?.aim) && me.alive && me.vehicle < 0;
             hud.zoom = me.slot === "primary" ? me.stats.zoom : 1.2;
         }
         stepEffects(dt, b);
     }
-    pressed.clear();
+    if (consumed) { pressed.clear(); clicked = false; }
     hud.hitMarker = Math.max(0, hud.hitMarker - dt);
     hud.hurt = Math.max(0, hud.hurt - dt * 0.6);
     flash = Math.max(0, flash - dt * 1.5);
@@ -415,7 +491,8 @@ function draw(dt: number): void {
     renderer.writeWorld({ time: realTime, aspect: w / Math.max(1, h), fog: def.fogDensity, exposure: 1, sun, sunIntensity: 1.15, cam: cam.pos, biome, fogColor: def.haze, snowline: def.biome === "mountain" ? 105 : 9999, sky: def.sky, glowAzimuth: Math.PI * 0.75, sunColor: [1, 0.95, 0.85], ambient: 0.85, hurt: hud.hurt, flash, emp, sea: 0 });
     renderer.writePost({ fog: def.fogDensity, fogStart: 30, screen: [w, h], fogColor: def.haze, time: realTime, vignette: 0.32, grain: 0.02, hurt: Math.max(hud.hurt, me && me.alive ? clamp(1 - me.hp / 45) * 0.5 : 0), flash, emp, ads: hud.ads ? 1 : 0, exposure: 1.05, saturation: 0.88 });
     drawUi(dt, w, h);
-    sound.step(realTime, { pos: cam.pos, yaw: lookYaw }, b && me ? clamp(me.suppression / 3 + (b.time - me.lastHitAt < 5 ? 0.4 : 0)) : 0);
+    // The ear faces where the camera looks (the deploy and death cameras orbit, so not lookYaw).
+    sound.step(realTime, { pos: cam.pos, yaw: Math.atan2(cam.target[0] - cam.pos[0], cam.target[2] - cam.pos[2]) },b && me ? clamp(me.suppression / 3 + (b.time - me.lastHitAt < 5 ? 0.4 : 0)) : 0);
 }
 
 function drawBattle(b: Battle, cam: { pos: V3 }): void {
@@ -441,9 +518,11 @@ function drawBattle(b: Battle, cam: { pos: V3 }): void {
         if (d > 130) {
             const hgt = s.stance === "prone" ? 0.4 : s.stance === "crouch" ? 1.2 : 1.75;
             renderer.solid("cube", yawed([s.pos[0], s.pos[1] + hgt / 2, s.pos[2]], s.yaw, 0.24, hgt / 2, 0.16), [...(s.team === 0 ? [0.33, 0.37, 0.4] : [0.47, 0.38, 0.28]), 1], [LIT.body, s.id, hitFlash(s), 0], [3, BODY.cloth, 0, 0]);
+            // Far enemies keep a red band (a little oversized so it survives at distance).
+            if (me && s.team !== me.team) renderer.solid("cube", yawed([s.pos[0], s.pos[1] + hgt * 0.72, s.pos[2]], s.yaw, 0.27, Math.min(0.12, hgt * 0.12), 0.19), [...ENEMY_MARK, 1], [LIT.body, 0, 0, 0], [0, BODY.visor, 0, 0]);
             continue;
         }
-        drawSoldier(renderer, s, realTime, hitFlash(s), s.loadout.armor.Finish ? groundTint(b.world, s.pos[0], s.pos[2]) : null);
+        drawSoldier(renderer, s, realTime, hitFlash(s), s.loadout.armor.Finish ? groundTint(b.world, s.pos[0], s.pos[2]) : null, me ? me.team : -1);
     }
     for (const v of b.vehicles) {
         if (!v.alive && (v.temporary || b.time - v.deadAt > 20)) continue;
@@ -492,6 +571,7 @@ function drawBattle(b: Battle, cam: { pos: V3 }): void {
 }
 
 function drawViewModel(me: Soldier): void {
+    if (hud.ads && hud.zoom >= 2.5) return; // looking through the scope (ar_hud draws it)
     const eye = eyeOf(me);
     const f = dirOf(lookYaw, lookPitch);
     const r = norm([-f[2], 0, f[0]]);
@@ -501,7 +581,7 @@ function drawViewModel(me: Soldier): void {
     const kick = Math.max(0, 0.06 - (battle!.time - me.lastShot)) * 0.6;
     const ads = hud.ads ? 1 : 0;
     const off = (x: number, y: number, z: number): V3 => [eye[0] + r[0] * x + u[0] * y + f[0] * z, eye[1] + r[1] * x + u[1] * y + f[1] * z, eye[2] + r[2] * x + u[2] * y + f[2] * z];
-    const x0 = (ads ? 0 : 0.15) + sway, y0 = (ads ? -0.06 : -0.15) + bob, z0 = 0.6 - kick;
+    const x0 = (ads ? 0 : 0.15) + sway * (1 - ads * 0.8), y0 = (ads ? -0.078 : -0.15) + bob * (1 - ads * 0.8), z0 = 0.6 - kick;
     const k = 0.62;
     const wpn = WEAPON.get(me.slot === "primary" ? me.loadout.primary : me.slot === "sidearm" ? me.loadout.sidearm : me.loadout.launcher ?? me.loadout.primary)!;
     const len = me.slot === "launcher" ? 0.9 : me.slot === "sidearm" ? 0.12 : wpn.id === "W008" || wpn.id === "W010" ? 0.55 : 0.4;
@@ -562,6 +642,7 @@ addon.onInit(() => {
     Entropy.setGameMode(false);
     Entropy.Lighting.updateSun({ horizonColor: [0.8, 0.8, 0.8], zenithColor: [0.6, 0.65, 0.75], sunDirection: [0.5, 0.6, 0.35], sunColor: [1, 1, 1], sunIntensity: 0 });
     painter = enginePainter(addon.UI as unknown as DrawApi);
+    sound.occluded = (a, p) => !!battle && battle.world.trace(a[0], a[1], a[2], p[0], p[1] + 0.5, p[2]) < 0.97;
     lockSupported = typeof (Entropy.Input as { setPointerLock?: unknown }).setPointerLock === "function";
     load();
     setupInput();
@@ -604,6 +685,7 @@ function snapshot() {
 }
 
 let undrawn = 0;
+let expectMark: { pos: number[]; yaw: number } = { pos: [0, 0, 0], yaw: 0 };
 function advance(n: number, input: Partial<PlayerInput> = {}, last = true): void {
     for (let i = 0; i < n; i++) {
         scripted = { ...input, frames: 1 };
@@ -630,6 +712,20 @@ function locate(to: unknown): [number, number] | null {
 function registerTools(): void {
     const tools: { name: string; description: string; parameters: object; run: (a: Args) => object }[] = [
         { name: "ar_state", description: "Armageddon 2070's state: mode, the loadout, the battle (tickets, territories, squads and their WIR modes, vehicles, WIR stats), the player.", parameters: { type: "object", properties: {} }, run: () => snapshot() },
+        {
+            name: "ar_expect", description: "Asserts the player's input state (fails the call on a mismatch): slot, ads (bool), stance, device (keys|pad), moved / turned (bool: since the previous ar_expect), mode. Use after real key, mouse or gamepad input.",
+            parameters: { type: "object", properties: { slot: { type: "string" }, ads: { type: "boolean" }, stance: { type: "string" }, device: { type: "string" }, moved: { type: "boolean" }, turned: { type: "boolean" }, mode: { type: "string" } } },
+            run: a => {
+                const me = battle?.me;
+                const now = { slot: me?.slot, ads: hud.ads, stance: me?.stance, device: hud.device, mode, pos: me ? [...me.pos] : [0, 0, 0], yaw: lookYaw };
+                const moved = Math.hypot(now.pos[0] - expectMark.pos[0], now.pos[2] - expectMark.pos[2]) > 0.5, turned = Math.abs(now.yaw - expectMark.yaw) > 0.05;
+                const got: Record<string, unknown> = { slot: now.slot, ads: now.ads, stance: now.stance, device: now.device, mode, moved, turned };
+                expectMark = { pos: now.pos, yaw: now.yaw };
+                const wrong = Object.keys(a).filter(k => k in got && got[k] !== a[k]);
+                if (wrong.length) throw new Error(`expected ${wrong.map(k => `${k}=${String(a[k])}`).join(", ")}; got ${wrong.map(k => `${k}=${String(got[k])}`).join(", ")}`);
+                return snapshot();
+            },
+        },
         {
             name: "ar_config", description: "Test settings: fixedStep (seconds per frame, null for real time), sound (bool), post (bool), check (bool: compare every WIR decision with its rule), thirdPerson (bool), help (bool).",
             parameters: { type: "object", properties: { fixedStep: { type: "number" }, sound: { type: "boolean" }, post: { type: "boolean" }, check: { type: "boolean" }, thirdPerson: { type: "boolean" }, help: { type: "boolean" } } },

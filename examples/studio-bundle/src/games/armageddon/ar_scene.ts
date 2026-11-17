@@ -92,14 +92,20 @@ export function packGrass(r: Renderer, w: World, cam: V3, radius = 96): void {
 // --- soldiers -----------------------------------------------------------------------------------------
 
 /** A soldier from boxes and spheres: legs and arms swing with speed; armor and exoskeletons show. */
-export function drawSoldier(r: Renderer, s: Soldier, time: number, hitFlash: number, groundTint: RGB | null): void {
+/** The glowing identification marks on enemies of the viewer: red, so they stand out from cover and foliage. */
+export const ENEMY_MARK: RGB = [1.0, 0.08, 0.05];
+
+export function drawSoldier(r: Renderer, s: Soldier, time: number, hitFlash: number, groundTint: RGB | null, viewerTeam: Team | -1 = -1): void {
     const team = s.team, yaw = s.yaw;
     const moving = Math.hypot(s.vel[0], s.vel[2]);
     const phase = time * (moving > 5 ? 11 : 8) + s.id;
     const swing = Math.sin(phase) * Math.min(1, moving / 3) * 0.55;
     let cloth: RGB = CLOTH[team], plate: RGB = PLATE[team];
     if (s.loadout.armor.Finish && groundTint) { const k = s.loadout.armor.Finish === "AR013" ? 0.75 : 0.45; cloth = mix3(cloth, groundTint, k); plate = mix3(plate, groundTint, k * 0.8); }
-    const glow = TEAM_COLOR[team];
+    const enemy = viewerTeam !== -1 && team !== viewerTeam;
+    const glow = enemy ? ENEMY_MARK : TEAM_COLOR[team];
+    // Enemy marks: armbands, chest and back patches, a helmet band (emissive, like the visor).
+    const mark = (o: V3, sx: number, sy: number, sz: number) => r.solid("cube", yawed(at(s.pos, yaw, o), yaw, sx, sy, sz), [...ENEMY_MARK, 1], [LIT.body, 0, 0, 0], [0, BODY.visor, 0, 0]);
     const flash = hitFlash;
     const p = s.pos;
     const B = (o: V3, sx: number, sy: number, sz: number, color: RGB, part: number, mesh = "cube") => r.solid(mesh, yawed(at(p, yaw, o), yaw, sx, sy, sz), [...color, 1], [LIT.body, s.id, flash, 0], [3, part, 0, 0]);
@@ -109,6 +115,7 @@ export function drawSoldier(r: Renderer, s: Soldier, time: number, hitFlash: num
         r.solid("cube", m, [...cloth, 1], [LIT.body, s.id, flash, 0], [3, BODY.cloth, 0, 0]);
         r.solid("sphere-1", placed(at(p, yaw, [0, 0.3, 0.95]), 0.16), [...plate, 1], [LIT.body, s.id, flash, 0], [3, BODY.plate, 0, 0]);
         B([0.12, 0.3, 1.35], 0.04, 0.05, 0.5, [0.1, 0.1, 0.1], BODY.gun);
+        if (enemy) { mark([0, 0.39, 0.2], 0.18, 0.012, 0.16); mark([0, 0.46, 0.95], 0.15, 0.03, 0.04); }
         return;
     }
     const crouch = s.stance === "crouch";
@@ -141,6 +148,11 @@ export function drawSoldier(r: Renderer, s: Soldier, time: number, hitFlash: num
     const helm = s.loadout.armor.Helmet, hs = helm === "AR003" ? 0.145 : helm === "AR001" ? 0.122 : 0.135;
     if (helm) r.solid("sphere-1", yawed([head[0], head[1] + 0.04, head[2]], yaw, hs, hs * 0.75, hs * 1.05), [...plate, 1], [LIT.body, s.id, flash, 0], [2, BODY.plate, 0, 0]);
     r.solid("cube", yawed(at(p, yaw, [0, torsoY + 0.46, 0.1 + lean * 0.45]), yaw, 0.08, 0.025, 0.02), [...glow, 1], [LIT.body, 0, 0.2, 0], [0, BODY.visor, 0, 0]);
+    if (enemy) {
+        mark([0, torsoY + 0.06, 0.15 + lean * 0.3], 0.1, 0.07, 0.035);   // chest patch (over the plate carrier)
+        mark([0, torsoY + 0.08, -0.255], 0.1, 0.08, 0.012);               // back patch (on the pack)
+        mark([0, torsoY + 0.5, lean * 0.45], hs + 0.012, 0.022, hs * 1.05 + 0.012); // helmet band
+    }
     // Arms holding the weapon forward, and the weapon itself (longer for rifles and launchers).
     const aimPitch = s.pitch;
     const gunLen = s.slot === "launcher" ? 0.65 : s.slot === "sidearm" ? 0.16 : s.loadout.primary === "W008" || s.loadout.primary === "W010" ? 0.62 : 0.45;
@@ -150,6 +162,7 @@ export function drawSoldier(r: Renderer, s: Soldier, time: number, hitFlash: num
         const shoulder = at(p, yaw, [side * 0.25, torsoY + 0.2, 0]);
         const hand = side > 0 ? grip : lerp3(grip, muzzle, 0.45);
         r.solid("cyl", between(shoulder, hand, 0.06), [...cloth, 1], [LIT.body, s.id, flash, 0], [3, BODY.cloth, 0, 0]);
+        if (enemy) r.solid("cyl", between(lerp3(shoulder, hand, 0.18), lerp3(shoulder, hand, 0.34), 0.068), [...ENEMY_MARK, 1], [LIT.body, 0, 0, 0], [0, BODY.visor, 0, 0]); // armband
     }
     const gunColor: RGB = s.slot === "launcher" ? [0.3, 0.32, 0.25] : [0.1, 0.1, 0.1];
     r.solid("cyl", between(lerp3(grip, muzzle, -0.15), muzzle, s.slot === "launcher" ? 0.06 : 0.03), [...gunColor, 1], [LIT.body, 0, 0, 0], [0, BODY.gun, 0, 0]);

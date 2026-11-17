@@ -87,3 +87,58 @@ Feature: Armageddon 2070
     When I call the tool "ar_camera" with {"release": true}
     And I call the tool "ar_act" with {"action": "winTeam", "team": 0, "frames": 5}
     Then I capture "19-debrief"
+
+  Scenario: Real input - weapon keys between battle steps, aiming down sights, the gamepad, enemy marks
+    Given the real Armageddon 2070 game is running in test mode
+    When I call the tool "ar_config" with {"fixedStep": 0.0167, "sound": false}
+    And I call the tool "ar_start" with {"map": "glass-coast", "size": 32, "seed": 4, "screen": "play"}
+    And I call the tool "ar_act" with {"action": "banner"}
+    And I call the tool "ar_act" with {"action": "teleport", "to": "T2", "distance": 30}
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"slot": "primary", "ads": false}
+    # 60 fps against the 30 Hz battle: these taps alternate between frames that run a battle step and frames that do not.
+    When I hold the key "2" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"slot": "sidearm"}
+    When I hold the key "1" for 1 frame
+    And I advance 2 frames
+    Then I call the tool "ar_expect" with {"slot": "primary"}
+    When I hold the key "2" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"slot": "sidearm"}
+    When I hold the key "1" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"slot": "primary"}
+    # The right mouse button aims down sights (Entropy sends it to addons as button 1).
+    When I press the mouse button "right"
+    And I advance 10 frames
+    Then I call the tool "ar_expect" with {"ads": true}
+    And I capture "20-aim-down-sights"
+    When I release the mouse button "right"
+    And I advance 2 frames
+    Then I call the tool "ar_expect" with {"ads": false}
+    # The gamepad: Y switches weapon, the left trigger aims, the sticks move and look, B crouches.
+    When I hold the gamepad button "North" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"slot": "sidearm", "device": "pad"}
+    When I press the gamepad button "LeftTrigger2"
+    And I advance 6 frames
+    Then I call the tool "ar_expect" with {"ads": true}
+    When I release the gamepad button "LeftTrigger2"
+    And I call the tool "ar_expect" with {}
+    And I hold the gamepad sticks "0 1 0.8 0 0 0" for 40 frames
+    Then I call the tool "ar_expect" with {"moved": true, "turned": true, "ads": false}
+    When I hold the gamepad button "East" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "ar_expect" with {"stance": "crouch"}
+    # A 4x scope (the marksman preset) puts the scope picture up.
+    When I call the tool "ar_act" with {"action": "loadout", "role": "marksman"}
+    And I hold the key "1" for 1 frame
+    And I press the mouse button "right"
+    And I advance 12 frames
+    Then I call the tool "ar_expect" with {"slot": "primary", "ads": true}
+    And I capture "21-marksman-scope"
+    When I release the mouse button "right"
+    # Enemies wear red marks.
+    And I call the tool "ar_act" with {"action": "teleport", "to": "enemy", "distance": 6}
+    Then I capture "22-enemy-red-marks"

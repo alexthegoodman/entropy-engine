@@ -252,7 +252,25 @@ export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier
         p.textR(`${here.counts[me.team]} v ${here.counts[1 - me.team]}`, cx + 150, 54, 12, C.dim, N);
     }
     // Crosshair (spread circle as four ticks), hit marker.
-    if (me.vehicle < 0 && !x.mapOpen) {
+    if (me.vehicle < 0 && !x.mapOpen && x.ads) {
+        // Aiming down sights: a scope picture for magnified optics, a red-dot reticle otherwise.
+        if (x.zoom >= 2.5) {
+            const R = h * 0.42, dark: Color = [0, 0, 0, 0.94], strips = 64;
+            p.rect(0, 0, w / 2 - R, h, dark); p.rect(w / 2 + R, 0, w / 2 - R, h, dark);
+            for (let i = 0; i < strips; i++) {
+                const y0 = h / 2 - R + (i * 2 * R) / strips, yc = y0 + R / strips - h / 2;
+                const half = Math.sqrt(Math.max(0, R * R - yc * yc));
+                p.rect(w / 2 - R, y0, R - half, (2 * R) / strips + 1, dark); p.rect(w / 2 + half, y0, R - half, (2 * R) / strips + 1, dark);
+            }
+            p.rect(0, 0, w, h / 2 - R, dark); p.rect(0, h / 2 + R, w, h / 2 - R, dark);
+            const line: Color = [0, 0, 0, 0.85];
+            p.rect(w / 2 - R, h / 2 - 1, R - 14, 2, line); p.rect(w / 2 + 14, h / 2 - 1, R - 14, 2, line);
+            p.rect(w / 2 - 1, h / 2 + 14, 2, R - 14, line); p.rect(w / 2 - 1, h / 2 - R, 2, R - 40, line);
+        }
+        p.rect(w / 2 - 3, h / 2 - 3, 6, 6, [0, 0, 0, 0.5]);
+        p.rect(w / 2 - 2, h / 2 - 2, 4, 4, [1, 0.15, 0.1, 1]);
+        if (x.hitMarker > 0) { const a = Math.min(1, x.hitMarker * 3); for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) p.rect(w / 2 + dx * 9 - 3, h / 2 + dy * 9 - 3, 6, 6, [1, 1, 1, a]); }
+    } else if (me.vehicle < 0 && !x.mapOpen) {
         const g = Math.max(4, x.spread);
         const col: Color = x.ads ? [1, 1, 1, 0.5] : [1, 1, 1, 0.85];
         p.rect(w / 2 - 1, h / 2 - g - 8, 2, 8, col); p.rect(w / 2 - 1, h / 2 + g, 2, 8, col);
@@ -331,13 +349,18 @@ export function drawHud(p: Painter, w: number, h: number, b: Battle, me: Soldier
     x.toasts.forEach((t, i) => p.textC(t.text, w / 2, h * 0.3 + i * 24, 15, [...t.color.slice(0, 3), Math.min(1, 4 - t.age)] as Color, H));
     if (x.banner) { const a = Math.min(1, x.banner.age * 2, (6 - x.banner.age) * 0.8); p.textC(x.banner.title, w / 2, h * 0.16, 30, [1, 0.8, 0.4, a], H); p.textC(x.banner.text, w / 2, h * 0.16 + 44, 14, [1, 1, 1, a], B); }
     if (x.lockHint) p.textC("Click to lock the mouse for aiming (Esc releases it)", w / 2, h - 110, 12, C.dim, B);
-    if (x.showHelp) drawHelp(p, w, h);
+    if (x.showHelp) drawHelp(p, w, h, x.device === "pad");
     if (x.scoreboard) drawScoreboard(p, w, h, b, me);
     if (x.mapOpen) drawMap(p, b, me, w / 2 - Math.min(h, w) * 0.4, h / 2 - Math.min(h, w) * 0.4, Math.min(h, w) * 0.8, { full: true });
 }
 
-function drawHelp(p: Painter, w: number, h: number): void {
-    const lines = [
+function drawHelp(p: Painter, w: number, h: number, pad: boolean): void {
+    const lines = pad ? [
+        "LEFT STICK move   RIGHT STICK look   RT fire   LT aim   L3 sprint   A jump   B crouch   D-PAD DOWN prone",
+        "X reload   Y switch weapon   LB grenade   RB equipment / vehicle smoke   D-PAD UP enter / exit vehicle",
+        "D-PAD LEFT call your squad   D-PAD RIGHT use a reward   R3 third person   BACK map   START deploy screen",
+        "Vehicles: left stick throttle and steer, A/B climb and descend (aircraft), right stick aims, RT fires",
+    ] : [
         "WASD move   SHIFT sprint   SPACE jump   C crouch   Z prone   MOUSE look   LMB fire   RMB aim",
         "R reload   1 primary  2 sidearm  3 launcher   G grenade   F equipment / vehicle smoke   E enter / exit vehicle",
         "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   H help",

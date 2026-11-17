@@ -16,6 +16,8 @@ import { DIRS, HOLD, MODES, rule, senseRule, hot, type Vals, type Mode } from ".
 import { clamp, type V3 } from "../nebula/nk_math";
 
 const INF_THINK = 0.35, VEH_THINK = 0.3, SQUAD_THINK = 1, PLAN_THINK = 4;
+/** Seconds a bot needs on a new target before its first shot. */
+const REACTION = 0.45;
 
 /** The whole bot pass for one step. */
 export function think(b: Battle, dt: number): void {
@@ -229,13 +231,17 @@ const BRAIN: Record<string, string> = { leader: "ar_rifle_brain", rifleman: "ar_
 function infantryThink(b: Battle, s: Soldier): void {
     const sq = b.squads[s.squad];
     const eye = eyeOf(s);
-    const cs = contacts(b, s.team, eye, 420, s.id);
+    const hasL = !!s.loadout.launcher && s.mag.launcher + s.reserve.launcher > 0;
+    // Aircraft are only a target for AA launchers, or when low and close enough for small arms to matter
+    // (otherwise every rifleman on the map would stop and plink at helicopters 1 km away).
+    const hasAA = hasL && s.loadout.launcher === "W015";
+    const cs = contacts(b, s.team, eye, 420, s.id).filter(c => !c.air || hasAA || c.d < 180);
     const visible = cs.filter(c => c.visible);
     // Anti-armor soldiers with a launcher prefer vehicles.
-    const hasL = !!s.loadout.launcher && s.mag.launcher + s.reserve.launcher > 0;
     const pick = (hasL ? visible.find(c => c.armor && !c.air && c.d < 600) : undefined) ?? visible.find(c => !c.air) ?? visible[0];
     const threat = pick ?? cs[0];
-    if (pick && (pick.id !== s.target || pick.kind !== s.targetKind)) s.aimTime = 0;
+    // A fresh contact takes the full reaction time; switching between targets already in a fight is quicker.
+    if (pick && (pick.id !== s.target || pick.kind !== s.targetKind)) s.aimTime = s.target >= 0 ? Math.min(s.aimTime, REACTION) * 0.6 : 0;
     s.target = pick ? pick.id : -1; s.targetKind = pick ? pick.kind : "";
     const t = b.territories.find(q => q.def.id === sq.objective);
     // Objective field: the squad's territory, a flank point for fireteam B, the transport, or home.
@@ -341,9 +347,17 @@ function infantryAct(b: Battle, s: Soldier, dt: number): void {
     const w = b.weaponOf(s);
     // Bursts: automatic weapons fire 3-6 rounds, then pause.
     if (w.rpm > 300) { if (s.burst <= 0) { if (b.rng.next() < dt * 2.5) s.burst = 3 + Math.floor(b.rng.next() * 4); else return; } }
-    const base = s.role === "marksman" || s.role === "recon" ? 0.22 : s.role === "support" ? 0.8 : 0.55;
-    const err = ((base * (0.4 + 0.6 * Math.max(0, 1 - s.aimTime / 1.5)) + s.suppression * 0.35 + (horiz > 200 ? 0.2 : 0)) * Math.PI) / 180;
-    const fired = b.fire(s, wantYaw + b.rng.range(-err, err), wantPitch + b.rng.range(-err, err) * 0.7, true, s.targetKind === "vehicle" ? s.target : -1, s.targetKind);
+    // Human-like aim: a reaction delay on a new target, a bell-shaped error that settles over ~2.5 s,
+    // worse when suppressed, moving or far, and tracking lag on a moving target (shots trail it).
+    if (s.aimTime < REACTION) return;
+    const base = s.role === "marksman" || s.role === "recon" ? 0.22 : s.role === "support" ? 0.75 : 0.5;
+    const self = Math.hypot(s.vel[0], s.vel[2]) > 0.8 ? 1.6 : 1;
+    const sigmaDeg = base * (1 + 1.5 * Math.max(0, 1 - s.aimTime / 2.5)) * self + s.suppression * 0.4 + horiz / 500;
+    const tv = s.targetKind === "vehicle" ? (() => { const v = tgt as VehicleState; return [Math.sin(v.yaw) * v.speed, Math.cos(v.yaw) * v.speed]; })() : [(tgt as Soldier).vel[0], (tgt as Soldier).vel[2]];
+    const omega = (dz * tv[0] - dx * tv[1]) / Math.max(1, horiz * horiz);
+    const sigma = (sigmaDeg * Math.PI) / 180 + Math.abs(omega) * 0.15;
+    const gauss = () => b.rng.range(-1, 1) + b.rng.range(-1, 1) + b.rng.range(-1, 1);
+    const fired = b.fire(s, wantYaw - omega * 0.2 + gauss() * sigma, wantPitch + gauss() * sigma * 0.7, true, s.targetKind === "vehicle" ? s.target : -1, s.targetKind);
     if (fired && w.rpm > 300) s.burst--;
 }
 
@@ -541,14 +555,16 @@ function heliThink(b: Battle, v: VehicleState): void {
     if (air === "drone") for (const c of cs) if (c.kind === "soldier" && c.d < 70) b.spotted[v.team].set(c.id, b.time + 2);
     // Landing and loading.
     const ground = b.world.height(v.pos[0], v.pos[2]);
-    v.landing = out.land > 0.5 && air === "transport";
+    // A transport with no squad and nobody aboard waits on the ground at its base, not hovering over it.
+    const idle = air === "transport" && !sq && pax === 0 && !v.temporary && Math.hypot(base.x - v.pos[0], base.z - v.pos[2]) < 90;
+    v.landing = (out.land > 0.5 || idle) && air === "transport";
     if (v.landing) {
         v.speed = 0;
         if (v.pos[1] < ground + 1.5) {
             v.landed = true;
             if (mission === 1) { for (const id of v.seats.slice(1)) if (id >= 0) b.exitVehicle(b.soldiers[id]); if (sq) { sq.mode = "advance"; sq.vehicle = -1; } v.squad = -1; v.lz = null; v.waitUntil = b.time + 4; }
         }
-    } else if (v.landed && b.time > v.waitUntil && (mission !== 2 || !outside.length || dgoal > 60)) { v.landed = false; }
+    } else if (v.landed && !idle && b.time > v.waitUntil && (mission !== 2 || !outside.length || dgoal > 60)) { v.landed = false; }
 }
 
 function jetThink(b: Battle, v: VehicleState): void {
@@ -598,7 +614,14 @@ function vehicleAct(b: Battle, v: VehicleState, driver: Soldier, dt: number): vo
         if (!fast && v.landed) { v.speed = 0; return; }
         const ground = b.world.height(v.pos[0], v.pos[2]);
         if (!fast) v.altitude = v.landing ? ground : ground + [22, 60, 140][v.band];
-        if (!v.goal) { v.speed *= 0.95; return; }
+        if (!v.goal) {
+            // Holding: transports hover in place; gunships and drones circle slowly (a ~30 m orbit) so
+            // they stay hard to hit and never sit frozen in the sky.
+            if (fast || v.landing || v.def.wir !== "heli" || v.seats.length > 2) { v.speed *= 0.95; return; }
+            v.speed += clamp(9 - v.speed, -v.def.accel * dt, v.def.accel * dt);
+            v.yaw += (v.id % 2 ? 0.3 : -0.3) * dt;
+            return;
+        }
         const want = Math.atan2(v.goal[0] - v.pos[0], v.goal[1] - v.pos[2]);
         const d = angleDiff(v.yaw, want);
         driveVehicle(b, v, 1, clamp(d * 2, -1, 1), 0, dt);

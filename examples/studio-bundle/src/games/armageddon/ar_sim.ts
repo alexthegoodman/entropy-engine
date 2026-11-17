@@ -262,7 +262,8 @@ export class Battle {
         const air = def.domain === "Air";
         const row = Math.floor(index / 5), col = (index % 5) - 2;
         const fwd = team === 0 ? 1 : -1;
-        let x = at ? at[0] : b.x + col * 14, z = at ? at[1] : b.z + (air ? -fwd * (b.radius * 0.6 + row * 22) : fwd * (b.radius * 0.1 + row * 14) - fwd * 10);
+        // Aircraft line up on one row behind the base, inside the map (bases sit ~60 m from the edge).
+        let x = at ? at[0] : air ? b.x + ((index % 9) - 4) * 18 : b.x + col * 14, z = at ? at[1] : b.z + (air ? -fwd * b.radius * 0.5 : fwd * (b.radius * 0.1 + row * 14) - fwd * 10);
         if (!air) [x, z] = this.world.vehOpenNear(x, z);
         const v: VehicleState = {
             id: this.vehicles.length, team, def, mecha: null,
@@ -276,7 +277,7 @@ export class Battle {
             goal: null, target: -1, targetKind: "", squad: -1, lz: null, landed: !air || def.topSpeed < 500, waitUntil: 0, payload: null, temporary: 0, owner: -1,
             spawn: [x, 0, z], lockOn: -1, lockTime: 0, braced: false, landing: false,
         };
-        if (def.id === "V016" || def.id === "V017" || def.id === "V018") { v.pos[1] = this.world.height(x, z) + 220; v.speed = 90; v.landed = false; }
+        if (def.id === "V016" || def.id === "V017" || def.id === "V018") { v.pos[1] = this.world.height(x, z) + 220; v.altitude = v.pos[1]; v.speed = 90; v.landed = false; }
         this.vehicles.push(v);
         return v;
     }
@@ -762,8 +763,14 @@ export class Battle {
         const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
         const nx = v.pos[0] + fx * v.speed * dt, nz = v.pos[2] + fz * v.speed * dt;
         if (air) {
-            if (this.world.inBounds(nx, nz, 10)) { v.pos[0] = nx; v.pos[2] = nz; }
-            else { v.yaw += Math.PI * dt; }
+            // At the edge, keep flying but turn back toward the middle of the map (never pin in place).
+            if (this.world.inBounds(nx, nz, 10) || Math.hypot(nx, nz) < Math.hypot(v.pos[0], v.pos[2])) { v.pos[0] = nx; v.pos[2] = nz; }
+            if (!v.landed && !this.world.inBounds(v.pos[0], v.pos[2], 30)) {
+                let d = (Math.atan2(-v.pos[0], -v.pos[2]) - v.yaw) % (Math.PI * 2);
+                if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+                v.yaw += clamp(d, -v.def.turn * dt, v.def.turn * dt);
+                v.speed = Math.max(v.speed, 8);
+            }
             const ground = this.world.height(v.pos[0], v.pos[2]);
             if (v.landed) v.pos[1] = ground + 0.1;
             else v.pos[1] = Math.max(ground + 2, v.pos[1] + (v.altitude - v.pos[1]) * Math.min(1, dt * 0.8));

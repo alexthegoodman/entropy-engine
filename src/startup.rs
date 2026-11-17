@@ -165,7 +165,22 @@ enum BrowserBddAction {
     /// `I hold the key "d" for 30 frames`: the key reads as pressed (`Entropy.Input.isKeyPressed`) for
     /// that many driver ticks, then is released. `pressed` is false until the first tick.
     HoldKey { key: String, frames: u32, pressed: bool },
+    /// `I hold the mouse button "right" for 20 frames`, `I hold the gamepad button "North" for 2 frames`,
+    /// `I hold the gamepad sticks "lx ly rx ry lt rt" for 30 frames`: the same addon input events the
+    /// hardware produces (mouse buttons 0 left, 1 right, 2 middle; gilrs button names), then the release.
+    HoldInput { input: HeldInput, frames: u32, pressed: bool },
+    /// `I press the mouse button "right"` / `I release the gamepad button "LeftTrigger2"`: one edge,
+    /// so a scenario can assert and capture while the button is down.
+    PressInput { input: HeldInput, down: bool },
     Finish,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum HeldInput {
+    Mouse(u32),
+    PadButton(String),
+    /// Left stick, right stick (positive Y up) and the analog triggers.
+    PadSticks([f32; 6]),
 }
 
 /// The `.feature` file compiled into the binary. `include_str!` makes cargo track it as a
@@ -258,6 +273,31 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         let frames = text.rsplit(" for ").next().unwrap_or("").trim_end_matches(" frames").trim_end_matches(" frame")
             .parse::<u32>().unwrap_or_else(|_| panic!("feature file: not a frame count in {text:?}"));
         return Some(BrowserBddAction::HoldKey { key: quoted[0].to_string(), frames, pressed: false });
+    }
+    if (text.starts_with("I hold the mouse button ") || text.starts_with("I hold the gamepad button ") || text.starts_with("I hold the gamepad sticks ")) && quoted.len() == 1 {
+        let frames = text.rsplit(" for ").next().unwrap_or("").trim_end_matches(" frames").trim_end_matches(" frame")
+            .parse::<u32>().unwrap_or_else(|_| panic!("feature file: not a frame count in {text:?}"));
+        let input = if text.starts_with("I hold the mouse button ") {
+            HeldInput::Mouse(match quoted[0] { "left" => 0, "right" => 1, "middle" => 2, other => panic!("feature file: unknown mouse button {other:?}") })
+        } else if text.starts_with("I hold the gamepad button ") {
+            HeldInput::PadButton(quoted[0].to_string())
+        } else {
+            let v: Vec<f32> = quoted[0].split_whitespace().map(|n| n.parse().unwrap_or_else(|_| panic!("feature file: not a number in {text:?}"))).collect();
+            assert!(v.len() == 6, "feature file: gamepad sticks take 6 numbers (lx ly rx ry lt rt) in {text:?}");
+            HeldInput::PadSticks([v[0], v[1], v[2], v[3], v[4], v[5]])
+        };
+        return Some(BrowserBddAction::HoldInput { input, frames, pressed: false });
+    }
+    for (prefix, down) in [("I press the ", true), ("I release the ", false)] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            if quoted.len() != 1 { continue; }
+            let input = if rest.starts_with("mouse button ") {
+                HeldInput::Mouse(match quoted[0] { "left" => 0, "right" => 1, "middle" => 2, other => panic!("feature file: unknown mouse button {other:?}") })
+            } else if rest.starts_with("gamepad button ") {
+                HeldInput::PadButton(quoted[0].to_string())
+            } else { continue };
+            return Some(BrowserBddAction::PressInput { input, down });
+        }
     }
     if let Some(rest) = text.strip_prefix("I advance ") {
         let count_str = rest.trim_end_matches(" frames").trim_end_matches(" frame");
@@ -758,6 +798,51 @@ impl BrowserBddDriver {
                 } else {
                     self.actions.push_front(BrowserBddAction::HoldKey { key, frames: frames - 1, pressed: true });
                 }
+            }
+            BrowserBddAction::HoldInput { input, frames, pressed } => {
+                use crate::deno::addon_ops::InputEvent;
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let mut state = state.borrow_mut();
+                    if let Some(context) = state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                        match &input {
+                            HeldInput::Mouse(button) => {
+                                if !pressed { context.input_events.push(InputEvent::MouseDown { button: *button, x: 2.0, y: 2.0 }); }
+                                if frames == 0 { context.input_events.push(InputEvent::MouseUp { button: *button }); }
+                            }
+                            HeldInput::PadButton(name) => {
+                                if !pressed { context.input_events.push(InputEvent::GamepadButton { button: name.clone(), pressed: true }); }
+                                if frames == 0 { context.input_events.push(InputEvent::GamepadButton { button: name.clone(), pressed: false }); }
+                            }
+                            // Sticks are state, polled every frame like gilrs; the release recentres them.
+                            HeldInput::PadSticks(v) => context.input_events.push(if frames == 0 {
+                                InputEvent::GamepadAxis { leftStick: [0.0; 2], rightStick: [0.0; 2], triggers: [0.0; 2] }
+                            } else {
+                                InputEvent::GamepadAxis { leftStick: [v[0], v[1]], rightStick: [v[2], v[3]], triggers: [v[4], v[5]] }
+                            }),
+                        }
+                    }
+                }
+                if frames == 0 {
+                    self.outcomes.push(serde_json::json!({ "kind": "input", "input": format!("{input:?}"), "outcome": "released" }));
+                } else {
+                    self.actions.push_front(BrowserBddAction::HoldInput { input, frames: frames - 1, pressed: true });
+                }
+            }
+            BrowserBddAction::PressInput { input, down } => {
+                use crate::deno::addon_ops::InputEvent;
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let mut state = state.borrow_mut();
+                    if let Some(context) = state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                        match &input {
+                            HeldInput::Mouse(button) => context.input_events.push(if down { InputEvent::MouseDown { button: *button, x: 2.0, y: 2.0 } } else { InputEvent::MouseUp { button: *button } }),
+                            HeldInput::PadButton(name) => context.input_events.push(InputEvent::GamepadButton { button: name.clone(), pressed: down }),
+                            HeldInput::PadSticks(_) => {}
+                        }
+                    }
+                }
+                self.outcomes.push(serde_json::json!({ "kind": "input", "input": format!("{input:?}"), "outcome": if down { "pressed" } else { "released" } }));
             }
             BrowserBddAction::Link { control_id, url } => {
                 Self::queue_event(window, format!("HTML_LINK|{control_id}|{url}"));

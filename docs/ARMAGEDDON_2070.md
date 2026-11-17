@@ -27,7 +27,14 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   the pointer; Esc releases it; middle-drag and the arrow keys also look), LMB fire, RMB aim down
   sights, R reload, 1/2/3 primary/sidearm/launcher, G grenade, F equipment (in a vehicle: smoke or
   flares), E enter/exit the nearest friendly vehicle, Q call your squad to the crosshair, 5-9 use a
-  reward at the crosshair, Tab scoreboard, M map, V third person, P screen pass, H help.
+  reward at the crosshair, Tab scoreboard, M map, V third person, P screen pass, H help. Arrow keys
+  pick the spawn point on the deploy screen. Aiming down sights shows a red dot, or a scope picture
+  for optics of 2.5x and up.
+- **Gamepad** (gilrs names, Xbox layout): left stick move, right stick look, RT fire, LT aim down
+  sights, L3 sprint, A jump, B crouch, D-pad down prone, X reload, Y next weapon, LB grenade, RB
+  equipment, D-pad up enter/exit vehicle, D-pad left squad call, D-pad right first reward, R3 third
+  person, Back map, Start deploy screen. Menus: A confirm, B back, D-pad navigates. In vehicles the
+  left stick drives, A/B climb and descend, the right stick aims.
 - **Vehicles**: W/S throttle, A/D steer, Space/Ctrl climb and descend in aircraft, the mouse aims
   the seat's gun, LMB fires, G drops the heavy transport aircraft's payload.
 - **The armory** builds a loadout: a primary and its attachments (only ones that fit), ammunition,
@@ -78,6 +85,18 @@ including `Balance_Scale.csv`. Some database rows changed shape: the modular sho
 armor became Light/Standard/Heavy rows (`AR007L/S/H` ...), and two finishes were added (`AR013`
 Mimetic Plate Coating, `AR014` Biome Camouflage Finish). Vehicle fuel is a fusion cell with no
 refuelling in Conquer.
+
+Every crewed non-tank vehicle takes one more launcher blast than v0.2 first shipped (AT-Reusable-70
+on ground vehicles, AA-70 on aircraft, from 60 m): buggy 2, jeep 3, APC 8, IFV 10, AA 9, artillery
+13, truck 5, recovery 14, attack/transport helicopter 5, heavy helicopter 7, fighter 4, attack
+aircraft 6, transport aircraft 11. The tanks (25, 14) and the uncrewed drones are unchanged.
+
+Bot aim is human: a 0.45 s reaction on a fresh contact, then a bell-shaped error (rifle 0.5 deg,
+marksman 0.22, support 0.75) that starts 2.5x wider and settles over 2.5 s, grows when the bot
+moves, is suppressed or the target is far, and trails a target that moves across its view. A bot
+rifleman hits a standing player at about 50% of shots at 30 m, 20% at 60 m and 5% at 120 m.
+Infantry only engage aircraft with an AA launcher or inside 180 m. Enemies of the viewer wear
+glowing red marks (helmet band, chest and back patches, armbands; a red band at long range).
 
 ## The maps
 
@@ -147,13 +166,16 @@ The Electronic Warfare WIR (AI010) is deferred.
   windows), and the battle: 128 vs 128 for 150 s with every decision checked (0 mismatches), respawn
   within 5 s, the Mine Kit's 16 mines, Hunter Protocol's 16 targets at about 80%, underdog and
   killstreak rewards, the squad call, the 16-seat helicopter, the aircraft's vehicle drop, one mecha
-  per side, the end of a battle.
+  per side, the end of a battle. `ar_fixes.test.ts`: vehicles spawn inside every map, crewed aircraft
+  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle.
 - `cargo test --release --test armageddon` in `yumon-pet/wir`: all 23 networks compile and match
   their programs.
-- `xvfb-run -a cargo test --release --test armageddon_live`: four scenarios in the real window
-  (tests/features/armageddon_live.feature), 19 captures: menus, the armory, a 128 vs 128 battle in
+- `xvfb-run -a cargo test --release --test armageddon_live`: five scenarios in the real window
+  (tests/features/armageddon_live.feature), 22 captures: menus, the armory, a 128 vs 128 battle in
   first person, the scoreboard and map, the squad call, the Mine Kit and Hunter Protocol, a tank and
-  the heavy helicopter, all four maps, the debrief.
+  the heavy helicopter, all four maps, the debrief; and real input through the engine's event queue
+  (`I hold the key`, `I press the mouse button`, `I hold the gamepad button/sticks`, checked with the
+  `ar_expect` tool): weapon keys between 30 Hz battle steps, RMB and LT aim, the pad, red enemy marks.
 
 ## Numbers and limits
 
@@ -163,5 +185,7 @@ The Electronic Warfare WIR (AI010) is deferred.
   Xvfb (software rendering) mean nothing.
 - Looks are deliberately simple: boxes, cylinders and spheres for soldiers, vehicles and buildings,
   procedural materials, no shadow maps, a fog/tone-map screen pass.
+- Transport helicopters wait landed at their base until a squad picks one for a "mount"; few squads
+  do yet, so they mostly sit there.
 - Not built yet: multiplayer, the EW WIR, player control of the heavy transport aircraft's drop
   point, recoil feedback on the view, ballistic drop.
