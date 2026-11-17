@@ -13,7 +13,7 @@ pub mod wavetable;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
@@ -26,7 +26,7 @@ use wavetable::{WavetableParams, WavetableVoice};
 // A wrapper to make a type-erased fundsp graph compatible with rodio::Source. The graph is
 // always exactly stereo (2 outputs) - see `build_note_node` - so this no longer needs to be
 // generic over the node type the way it was before the FX chain was added; every voice now
-// ends in `pan(...)` plus the delay/reverb stage, which forces a fixed U2 output shape anyway.
+// ends in `pan(...)` (plus any delay/reverb stage), which forces a fixed U2 output shape anyway.
 struct FundspSource {
     node: Box<dyn AudioUnit>,
     sample_rate: f32,
@@ -65,6 +65,35 @@ impl Source for FundspSource {
     fn total_duration(&self) -> Option<std::time::Duration> {
         None
     }
+}
+
+/// Most fire-and-forget notes (`play_note`) sounding at once. Past it a new note is dropped: if
+/// the mixer ever falls behind real time, notes would otherwise pile up in it faster than they
+/// finish, and memory grows until the process dies.
+const MAX_LIVE_NOTES: usize = 160;
+
+/// A source that counts itself in `live` until the mixer drops it (finished, or the sink cleared).
+struct Counted<S> {
+    inner: S,
+    live: Arc<AtomicUsize>,
+}
+
+impl<S> Drop for Counted<S> {
+    fn drop(&mut self) {
+        self.live.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl<S: Source<Item = f32>> Iterator for Counted<S> {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> { self.inner.next() }
+}
+
+impl<S: Source<Item = f32>> Source for Counted<S> {
+    fn current_span_len(&self) -> Option<usize> { self.inner.current_span_len() }
+    fn channels(&self) -> u16 { self.inner.channels() }
+    fn sample_rate(&self) -> u32 { self.inner.sample_rate() }
+    fn total_duration(&self) -> Option<std::time::Duration> { self.inner.total_duration() }
 }
 
 /// A stereo source placed in space: constant-power panning, the far ear hearing it a fraction of
@@ -271,15 +300,12 @@ fn acid_shape(params: &NoteParams) -> Option<AcidShape> {
 /// `render_pattern_to_wav` (offline, ticked directly into a PCM buffer) can share one
 /// definition instead of two copies of the same match arms drifting apart.
 ///
-/// The delay and reverb stages are always spliced into the graph, mixed via fundsp's `&`
-/// (bus) combinator against a dry `multipass::<U2>()`, and multiplied by their own mix
-/// parameter rather than being conditionally present - this repo's existing per-note
-/// architecture (one fire-and-forget Sink per note, no persistent mixing bus - see the
-/// module doc comment on `play_note`) means there's no shared effect state to attach or
-/// detach at note-trigger time, so "off" has to mean "wet gain is zero," not "the effect
-/// isn't in the graph." That's a real cost: `reverb_stereo` allocates a 32-channel FDN
-/// (32 delay lines) on every single call to this function even when `reverb_mix` is 0 -
-/// see the failure-notes benchmark for what that costs in practice.
+/// The delay and reverb stages are mixed via fundsp's `&` (bus) combinator against a dry
+/// `multipass::<U2>()` and multiplied by their own mix parameter. Each note owns its own
+/// effect instances (one fire-and-forget Sink per note, no persistent mixing bus - see the
+/// module doc comment on `play_note`), so a stage whose mix is 0 is simply not built: the
+/// output is identical, and `reverb_stereo` (a 32-channel FDN, 32 delay lines) is far too
+/// costly to allocate and tick per note for nothing.
 fn build_note_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<dyn AudioUnit> {
     let freq = params.freq.max(1.0) as f32;
     let cutoff = params.cutoff.max(20.0) as f32;
@@ -305,18 +331,28 @@ fn build_note_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<dy
         };
     }
 
+    // A stage whose mix is 0 adds exactly nothing (dry + 0 * wet), so it is left out of the
+    // graph: a game firing hundreds of dry notes a second would otherwise tick (and allocate) a
+    // 32-line reverb FDN per note, fall behind real time, and queue notes without bound.
+    let with_delay = delay_mix > 0.001;
+    let with_reverb = reverb_mix > 0.001;
     macro_rules! wrap {
         ($node:expr) => {{
             let stereo = ($node) >> pan(0.0);
-            let delay_stage = multipass::<U2>()
+            let delay_stage = || multipass::<U2>()
                 & (feedback((delay(delay_time) | delay(delay_time)) * delay_fb) * delay_mix);
-            let reverb_stage = multipass::<U2>()
+            let reverb_stage = || multipass::<U2>()
                 & (reverb_stereo(room_size, reverb_time, reverb_damping) * reverb_mix);
 
-            let mut node = stereo >> delay_stage >> reverb_stage;
+            let mut node: Box<dyn AudioUnit> = match (with_delay, with_reverb) {
+                (false, false) => Box::new(stereo),
+                (true, false) => Box::new(stereo >> delay_stage()),
+                (false, true) => Box::new(stereo >> reverb_stage()),
+                (true, true) => Box::new(stereo >> delay_stage() >> reverb_stage()),
+            };
             node.set_sample_rate(sample_rate as f64);
             node.reset();
-            Box::new(node) as Box<dyn AudioUnit>
+            node
         }};
     }
 
@@ -1294,6 +1330,8 @@ pub struct AudioEngine {
     /// One live grand piano instrument per (track, instrument id).
     piano_instruments: Mutex<HashMap<String, Arc<piano::PianoHandle>>>,
     next_piano_voice: AtomicU64,
+    /// Fire-and-forget notes still in the mixer (see `MAX_LIVE_NOTES`).
+    live_notes: Arc<AtomicUsize>,
 }
 
 /// A track's water instrument: the one playing, and one being built to replace it (a different
@@ -1404,6 +1442,7 @@ impl AudioEngine {
             water_tracks: Mutex::new(HashMap::new()),
             piano_instruments: Mutex::new(HashMap::new()),
             next_piano_voice: AtomicU64::new(1),
+            live_notes: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -2132,6 +2171,11 @@ impl AudioEngine {
     /// `play_note` placed in space: `pan` -1 (left) .. 1 (right), `muffle` 0 (clear) .. 1 (heard
     /// through a wall). A centered, clear note is played exactly as `play_note` always did.
     pub fn play_note_spatial(&self, voice: &str, params: NoteParams, pan: f32, muffle: f32) {
+        if self.live_notes.fetch_add(1, Ordering::AcqRel) >= MAX_LIVE_NOTES {
+            self.live_notes.fetch_sub(1, Ordering::AcqRel);
+            return;
+        }
+        let live = self.live_notes.clone();
         let sample_rate = 44100.0f32;
         let node = build_note_node(voice, &params, sample_rate);
         let total_dur = note_total_duration(&params) as f32;
@@ -2141,11 +2185,16 @@ impl AudioEngine {
 
         let sink = Sink::connect_new(&self.output_mixer);
         if pan.abs() < 1e-4 && muffle <= 1e-4 {
-            sink.append(finite_source);
+            sink.append(Counted { inner: finite_source, live });
         } else {
-            sink.append(SpatialSource::new(finite_source, pan, muffle));
+            sink.append(Counted { inner: SpatialSource::new(finite_source, pan, muffle), live });
         }
         sink.detach();
+    }
+
+    /// Fire-and-forget notes (`play_note`) still sounding or waiting in the mixer.
+    pub fn live_notes(&self) -> usize {
+        self.live_notes.load(Ordering::Acquire)
     }
 }
 
@@ -2351,5 +2400,30 @@ mod spatial_tests {
             SpatialSource::new(src, 0.01, m).collect::<Vec<f32>>()
         };
         assert!(rms(&make(1.0)) < rms(&make(0.0)) * 0.4);
+    }
+}
+
+#[cfg(test)]
+mod note_budget_tests {
+    use super::*;
+
+    #[test]
+    fn a_flood_of_notes_stays_within_the_live_budget() {
+        let engine = AudioEngine::new();
+        let params = NoteParams { freq: 140.0, duration: 0.5, gain: 0.0, ..Default::default() };
+        for i in 0..2_000 { engine.play_note_spatial("noise", params, if i % 2 == 0 { 0.5 } else { 0.0 }, 0.3); }
+        assert!(engine.live_notes() <= MAX_LIVE_NOTES, "{} live", engine.live_notes());
+    }
+
+    #[test]
+    fn reverb_is_built_only_when_mixed_in() {
+        let tail = |reverb_mix: f64| {
+            let params = NoteParams { freq: 440.0, duration: 0.1, gain: 0.5, attack: 0.001, release: 0.01, reverb_mix, ..Default::default() };
+            let mut node = build_note_node("sine", &params, 44_100.0);
+            let mut out = [0.0f32; 2];
+            (0..44_100).map(|i| { node.tick(&[], &mut out); if i > 8_820 { out[0].abs() } else { 0.0 } }).fold(0.0f32, f32::max)
+        };
+        assert_eq!(tail(0.0), 0.0, "a dry note is silent after it ends");
+        assert!(tail(0.5) > 1e-4, "a wet note still rings");
     }
 }
