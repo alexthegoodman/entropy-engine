@@ -586,11 +586,9 @@ VST3 hosting compiles on Linux but hasn't been tested there yet.
 | ![Entropy Engine](public/water1.png "Entropy Engine") | ![Entropy Engine](public/image-3.png "Entropy Engine") |
 | ![Entropy Multi-Page Documents](public/entropy-doc-editor-pagination.png "Entropy Multi-Page Documents") | ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") |
 | ![Contour Design / the Skiff as light](public/contour-design-holo.png "Contour Design / the Skiff as light") | ![Contour Design / a loft, twisted and unevenly mirrored](public/contour-design-asymmetry.png "Contour Design / a loft, twisted and unevenly mirrored") |
-| ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | |
-| ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") | ![QuadPlanet / walking to the ship](public/quadplanet-walk-to-ship.png "QuadPlanet / walking to the ship") |
+| ![Guitar Tabs / practising a chord change](public/guitar-tabs-practice.png "Guitar Tabs / practising a chord change") | ![QuadPlanet / Verdant from orbit](public/quadplanet-verdant-from-orbit.png "QuadPlanet / Verdant from orbit") |
 | ![World of Music / Landfall Cove](public/world-of-music-vista.png "World of Music / Landfall Cove") | ![World of Music / Agent Tom and his Tones](public/world-of-music-agent-tom.png "World of Music / Agent Tom and his Tones") |
 | ![Armageddon 2070 / Glass Coast's fish market](public/armageddon-glass-coast.png "Armageddon 2070 / Glass Coast's fish market") | ![Armageddon 2070 / the Caravanserai in the Kush Corridor](public/armageddon-kush-caravanserai.png "Armageddon 2070 / the Caravanserai in the Kush Corridor") |
-| ![Allegiance / a street on London's South Bank](public/allegiance-street-london.png "Allegiance / a street on London's South Bank") | ![Allegiance / a debate against a rival orator](public/allegiance-debate.png "Allegiance / a debate against a rival orator") |
 
 ## P2P development
 
