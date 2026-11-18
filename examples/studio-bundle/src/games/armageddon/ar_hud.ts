@@ -51,7 +51,7 @@ export function drawTitle(p: Painter, w: number, h: number, t: number, hasSave: 
 }
 
 export interface SetupView { map: number; team: Team; size: number; vehicles: boolean }
-export function drawSetup(p: Painter, w: number, h: number, v: SetupView): void {
+export function drawSetup(p: Painter, w: number, h: number, v: SetupView, assist: number): void {
     p.rect(0, 0, w, h, [0.02, 0.02, 0.025, 0.6]);
     const x0 = Math.max(24, w * 0.06), cw = Math.min(330, (w - x0 * 2 - 30) / 4);
     let y = header(p, x0, 40, cw * 4 + 30, "CHOOSE THE BATTLEFIELD");
@@ -73,6 +73,13 @@ export function drawSetup(p: Painter, w: number, h: number, v: SetupView): void 
     y += 50;
     p.text("VEHICLES", x0, y, 14, C.dim, H);
     p.button("vehicles", x0 + 120, y - 8, 160, 36, v.vehicles ? "ON" : "OFF", "dark", { size: 12, active: v.vehicles });
+    y += 50;
+    // Aim assist (0-50%): friction and a pull onto a visible enemy near the crosshair, for human players.
+    p.text("AIM ASSIST", x0, y, 14, C.dim, H);
+    p.button("assist:-", x0 + 120, y - 8, 44, 36, "-", "dark", { size: 14 });
+    p.textC(assist > 0 ? `${Math.round(assist * 100)}%` : "OFF", x0 + 214, y, 15, assist > 0 ? C.text : C.dim, N);
+    p.button("assist:+", x0 + 264, y - 8, 44, 36, "+", "dark", { size: 14 });
+    p.text("[UP/DOWN] or [-/=] in battle", x0 + 330, y + 2, 12, C.dim, B);
     p.button("start", x0, h - 100, 280, 52, "DEPLOY", "red", { size: 20 });
     p.button("armory", x0 + 300, h - 100, 200, 52, "ARMORY", "dark", { size: 15 });
     p.button("back", x0 + 520, h - 100, 140, 52, "BACK", "ghost", { size: 14 });
@@ -419,7 +426,7 @@ function drawHelp(p: Painter, w: number, h: number, pad: boolean): void {
     ] : [
         "WASD move   SHIFT sprint   SPACE jump   C crouch   Z prone   MOUSE look   LMB fire   RMB aim",
         "R reload   1 primary  2 sidearm  3 launcher / UGL   G grenade   F equipment   E enter / exit vehicle, resupply   SHIFT aimed: hold breath",
-        "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   [ ] look speed   H help",
+        "Q call your squad to the crosshair   5-9 use a reward at the crosshair   TAB scoreboard   M map   [ ] look speed   - = aim assist   H help",
         "Vehicles: W/S throttle, A/D steer, SPACE/CTRL climb and descend (aircraft), mouse aims the gun, LMB fires",
     ];
     p.rect(w / 2 - 430, h * 0.62, 860, lines.length * 22 + 16, [0, 0, 0, 0.65]);

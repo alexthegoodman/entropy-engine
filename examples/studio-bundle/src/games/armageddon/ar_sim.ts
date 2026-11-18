@@ -37,7 +37,7 @@ export interface Soldier {
     vehicle: number; seat: number;
     suppression: number; lastHitBy: number; lastHitAt: number; healUntil: number;
     // AI
-    option: number; thinkAt: number; goal: [number, number] | null; target: number; targetKind: "soldier" | "vehicle" | ""; aimTime: number; burst: number;
+    option: number; thinkAt: number; goal: [number, number] | null; target: number; targetKind: "soldier" | "vehicle" | ""; aimTime: number; react: number; burst: number;
     fireWanted: boolean; crouchWanted: boolean; seenBy: number;
     // score
     kills: number; deaths: number; score: number; streak: number; best: number; captures: number; vehicleKills: number;
@@ -238,7 +238,7 @@ export class Battle {
             slot: "primary", mag: { primary: 0, sidearm: 0, launcher: 0 }, reserve: { primary: 0, sidearm: 0, launcher: 0 },
             reloadUntil: 0, nextShot: 0, bloom: 0, aimedSince: 0, lastShot: -10, trigger: false, lock: { target: -1, since: 0 }, grenades: 0, equipment: [],
             vehicle: -1, seat: -1, suppression: 0, lastHitBy: -1, lastHitAt: -10, healUntil: 0,
-            option: 8, thinkAt: this.rng.range(0, 0.4), goal: null, target: -1, targetKind: "", aimTime: 0, burst: 0, fireWanted: false, crouchWanted: false, seenBy: 0,
+            option: 8, thinkAt: this.rng.range(0, 0.4), goal: null, target: -1, targetKind: "", aimTime: 0, react: 0, burst: 0, fireWanted: false, crouchWanted: false, seenBy: 0,
             kills: 0, deaths: 0, score: 0, streak: 0, best: 0, captures: 0, vehicleKills: 0, underdogTime: 0, rewards: [], earned: new Set(), expires: 0,
         };
         this.soldiers.push(s);
@@ -605,7 +605,7 @@ export class Battle {
             const loc = hit.loc;
             const prot = loc === "head" ? o.stats.head : loc === "arms" ? o.stats.arms : loc === "legs" ? o.stats.legs : o.stats.torso;
             const mult = loc === "head" ? (w.id === "W008" || w.id === "W010" ? 2.5 : BALANCE.head.mult) : loc === "arms" ? BALANCE.arms.mult : loc === "legs" ? BALANCE.legs.mult : 1;
-            const dmg = afterArmor(falloff(w, best), prot, ammo) * mult;
+            const dmg = afterArmor(falloff(w, best), prot, ammo) * mult * (s.bot && !o.bot ? BALANCE.botVsPlayer : 1);
             if (o.team !== s.team) { this.stats.hits++; this.damageSoldier(o, dmg, "ballistic", s.id, w.name, loc); }
             this.events.push({ kind: "hit", at: end, vehicle: false, target: o.id });
         } else if (hit?.kind === "vehicle") {

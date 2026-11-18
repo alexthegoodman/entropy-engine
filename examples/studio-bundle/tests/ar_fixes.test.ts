@@ -34,7 +34,7 @@ describe("Armageddon fixes", () => {
         expect(spinning).toBe(0);
     }, 120000);
 
-    it("a bot rifleman hits a standing player about half the time at 30 m and rarely at 120 m", () => {
+    it("a bot rifleman hits a standing player about a third of the time at 30 m and rarely at 120 m", () => {
         const rate = (d: number) => {
             let shots = 0, hits = 0;
             for (let seed = 1; seed <= 8; seed++) {
@@ -62,7 +62,8 @@ describe("Armageddon fixes", () => {
             return hits / Math.max(1, shots);
         };
         const near = rate(30), mid = rate(60), far = rate(120);
-        expect(near).toBeGreaterThan(0.3); expect(near).toBeLessThan(0.7);
+        // Its first shots (after a human-scale reaction) open wide and settle, so the first 6 s land 15-50%.
+        expect(near).toBeGreaterThan(0.15); expect(near).toBeLessThan(0.5);
         expect(mid).toBeLessThan(0.4);
         expect(far).toBeLessThan(0.15);
     }, 120000);

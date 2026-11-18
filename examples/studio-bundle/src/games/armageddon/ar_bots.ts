@@ -16,8 +16,24 @@ import { DIRS, HOLD, MODES, rule, senseRule, hot, type Vals, type Mode } from ".
 import { clamp, type V3 } from "../nebula/nk_math";
 
 const INF_THINK = 0.35, VEH_THINK = 0.3, SQUAD_THINK = 1, PLAN_THINK = 4;
-/** Seconds a bot needs on a new target before its first shot. */
-const REACTION = 0.45;
+/** How a bot rifleman shoots, tuned to a human's pace: it notices, turns, raises the sights and steadies
+ * before the first shot (react, plus jitter, turn time by how far off its facing the target is, distance
+ * and its loadout's aim time), opens wide and settles over `settle` s, taps semi-automatics at `tap` s
+ * gaps and fires bursts of 3-5 (its rounds also hit a human player softer: BALANCE.botVsPlayer). */
+export const BOT = { react: 0.5, jitter: 0.35, switch: 0.6, turn: 0.5, far: 300, settle: 3, open: 2, turnRate: 5, pitchRate: 3, onTarget: 0.06, tap: [0.22, 0.45], burstRate: 1.8 } as const;
+
+/** Seconds from noticing a target to the first shot: `off` is the angle (rad) from the bot's facing to the
+ * target, `d` its distance (m), `aim` the loadout's aim time, `roll` a 0..1 random, `switching` true when
+ * the bot is already in a fight (a quicker hand-off). */
+export function reactionTime(off: number, d: number, aim: number, roll: number, switching: boolean): number {
+    const t = BOT.react + BOT.jitter * roll + BOT.turn * Math.min(1, Math.abs(off) / Math.PI) + d / BOT.far + aim;
+    return switching ? t * BOT.switch : t;
+}
+
+/** Aim error (degrees, one sigma) `since` s after the first shot was allowed; settles from 1 + open x to 1x. */
+export function aimSigmaDeg(base: number, since: number, moving: boolean, suppression: number, d: number): number {
+    return base * (1 + BOT.open * Math.max(0, 1 - since / BOT.settle)) * (moving ? 1.6 : 1) + suppression * 0.4 + d / 500;
+}
 
 /** The whole bot pass for one step. */
 export function think(b: Battle, dt: number): void {
@@ -241,7 +257,11 @@ function infantryThink(b: Battle, s: Soldier): void {
     const pick = (hasL ? visible.find(c => c.armor && !c.air && c.d < 600) : undefined) ?? visible.find(c => !c.air) ?? visible[0];
     const threat = pick ?? cs[0];
     // A fresh contact takes the full reaction time; switching between targets already in a fight is quicker.
-    if (pick && (pick.id !== s.target || pick.kind !== s.targetKind)) s.aimTime = s.target >= 0 ? Math.min(s.aimTime, REACTION) * 0.6 : 0;
+    if (pick && (pick.id !== s.target || pick.kind !== s.targetKind)) {
+        const off = angleDiff(s.yaw, Math.atan2(pick.pos[0] - s.pos[0], pick.pos[2] - s.pos[2]));
+        s.react = reactionTime(off, pick.d, s.slot === "primary" ? s.stats.aimTime : 0.2, b.rng.next(), s.target >= 0);
+        s.aimTime = 0;
+    }
     s.target = pick ? pick.id : -1; s.targetKind = pick ? pick.kind : "";
     const t = b.territories.find(q => q.def.id === sq.objective);
     // Objective field: the squad's territory, a flank point for fireteam B, the transport, or home.
@@ -340,25 +360,28 @@ function infantryAct(b: Battle, s: Soldier, dt: number): void {
     const e = eyeOf(s);
     const dx = aimAt[0] - e[0], dy = aimAt[1] - e[1], dz = aimAt[2] - e[2], horiz = Math.hypot(dx, dz);
     const wantYaw = Math.atan2(dx, dz), wantPitch = Math.atan2(dy, horiz);
-    s.yaw = turnToward(s.yaw, wantYaw, dt * 5);
-    s.pitch = wantPitch;
+    // The bot turns (and tilts) onto the target like a player would, and shoots along where it faces.
+    s.yaw = turnToward(s.yaw, wantYaw, dt * BOT.turnRate);
+    s.pitch = turnToward(s.pitch, wantPitch, dt * BOT.pitchRate);
     s.aimTime += dt;
-    if (!s.fireWanted || Math.abs(angleDiff(s.yaw, wantYaw)) > 0.2) return;
+    if (!s.fireWanted || Math.abs(angleDiff(s.yaw, wantYaw)) > BOT.onTarget || Math.abs(s.pitch - wantPitch) > BOT.onTarget) return;
+    // Human-like aim: a reaction delay on a new target (notice, turn, sights up, steady), a bell-shaped
+    // error that settles over a few seconds, worse when suppressed, moving or far, and tracking lag on a
+    // moving target (shots trail it).
+    if (s.aimTime < s.react) return;
     const w = b.weaponOf(s);
-    // Bursts: automatic weapons fire 3-6 rounds, then pause.
-    if (w.rpm > 300) { if (s.burst <= 0) { if (b.rng.next() < dt * 2.5) s.burst = 3 + Math.floor(b.rng.next() * 4); else return; } }
-    // Human-like aim: a reaction delay on a new target, a bell-shaped error that settles over ~2.5 s,
-    // worse when suppressed, moving or far, and tracking lag on a moving target (shots trail it).
-    if (s.aimTime < REACTION) return;
-    const base = s.role === "marksman" || s.role === "recon" ? 0.22 : s.role === "support" ? 0.75 : 0.5;
-    const self = Math.hypot(s.vel[0], s.vel[2]) > 0.8 ? 1.6 : 1;
-    const sigmaDeg = base * (1 + 1.5 * Math.max(0, 1 - s.aimTime / 2.5)) * self + s.suppression * 0.4 + horiz / 500;
+    // Bursts: automatic weapons fire 3-5 rounds, then pause.
+    if (w.rpm > 300) { if (s.burst <= 0) { if (b.rng.next() < dt * BOT.burstRate) s.burst = 3 + Math.floor(b.rng.next() * 3); else return; } }
+    const base = s.role === "marksman" || s.role === "recon" ? 0.3 : s.role === "support" ? 1 : 0.7;
+    const sigmaDeg = aimSigmaDeg(base, s.aimTime - s.react, Math.hypot(s.vel[0], s.vel[2]) > 0.8, s.suppression, horiz);
     const tv = s.targetKind === "vehicle" ? (() => { const v = tgt as VehicleState; return [Math.sin(v.yaw) * v.speed, Math.cos(v.yaw) * v.speed]; })() : [(tgt as Soldier).vel[0], (tgt as Soldier).vel[2]];
     const omega = (dz * tv[0] - dx * tv[1]) / Math.max(1, horiz * horiz);
     const sigma = (sigmaDeg * Math.PI) / 180 + Math.abs(omega) * 0.15;
     const gauss = () => b.rng.range(-1, 1) + b.rng.range(-1, 1) + b.rng.range(-1, 1);
-    const fired = b.fire(s, wantYaw - omega * 0.2 + gauss() * sigma, wantPitch + gauss() * sigma * 0.7, true, s.targetKind === "vehicle" ? s.target : -1, s.targetKind);
+    const fired = b.fire(s, s.yaw - omega * 0.2 + gauss() * sigma, s.pitch + gauss() * sigma * 0.7, true, s.targetKind === "vehicle" ? s.target : -1, s.targetKind);
     if (fired && w.rpm > 300) s.burst--;
+    // Semi-automatics: a human-paced trigger, not the gun's top rate.
+    else if (fired) s.nextShot = Math.max(s.nextShot, b.time + BOT.tap[0] + (BOT.tap[1] - BOT.tap[0]) * b.rng.next());
 }
 
 function gunnerStep(b: Battle, s: Soldier): void {

@@ -3,7 +3,8 @@
 // territory is a site (a port, a village compound, a plant yard, a city block...) built from ruined
 // buildings with doors and windows, low walls, sandbags, containers, barriers, wrecks and rubble,
 // and the open ground between them gets rocks, craters, hedgerows and wrecks so no approach is a
-// bare field.
+// bare field. Inside a building there is only floor and its own partitions: anything else the
+// generators drop there (barriers, crates, rubble, other walls) is cleared or cut back at the end.
 //
 // Everything solid is a box (an oriented block), and boxes are rasterized into a 1 m cover grid that
 // the simulation reads for movement, line of sight and bullets. A cell holds up to two solid
@@ -45,6 +46,18 @@ export interface Box {
     kind: "wall" | "cover" | "prop" | "deco";
     /** Destructible cover keeps hit points (sandbags, barriers, wrecks, deployables). */
     hp?: number;
+}
+
+/** A building's footprint: axis-aligned, half sizes hx/hz, from its floor (y) up `h` m. */
+export interface Footprint { x: number; z: number; hx: number; hz: number; y: number; h: number }
+
+/** Whether an oriented box overlaps an axis-aligned footprint grown by `m` m (separating axes). */
+export function boxInFootprint(b: { x: number; z: number; hx: number; hz: number; yaw: number }, f: Footprint, m = 0): boolean {
+    const c = Math.abs(Math.cos(b.yaw)), s = Math.abs(Math.sin(b.yaw)), fx = f.hx + m, fz = f.hz + m;
+    const dx = b.x - f.x, dz = b.z - f.z;
+    if (Math.abs(dx) >= fx + c * b.hx + s * b.hz || Math.abs(dz) >= fz + s * b.hx + c * b.hz) return false;
+    const cs = Math.cos(b.yaw), sn = Math.sin(b.yaw);
+    return Math.abs(dx * cs - dz * sn) < b.hx + fx * c + fz * s && Math.abs(dx * sn + dz * cs) < b.hz + fx * s + fz * c;
 }
 
 export interface Territory {
@@ -194,6 +207,11 @@ export class World {
     private readonly buckets: number[][] = Array.from({ length: NB * NB }, () => []);
     private readonly bucketed = new Set<number>();
     boxes: Box[] = [];
+    /** Every building's footprint; their own walls, partitions and roofs are in `ownBoxes`. */
+    buildings: Footprint[] = [];
+    private readonly ownBoxes = new Set<Box>();
+    /** Inside a building's footprint, per 2 m cell (by its centre): a quick check for grass. */
+    readonly indoors = new Uint8Array(NI * NI);
     foliage: Foliage[] = [];
     territories: Territory[] = [];
     bases: Base[] = [];
@@ -213,6 +231,7 @@ export class World {
         this.buildSites(rng);
         this.buildBetween(rng);
         this.buildLanes(new Rng(def.seed * 7 + 3));
+        this.clearBuildings();
         this.buildFoliage(rng);
         this.rasterizeAll();
         this.buildNav();
@@ -375,6 +394,11 @@ export class World {
     /** A ruined building, axis-aligned at (x, z), w x d metres, `floors` storeys of 3.2 m, roofless unless `roof`. */
     private building(x: number, z: number, w: number, d: number, floors: number, mat: Material, rng: Rng, opts: { roof?: boolean; broken?: number; doors?: number } = {}): void {
         const H = floors * 3.2, t = 0.5, y = this.height(x, z) - 0.1;
+        // Two buildings never share ground (their walls would run through each other's rooms).
+        const foot: Footprint = { x, z, hx: w / 2, hz: d / 2, y, h: H };
+        if (this.buildings.some(f => boxInFootprint({ ...foot, yaw: 0 }, f, 1.5))) return;
+        this.buildings.push(foot);
+        const own0 = this.boxes.length;
         const sides: [number, number, number, number][] = [[x - w / 2, z - d / 2, x + w / 2, z - d / 2], [x + w / 2, z - d / 2, x + w / 2, z + d / 2], [x + w / 2, z + d / 2, x - w / 2, z + d / 2], [x - w / 2, z + d / 2, x - w / 2, z - d / 2]];
         // At least two doors on different sides (usually opposite), so a building is a way through
         // and not a dead end; some walls also have a breach blown through at floor level.
@@ -400,8 +424,8 @@ export class World {
                 this.wall(ax, az, bx, bz, H - 3.2, t, mat, up, y + 3.2, broken, rng);
             } else this.wall(ax, az, bx, bz, H, t, mat, ops, y, broken, rng);
         });
-        // Rooms: a partition with a doorway in most buildings, a second one across the bigger ones,
-        // and a little low cover inside (a counter, crates, a fallen slab) for fights through rooms.
+        // Rooms: a partition with a doorway in most buildings, a second one across the bigger ones.
+        // Nothing else stands inside: rooms are for moving and seeing through.
         if (w >= 8 && d >= 6) {
             const px = x + rng.range(-w / 6, w / 6);
             this.wall(px, z - d / 2 + t, px, z + d / 2 - t, 3.0, 0.3, "plaster", [[Math.round(rng.range(1.5, d - 2)), 1.6, 0, 2.2]], y);
@@ -411,15 +435,62 @@ export class World {
                 if (xb - xa > 3) this.wall(xa, pz, xb, pz, 3.0, 0.3, "plaster", [[(xb - xa) / 2, 1.6, 0, 2.2]], y);
             }
         }
-        if (opts.broken !== 0) for (let i = 0, n = w * d > 60 ? 2 : 1; i < n; i++) {
-            const ix = x + rng.range(-w / 2 + 1.4, w / 2 - 1.4), iz = z + rng.range(-d / 2 + 1.4, d / 2 - 1.4);
-            const m: Material = rng.next() < 0.5 ? "wood" : opts.roof ? "concrete" : "rubble";
-            this.add({ x: ix, z: iz, y: y + 0.1, hx: rng.range(0.35, 0.6), hz: rng.range(0.5, 0.9), h: rng.range(0.9, 1.1), lift: 0, yaw: rng.next() < 0.5 ? 0 : Math.PI / 2, mat: m, kind: "cover" });
-        }
         if (opts.roof) { this.add({ x, z, y: y + H, hx: w / 2, hz: d / 2, h: 0.35, lift: 0, yaw: 0, mat: "concrete", kind: "deco" }); this.markRoof(x, z, w / 2, d / 2); }
-        // Rubble against the outside and debris inside.
-        for (let i = 0; i < rng.int(1, 3); i++) { const a = rng.range(0, Math.PI * 2), r = Math.max(w, d) * 0.5 + rng.range(0.5, 2); this.rubble(x + Math.cos(a) * r, z + Math.sin(a) * r, rng); }
-        if (rng.next() < 0.6) this.add({ x: x + rng.range(-w / 4, w / 4), z: z + rng.range(-d / 4, d / 4), hx: rng.range(0.6, 1.2), hz: rng.range(0.4, 0.9), h: rng.range(0.9, 1.2), lift: 0, yaw: rng.range(0, 3), mat: "rubble", kind: "cover" });
+        for (let i = own0; i < this.boxes.length; i++) this.ownBoxes.add(this.boxes[i]);
+        // Rubble heaped against the outside (clearBuildings drops any that would poke through a wall).
+        for (let i = 0; i < rng.int(1, 3); i++) { const a = rng.range(0, Math.PI * 2), r = Math.max(w, d) * 0.5 + rng.range(1.2, 2.5); this.rubble(x + Math.cos(a) * r, z + Math.sin(a) * r, rng); }
+    }
+
+    /** Inside (or within `pad` m of) a building's footprint. */
+    inBuilding(x: number, z: number, pad = 0): boolean {
+        for (const f of this.buildings) if (Math.abs(x - f.x) < f.hx + pad && Math.abs(z - f.z) < f.hz + pad) return true;
+        return false;
+    }
+
+    /**
+     * Keeps buildings clear: every box that is not a building's own (walls, partitions, roof) and
+     * touches a building's footprint (or its walls, within 0.4 m) goes. Walls from elsewhere (a
+     * compound's perimeter, a garden wall, a lane's low wall) are cut back to the building's outside
+     * instead, so a perimeter running into a corner tower now ends at its wall. Boxes wholly above a
+     * building (a crane's jib, overhead pipes) stay.
+     */
+    private clearBuildings(): void {
+        const M = 0.4;
+        const keep: Box[] = [];
+        for (const b of this.boxes) {
+            if (this.ownBoxes.has(b)) { keep.push(b); continue; }
+            const hits = this.buildings.filter(f => b.y < f.y + f.h + 0.5 && b.y + b.h > f.y && boxInFootprint(b, f, M));
+            if (!hits.length) { keep.push(b); continue; }
+            if (b.kind !== "wall") continue;
+            // The wall's centreline runs along its local z; cut out where it passes through each footprint.
+            const ux = Math.sin(b.yaw), uz = Math.cos(b.yaw), cut: [number, number][] = [];
+            for (const f of hits) {
+                let t0 = -b.hz, t1 = b.hz;
+                for (const [p, u, half] of [[b.x - f.x, ux, f.hx], [b.z - f.z, uz, f.hz]]) {
+                    const e = half + M + b.hx;
+                    if (Math.abs(u) < 1e-9) { if (Math.abs(p) >= e) t1 = t0 - 1; continue; }
+                    const a = (-e - p) / u, c = (e - p) / u;
+                    t0 = Math.max(t0, Math.min(a, c)); t1 = Math.min(t1, Math.max(a, c));
+                }
+                if (t1 > t0) cut.push([t0, t1]);
+            }
+            cut.sort((p, q) => p[0] - q[0]);
+            let t = -b.hz;
+            const piece = (a: number, c: number) => { if (c - a > 0.3) keep.push({ ...b, x: b.x + ux * (a + c) / 2, z: b.z + uz * (a + c) / 2, hz: (c - a) / 2 }); };
+            for (const [a, c] of cut) { piece(t, a); t = Math.max(t, c); }
+            piece(t, b.hz);
+        }
+        this.boxes = keep;
+        for (const f of this.buildings)
+            for (let j = Math.ceil((f.z - f.hz + HALF) / NAV_INF - 0.5); (j + 0.5) * NAV_INF - HALF < f.z + f.hz; j++)
+                for (let i = Math.ceil((f.x - f.hx + HALF) / NAV_INF - 0.5); (i + 0.5) * NAV_INF - HALF < f.x + f.hx; i++)
+                    if (i >= 0 && j >= 0 && i < NI && j < NI) this.indoors[j * NI + i] = 1;
+    }
+
+    /** On a building's floor (by the 2 m indoor grid). */
+    indoor(x: number, z: number): boolean {
+        const i = Math.floor((x + HALF) / NAV_INF), j = Math.floor((z + HALF) / NAV_INF);
+        return i >= 0 && j >= 0 && i < NI && j < NI && this.indoors[j * NI + i] === 1;
     }
 
     private markRoof(x: number, z: number, hx: number, hz: number): void {
@@ -527,7 +598,7 @@ export class World {
         };
         for (let z = t.z - R; z <= t.z + R; z += 5) for (let x = t.x - R; x <= t.x + R; x += 5) {
             if (Math.hypot(x - t.x, z - t.z) > R || Math.hypot(x - t.x, z - t.z) < 4) continue;
-            if (this.wet(x, z) || this.slope(x, z) > 0.5 || covered(x, z) || inside(x, z)) continue;
+            if (this.wet(x, z) || this.slope(x, z) > 0.5 || covered(x, z) || inside(x, z) || this.inBuilding(x, z, 3)) continue;
             place(x + rng.range(-1, 1), z + rng.range(-1, 1));
         }
         // Variety: at least four kinds of cover here.
@@ -758,7 +829,7 @@ export class World {
         const biome = this.def.biome, mat: Material = biome === "mountain" ? "adobe" : biome === "coast" ? "plaster" : biome === "industrial" ? "concrete" : "brick";
         const placed: [number, number, number][] = [];
         const free = (x: number, z: number, r: number, steep = 0.5) => {
-            if (!this.inBounds(x, z, 8) || this.wet(x, z) || this.slope(x, z) > steep || this.inBase(x, z) || this.onRoad(x, z, r * 0.6 + 1)) return false;
+            if (!this.inBounds(x, z, 8) || this.wet(x, z) || this.slope(x, z) > steep || this.inBase(x, z) || this.onRoad(x, z, r * 0.6 + 1) || this.inBuilding(x, z, r)) return false;
             for (const t of this.territories) if (Math.hypot(x - t.x, z - t.z) < t.radius * 0.9) return false;
             for (const [px, pz, pr] of placed) if (Math.hypot(x - px, z - pz) < r + pr) return false;
             for (const b of this.boxes) {
@@ -869,7 +940,7 @@ export class World {
             for (let k = 0; k < m; k++) {
                 const x = cx + rng.range(-7, 7), z = cz + rng.range(-7, 7);
                 if (!this.inBounds(x, z, 4) || this.wet(x, z) || this.slope(x, z) > 0.8) continue;
-                if (this.onRoad(x, z) || this.inBase(x, z)) continue;
+                if (this.onRoad(x, z) || this.inBase(x, z) || this.inBuilding(x, z, 1)) continue;
                 if (kind !== "bush" && kind !== "reed" && this.nearBox(x, z)) continue;
                 const size = kind === "pine" ? rng.range(7, 13) : kind === "tree" ? rng.range(6, 10) : kind === "palm" ? rng.range(7, 11) : kind === "dead" ? rng.range(4, 7) : kind === "reed" ? rng.range(1.2, 2) : rng.range(1.2, 2.2);
                 this.foliage.push({ x, z, y: this.height(x, z), kind, size, seed: rng.next() });

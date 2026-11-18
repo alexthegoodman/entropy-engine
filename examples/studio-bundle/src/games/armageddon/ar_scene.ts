@@ -81,7 +81,7 @@ export function packGrass(r: Renderer, w: World, cam: V3, radius = 96): void {
             const g = w.ground[clamp(tj, 0, TN - 1) * TN + clamp(ti, 0, TN - 1)];
             if (g === GROUND.road || g === GROUND.concrete || g === GROUND.rock || g === GROUND.snow || g === GROUND.glass) continue;
             if (g === GROUND.sand && rng.next() < 0.7) continue;
-            if (w.wet(x, z) || w.coverHeight(x, z) > 0.2) continue;
+            if (w.wet(x, z) || w.coverHeight(x, z) > 0.2 || w.indoor(x, z)) continue;
             const s = 0.35 + rng.next() * 0.45, tone = 0.8 + rng.next() * 0.35;
             r.put(r.grass, `quad|g${ci}_${cj}`, placed([x, w.height(x, z) - 0.05, z], s * 0.9, s, 1), [base[0] * tone, base[1] * tone, base[2] * tone, 1], [LIT.card, rng.next() * 97, 0, 0], [0, CARD.grass, 0, 0], [x, 0, z, 4]);
         }

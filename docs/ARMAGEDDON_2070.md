@@ -29,7 +29,7 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
   F equipment (in a vehicle: smoke or flares), E enter/exit a friendly vehicle whose hull is within
   3 m (a full one makes room) or take from a supply crate, Shift while aiming holds your breath, Q
   call your squad to the crosshair, 5-9 use a reward at the crosshair, Tab scoreboard, M map, V third
-  person, P screen pass, [ and ] look speed (saved), H help. Arrow keys pick the spawn point on the
+  person, P screen pass, [ and ] look speed (saved), - and = aim assist (saved), H help. Arrow keys pick the spawn point on the
   deploy screen.
 - **Gamepad** (gilrs names, Xbox layout): left stick move, right stick look, RT fire, LT aim down
   sights, L3 sprint (aimed: hold breath), A jump, B crouch, D-pad down prone, X reload, Y next
@@ -57,8 +57,15 @@ Code: `examples/studio-bundle/src/games/armageddon/`. Saves (the loadout and bat
 - **Look feel** (`ar_aim.ts`): mouse counts are eased over ~12 ms (every count still arrives). The
   right stick has a 0.12 radial dead zone, a curve for fine aim near the centre, 3 rad/s at the rim
   rising to 4.65 after the rim is held 0.15 s, and a rate that eases up (60 ms) but stops in 12 ms.
-  Over a visible enemy soldier the look slows (mouse 20%/35% hip/aimed, pad 40%/55%); it never pulls
-  the view. Soldiers, vehicles and the camera are drawn blended between the last two 30 Hz steps.
+  Over a visible enemy soldier the look slows (mouse 20%/35% hip/aimed, pad 40%/55% at the default
+  assist).
+- **Aim assist** (players only; bots aim on their own): a setting from 0% (off) to 50%, 25% by
+  default, on the setup screen (Up/Down or the -/+ buttons) and in battle (- and =), saved. It scales
+  the friction above (x setting/25%, capped at 75% slowdown) and adds a pull toward a visible enemy
+  within a cone around the crosshair (0.022 rad + 0.05 rad x setting/50%, at 1x zoom): the setting's
+  share of the player's own turning that frame, plus while aiming down sights or firing a tracking
+  pull (rate 5/s x setting). It never passes the target, does nothing to an idle hip-fire view, and
+  leaves the height alone while the crosshair is within 0.45 m of the chest (body or head). Soldiers, vehicles and the camera are drawn blended between the last two 30 Hz steps.
 - **Recoil** climbs the view by the weapon's deg/shot (x0.6, less aimed, crouched, prone, braced);
   about 60% comes back after the trigger is released, minus whatever the player already pulled down.
 - **Triggers**: AR-70, AR-70C, SMG-70, LMG-72, HMG-75 and MP-70 are automatic; everything else fires
@@ -123,10 +130,15 @@ on ground vehicles, AA-70 on aircraft, from 60 m): buggy 2, jeep 3, APC 8, IFV 1
 13, truck 5, recovery 14, attack/transport helicopter 5, heavy helicopter 7, fighter 4, attack
 aircraft 6, transport aircraft 11. The tanks (25, 14) and the uncrewed drones are unchanged.
 
-Bot aim is human: a 0.45 s reaction on a fresh contact, then a bell-shaped error (rifle 0.5 deg,
-marksman 0.22, support 0.75) that starts 2.5x wider and settles over 2.5 s, grows when the bot
-moves, is suppressed or the target is far, and trails a target that moves across its view. A bot
-rifleman hits a standing player at about 50% of shots at 30 m, 20% at 60 m and 5% at 120 m.
+Bot aim is human-paced (`BOT` in `ar_bots.ts`). Before its first shot at a new target a bot
+notices, turns, raises its sights and steadies: 0.5 s + up to 0.35 s jitter + up to 0.5 s to turn
+around + 1 s per 300 m + its loadout's aim time (x0.6 when it is already in a fight), about 1 s
+in all (it was about 0.25 s). It turns onto the target at 5 rad/s and only fires within 0.06 rad.
+The error is bell-shaped (rifle 0.7 deg, marksman 0.3, support 1.0), starts 3x wider and settles
+over 3 s, grows when the bot moves, is suppressed or the target is far, and trails a target that
+moves across its view. Semi-automatics are tapped at 0.22-0.45 s, automatics fire bursts of 3-5.
+Bot bullets deal 80% damage to a human player (`BALANCE.botVsPlayer`). A bot rifleman lands about
+28% of its shots at a standing player at 30 m in the first 6 s of a fight.
 Infantry only engage aircraft with an AA launcher or inside 180 m. Enemies of the viewer wear
 glowing red marks (helmet band, chest and back patches, armbands; a red band at long range).
 
@@ -150,8 +162,10 @@ Territories are sites (port, town, city, village, compound, industrial, reactor,
 outpost) of ruined buildings, low walls, sandbag nests, jersey barriers and T-walls, hesco,
 containers, kiosks, wrecks, rubble, crates, towers. A building has at least two doors on different
 sides (usually opposite, so it is a way through), windows, sometimes a breach at floor level, rooms
-(a partition with a doorway in most, a second across the bigger ones), low cover inside and broken
-tops. A fill pass then walks each territory on a 5 m lattice and drops mixed cover wherever nothing
+(a partition with a doorway in most, a second across the bigger ones) and broken tops. Inside there
+is nothing else: buildings never overlap, and a last pass drops every barrier, wreck, crate, rubble
+heap or prop that touches a building's footprint (or its walls) and cuts back walls from elsewhere
+(a compound's perimeter now ends at its corner towers); trees and grass stay outside too. A fill pass then walks each territory on a 5 m lattice and drops mixed cover wherever nothing
 at least 0.9 m tall stands within 6 m. The tests hold every territory to: cover within 6 m of at
 least 85% of open spots (measured: 96-100%), at least four kinds of cover, and fewer than 75% of
 15 m+ sightlines clear (measured 8-65%).
@@ -214,9 +228,11 @@ The Electronic Warfare WIR (AI010) is deferred.
   within 5 s, the Mine Kit's 16 mines, Hunter Protocol's 16 targets at about 80%, underdog and
   killstreak rewards, the squad call, the 16-seat helicopter, the aircraft's vehicle drop, one mecha
   per side, the end of a battle. `ar_fixes.test.ts`: vehicles spawn inside every map, crewed aircraft
-  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle. `ar_weapons.test.ts`: every weapon fires for the player, launcher rounds, semi-auto triggers, guided locks, the UGL, supply drops, entering vehicles. `ar_aim.test.ts`: eased mouse keeps every count, stick dead zone / easing / rim boost / stop, friction only on a visible target.
+  fly (never spin in place), bot hit rates by range, launcher blasts per vehicle. `ar_weapons.test.ts`: every weapon fires for the player, launcher rounds, semi-auto triggers, guided locks, the UGL, supply drops, entering vehicles. `ar_aim.test.ts`: eased mouse keeps every count, stick dead zone / easing / rim boost / stop, friction only on a visible target, aim assist scaling, pull never past the target, no vertical pull on the body, bot reaction time and error settling, bot rounds at 80% on the player. `ar_map.test.ts` also checks that inside every building there is only its own partitions.
 - `cargo test --release --test armageddon` in `yumon-pet/wir`: all 23 networks compile and match
   their programs.
+- `tests/features/armageddon_buildings.feature` (same env var): the aim assist row on the setup
+  screen, house interiors on Glass Coast and a compound corner tower on Kush Corridor.
 - `tests/features/armageddon_maps.feature` (played with `ENTROPY_ARMAGEDDON_BDD_FEATURE`): aerial and
   on-foot captures of the ground between territories on all four maps and an HQ wall from 0.6 m, for
   reviewing cover and near-wall rendering.

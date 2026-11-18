@@ -22,7 +22,7 @@ import { enginePainter, type Painter, type DrawApi, type Color } from "../allegi
 import { yawed, placed, between, type Mat4 } from "../world_of_music/wom_render";
 import { clamp, type V3 } from "../nebula/nk_math";
 import { Controller } from "../allegiance/al_controller";
-import { MouseEase, StickLook, frictionWeight, frictionScale } from "./ar_aim";
+import { MouseEase, StickLook, nearestTarget, frictionScale, assistPull, pullMargin, ASSIST } from "./ar_aim";
 
 const addon = Entropy.AddonAtom.register({
     name: "Armageddon 2070",
@@ -127,15 +127,21 @@ function crosshairPoint(): V3 | null {
 /** Aiming down sights: the right mouse button or the left trigger. */
 const aimHeld = () => rightHeld || pad.triggers[0] > 0.35 || pad.held.has("LeftTrigger2");
 
-/** Look feel (ar_aim.ts), and the player's look speed multiplier ([ and ] change it; saved). */
+/** Look feel (ar_aim.ts), the player's look speed multiplier ([ and ] change it; saved), and their aim
+ * assist share (0..0.5; - and = change it in play, the setup screen too; saved). */
 const mouseEase = new MouseEase(), stickLook = new StickLook();
-let lookSens = 1;
-/** How much the crosshair is on a visible enemy soldier right now (0..1). */
-function frictionNow(me: Soldier): number {
+let lookSens = 1, aimAssist = ASSIST.default;
+function setAssist(v: number): void { aimAssist = clamp(Math.round(v * 100) / 100, 0, ASSIST.max); save(); }
+/** The visible enemy soldier the crosshair is on or near right now: the friction weight (0..1), and the
+ * pull's target and weight (a wider cone, by the assist setting). */
+function assistNow(me: Soldier): { friction: number; pull: number; at: V3 | null } {
+    if (aimAssist <= 0) return { friction: 0, pull: 0, at: null };
     const b = battle!;
-    const eye = eyeOf(me);
+    const eye = eyeOf(me), dir = dirOf(lookYaw, lookPitch), z = zoomNow();
     const chests = b.soldiers.filter(s => s.alive && s.team !== me.team && s.vehicle < 0).map(chestOf);
-    return frictionWeight(eye, dirOf(lookYaw, lookPitch), chests, zoomNow(), p => b.world.trace(eye[0], eye[1], eye[2], p[0], p[1], p[2]) >= 1);
+    const seen = (p: V3) => b.world.trace(eye[0], eye[1], eye[2], p[0], p[1], p[2]) >= 1;
+    const f = nearestTarget(eye, dir, chests, z, seen), p = nearestTarget(eye, dir, chests, z, seen, pullMargin(aimAssist));
+    return { friction: f.weight, pull: p.weight, at: p.at };
 }
 
 function readInput(dt: number): PlayerInput {
@@ -151,18 +157,25 @@ function readInput(dt: number): PlayerInput {
     if (playing) {
         // Look speed follows the zoom, so a target crosses the screen at the same speed at 1x and 8x. The
         // mouse is eased over a few ms and the stick has its own curve and easing (ar_aim.ts); both slow
-        // down over a visible enemy so the crosshair stops on them rather than past them.
+        // down over a visible enemy so the crosshair stops on them rather than past them, and aim assist
+        // bends the player's turning (and, aimed or firing, their tracking) onto them.
         const z = zoomNow(), adsK = (1 - 0.2 * adsT) * lookSens;
-        const w = me!.vehicle < 0 ? frictionNow(me!) : 0;
+        const assist = me!.vehicle < 0 ? assistNow(me!) : { friction: 0, pull: 0, at: null };
+        const w = assist.friction;
         const [mx, my] = mouseEase.take(look[0], look[1], dt);
-        const sens = (0.0024 / z) * adsK * frictionScale(w, false, adsT);
-        const pitchWas = lookPitch;
+        const sens = (0.0024 / z) * adsK * frictionScale(w, false, adsT, aimAssist);
+        const pitchWas = lookPitch, yawWas = lookYaw;
         lookYaw -= mx * sens; lookPitch -= my * sens;
         if (key("ArrowLeft")) lookYaw += 0.04 / z; if (key("ArrowRight")) lookYaw -= 0.04 / z;
         if (key("ArrowUp")) lookPitch += 0.03 / z; if (key("ArrowDown")) lookPitch -= 0.03 / z;
         const [sx, sy] = stickLook.step(rx, ry, dt);
-        const rate = (adsK / z) * frictionScale(w, true, adsT) * dt;
+        const rate = (adsK / z) * frictionScale(w, true, adsT, aimAssist) * dt;
         lookYaw -= sx * rate; lookPitch += sy * rate * 0.75;
+        if (assist.at) {
+            const firing = mouseButtons.has(0) || pad.triggers[1] > 0.5 || pad.held.has("RightTrigger2");
+            const [py, pp] = assistPull(eyeOf(me!), lookYaw, lookPitch, assist.at, assist.pull, aimAssist, Math.hypot(lookYaw - yawWas, lookPitch - pitchWas), adsT > 0.5 || firing, dt);
+            lookYaw += py; lookPitch += pp;
+        }
         lookPitch = clamp(lookPitch, -1.4, 1.35);
         // Pulling down against recoil pays off the climb that recovery would otherwise also take back
         // (recovery on top of the player's own correction dragged the crosshair under the target).
@@ -245,7 +258,12 @@ function keyDown(k: string): void {
         pressed.add(k);
         const lower = k.toLowerCase();
         if (mode === "title") { if (k === "Enter") act("setup"); else if (lower === "a") act("armory"); return; }
-        if (mode === "setup") { if (k === "Enter") act("start"); else if (k === "Escape") act("back"); else if (k === "ArrowRight") setup.map = (setup.map + 1) % MAPS.length; else if (k === "ArrowLeft") setup.map = (setup.map + MAPS.length - 1) % MAPS.length; return; }
+        if (mode === "setup") {
+            if (k === "Enter") act("start"); else if (k === "Escape") act("back");
+            else if (k === "ArrowRight") setup.map = (setup.map + 1) % MAPS.length; else if (k === "ArrowLeft") setup.map = (setup.map + MAPS.length - 1) % MAPS.length;
+            else if (k === "ArrowUp" || k === "ArrowDown") act(k === "ArrowUp" ? "assist:+" : "assist:-");
+            return;
+        }
         if (mode === "armory") {
             const rows = armoryRows(loadout).map(r => r.id);
             if (k === "Escape" || k === "Enter") act("done");
@@ -275,6 +293,7 @@ function keyDown(k: string): void {
             if (lower === "c") { crouch = !crouch; prone = false; }
             if (lower === "z") { prone = !prone; crouch = false; }
             if (k === "[" || k === "]") { lookSens = clamp(Math.round(lookSens * (k === "]" ? 1.1 : 1 / 1.1) * 100) / 100, 0.2, 4); toast(`Look speed ${lookSens.toFixed(2)}x`); save(); }
+            if (k === "-" || k === "=") { setAssist(aimAssist + (k === "=" ? ASSIST.step : -ASSIST.step)); toast(`Aim assist ${Math.round(aimAssist * 100)}%`); }
             if ((k === "Escape" && !locked) || k === "PadStart") { setMode("deploy"); }
         }
     }
@@ -329,6 +348,7 @@ function act(id: string): void {
     else if (id.startsWith("team:")) setup.team = Number(id.slice(5)) as Team;
     else if (id.startsWith("size:")) setup.size = Number(id.slice(5));
     else if (id === "vehicles") setup.vehicles = !setup.vehicles;
+    else if (id === "assist:+" || id === "assist:-") setAssist(aimAssist + (id === "assist:+" ? ASSIST.step : -ASSIST.step));
     else if (id === "start" || id === "again") startBattle();
     else if (id.startsWith("spawn:")) spawnPick = id.slice(6);
     else if (id === "deploy") deploy();
@@ -364,14 +384,15 @@ function deploy(): void {
 function load(): void {
     try {
         const text = addon.IO.store.read(SAVE_PATH);
-        const d = text ? (JSON.parse(text) as { v?: number; loadout?: Loadout; setup?: SetupView; look?: number }) : null;
+        const d = text ? (JSON.parse(text) as { v?: number; loadout?: Loadout; setup?: SetupView; look?: number; assist?: number }) : null;
         if (d?.v === 1 && d.loadout && loadoutStats(d.loadout).problems.length === 0) { loadout = d.loadout; hadSave = true; }
         if (d?.setup) Object.assign(setup, d.setup);
         if (typeof d?.look === "number" && isFinite(d.look)) lookSens = clamp(d.look, 0.2, 4);
+        if (typeof d?.assist === "number" && isFinite(d.assist)) aimAssist = clamp(d.assist, 0, ASSIST.max);
     } catch { /* no save yet */ }
 }
 function save(): void {
-    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ v: 1, loadout, setup, look: lookSens })); } catch { /* no data folder */ }
+    try { addon.IO.store.write(SAVE_PATH, JSON.stringify({ v: 1, loadout, setup, look: lookSens, assist: aimAssist })); } catch { /* no data folder */ }
 }
 
 // --- effects ------------------------------------------------------------------------------------------
@@ -1021,7 +1042,7 @@ function drawUi(dt: number, w: number, h: number): void {
     p.begin();
     const b = battle, me = b?.me;
     if (mode === "title") drawTitle(p, w, h, modeAge, hadSave);
-    else if (mode === "setup") drawSetup(p, w, h, setup);
+    else if (mode === "setup") drawSetup(p, w, h, setup, aimAssist);
     else if (mode === "armory") drawArmory(p, w, h, loadout, armoryCursor);
     else if (mode === "deploy" && b && me) drawDeploy(p, w, h, b, me, spawnPick, me.alive ? 0 : Math.max(0, me.respawnAt - b.time), loadoutName());
     else if (mode === "end" && b) drawDebrief(p, w, h, b, me ?? null);
@@ -1069,7 +1090,7 @@ const vec = (v: unknown, d: V3): V3 => (Array.isArray(v) && v.length === 3 && v.
 function snapshot() {
     const b = battle, me = b?.me;
     return {
-        mode, frames, realTime: Math.round(realTime * 100) / 100, post: renderer.screenOn, pointerLock: lockSupported,
+        mode, frames, realTime: Math.round(realTime * 100) / 100, post: renderer.screenOn, pointerLock: lockSupported, aimAssist,
         scene: { solids: renderer.solids.lastStats.instances, statics: renderer.statics.lastStats.instances, grass: renderer.grass.lastStats.instances, glows: renderer.glows.lastStats.instances, smokes: renderer.smokes.lastStats.instances },
         sound: sound.played, ui: painter?.opCount() ?? 0,
         loadout: { ...loadoutStats(loadout), primary: loadout.primary, armor: loadout.armor },
@@ -1129,8 +1150,8 @@ function registerTools(): void {
             },
         },
         {
-            name: "ar_config", description: "Test settings: fixedStep (seconds per frame, null for real time), sound (bool), post (bool), check (bool: compare every WIR decision with its rule), thirdPerson (bool), help (bool).",
-            parameters: { type: "object", properties: { fixedStep: { type: "number" }, sound: { type: "boolean" }, post: { type: "boolean" }, check: { type: "boolean" }, thirdPerson: { type: "boolean" }, help: { type: "boolean" } } },
+            name: "ar_config", description: "Test settings: fixedStep (seconds per frame, null for real time), sound (bool), post (bool), check (bool: compare every WIR decision with its rule), thirdPerson (bool), help (bool), assist (aim assist share, 0..0.5).",
+            parameters: { type: "object", properties: { fixedStep: { type: "number" }, sound: { type: "boolean" }, post: { type: "boolean" }, check: { type: "boolean" }, thirdPerson: { type: "boolean" }, help: { type: "boolean" }, assist: { type: "number" } } },
             run: a => {
                 if ("fixedStep" in a) fixedStep = a.fixedStep === null ? null : num(a.fixedStep, STEP);
                 if ("sound" in a) sound.enabled = !!a.sound;
@@ -1138,6 +1159,7 @@ function registerTools(): void {
                 if ("check" in a && battle) battle.check = !!a.check;
                 if ("thirdPerson" in a) thirdPerson = !!a.thirdPerson;
                 if ("help" in a) showHelp = !!a.help;
+                if ("assist" in a) aimAssist = clamp(num(a.assist, ASSIST.default), 0, ASSIST.max);
                 return snapshot();
             },
         },

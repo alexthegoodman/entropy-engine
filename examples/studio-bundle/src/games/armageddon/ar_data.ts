@@ -27,6 +27,8 @@ export const BALANCE = {
     head: { share: 0.1, mult: 2.0 }, torso: { share: 0.45, mult: 1.0 }, arms: { share: 0.2, mult: 0.75 }, legs: { share: 0.25, mult: 0.8 },
     /** Bots see an ordinary standing, moving soldier this far (m), scaled by signature. */
     sightRange: 190,
+    /** Bot rounds (bullets and pellets) deal this share of their damage to a human player. */
+    botVsPlayer: 0.8,
     /** Respawn delay (s), the Conquer rule: "all players may respawn within 5 seconds". */
     respawn: 5,
     /** Seconds of uncontested presence to flip a territory, per capturing soldier (diminishing). */

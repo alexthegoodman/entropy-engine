@@ -1,7 +1,7 @@
 // Armageddon 2070's four battlefields: 8-12 territories each, reachable by infantry and vehicles
 // from both headquarters, and - the point of the maps - good, varied cover everywhere.
 import { describe, expect, it } from "vitest";
-import { MAPS, World, NI, NV, NAV_INF, NAV_VEH, FAR } from "../src/games/armageddon/ar_map";
+import { MAPS, World, NI, NV, NAV_INF, NAV_VEH, FAR, boxInFootprint } from "../src/games/armageddon/ar_map";
 import { Rng } from "../src/games/nebula/nk_math";
 
 const worlds = MAPS.map(m => new World(m));
@@ -62,6 +62,24 @@ describe("Armageddon maps", () => {
     it("buildings are ways through: two doors or more, rooms inside", () => {
         // Partitions are 0.3 m plaster walls; every map has hundreds of them.
         for (const w of worlds) expect(w.boxes.filter(b => b.kind === "wall" && b.mat === "plaster" && Math.abs(b.hx - 0.15) < 1e-6).length, w.def.name).toBeGreaterThan(100);
+    });
+    it("inside a building there is only floor and its own partitions (no barriers, crates, rubble, trees or stray walls)", () => {
+        for (const w of worlds) {
+            expect(w.buildings.length, w.def.name).toBeGreaterThan(60);
+            const bad: string[] = [];
+            for (const f of w.buildings) {
+                // The outer walls straddle the footprint's edge; 0.6 m in from it is the rooms.
+                const inner = { ...f, hx: f.hx - 0.6, hz: f.hz - 0.6 };
+                for (const b of w.boxes) {
+                    if (b.y >= f.y + f.h - 0.01 || b.y + b.h <= f.y || !boxInFootprint(b, inner)) continue;
+                    if (!(b.kind === "wall" && b.mat === "plaster" && Math.abs(b.hx - 0.15) < 1e-6)) bad.push(`${b.kind} ${b.mat} at ${b.x.toFixed(1)}, ${b.z.toFixed(1)} in the building at ${f.x}, ${f.z}`);
+                }
+                for (const t of w.foliage) if (Math.abs(t.x - f.x) < f.hx && Math.abs(t.z - f.z) < f.hz) bad.push(`${t.kind} in the building at ${f.x}, ${f.z}`);
+                // Buildings never overlap one another.
+                for (const g of w.buildings) if (g !== f && boxInFootprint({ ...f, yaw: 0 }, g)) bad.push(`buildings at ${f.x}, ${f.z} and ${g.x}, ${g.z} overlap`);
+            }
+            expect(bad.slice(0, 10), w.def.name).toEqual([]);
+        }
     });
     it("windows and doors are gaps: a ray passes through a doorway and is stopped by the wall beside it", () => {
         const w = worlds[0];
