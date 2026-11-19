@@ -35,6 +35,8 @@ export interface HudView {
     dark: number;
     range: number | null;
     lockHint: boolean;
+    /** The player last used a gamepad: its controls in the help. */
+    pad: boolean;
     fps: number;
 }
 
@@ -72,8 +74,8 @@ export function drawTitle(p: Painter, w: number, h: number, t: number): void {
     p.textC("TRUE ERROR", w / 2, h * 0.3, size, TE.brass, FONT.head);
     p.textC("LEVEL 1  -  THE CENTRAL SPIRE", w / 2, h * 0.3 + size * 1.25, size * 0.24, TE.ink, FONT.head);
     p.textC("Mars, 4122", w / 2, h * 0.3 + size * 1.75, size * 0.2, TE.dim, FONT.body);
-    p.textC("Press ENTER or click to begin", w / 2, h * 0.72, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
-    p.textC("ESC skips cutscenes", w / 2, h * 0.72 + 34, 16, TE.dim, FONT.body);
+    p.textC("Press ENTER, A or click to begin", w / 2, h * 0.72, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
+    p.textC("ESC or B skips cutscenes", w / 2, h * 0.72 + 34, 16, TE.dim, FONT.body);
 }
 
 export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
@@ -88,7 +90,7 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     // The lens, top right.
     const lensC = v.lens === 4 ? TE.cyan : v.lens === 1 ? TE.green : v.lens === 2 ? TE.red : TE.brass;
     p.textR(`LENS  ${LENS_NAMES[v.lens]}`, w - 28, 22, 18, lensC, FONT.head);
-    p.textR("1-5 switch lens", w - 28, 48, 14, TE.dim, FONT.body);
+    p.textR(v.pad ? "Y switch lens" : "1-5 switch lens", w - 28, 48, 14, TE.dim, FONT.body);
     if (v.range !== null) p.textR(`RANGE ${v.range < 999 ? v.range.toFixed(1) + " m" : "---"}`, w - 28, 70, 18, TE.brass, FONT.num);
     // Crosshair.
     if (v.crosshair) {
@@ -110,7 +112,9 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
         p.textR(t.text, w - 28, h * 0.32 + i * 36, 19, [t.color[0], t.color[1], t.color[2], a], FONT.head);
     });
     if (v.showHelp) {
-        const lines = ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "E reset a downed machine (or shoot it)", "1-5 lenses   H hide help"];
+        const lines = v.pad
+            ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "X reset a downed machine (or shoot it)", "Y / D-PAD lenses   BACK hide help"]
+            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "E reset a downed machine (or shoot it)", "1-5 lenses   H hide help"];
         const bx = 28, by = h - 40 - lines.length * 22;
         p.rect(bx - 12, by - 10, 360, lines.length * 22 + 18, TE.glass);
         lines.forEach((l, i) => p.text(l, bx, by + i * 22, 15, TE.dim, FONT.body));
@@ -140,5 +144,5 @@ export function drawComplete(p: Painter, w: number, h: number, r: Results, t: nu
     });
     const path = r.resets > r.destroyed ? "The Doctor will remember your mercy." : r.destroyed > r.resets ? "The scrap merchants will remember you." : "";
     if (path) p.textC(path, w / 2, top + rows.length * 40 + 20, 18, TE.cyan, FONT.body);
-    p.textC("Press ENTER to play again", w / 2, h * 0.86, 18, TE.dim, FONT.body);
+    p.textC("Press ENTER or A to play again", w / 2, h * 0.86, 18, TE.dim, FONT.body);
 }

@@ -65,3 +65,33 @@ Feature: True Error - Level 1, the Central Spire
     When I call the tool "te_act" with {"action": "step", "frames": 420}
     Then I call the tool "te_state"
     And I capture "22-level-complete"
+
+  Scenario: The gamepad - skip, move, look, aim, fire, lenses
+    Given the real True Error game is running in test mode
+    When I call the tool "te_act" with {"action": "fixed", "dt": 0.0333}
+    And I call the tool "te_act" with {"action": "restart", "frames": 2}
+    Then I call the tool "te_expect" with {"mode": "intro"}
+    When I hold the gamepad button "East" for 1 frame
+    And I advance 3 frames
+    Then I call the tool "te_expect" with {"mode": "play", "device": "pad"}
+    When I hold the gamepad sticks "0 1 0 0 0 0" for 40 frames
+    Then I call the tool "te_expect" with {"moved": true, "turned": false}
+    When I hold the gamepad sticks "0.8 0 0 0 0 0" for 2 frames
+    And I hold the gamepad sticks "0 0 0.8 0 0 0" for 20 frames
+    Then I call the tool "te_expect" with {"turned": true}
+    When I press the gamepad button "LeftTrigger2"
+    And I advance 8 frames
+    Then I call the tool "te_expect" with {"aiming": true}
+    When I press the gamepad button "RightTrigger2"
+    And I advance 12 frames
+    And I release the gamepad button "RightTrigger2"
+    And I release the gamepad button "LeftTrigger2"
+    And I advance 4 frames
+    Then I call the tool "te_expect" with {"fired": true, "aiming": false}
+    When I hold the gamepad button "North" for 1 frame
+    And I advance 2 frames
+    Then I call the tool "te_expect" with {"lens": "NIGHT"}
+    When I hold the gamepad button "DPadLeft" for 1 frame
+    And I advance 2 frames
+    Then I call the tool "te_expect" with {"lens": "STANDARD"}
+    And I capture "23-gamepad-help"

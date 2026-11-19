@@ -62,4 +62,5 @@ Many models can be 30 to 50 credits total from start to finish, so let's try to 
 - Assets: prompts in `assets/true_error/assets.json`, Meshy task trail in `meshy_tasks.json`, drivers `*.mjs` there; `tools/te_assets.py` turns the Meshy GLBs into `assets/true_error/game/` (geometry GLB + PNG maps).
 - Code: `te_level` (layout, collision), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`).
 - Tests: `npm run test:true-error` (vitest) and `cargo test --release --test true_error_live` (BDD screenshots, `tests/features/true_error_live.feature`).
+- Gamepad: left stick moves (click to run), right stick looks, LT aims, RT fires, A jumps, X resets, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
 - Props and the skyline are batched per spatial chunk (`chunkOf`) so the engine culls them per pass.

@@ -3,7 +3,7 @@
 // A third-person, over-the-shoulder game on a ruined, terraformed Mars (src/games/true_error/README.md).
 // Ray, the first Reborn, wakes in the Secret Doctor's lab and climbs the capital's torn spire to the
 // hypercube. Models come from Meshy (assets/true_error, tools/te_assets.py); the spire itself is built
-// in code (te_level.ts). This file wires the modules to the engine: input (pointer-locked mouse look),
+// in code (te_level.ts). This file wires the modules to the engine: input (pointer-locked mouse look, or a gamepad),
 // the shoulder camera and the cutscenes, the game's fixed step (te_game.ts), the characters' skinning
 // (te_skin.ts), drawing (te_render.ts), sound, the HUD, and the MCP tools tests/true_error_live.rs drives.
 
@@ -18,6 +18,8 @@ import { drawHud, drawTitle, drawSubtitle, drawComplete, LENS_NAMES, TE, type Hu
 import { enginePainter, type Painter, type DrawApi, type Color } from "../allegiance/al_ui";
 import { placed } from "../world_of_music/wom_render";
 import { shadowCascades } from "../allegiance/al_sky";
+import { Controller } from "../allegiance/al_controller";
+import { StickLook } from "../armageddon/ar_aim";
 
 const addon = Entropy.AddonAtom.register({
     name: "True Error",
@@ -61,20 +63,75 @@ const key = (k: string) => held.has(k) || held.has(k.toLowerCase()) || held.has(
 const tapped = (k: string) => pressed.has(k) || pressed.has(k.toLowerCase()) || pressed.has(k.toUpperCase());
 let lastMouse: [number, number] | null = null;
 
+// The gamepad (gilrs names, the same for Xbox and DualShock): the left stick moves (clicked: sprint until
+// it is let go), the right stick looks (Armageddon's stick curve), LT aims, RT fires, A jumps, X resets a
+// downed machine, Y and the D-pad switch lenses, Back toggles the help, Start or A begin and B skips.
+const pad = new Controller();
+const stickLook = new StickLook();
+let padSprint = false;
+/** The last device used, for the HUD's prompts. */
+let device: "keys" | "pad" = "keys";
+/**
+ * This frame's stick reports, merged: the engine reports every connected pad, so with two (or a test's
+ * sticks beside a real idle pad) the stick pushed further wins instead of the last report.
+ */
+let padIn: { l: [number, number]; r: [number, number]; t: [number, number] } | null = null;
+const further = (a: [number, number], b: [number, number]): [number, number] => (Math.hypot(b[0], b[1]) > Math.hypot(a[0], a[1]) ? b : a);
+const padAim = () => pad.triggers[0] > 0.35 || pad.held.has("LeftTrigger2");
+const padFire = () => pad.triggers[1] > 0.5 || pad.held.has("RightTrigger2");
+
+function setLens(l: number): void {
+    if (l === lens) return;
+    lens = l; sound.lens();
+    if (l === LENS.simulation) game.usedSim = true;
+}
+
+function keyDown(k: string): void {
+    if (held.has(k)) return;
+    held.add(k); pressed.add(k);
+    if (mode === "title" && (k === "Enter" || k === " ")) begin();
+    else if ((mode === "intro" || mode === "outro") && k === "Escape") skipCinematic();
+    else if (mode === "complete" && k === "Enter") restart();
+    else if (mode === "play") {
+        if (k >= "1" && k <= "5") setLens(Number(k) - 1);
+        if (k === "NextLens") setLens((lens + 1) % LENS_NAMES.length);
+        if (k === "PrevLens") setLens((lens + LENS_NAMES.length - 1) % LENS_NAMES.length);
+        if (k.toLowerCase() === "h") showHelp = !showHelp;
+        if (k === "Escape") locked = false;
+    }
+}
+function keyUp(k: string): void { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); }
+
+/** A gamepad button as the key it stands for at this moment (null: handled elsewhere or unused). */
+function padKey(button: string): string | null {
+    const cinematic = mode === "intro" || mode === "outro";
+    switch (button) {
+        case "South": return mode === "play" ? " " : cinematic ? null : "Enter";
+        case "Start": return cinematic ? "Escape" : mode === "play" ? null : "Enter";
+        case "East": return cinematic ? "Escape" : null;
+        case "West": return "e";
+        case "North": case "DPadRight": return "NextLens";
+        case "DPadLeft": return "PrevLens";
+        case "DPadUp": return "1";
+        case "Select": return "h";
+        default: return null;
+    }
+}
+const padSent = new Map<string, string>();
+
 function setupInput(): void {
-    Entropy.Input.onKeyDown((k: string) => {
-        if (held.has(k)) return;
-        held.add(k); pressed.add(k);
-        if (mode === "title" && (k === "Enter" || k === " ")) begin();
-        else if ((mode === "intro" || mode === "outro") && k === "Escape") skipCinematic();
-        else if (mode === "complete" && k === "Enter") restart();
-        else if (mode === "play") {
-            if (k >= "1" && k <= "5") { const l = Number(k) - 1; if (l !== lens) { lens = l; sound.lens(); if (l === LENS.simulation) game.usedSim = true; } }
-            if (k.toLowerCase() === "h") showHelp = !showHelp;
-            if (k === "Escape") locked = false;
-        }
+    Entropy.Input.onKeyDown((k: string) => { device = "keys"; keyDown(k); });
+    Entropy.Input.onKeyUp((k: string) => keyUp(k));
+    Entropy.Input.onGamepadAxis((l, r, t) => {
+        padIn = padIn ? { l: further(padIn.l, l), r: further(padIn.r, r), t: [Math.max(padIn.t[0], t[0]), Math.max(padIn.t[1], t[1])] } : { l, r, t };
     });
-    Entropy.Input.onKeyUp((k: string) => { held.delete(k); held.delete(k.toLowerCase()); held.delete(k.toUpperCase()); });
+    Entropy.Input.onGamepadButton((button: string, down: boolean) => {
+        const fresh = pad.button(button, down);
+        device = "pad";
+        if (button === "LeftThumb") { if (fresh) padSprint = !padSprint; return; }
+        if (fresh) { const k = padKey(button); if (k) { padSent.set(button, k); keyDown(k); } }
+        else if (!down) { const k = padSent.get(button); if (k) { padSent.delete(button); keyUp(k); } }
+    });
     Entropy.Input.onMouseDown((button: number) => {
         if (Entropy.Input.isPointerOverUI?.() && mode !== "play") { /* the UI is drawn, not interactive */ }
         if (mode === "title" && button === 0) { begin(); return; }
@@ -95,10 +152,22 @@ function setupInput(): void {
     });
 }
 
-function readLook(): void {
+function readLook(dt: number): void {
     const look = Entropy.Input.takeMouseLook?.() ?? [0, 0, 0];
     if (look[2] > 0.5) { locked = true; lookYaw -= look[0] * 0.0022; lookPitch -= look[1] * 0.0019; }
     else if (locked && lockSupported) locked = false;
+    if (look[0] || look[1]) device = "keys";
+    if (padIn) { pad.axis(padIn.l, padIn.r, realTime, padIn.t); padIn = null; }
+    // Sticks and triggers go stale when a pad stops reporting; buttons get real releases.
+    if (realTime - pad.lastAxis > 0.5) { pad.left = [0, 0]; pad.right = [0, 0]; pad.triggers = [0, 0]; }
+    const [lx, ly] = pad.left, [rx, ry] = pad.right;
+    if (lx || ly || rx || ry || pad.triggers[0] > 0.1 || pad.triggers[1] > 0.1) device = "pad";
+    if (mode === "play") {
+        // Slower while aiming down the rifle, like the mouse feels with the narrower view.
+        const [sx, sy] = stickLook.step(rx, ry, dt);
+        const k = (padAim() ? 0.55 : 1) * dt;
+        lookYaw -= sx * k; lookPitch += sy * k * 0.75;
+    } else stickLook.reset();
     if (key("ArrowLeft")) lookYaw += 0.035; if (key("ArrowRight")) lookYaw -= 0.035;
     if (key("ArrowUp")) lookPitch += 0.025; if (key("ArrowDown")) lookPitch -= 0.025;
     lookPitch = Math.max(-1.2, Math.min(1.0, lookPitch));
@@ -110,9 +179,14 @@ function playerInput(): PlayerInput {
         if (--s.frames <= 0) scripted = null;
         return { ...NO_INPUT, yaw: lookYaw, pitch: lookPitch, target: crosshair().point, ...s };
     }
-    const mx = (key("d") ? 1 : 0) - (key("a") ? 1 : 0), my = (key("w") ? 1 : 0) - (key("s") ? 1 : 0);
+    const [lx, ly] = pad.left;
+    if (padSprint && Math.hypot(lx, ly) < 0.3) padSprint = false;
+    const mx = (key("d") ? 1 : 0) - (key("a") ? 1 : 0) + lx, my = (key("w") ? 1 : 0) - (key("s") ? 1 : 0) + ly;
+    // The mouse fires only once it is captured (the first click asks for the lock); the pad always can.
+    const mouseFire = buttons.has(0) && (locked || !lockSupported);
     return {
-        move: [mx, my], run: key("Shift"), jump: tapped(" "), fire: buttons.has(0), aim: buttons.has(1), use: tapped("e"),
+        move: [Math.max(-1, Math.min(1, mx)), Math.max(-1, Math.min(1, my))], run: key("Shift") || padSprint, jump: tapped(" "),
+        fire: mouseFire || padFire(), aim: buttons.has(1) || padAim(), use: tapped("e"),
         yaw: lookYaw, pitch: lookPitch, target: crosshair().point,
     };
 }
@@ -310,6 +384,7 @@ function toast(text: string, color: Color): void { toasts.unshift({ text, age: 0
 function handle(ev: GameEvent): void {
     switch (ev.kind) {
         case "shot":
+            shotCount++;
             sound.photon(ev.at, ev.enemy);
             flashes.push({ pos: ev.at, color: ev.enemy ? [1, 0.25, 0.15] : [0.4, 0.8, 1], intensity: 2.5, range: 5, age: 0, life: 0.08 });
             break;
@@ -347,12 +422,15 @@ const perf = { js: 0, skin: 0 };
 /** A still camera from the test tools (screenshots from anywhere); the HUD hides while it is set. */
 let stillCam: Cam | null = null;
 let simPulse = 0;
+/** Photon shots so far, and where te_expect last looked (moved / turned / fired are since then). */
+let shotCount = 0;
+let expectMark = { pos: [0, 0, 0] as V3, yaw: 0, shots: 0 };
 
 function frame(dt: number, ui = true): void {
     const t0 = Date.now();
     realTime += dt; modeT += dt; frames++;
     fps += ((dt > 0 ? 1 / dt : 60) - fps) * 0.05;
-    readLook();
+    readLook(dt);
     if (trackId) {
         const e = game.enemies.find(x => x.id === trackId);
         if (e) {
@@ -365,7 +443,6 @@ function frame(dt: number, ui = true): void {
     // Advance the game (the intro and title leave it paused; the outro lets it run on).
     if (mode === "play" || mode === "outro") {
         const input = mode === "play" ? playerInput() : { ...NO_INPUT, yaw: lookYaw, pitch: lookPitch };
-        if (mode === "play" && !locked && !scripted) input.fire = input.fire && !lockSupported;
         game.step(dt, input);
         for (const ev of game.events.splice(0)) handle(ev);
     }
@@ -729,9 +806,9 @@ function drawUi(dt: number): void {
         const e = game.resettable();
         const view: HudView = {
             integrity: game.player.integrity, energy: game.player.energy, lens, objective: objective(),
-            prompt: e ? "E  RESET ALGORITHM     or shoot to destroy" : !game.player.alive ? "Rebooting..." : "",
+            prompt: e ? (device === "pad" ? "X" : "E") + "  RESET ALGORITHM     or shoot to destroy" : !game.player.alive ? "Rebooting..." : "",
             subtitle: sub, toasts, hurt: hurtT, crosshair: game.player.alive, aiming: game.player.aiming, showHelp,
-            dark: game.player.darkT, range: lens === LENS.distance ? crosshair().dist : null, lockHint: lockSupported && !locked, fps,
+            dark: game.player.darkT, range: lens === LENS.distance ? crosshair().dist : null, lockHint: lockSupported && !locked && device === "keys", pad: device === "pad", fps,
         };
         drawHud(p, w, h, view);
         drawSubtitle(p, w, h, sub, false);
@@ -809,6 +886,21 @@ function registerTools(): void {
         {
             name: "te_state", description: "True Error: the game's state.", parameters: { type: "object", properties: {} },
             run: () => snapshot(),
+        },
+        {
+            name: "te_expect",
+            description: "True Error: asserts the state after real key, mouse or gamepad input (fails the call on a mismatch): mode, lens (name), device (keys|pad), aiming, run (bool), moved / turned / fired (bool: since the previous te_expect).",
+            parameters: { type: "object", properties: {} },
+            run: (a) => {
+                const p = game.player;
+                const now = { mode, lens: LENS_NAMES[lens], device, aiming: p.aiming, run: padSprint || key("Shift"),
+                    moved: Math.hypot(p.pos[0] - expectMark.pos[0], p.pos[2] - expectMark.pos[2]) > 0.3,
+                    turned: Math.abs(lookYaw - expectMark.yaw) > 0.05, fired: shotCount > expectMark.shots, pad: { left: pad.left, sinceAxis: Math.round((realTime - pad.lastAxis) * 100) / 100 }, pos: game.player.pos.map(v => Math.round(v * 100) / 100) };
+                expectMark = { pos: [...p.pos] as V3, yaw: lookYaw, shots: shotCount };
+                const wrong = Object.entries(a).filter(([k, v]) => k in now && (now as Record<string, unknown>)[k] !== v);
+                if (wrong.length) throw new Error(`expected ${JSON.stringify(Object.fromEntries(wrong))}, got ${JSON.stringify(now)}`);
+                return now;
+            },
         },
         {
             name: "te_act",
