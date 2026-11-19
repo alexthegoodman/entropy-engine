@@ -3487,6 +3487,7 @@ globalThis.Entropy.Screen = {
   // Reversed depth: the main depth buffer clears to 0, for pipelines created with `reversedDepth: true`
   // (their shaders put near at 1, far at 0). Float depth then holds precision out to kilometers.
   setReversedDepth: (on) => ops.op_screen_set_reversed_depth(!!on),
+  setLighting: (config) => ops.op_screen_lighting_set(config ? { pipeline: config.pipeline, buffers: config.buffers || [] } : null),
 };
 
 globalThis.Entropy.Composite = {

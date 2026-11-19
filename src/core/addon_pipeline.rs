@@ -10,6 +10,16 @@ pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
     wgpu::TextureFormat::Rgba8Unorm,   // Additional data
 ];
 
+/// The addon G-buffer (`PipelineConfig::gbuffer`), 16 bytes a pixel; position comes from depth.
+///   0  albedo rgb, a free channel
+///   1  normal xyz, a free channel (HDR: emissive strength, say)
+///   2  four free channels (roughness, metalness, ...)
+pub const ADDON_GBUFFER_FORMATS: [wgpu::TextureFormat; 3] = [
+    wgpu::TextureFormat::Rgba8Unorm,
+    wgpu::TextureFormat::Rgba16Float,
+    wgpu::TextureFormat::Rgba8Unorm,
+];
+
 pub fn create_addon_pipeline(
     device: &Device,
     config: &PipelineConfig,
@@ -124,6 +134,8 @@ pub fn create_addon_pipeline(
     });
 
     // Create targets for all attachments
+    // G-buffer channels are data: written as they are, never blended.
+    let blend_state = if config.gbuffer == Some(true) { None } else { blend_state };
     let targets: Vec<_> = formats.iter().map(|&format| {
         Some(wgpu::ColorTargetState {
             format,
@@ -163,7 +175,7 @@ pub fn create_addon_pipeline(
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     };
 
-    if config.form == Some("composite".to_string()) {
+    if matches!(config.form.as_deref(), Some("composite") | Some("lighting")) {
         vertex_buffers = wgpu::VertexState {
             module: &vertex_shader,
             entry_point: Some("vs_main"), // Standard entry point
@@ -186,7 +198,8 @@ pub fn create_addon_pipeline(
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: if config.double_sided == Some(true) { None } else { Some(wgpu::Face::Back) }, // Default to backface culling
+            // Default to backface culling; full-screen passes (composite, lighting) never cull their triangle.
+            cull_mode: if config.double_sided == Some(true) || matches!(config.form.as_deref(), Some("composite") | Some("lighting")) { None } else { Some(wgpu::Face::Back) },
             polygon_mode: wgpu::PolygonMode::Fill,
             unclipped_depth: false,
             conservative: false,

@@ -1,4 +1,5 @@
-// What True Error asks of the engine: three instanced pipelines (ASSET, ARCH, GLOW; te_shader.ts),
+// What True Error asks of the engine: instanced pipelines (ASSET and ARCH into the G-buffer, SKY
+// and GLOW forward; te_shader.ts), the deferred lighting pass (Screen.setLighting),
 // the world uniform, the screen pass, the tiling material arrays, and each Meshy model's geometry
 // (cached by Entropy.MeshCache) and texture arrays.
 //
@@ -7,7 +8,7 @@
 // cached mesh (one key per character, so its vertices can be rewritten each frame without touching
 // anyone else's) with a one-record buffer.
 
-import { TE_ASSET_SHADER, TE_ARCH_SHADER, TE_GLOW_SHADER, TE_SCREEN_SHADER, WORLD_FLOATS, ITEM_FLOATS, POST_FLOATS, MAX_LIGHTS } from "./te_shader";
+import { TE_ASSET_SHADER, TE_ARCH_SHADER, TE_SKY_SHADER, TE_LIGHT_SHADER, TE_GLOW_SHADER, TE_SCREEN_SHADER, WORLD_FLOATS, ITEM_FLOATS, POST_FLOATS, MAX_LIGHTS } from "./te_shader";
 import { InstanceBatches, INSTANCED_BIND_GROUPS, type InstanceEngine } from "../../apps/quadplanet/qp_instances";
 import { icosphere, quad } from "../nebula/nk_meshes";
 import { box, cylinder, type Mat4 } from "../world_of_music/wom_render";
@@ -57,11 +58,12 @@ export interface ModelAsset {
 }
 
 export class Renderer {
-    asset = ""; arch = ""; glow = ""; screen = "";
+    asset = ""; arch = ""; sky = ""; glow = ""; light = ""; screen = "";
     worldBuffer = ""; postBuffer = "";
     archMaps: string[] = [];
     readonly models = new Map<string, ModelAsset>();
     statics!: InstanceBatches;
+    skies!: InstanceBatches;
     props!: InstanceBatches;
     glows!: InstanceBatches;
     ready = false;
@@ -76,12 +78,17 @@ export class Renderer {
     init(): void {
         const groups = (extra: BindingEntry[]) => [{ entries: [...INSTANCED_BIND_GROUPS[0].entries.map(e => ({ ...e, visibility: [...e.visibility] })), ...extra] }];
         const tex = (b: number): BindingEntry => ({ binding: b, visibility: ["Fragment"], resourceType: "TextureArray" });
-        this.asset = Entropy.Pipeline.create({ name: "TE Asset", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 3, vertexShader: TE_ASSET_SHADER, fragmentShader: TE_ASSET_SHADER, extraBindGroups: groups([tex(2), tex(3), { binding: 4, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
-        this.arch = Entropy.Pipeline.create({ name: "TE Arch", layout: "mesh", pbr: false, sunShadows: true, vertexShader: TE_ARCH_SHADER, fragmentShader: TE_ARCH_SHADER, extraBindGroups: groups([tex(2), tex(3), tex(4), { binding: 5, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
+        // Models and architecture fill the G-buffer (sunShadows keeps them casting); the lighting
+        // pass shades each visible pixel once, then the sky and the glows draw forward over it.
+        this.asset = Entropy.Pipeline.create({ name: "TE Asset", layout: "mesh", pbr: false, gbuffer: true, sunShadows: true, shadowCascades: 3, vertexShader: TE_ASSET_SHADER, fragmentShader: TE_ASSET_SHADER, extraBindGroups: groups([tex(2), tex(3), { binding: 4, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
+        this.arch = Entropy.Pipeline.create({ name: "TE Arch", layout: "mesh", pbr: false, gbuffer: true, sunShadows: true, vertexShader: TE_ARCH_SHADER, fragmentShader: TE_ARCH_SHADER, extraBindGroups: groups([tex(2), tex(3), tex(4), { binding: 5, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
+        this.sky = Entropy.Pipeline.create({ name: "TE Sky", layout: "mesh", pbr: false, vertexShader: TE_SKY_SHADER, fragmentShader: TE_SKY_SHADER, extraBindGroups: groups([]), doubleSided: true, reversedDepth: true });
+        this.light = Entropy.Pipeline.create({ name: "TE Lighting", form: "lighting", pbr: false, sunShadows: true, vertexShader: TE_LIGHT_SHADER, fragmentShader: TE_LIGHT_SHADER, extraBindGroups: [{ entries: [{ binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }] }] });
         this.glow = Entropy.Pipeline.create({ name: "TE Glow", layout: "mesh", pbr: false, vertexShader: TE_GLOW_SHADER, fragmentShader: TE_GLOW_SHADER, extraBindGroups: groups([]), transparent: true, additive: true, doubleSided: true, reversedDepth: true });
         this.worldBuffer = Entropy.Buffer.create({ size: WORLD_FLOATS * 4, usage: "Uniform" });
         this.postBuffer = Entropy.Buffer.create({ size: POST_FLOATS * 4, usage: "Uniform" });
         Entropy.Screen.setReversedDepth(true);
+        Entropy.Screen.setLighting({ pipeline: this.light, buffers: [this.worldBuffer] });
         try {
             this.screen = Entropy.Pipeline.create({ name: "TE Screen", form: "composite", pbr: false, vertexShader: TE_SCREEN_SHADER, fragmentShader: TE_SCREEN_SHADER, doubleSided: true, extraBindGroups: [{ entries: [{ binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }] }] });
         } catch { this.screen = ""; }
@@ -96,6 +103,7 @@ export class Renderer {
 
         for (const [key, make] of Object.entries(SHAPES)) this.cache(`${key}-v${MESH_VERSION}`, make);
         this.statics = new InstanceBatches(this.engine(() => this.arch, () => this.archBindings()), ITEM_FLOATS, { prefix: "te-arch", idleFrames: 600, initialCapacity: 8 });
+        this.skies = new InstanceBatches(this.engine(() => this.sky, () => []), ITEM_FLOATS, { prefix: "te-sky", idleFrames: 600, initialCapacity: 1 });
         this.props = new InstanceBatches(this.engine(() => this.asset, key => this.modelBindings(key)), ITEM_FLOATS, { prefix: "te-prop", idleFrames: 600, initialCapacity: 16 });
         this.glows = new InstanceBatches(this.engine(() => this.glow, () => []), ITEM_FLOATS, { prefix: "te-glow", idleFrames: 300, initialCapacity: 64 });
         this.setScreen(true);

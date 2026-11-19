@@ -312,6 +312,9 @@ pub struct EntropyPipeline {
     pub frame_texture: Option<wgpu::Texture>,
     /// The copy a screen effect samples (sized to the frame).
     pub screen_effect_copy: Option<wgpu::Texture>,
+    /// The addon G-buffer (addon_pipeline::ADDON_GBUFFER_FORMATS), sized to the frame when a
+    /// `gbuffer: true` mesh first draws.
+    pub addon_gbuffer: Option<Vec<wgpu::Texture>>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
     // pub game_dock_state: DockState<Tab>,
@@ -434,6 +437,7 @@ impl EntropyPipeline {
             texture: None,
             frame_texture: None,
             screen_effect_copy: None,
+            addon_gbuffer: None,
             view: None,
             depth_view: None,
             // game_dock_state,

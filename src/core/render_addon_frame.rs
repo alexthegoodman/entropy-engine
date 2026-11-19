@@ -431,6 +431,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_meshes = Vec::new();
         // Meshes of transparent pipelines: drawn after the opaque ones (see `transparent`).
         let mut non_pbr_transparent = Vec::new();
+        // Meshes of `gbuffer: true` pipelines: drawn in the G-buffer pass, lit by Screen.setLighting.
+        let mut gbuffer_meshes = Vec::new();
         // Sun-shadow casters (addon_sun_shadows.rs): gathered before the camera's frustum culling,
         // since what shades the view may stand outside it.
         let mut shadow_meshes = Vec::new();
@@ -574,7 +576,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             transparent = config.transparent == Some(true);
                         }
                         
-                        if is_pbr {
+                        if ctx.gbuffer_pipelines.contains(&mesh.pipeline_id) {
+                            gbuffer_meshes.push(mesh);
+                        } else if is_pbr {
                             pbr_meshes.push(mesh);
                         } else if transparent {
                             non_pbr_transparent.push(mesh);
@@ -1190,12 +1194,130 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             }
         }
 
+        // Deferred addon shading: `gbuffer: true` meshes fill the G-buffer (and the depth), then the
+        // Screen.setLighting pipeline lights each visible pixel once, before the forward passes
+        // draw the sky, glows and anything transparent over it.
+        let mut deferred_drawn = false;
+        if !gbuffer_meshes.is_empty() {
+            if let Some(frame_texture) = pipeline.frame_texture.clone() {
+                let size = frame_texture.size();
+                let stale = pipeline.addon_gbuffer.as_ref().map_or(true, |g| g[0].size() != size);
+                if stale {
+                    pipeline.addon_gbuffer = Some(crate::core::addon_pipeline::ADDON_GBUFFER_FORMATS.iter().enumerate().map(|(i, &format)| device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some(&format!("addon G-buffer {i}")),
+                        size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    })).collect());
+                }
+                let targets: Vec<wgpu::TextureView> = pipeline.addon_gbuffer.as_ref().unwrap().iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect();
+                let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
+                {
+                    let attachments: Vec<_> = targets.iter().map(|v| Some(wgpu::RenderPassColorAttachment {
+                        view: v, resolve_target: None, depth_slice: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    })).collect();
+                    let mut gpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Addon G-buffer Pass"),
+                        color_attachments: &attachments,
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(wgpu::Operations { load: if has_pbr { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(depth_clear) }, store: wgpu::StoreOp::Store }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu G-buffer pass")),
+                        occlusion_query_set: None,
+                    });
+                    if let Some(rect) = viewport_rect {
+                        gpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+                    let op_state = editor.addon_engine.runtime.op_state();
+                    let op_state = op_state.borrow();
+                    if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                        let mut bound: Option<*const wgpu::RenderPipeline> = None;
+                        for mesh in &gbuffer_meshes {
+                            let chosen = mesh.pipeline.as_ref();
+                            if bound != Some(chosen as *const _) { gpass.set_pipeline(chosen); bound = Some(chosen as *const _); }
+                            gpass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                            gpass.set_bind_group(1, &mesh.unlit_bind_group, &[]);
+                            for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                                gpass.set_bind_group((i + 2) as u32, bind_group, &[]);
+                            }
+                            if let Some(shadows) = ctx.sun_shadows.as_ref() {
+                                if shadows.receivers.contains(&mesh.pipeline_id) {
+                                    gpass.set_bind_group((mesh.bind_groups.len() + 2) as u32, &shadows.receiver_bind_group, &[]);
+                                }
+                            }
+                            if let Some(time_buffer) = &mesh.time_buffer {
+                                queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
+                            }
+                            if mesh.upload_transform(&queue) { mesh_stats.transform_uploads += 1; }
+                            gpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            gpass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                            gpass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                            mesh_stats.draw(mesh);
+                        }
+                    }
+                }
+                deferred_drawn = true;
+
+                // The lighting pass: one full-screen triangle reading the G-buffer and the depth.
+                let lighting = {
+                    let op_state = editor.addon_engine.runtime.op_state();
+                    let op_state = op_state.borrow();
+                    op_state.try_borrow::<AddonContext>().and_then(|ctx| {
+                        let config = ctx.screen_lighting.as_ref()?;
+                        let p = ctx.composite_pipelines.get(&config.pipeline)?.clone();
+                        let buffers: Option<Vec<_>> = config.buffers.iter().map(|id| ctx.buffers.get(id).cloned()).collect();
+                        let shadows = ctx.sun_shadows.as_ref().filter(|s| s.receivers.contains(&config.pipeline)).map(|s| s.receiver_bind_group.clone());
+                        Some((p, buffers?, shadows))
+                    })
+                };
+                if let Some((lighting_pipeline, buffers, shadow_group)) = lighting {
+                    let gbuffer_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("lighting G-buffer group"),
+                        layout: &lighting_pipeline.get_bind_group_layout(1),
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&targets[0]) },
+                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&targets[1]) },
+                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&targets[2]) },
+                            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(depth_view) },
+                        ],
+                    });
+                    let uniform_group = (!buffers.is_empty()).then(|| {
+                        let entries: Vec<_> = buffers.iter().enumerate().map(|(i, b)| wgpu::BindGroupEntry { binding: i as u32, resource: b.as_entire_binding() }).collect();
+                        device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("lighting uniforms"), layout: &lighting_pipeline.get_bind_group_layout(2), entries: &entries })
+                    });
+                    let mut lpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Addon Deferred Lighting Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view, resolve_target: None, depth_slice: None,
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu deferred lighting")),
+                        occlusion_query_set: None,
+                    });
+                    if let Some(rect) = viewport_rect {
+                        lpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+                    lpass.set_pipeline(&lighting_pipeline);
+                    lpass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    lpass.set_bind_group(1, &gbuffer_group, &[]);
+                    if let Some(g) = &uniform_group { lpass.set_bind_group(2, g, &[]); }
+                    if let Some(g) = &shadow_group { lpass.set_bind_group(3, &*g, &[]); }
+                    lpass.draw(0..3, 0..1);
+                }
+            }
+        }
+
         // 3. Pass for non-PBR objects
         // Transparent meshes go last, in the order they were created, so they blend over
         // everything opaque and never hide it (their pipelines do not write depth).
         non_pbr_meshes.append(&mut non_pbr_transparent);
         if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() || !non_pbr_addon_models.is_empty() {
-            let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
+            // The depth is kept when a geometry pass (PBR or the addon G-buffer) already filled it.
+            let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || deferred_drawn;
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon non-PBR Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1706,7 +1828,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             depth_slice: None,
                         })],
                         depth_stencil_attachment: None,
-                        timestamp_writes: None,
+                        timestamp_writes: gpu_timer.as_mut().and_then(|t| t.pass("gpu screen effect")),
                         occlusion_query_set: None,
                     });
                     if let Some(rect) = viewport_rect {

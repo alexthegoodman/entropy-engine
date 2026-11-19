@@ -163,7 +163,10 @@ impl EntropyApp {
             capture_cursor: self.capture_cursor,
             window: crate::startup::WindowConfig {
                 title: self.window_title,
-                size: self.window_size,
+                // ENTROPY_WINDOW_SIZE=WxH overrides the app's size (perf runs at other resolutions).
+                size: std::env::var("ENTROPY_WINDOW_SIZE").ok()
+                    .and_then(|s| { let (w, h) = s.split_once('x')?; Some((w.trim().parse().ok()?, h.trim().parse().ok()?)) })
+                    .or(self.window_size),
                 icon_path: self.window_icon,
                 resizable: self.resizable,
             },

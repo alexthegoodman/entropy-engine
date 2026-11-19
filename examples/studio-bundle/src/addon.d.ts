@@ -3917,7 +3917,7 @@ export interface PipelineConfig {
     entries: BindingEntry[]
   }[];
   lightingBindings?: any[];
-  form?: "composite" | "default";
+  form?: "composite" | "lighting" | "default";
   /**
    * Cascaded sun shadows for an unlit "mesh" pipeline: the shader's `vs_shadow` vertex entry
    * point (depth only; it must not use the receiver group) draws its meshes into the cascades,
@@ -3943,6 +3943,11 @@ export interface PipelineConfig {
   /** Tests depth as reversed (greater is nearer): the shader puts near at 1 and far at 0, in a
    *  frame with `Screen.setReversedDepth(true)`. */
   reversedDepth?: boolean;
+  /** Deferred shading: writes the G-buffer instead of the frame (with `pbr: false`). The fragment
+   *  returns three targets: 0 `Rgba8Unorm` (albedo, a spare), 1 `Rgba16Float` (normal, an HDR
+   *  spare), 2 `Rgba8Unorm` (four spares); position comes back from depth. Lit by the
+   *  `Screen.setLighting` pipeline, before transparent and other forward meshes draw over it. */
+  gbuffer?: boolean;
   // [key: string]: unknown;
 }
 
@@ -4443,6 +4448,13 @@ export interface EntropyAPI {
      *  `reversedDepth: true`: precise from centimeters to kilometers, and no `frag_depth` needed.
      *  Engine-drawn cubes, sky and models still assume 1. */
     setReversedDepth: (on: boolean) => void;
+    /** The deferred lighting pass: a `form: "lighting"` pipeline (no vertex buffers, `vs_main`
+     *  draws one full-screen triangle) run once over the frame after the `gbuffer: true` meshes,
+     *  before the forward ones. Group 1 holds the G-buffer targets (bindings 0-2,
+     *  `texture_2d<f32>`, read with textureLoad) and the depth (3, `texture_depth_2d`); `buffers`
+     *  bind at group 2 as in `setEffect`; `sunShadows: true` puts the cascades at group 3.
+     *  null turns it off. */
+    setLighting: (config: { pipeline: string; buffers?: string[] } | null) => void;
   },
   Pipeline: {
     create: (config: PipelineConfig) => string;

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 /// Passes timed per frame at most.
-const MAX_PASSES: u32 = 8;
+const MAX_PASSES: u32 = 12;
 const RING: usize = 3;
 
 const FREE: u8 = 0;

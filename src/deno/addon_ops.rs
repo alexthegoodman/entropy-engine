@@ -195,6 +195,11 @@ pub struct PipelineConfig {
     /// that near is 1 and far is 0, in a frame with Entropy.Screen.setReversedDepth(true).
     pub reversed_depth: Option<bool>,
 
+    /// Deferred shading: the pipeline writes the addon G-buffer (`ADDON_GBUFFER_FORMATS`: albedo,
+    /// normal, material) instead of the frame, in a pass before the forward ones. A `form:
+    /// "lighting"` pipeline (Entropy.Screen.setLighting) then lights it once per visible pixel.
+    pub gbuffer: Option<bool>,
+
 }
 
 
@@ -2037,6 +2042,13 @@ pub struct AddonContext {
     /// A full-screen pass over the finished 3D frame (Entropy.Screen.setEffect): a "composite"
     /// pipeline that reads a copy of the frame and its depth, plus uniform buffers by id.
     pub screen_effect: Option<ScreenEffectConfig>,
+    /// The deferred lighting pass (Entropy.Screen.setLighting): a `form: "lighting"` pipeline
+    /// drawn over the whole frame after the G-buffer pass, before the forward passes.
+    pub screen_lighting: Option<ScreenEffectConfig>,
+    /// Pipelines made with `gbuffer: true`; their meshes draw in the G-buffer pass.
+    pub gbuffer_pipelines: std::collections::HashSet<String>,
+    /// Group 1 of a `form: "lighting"` pipeline: the G-buffer's three targets and the depth.
+    pub lighting_form_layout: Option<Arc<wgpu::BindGroupLayout>>,
     /// The main depth buffer clears to 0 instead of 1 (Entropy.Screen.setReversedDepth): for
     /// pipelines created with `reversed_depth`. Engine-drawn cubes, sky and models assume 1.
     pub reversed_depth: bool,
@@ -6453,7 +6465,24 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.composite_layout.as_ref().unwrap().as_ref(),
             ];
-        } 
+        } else if config.form.as_deref() == Some("lighting") {
+            if ctx.lighting_form_layout.is_none() {
+                let tex = |binding: u32, sample_type: wgpu::TextureSampleType| wgpu::BindGroupLayoutEntry {
+                    binding, visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                };
+                let color = wgpu::TextureSampleType::Float { filterable: false };
+                ctx.lighting_form_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("lighting_form_bind_group_layout"),
+                    entries: &[tex(0, color), tex(1, color), tex(2, color), tex(3, wgpu::TextureSampleType::Depth)],
+                })));
+            }
+            layouts = vec![
+                ctx.bind_group_layouts[0].as_ref(), // Camera
+                ctx.lighting_form_layout.as_ref().unwrap().as_ref(),
+            ];
+        }
         
          if let Some(extras) = &config.extra_bind_groups {
             // Handle generic extra layouts
@@ -6478,6 +6507,11 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
                 layouts = vec![
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.composite_layout.as_ref().unwrap().as_ref(),
+                ];
+            } else if config.form.as_deref() == Some("lighting") {
+                layouts = vec![
+                    ctx.bind_group_layouts[0].as_ref(), // Camera
+                    ctx.lighting_form_layout.as_ref().unwrap().as_ref(),
                 ];
             } else {
                 layouts = vec![ctx.bind_group_layouts[0].as_ref()]; // Start with Camera (Group 0)
@@ -6585,7 +6619,11 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
             std::slice::from_ref(ctx.surface_format.as_ref().unwrap_or(&wgpu::TextureFormat::Rgba8Unorm))
         };
 
-        let depth_format = if config.form.as_deref() == Some("composite") {
+        if config.gbuffer == Some(true) {
+            formats = crate::core::addon_pipeline::ADDON_GBUFFER_FORMATS.as_slice();
+        }
+
+        let depth_format = if matches!(config.form.as_deref(), Some("composite") | Some("lighting")) {
             None
         } else {
             Some(crate::core::pipeline::DEPTH_FORMAT)
@@ -6613,7 +6651,8 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
             depth_format
         );
         
-        if config.form == Some("composite".to_string()) {
+        if config.gbuffer == Some(true) { ctx.gbuffer_pipelines.insert(id.clone()); } else { ctx.gbuffer_pipelines.remove(&id); }
+        if matches!(config.form.as_deref(), Some("composite") | Some("lighting")) {
             ctx.composite_pipelines.insert(id.clone(), Arc::new(pipeline));
         } else {
             ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
@@ -7262,6 +7301,14 @@ pub fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String
 pub fn op_screen_set_reversed_depth(state: &mut OpState, on: bool) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.reversed_depth = on;
+    }
+}
+
+/// Sets (or with null clears) the deferred lighting pass: see `AddonContext::screen_lighting`.
+#[op2]
+pub fn op_screen_lighting_set(state: &mut OpState, #[serde] config: Option<ScreenEffectConfig>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.screen_lighting = config;
     }
 }
 

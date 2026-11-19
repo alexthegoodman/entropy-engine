@@ -505,6 +505,10 @@ class Character {
             this.skinnedAt = frames;
         }
         skinMs += Date.now() - t0;
+        // Bounds (reach included) so the engine culls the figure per pass: without them every
+        // character drew into every shadow cascade.
+        const h = this.asset.glb.max[1] - this.asset.glb.min[1];
+        Entropy.Model.setBounds(this.mesh.meshId, [pos[0], pos[1] + h * 0.5, pos[2]], this.asset.extent * 0.6 + 0.3);
         return placeModel(pos, yaw, 1, 0, this.asset.floor, 0);
     }
     /** A bone's world position, for the model matrix `m`. */
@@ -718,14 +722,14 @@ function frame(dt: number, ui = true): void {
 function draw(dt: number, ui = true): void {
     const r = renderer;
     updateView();
-    r.statics.begin(); r.props.begin(); r.glows.begin();
+    r.statics.begin(); r.skies.begin(); r.props.begin(); r.glows.begin();
     const t = realTime;
 
     // The spire and the plain, cached once.
     r.put(r.statics, levelKey, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0]);
     r.put(r.statics, groundKey, IDENTITY, [1, 1, 1, 1], [ARCH.ground, 0, 0, 0]);
     for (const c of terrainChunks) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0], [0, 0, 0, 0], c.bounds);
-    r.put(r.statics, "sky", IDENTITY, [1, 1, 1, 1], [ARCH.sky, 0, 0, 0]);
+    r.put(r.skies, "sky", IDENTITY, [1, 1, 1, 1], [ARCH.sky, 0, 0, 0]);
 
     // Props (and the skyline).
     for (const p of game.level.props) drawProp(p);
@@ -748,7 +752,7 @@ function draw(dt: number, ui = true): void {
     if (game.mission === 1) drawHypercube(t);
     if (mode === "inspect" && inspecting) drawHeld(inspecting);
 
-    r.statics.flush(); r.props.flush(); r.glows.flush();
+    r.statics.flush(); r.skies.flush(); r.props.flush(); r.glows.flush();
     writeLook(dt);
     updateShadows();
     // The engine keeps UI ops until its next clear: steps run in one tick (the test tools) draw once.
@@ -1496,9 +1500,18 @@ addon.onUpdatePlus("Global", () => {
     if (!renderer.ready) return;
     const now = Date.now();
     const real = lastMs ? Math.min(0.1, Math.max(0, (now - lastMs) / 1000)) : 1 / 60;
+    if (lastMs && frameTimes.length < 5000) frameTimes.push(now - lastMs);
     lastMs = now;
     frame(fixedStep ?? real);
 });
+
+/** Real frame intervals (ms) since the last `te_act mark`, for perf runs (tests/features/true_error_perf.feature). */
+let frameTimes: number[] = [];
+function frameStats() {
+    const s = [...frameTimes].sort((a, b) => a - b);
+    const at = (q: number) => s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0;
+    return { n: s.length, avg: s.length ? Math.round((s.reduce((a, b) => a + b, 0) / s.length) * 10) / 10 : 0, p50: at(0.5), p95: at(0.95), size: Entropy.Window.getSize() };
+}
 
 // --- MCP tools (tests/true_error_live.rs drives these) ---------------------------------------------------------------
 
@@ -1509,7 +1522,7 @@ const vec = (v: unknown, d: V3): V3 => (Array.isArray(v) && v.length === 3 && v.
 function snapshot() {
     const p = game.player;
     return {
-        mode, frames, realTime: Math.round(realTime * 100) / 100, aimAssist, perf: { js: Math.round(perf.js * 10) / 10, skin: Math.round(perf.skin * 10) / 10 }, lens: LENS_NAMES[lens], post: renderer.screenOn, missing: renderer.missing,
+        mode, frames, realTime: Math.round(realTime * 100) / 100, aimAssist, perf: { js: Math.round(perf.js * 10) / 10, skin: Math.round(perf.skin * 10) / 10 }, frameMs: frameStats(), lens: LENS_NAMES[lens], post: renderer.screenOn, missing: renderer.missing,
         models: [...renderer.models.keys()], characters: [...characters.keys()],
         scene: { props: renderer.props.lastStats.instances, glows: renderer.glows.lastStats.instances, statics: renderer.statics.lastStats.instances },
         sound: sound.played, ui: painter?.opCount() ?? 0, subtitle: lineNow?.text ?? null,
@@ -1552,7 +1565,7 @@ function registerTools(): void {
         },
         {
             name: "te_act",
-            description: "True Error: drive the game. action: begin | skip | play (jump to play) | mission (n: start mission n with its intro) | step (frames) | move (dx, dy, run, crouch, frames) | look (yaw, pitch) | fire (frames, aim) | use | crank (frames: E held) | swap (next weapon) | weapon (name: rifle|scatter|gravity, given and drawn) | crouch (on) | roll (dx, dy) | inspect (id: a collectible, held up) | keep (the held one) | putBack | stage (id: start the missions there) | calm (every machine stands down) | assist (value 0-0.5) | aimNear (id, off) | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on) | log (prints the state to stdout).",
+            description: "True Error: drive the game. action: begin | skip | play (jump to play) | mission (n: start mission n with its intro) | step (frames) | move (dx, dy, run, crouch, frames) | look (yaw, pitch) | fire (frames, aim) | use | crank (frames: E held) | swap (next weapon) | weapon (name: rifle|scatter|gravity, given and drawn) | crouch (on) | roll (dx, dy) | inspect (id: a collectible, held up) | keep (the held one) | putBack | stage (id: start the missions there) | calm (every machine stands down) | assist (value 0-0.5) | aimNear (id, off) | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on) | mark (restarts te_state's frameMs window) | log (prints the state to stdout).",
             parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] },
             run: (a) => {
                 const n = Math.max(1, Math.floor(num(a.frames, 1)));
@@ -1622,6 +1635,7 @@ function registerTools(): void {
                         if (!game.reached("awaken")) continueRun(stageSave("awaken")); game.player.pos = [PEDESTAL[0] + 3.5, PEDESTAL[1], PEDESTAL[2] - 3]; advance(n); break;
                     case "restart": restart(); advance(n); break;
                     case "help": showHelp = !!a.on; advance(1); break;
+                    case "mark": frameTimes = []; break;
                     case "log": Entropy.println(`[true-error] ${JSON.stringify(snapshot())}`); break;
                     default: throw new Error(`Unknown action ${String(a.action)}`);
                 }

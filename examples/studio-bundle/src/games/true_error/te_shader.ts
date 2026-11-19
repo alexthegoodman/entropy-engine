@@ -8,6 +8,10 @@
 //           solids (kind 3: the shared box/cylinder/sphere shapes placed per instance - doors, the lift,
 //           crates, collectibles - their layer, metalness, uv scale and openness in Item.extra).
 //   GLOW    additive light: dots, laser bolts, holograms, the dark zone, the hypercube's edges.
+//   LIGHT   deferred: ASSET and ARCH write a G-buffer (albedo; normal + emissive; roughness,
+//           metalness, openness, heat) and this full-screen pass lights each visible pixel once
+//           with shade(), its position solved back from the depth.
+//   SKY     the Mars sky, drawn forward after the lighting where nothing else is.
 //   SCREEN  height fog over the city from depth, the lenses (night, heat, distance, simulation),
 //           the Error's glitch, letterbox, tone curve, vignette and grain.
 //
@@ -35,7 +39,7 @@ export const GLOW = { dot: 0, beam: 1, holo: 2, dark: 3, edge: 4, mote: 5, ring:
 /** World.time.z: the lens. */
 export const LENS = { none: 0, night: 1, heat: 2, distance: 3, simulation: 4 } as const;
 
-const COMMON = /* wgsl */ `
+const HEAD = /* wgsl */ `
 struct Camera { view_proj: mat4x4<f32>, view_pos: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
 
@@ -52,7 +56,18 @@ struct World {
     lights: array<Light, ${MAX_LIGHTS}>,
 };
 @group(2) @binding(0) var<uniform> world: World;
+struct FOut { @location(0) color: vec4<f32> };
 
+fn hash2(p: vec2<f32>) -> f32 { var q = fract(p * vec2<f32>(123.34, 456.21)); q = q + dot(q, q + 45.32); return fract(q.x * q.y); }
+fn hash3(p: vec3<f32>) -> f32 { return hash2(p.xy + vec2<f32>(p.z * 17.13, p.z * 3.71)); }
+fn vnoise(p: vec2<f32>) -> f32 {
+    let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash2(i), hash2(i + vec2<f32>(1.0, 0.0)), u.x), mix(hash2(i + vec2<f32>(0.0, 1.0)), hash2(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
+}
+fn fbm2(p: vec2<f32>) -> f32 { return vnoise(p) * 0.5 + vnoise(p * 2.03 + vec2<f32>(5.1, 1.7)) * 0.3 + vnoise(p * 4.1 + vec2<f32>(2.3, 9.4)) * 0.2; }
+`;
+
+const ITEMS = /* wgsl */ `
 // color: tint rgb, opacity; params: kind, flags, emissive, heat; extra: material/glow width,
 // hit flash, glitch, sky openness.
 struct Item { model: mat4x4<f32>, color: vec4<f32>, params: vec4<f32>, extra: vec4<f32> };
@@ -75,17 +90,19 @@ struct VOut {
     @location(6) @interpolate(flat) params: vec4<f32>,
     @location(7) @interpolate(flat) extra: vec4<f32>,
 };
-struct FOut { @location(0) color: vec4<f32> };
+// The G-buffer (addon_pipeline.rs ADDON_GBUFFER_FORMATS): albedo; normal and emissive strength;
+// roughness, metalness, sky openness, heat.
+struct GOut { @location(0) albedo: vec4<f32>, @location(1) normal: vec4<f32>, @location(2) material: vec4<f32> };
+fn gbuffer(albedo: vec3<f32>, n: vec3<f32>, emissive: f32, rough: f32, metal: f32, open: f32, heat: f32) -> GOut {
+    var g: GOut;
+    g.albedo = vec4<f32>(albedo, 1.0);
+    g.normal = vec4<f32>(n, emissive);
+    g.material = vec4<f32>(rough, metal, open, clamp(heat, 0.0, 1.0));
+    return g;
+}
 
 // Reversed depth with an infinite far plane: NEAR / w after the divide.
 fn far_depth(c: vec4<f32>) -> vec4<f32> { return vec4<f32>(c.xy, ${NEAR}, c.w); }
-fn hash2(p: vec2<f32>) -> f32 { var q = fract(p * vec2<f32>(123.34, 456.21)); q = q + dot(q, q + 45.32); return fract(q.x * q.y); }
-fn hash3(p: vec3<f32>) -> f32 { return hash2(p.xy + vec2<f32>(p.z * 17.13, p.z * 3.71)); }
-fn vnoise(p: vec2<f32>) -> f32 {
-    let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash2(i), hash2(i + vec2<f32>(1.0, 0.0)), u.x), mix(hash2(i + vec2<f32>(0.0, 1.0)), hash2(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
-}
-fn fbm2(p: vec2<f32>) -> f32 { return vnoise(p) * 0.5 + vnoise(p * 2.03 + vec2<f32>(5.1, 1.7)) * 0.3 + vnoise(p * 4.1 + vec2<f32>(2.3, 9.4)) * 0.2; }
 
 fn world_normal(it: Item, n: vec3<f32>) -> vec3<f32> {
     let sx = length(it.model[0].xyz); let sy = length(it.model[1].xyz); let sz = length(it.model[2].xyz);
@@ -136,6 +153,8 @@ fn sky_color(d: vec3<f32>) -> vec3<f32> {
 }
 `;
 
+const COMMON = HEAD + ITEMS;
+
 // Cascaded sun shadows (core/addon_sun_shadows.rs), as Allegiance and The Abyss draw them.
 const SHADOW = /* wgsl */ `
 struct SunShadow { cascades: array<mat4x4<f32>, 4>, texel: vec4<f32>, params: vec4<f32> };
@@ -155,13 +174,13 @@ fn cascade_lookup(p: vec3<f32>, n: vec3<f32>, k: i32) -> CascadeHit {
     if (out.edge <= 0.0 || c.z >= 1.0) { out.edge = -1.0; return out; }
     let depth = c.z - texel * sun_shadow.params.w;
     let step = 1.0 / sun_shadow.params.y;
-    var sum = 0.0;
-    for (var y = -1; y <= 1; y = y + 1) {
-        for (var x = -1; x <= 1; x = x + 1) {
-            sum = sum + textureSampleCompareLevel(shadow_maps, shadow_sampler, uv + vec2<f32>(f32(x), f32(y)) * step * 1.2, k, depth);
-        }
-    }
-    out.lit = sum / 9.0;
+    // Four bilinear comparison taps (each already a 2x2 filter): a soft edge about three texels wide.
+    let o = step * 0.9;
+    var sum = textureSampleCompareLevel(shadow_maps, shadow_sampler, uv + vec2<f32>(-o, -o), k, depth);
+    sum = sum + textureSampleCompareLevel(shadow_maps, shadow_sampler, uv + vec2<f32>(o, -o), k, depth);
+    sum = sum + textureSampleCompareLevel(shadow_maps, shadow_sampler, uv + vec2<f32>(-o, o), k, depth);
+    sum = sum + textureSampleCompareLevel(shadow_maps, shadow_sampler, uv + vec2<f32>(o, o), k, depth);
+    out.lit = sum * 0.25;
     return out;
 }
 fn cast_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
@@ -282,7 +301,7 @@ fn vs_shadow(in: VertexInput, @builtin(instance_index) ii: u32) -> @builtin(posi
 }
 
 @fragment
-fn fs_main(in: VOut) -> FOut {
+fn fs_main(in: VOut) -> GOut {
     let flags = u32(in.params.y + 0.5);
     let dp1 = dpdx(in.world_pos); let dp2 = dpdy(in.world_pos);
     let duv1 = dpdx(in.uv); let duv2 = dpdy(in.uv);
@@ -295,17 +314,20 @@ fn fs_main(in: VOut) -> FOut {
     var rough = 0.65; var metal = 0.25;
     if ((flags & 2u) != 0u) { rough = clamp(mr.g, 0.08, 1.0); metal = mr.b; }
     var albedo = base.rgb * in.color.rgb;
+    // Emission is albedo * strength: the glitch bands and the hit flash tint the albedo toward their color.
+    var e = in.params.z;
     // The Error's corruption: glitch bands crawling over hacked machines.
-    var emissive = albedo * in.params.z;
     if (in.extra.z > 0.0) {
         let t = world.time.x;
         let band = step(0.82, hash2(vec2<f32>(floor(in.local.y * 18.0 + t * 7.0), floor(t * 9.0))));
         let flick = step(0.5, fract(sin(t * 37.0 + in.local.x * 9.0) * 43758.5));
-        emissive = emissive + vec3<f32>(1.0, 0.08, 0.05) * band * flick * in.extra.z * 1.6;
+        let g = band * flick * in.extra.z;
+        albedo = mix(albedo, vec3<f32>(1.0, 0.08, 0.05), clamp(g, 0.0, 1.0));
+        e = e + g * 1.6;
     }
-    emissive = emissive + vec3<f32>(1.0, 0.95, 0.9) * in.extra.y * 1.5;
-    let col = shade(albedo, n, in.world_pos, rough, metal, in.extra.w, emissive, in.params.w);
-    return fog_out(col);
+    albedo = mix(albedo, vec3<f32>(1.0, 0.95, 0.9), clamp(in.extra.y, 0.0, 1.0));
+    e = e + in.extra.y * 1.5;
+    return gbuffer(albedo, n, e, rough, metal, in.extra.w, in.params.w);
 }
 `;
 
@@ -341,8 +363,9 @@ fn vs_shadow(in: VertexInput, @builtin(instance_index) ii: u32) -> @builtin(posi
 }
 
 @fragment
-fn fs_main(in: VOut) -> FOut {
+fn fs_main(in: VOut) -> GOut {
     let kind = i32(in.params.x + 0.5);
+    if (kind == 1) { discard; }
     let dp1 = dpdx(in.world_pos); let dp2 = dpdy(in.world_pos);
     var uv = in.uv;
     if (kind == 2) { uv = in.world_pos.xz / 9.0; }
@@ -355,17 +378,6 @@ fn fs_main(in: VOut) -> FOut {
     let base = textureSample(base_maps, tile_sampler, uv, layer).rgb;
     let nm = textureSample(normal_maps, tile_sampler, uv, layer).xyz * 2.0 - 1.0;
     let rough = textureSample(rough_maps, tile_sampler, uv, layer).r;
-    if (kind == 1) {
-        var o: FOut;
-        let d = normalize(in.world_pos - camera.view_pos.xyz);
-        var col = sky_color(d);
-        let lens = i32(world.time.z + 0.5);
-        if (lens == 1) { col = vec3<f32>(0.25, 1.0, 0.35) * dot(col, vec3<f32>(0.3, 0.55, 0.15)) * 2.0; }
-        if (lens == 2) { col = heat_palette(0.08); }
-        if (lens == 4) { col = vec3<f32>(0.03, 0.09, 0.14) + col * 0.15; }
-        o.color = vec4<f32>(col, 1.0);
-        return o;
-    }
     // Solids use the shared shapes, whose vertex colour is black: their tint alone colours them.
     var albedo = base * select(in.vcolor.rgb, vec3<f32>(1.0), kind == 3) * in.color.rgb;
     var n = normalize(in.normal);
@@ -380,12 +392,96 @@ fn fs_main(in: VOut) -> FOut {
     // Grime: darker low on walls and in the corners of slabs.
     let grime = 1.0 - 0.25 * fbm2(in.world_pos.xz * 0.35 + in.world_pos.y * 0.2);
     if (kind == 3) {
-        // A solid: its own metalness, a glow of its tint, a heat for the heat lens.
-        let col3 = shade(albedo, n, in.world_pos, clamp(rough, 0.15, 1.0), in.extra.y, o, in.color.rgb * in.params.z, in.params.w);
-        return fog_out(col3);
+        // A solid: its own metalness, a glow of its tint (the albedo turns toward the tint as it glows), a heat for the heat lens.
+        let glowing = mix(albedo, in.color.rgb, clamp(in.params.z * 2.0, 0.0, 1.0));
+        return gbuffer(glowing, n, in.params.z, clamp(rough, 0.15, 1.0), in.extra.y, o, in.params.w);
     }
-    let col = shade(albedo * grime, n, in.world_pos, clamp(rough, 0.2, 1.0), 0.0, o, vec3<f32>(0.0), 0.0);
-    return fog_out(col);
+    return gbuffer(albedo * grime, n, 0.0, clamp(rough, 0.2, 1.0), 0.0, o, 0.0);
+}
+`;
+
+// The sky dome, forward, after the lighting: it sits at SKY_DEPTH, so only empty pixels take it.
+const SKY_SRC = /* wgsl */ `
+${COMMON}
+fn heat_palette(t: f32) -> vec3<f32> {
+    let c0 = vec3<f32>(0.02, 0.02, 0.12); let c1 = vec3<f32>(0.35, 0.0, 0.55);
+    return mix(c0, c1, t / 0.33);
+}
+
+@vertex
+fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
+    var out = standard_vertex(in, items[ii]);
+    let wp = camera.view_pos.xyz + in.position * 5000.0;
+    let clip = camera.view_proj * vec4<f32>(wp, 1.0);
+    out.clip = vec4<f32>(clip.xy, clip.w * ${SKY_DEPTH}, clip.w);
+    out.world_pos = wp;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VOut) -> FOut {
+    var o: FOut;
+    let d = normalize(in.world_pos - camera.view_pos.xyz);
+    var col = sky_color(d);
+    let lens = i32(world.time.z + 0.5);
+    if (lens == 1) { col = vec3<f32>(0.25, 1.0, 0.35) * dot(col, vec3<f32>(0.3, 0.55, 0.15)) * 2.0; }
+    if (lens == 2) { col = heat_palette(0.08); }
+    if (lens == 4) { col = vec3<f32>(0.03, 0.09, 0.14) + col * 0.15; }
+    o.color = vec4<f32>(col, 1.0);
+    return o;
+}
+`;
+
+// Deferred lighting: one full-screen triangle; every pixel with geometry runs shade() once.
+const LIGHT_SRC = /* wgsl */ `
+${HEAD}
+${SHADOW}
+${SHADE}
+@group(1) @binding(0) var g_albedo: texture_2d<f32>;
+@group(1) @binding(1) var g_normal: texture_2d<f32>;
+@group(1) @binding(2) var g_material: texture_2d<f32>;
+@group(1) @binding(3) var g_depth: texture_depth_2d;
+
+struct LOut { @builtin(position) pos: vec4<f32> };
+
+@vertex
+fn vs_main(@builtin(vertex_index) i: u32) -> LOut {
+    var out: LOut;
+    let x = f32((i << 1u) & 2u);
+    let y = f32(i & 2u);
+    out.pos = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    return out;
+}
+
+// The world point at this pixel: clip = view_proj * p with clip.xy = ndc * w and clip.w = w
+// (= NEAR / depth), three linear equations in p - rows 0, 1 and 3 of view_proj.
+fn world_at(ndc: vec2<f32>, w: f32) -> vec3<f32> {
+    let m = camera.view_proj;
+    let r0 = vec4<f32>(m[0][0], m[1][0], m[2][0], m[3][0]);
+    let r1 = vec4<f32>(m[0][1], m[1][1], m[2][1], m[3][1]);
+    let r3 = vec4<f32>(m[0][3], m[1][3], m[2][3], m[3][3]);
+    let a = r0.xyz; let b = r1.xyz; let c = r3.xyz;
+    let k = vec3<f32>(ndc.x * w - r0.w, ndc.y * w - r1.w, w - r3.w);
+    let bc = cross(b, c); let ca = cross(c, a); let ab = cross(a, b);
+    let det = dot(a, bc);
+    return (k.x * bc + k.y * ca + k.z * ab) / det;
+}
+
+@fragment
+fn fs_main(in: LOut) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(in.pos.xy);
+    let d = textureLoad(g_depth, px, 0);
+    // Nothing drawn here: the sky comes after.
+    if (d <= ${SKY_DEPTH * 2}) { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
+    let size = vec2<f32>(textureDimensions(g_depth));
+    let ndc = vec2<f32>(in.pos.x / size.x * 2.0 - 1.0, 1.0 - in.pos.y / size.y * 2.0);
+    let p = world_at(ndc, ${NEAR} / d);
+    let alb = textureLoad(g_albedo, px, 0);
+    let nrm = textureLoad(g_normal, px, 0);
+    let mat = textureLoad(g_material, px, 0);
+    let n = normalize(nrm.xyz);
+    let col = shade(alb.rgb, n, p, mat.x, mat.y, mat.z, alb.rgb * nrm.w, mat.w);
+    return vec4<f32>(col, 1.0);
 }
 `;
 
@@ -585,5 +681,7 @@ fn fs_main(in: VO) -> @location(0) vec4<f32> {
 
 export const TE_ASSET_SHADER = ASSET_SRC;
 export const TE_ARCH_SHADER = ARCH_SRC;
+export const TE_SKY_SHADER = SKY_SRC;
+export const TE_LIGHT_SHADER = LIGHT_SRC;
 export const TE_GLOW_SHADER = GLOW_SRC;
 export const TE_SCREEN_SHADER = SCREEN_SRC;
