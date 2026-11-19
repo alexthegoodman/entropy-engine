@@ -439,6 +439,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut mesh_stats = MeshDrawStats::default();
         // Addon meshes with bounds (Model.setBounds) outside the view are not drawn.
         let frustum = crate::core::frustum::Frustum::from_view_proj(&camera.view_projection_matrix);
+        // Entropy.Screen.setReversedDepth: near is 1, far is 0, so depth clears to 0.
+        let depth_clear = if editor.addon_engine.runtime.op_state().borrow().try_borrow::<AddonContext>().map_or(false, |ctx| ctx.reversed_depth) { 0.0 } else { 1.0 };
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -689,7 +691,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(depth_clear),
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -1209,7 +1211,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: if !has_pbr { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
+                        load: if !has_pbr { wgpu::LoadOp::Clear(depth_clear) } else { wgpu::LoadOp::Load },
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,

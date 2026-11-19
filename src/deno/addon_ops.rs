@@ -191,6 +191,10 @@ pub struct PipelineConfig {
     /// Draw both faces of every triangle (ribbons, discs, shells seen from inside).
     pub double_sided: Option<bool>,
 
+    /// Test depth as reversed (greater is nearer) - for a pipeline whose shader writes clip z so
+    /// that near is 1 and far is 0, in a frame with Entropy.Screen.setReversedDepth(true).
+    pub reversed_depth: Option<bool>,
+
 }
 
 
@@ -2033,6 +2037,9 @@ pub struct AddonContext {
     /// A full-screen pass over the finished 3D frame (Entropy.Screen.setEffect): a "composite"
     /// pipeline that reads a copy of the frame and its depth, plus uniform buffers by id.
     pub screen_effect: Option<ScreenEffectConfig>,
+    /// The main depth buffer clears to 0 instead of 1 (Entropy.Screen.setReversedDepth): for
+    /// pipelines created with `reversed_depth`. Engine-drawn cubes, sky and models assume 1.
+    pub reversed_depth: bool,
     pub model_cache: HashMap<String, Vec<u8>>,
     pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
@@ -6581,7 +6588,7 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
         let depth_format = if config.form.as_deref() == Some("composite") {
             None
         } else {
-            Some(wgpu::TextureFormat::Depth24Plus)
+            Some(crate::core::pipeline::DEPTH_FORMAT)
         };
 
         if config.form == Some("composite".to_string()) {
@@ -7247,6 +7254,14 @@ pub fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String
         } else {
             ctx.hidden_addons.insert(addon_name);
         }
+    }
+}
+
+/// Clears the main depth buffer to 0 (reversed depth) or 1: see `AddonContext::reversed_depth`.
+#[op2(fast)]
+pub fn op_screen_set_reversed_depth(state: &mut OpState, on: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.reversed_depth = on;
     }
 }
 

@@ -15,7 +15,7 @@ use bytemuck::{Pod, Zeroable};
 use super::state::{BindingKind, CameraState, EngineState, GpuCommand, MeshData, PipelineDesc, VERTEX_FLOATS};
 use super::ui::UiRenderer;
 
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
+pub const DEPTH_FORMAT: wgpu::TextureFormat = crate::core::pipeline::DEPTH_FORMAT;
 const NEAR: f32 = 0.1;
 const FAR: f32 = 10000.0;
 

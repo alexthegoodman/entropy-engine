@@ -3940,6 +3940,9 @@ export interface PipelineConfig {
   additive?: boolean;
   /** Draws both faces of every triangle (ribbons, discs, shells seen from inside). */
   doubleSided?: boolean;
+  /** Tests depth as reversed (greater is nearer): the shader puts near at 1 and far at 0, in a
+   *  frame with `Screen.setReversedDepth(true)`. */
+  reversedDepth?: boolean;
   // [key: string]: unknown;
 }
 
@@ -4436,6 +4439,10 @@ export interface EntropyAPI {
    */
   Screen: {
     setEffect: (config: { pipeline: string; buffers?: string[] } | null) => void;
+    /** The main depth buffer (float) clears to 0 instead of 1, for pipelines made with
+     *  `reversedDepth: true`: precise from centimeters to kilometers, and no `frag_depth` needed.
+     *  Engine-drawn cubes, sky and models still assume 1. */
+    setReversedDepth: (on: boolean) => void;
   },
   Pipeline: {
     create: (config: PipelineConfig) => string;

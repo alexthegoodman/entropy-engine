@@ -8,7 +8,9 @@ use nalgebra::Matrix4;
 #[derive(Clone, Copy, Debug)]
 pub struct Frustum {
     /// a, b, c, d with (a, b, c) unit length: a point p is inside when a·p + d >= 0.
-    planes: [[f32; 4]; 4],
+    planes: [[f32; 4]; 5],
+    /// Planes in use: the four sides, plus the far plane for `with_far`.
+    count: usize,
 }
 
 impl Frustum {
@@ -21,17 +23,25 @@ impl Frustum {
             combine(r3, r0, -1.0), // right:  w - x >= 0
             combine(r3, r1, 1.0),  // bottom: w + y >= 0
             combine(r3, r1, -1.0), // top:    w - y >= 0
+            combine(r3, row(2), -1.0), // far: w - z >= 0 (with_far only)
         ];
         for p in &mut planes {
             let len = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
             if len > 0.0 { for v in p.iter_mut() { *v /= len; } }
         }
-        Self { planes }
+        Self { planes, count: 4 }
     }
 
-    /// False only when the sphere lies entirely outside one side plane.
+    /// Also culls past the far plane (z > w), for a projection whose depth is what gets drawn:
+    /// a sun shadow cascade's depth-only casters, which the GPU clips there anyway.
+    pub fn with_far(mut self) -> Self {
+        self.count = 5;
+        self
+    }
+
+    /// False only when the sphere lies entirely outside one plane in use.
     pub fn sphere_visible(&self, center: [f32; 3], radius: f32) -> bool {
-        self.planes.iter().all(|p| p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3] >= -radius)
+        self.planes[..self.count].iter().all(|p| p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3] >= -radius)
     }
 }
 
@@ -57,5 +67,13 @@ mod tests {
         assert!(f.sphere_visible([48.0, 0.0, -50.0], 10.0));
         // Big enough to surround the camera: kept.
         assert!(f.sphere_visible([0.0, 0.0, 30.0], 40.0));
+    }
+
+    #[test]
+    fn with_far_also_culls_past_the_far_plane() {
+        let f = Frustum::from_view_proj(&camera()).with_far();
+        assert!(f.sphere_visible([0.0, 0.0, -900.0], 1.0));
+        assert!(!f.sphere_visible([0.0, 0.0, -1200.0], 1.0), "past far");
+        assert!(f.sphere_visible([0.0, 0.0, -1200.0], 300.0), "straddles far");
     }
 }

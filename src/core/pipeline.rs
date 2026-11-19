@@ -209,6 +209,10 @@ use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
+/// The main depth buffer's format, shared by every pipeline that draws into it. Float so an addon can
+/// opt into reversed depth (Entropy.Screen.setReversedDepth) for precision out to kilometers.
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
 // use super::chat::Chat;
 
 // Procedural Sky Uniform struct (Rust mirror of WGSL)
@@ -653,7 +657,7 @@ impl EntropyPipeline {
             mip_level_count: 1,
             sample_count: 1, // used in a multisampled environment
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: crate::core::pipeline::DEPTH_FORMAT,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             label: Some("Stunts Engine Export Depth Texture"),
             view_formats: &[],
@@ -818,7 +822,7 @@ impl EntropyPipeline {
         });
 
         let depth_stencil_state = wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24Plus,
+            format: crate::core::pipeline::DEPTH_FORMAT,
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
@@ -1180,7 +1184,7 @@ impl EntropyPipeline {
                 unclipped_depth: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: crate::core::pipeline::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
@@ -1546,7 +1550,7 @@ impl EntropyPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: crate::core::pipeline::DEPTH_FORMAT,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -1593,7 +1597,7 @@ impl EntropyPipeline {
             },
             // IMPORTANT: For skybox, we need to pass depth test if depth is 1.0 (far plane) and disable depth write
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus, // Match the depth buffer format
+                format: crate::core::pipeline::DEPTH_FORMAT, // Match the depth buffer format
                 depth_write_enabled: false, // Don't write to depth buffer
                 depth_compare: wgpu::CompareFunction::LessEqual, // Draw only where no geometry (depth is 1.0)
                 stencil: wgpu::StencilState::default(),
@@ -1605,7 +1609,7 @@ impl EntropyPipeline {
         });
         // --- End Procedural Sky Setup ---
 
-        let skinned_pipeline = SkinnedPipeline::new(&device, &camera_binding.bind_group_layout, &model_bind_group_layout, swapchain_format, wgpu::TextureFormat::Depth24Plus);
+        let skinned_pipeline = SkinnedPipeline::new(&device, &camera_binding.bind_group_layout, &model_bind_group_layout, swapchain_format, crate::core::pipeline::DEPTH_FORMAT);
 
         // let scattered_model_pipeline = crate::core::scattered_model_pipeline::ScatteredModelPipeline::new(
         //     &device,
@@ -1613,7 +1617,7 @@ impl EntropyPipeline {
         //     &model_bind_group_layout,
         //     &window_size_bind_group_layout,
         //     &group_bind_group_layout,
-        //     wgpu::TextureFormat::Depth24Plus,
+        //     crate::core::pipeline::DEPTH_FORMAT,
         // );
 
         // println!("Grid Restored!");
@@ -1822,7 +1826,7 @@ impl EntropyPipeline {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: crate::core::pipeline::DEPTH_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 label: Some("Stunts Engine Export Depth Texture"),
                 view_formats: &[],

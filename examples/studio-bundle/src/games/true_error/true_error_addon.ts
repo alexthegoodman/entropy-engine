@@ -584,21 +584,21 @@ function drawProp(p: Prop, skyline = false): void {
     const emissive = p.model === "dark_emitter" ? 0.4 : p.model === "boiler" ? 0.12 : 0;
     const heat = p.model === "boiler" ? 0.8 : p.model === "hovercar" ? 0.6 : 0.1;
     const open = skyline ? 1 : game.open(p.pos);
-    const bounds = [pos[0], pos[1] + a.extent * s * 0.5, pos[2], a.extent * s];
+    // The box's center (x/z recentered, the floor lifted to pos) and half its diagonal: tight
+    // enough that a far tower stays out of the near shadow cascades.
+    const g = a.glb;
+    const bounds = [pos[0], pos[1] + height * s * 0.5, pos[2], 0.5 * s * Math.hypot(g.max[0] - g.min[0], height, g.max[2] - g.min[2])];
     r.put(r.props, `model:${p.model}@${chunkOf(pos, skyline)}`, m, [...(p.tint ?? [1, 1, 1]), 1], [0, a.flags, emissive, heat], [0, 0, 0, open], bounds);
 }
 
 /**
- * A placement's spatial batch: the skyline by ring and 30-degree sector, the spire's props by floor
- * and quadrant. Each chunk is its own instanced batch with its own bounds, so the engine culls it
- * per pass (the camera and every shadow cascade) instead of drawing every copy of a model.
+ * A placement's spatial batch: each skyline tower alone, the spire's props by floor and quadrant.
+ * Each chunk is its own instanced batch with its own bounds, so the engine culls it per pass (the
+ * camera and every shadow cascade) instead of drawing every copy of a model. Towers are hundreds
+ * of meters tall, so any grouping of them has bounds that reach into every cascade.
  */
 function chunkOf(p: V3, skyline: boolean): string {
-    if (skyline) {
-        const d = Math.hypot(p[0], p[2]);
-        const ring = d < 260 ? 0 : d < 500 ? 1 : d < 900 ? 2 : 3;
-        return `r${ring}s${Math.floor(((Math.atan2(p[2], p[0]) + Math.PI) / (Math.PI * 2)) * 12) % 12}`;
-    }
+    if (skyline) return `t${Math.round(p[0])},${Math.round(p[2])}`;
     return `f${Math.round(p[1] / 7)}${p[0] < 0 ? "w" : "e"}${p[2] < 0 ? "n" : "s"}`;
 }
 
@@ -823,7 +823,7 @@ function norm(v: V3): V3 { const l = Math.hypot(...v) || 1; return [v[0] / l, v[
 
 function updateShadows(): void {
     const f = norm([cam.target[0] - cam.pos[0], cam.target[1] - cam.pos[1], cam.target[2] - cam.pos[2]]);
-    const s = shadowCascades(cam.pos, f, SUN, [10, 34, 110, 420], 2048);
+    const s = shadowCascades(cam.pos, f, SUN, [10, 34, 110, 420], 2048, true);
     Entropy.Lighting.setSunShadows({ cascades: s.cascades, texel: s.texel, depthRange: s.depthRange, strength: 0.92, mapSize: 2048 });
 }
 

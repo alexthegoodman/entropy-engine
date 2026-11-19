@@ -9,11 +9,18 @@
 //   SCREEN  height fog over the city from depth, the lenses (night, heat, distance, simulation),
 //           the Error's glitch, letterbox, tone curve, vignette and grain.
 //
-// Depth is written per fragment as w / (w + DEPTH_K) (as Armageddon 2070 does), so the screen pass
-// recovers distance. Normal maps use a cotangent frame from screen derivatives: the engine's
-// vertex layout (position, normal, uv, color) has no tangents.
+// Depth is reversed (Entropy.Screen.setReversedDepth): clip z is the near plane, so depth = NEAR / w,
+// 1 at the near plane falling toward 0 far away, in a float buffer that keeps it precise out to the
+// skyline. No shader writes frag_depth, so the GPU rejects hidden fragments before shading them; the
+// screen pass recovers distance as NEAR / depth.
+//
+// Normal maps use a cotangent frame from screen derivatives: the engine's vertex layout (position,
+// normal, uv, color) has no tangents.
 
-export const DEPTH_K = 200;
+/** The near plane (m); depth = NEAR / view w. */
+export const NEAR = 0.05;
+/** Depth of the sky dome: behind anything nearer than NEAR / SKY_DEPTH (50 km). */
+const SKY_DEPTH = 1e-6;
 export const MAX_LIGHTS = 16;
 export const WORLD_FLOATS = (8 + MAX_LIGHTS * 2) * 4;
 export const ITEM_FLOATS = 28;
@@ -65,12 +72,11 @@ struct VOut {
     @location(5) @interpolate(flat) color: vec4<f32>,
     @location(6) @interpolate(flat) params: vec4<f32>,
     @location(7) @interpolate(flat) extra: vec4<f32>,
-    @location(8) view_w: f32,
 };
-struct FOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 };
+struct FOut { @location(0) color: vec4<f32> };
 
-fn far_depth(c: vec4<f32>) -> vec4<f32> { return vec4<f32>(c.xy, c.w - 0.05, c.w); }
-fn depth_of(w: f32) -> f32 { let v = max(w, 0.0); return min(v / (v + ${DEPTH_K.toFixed(1)}), 0.99999); }
+// Reversed depth with an infinite far plane: NEAR / w after the divide.
+fn far_depth(c: vec4<f32>) -> vec4<f32> { return vec4<f32>(c.xy, ${NEAR}, c.w); }
 fn hash2(p: vec2<f32>) -> f32 { var q = fract(p * vec2<f32>(123.34, 456.21)); q = q + dot(q, q + 45.32); return fract(q.x * q.y); }
 fn hash3(p: vec3<f32>) -> f32 { return hash2(p.xy + vec2<f32>(p.z * 17.13, p.z * 3.71)); }
 fn vnoise(p: vec2<f32>) -> f32 {
@@ -90,7 +96,6 @@ fn standard_vertex(in: VertexInput, it: Item) -> VOut {
     let wp = (it.model * vec4<f32>(in.position, 1.0)).xyz;
     let clip = camera.view_proj * vec4<f32>(wp, 1.0);
     out.clip = far_depth(clip);
-    out.view_w = clip.w;
     out.world_pos = wp;
     out.normal = world_normal(it, in.normal);
     out.uv = in.tex_coords;
@@ -249,10 +254,9 @@ fn shade(albedo: vec3<f32>, n: vec3<f32>, p: vec3<f32>, rough: f32, metal: f32, 
     return col;
 }
 
-fn fog_out(col: vec3<f32>, view_w: f32) -> FOut {
+fn fog_out(col: vec3<f32>) -> FOut {
     var o: FOut;
     o.color = vec4<f32>(col, 1.0);
-    o.depth = depth_of(view_w);
     return o;
 }
 `;
@@ -299,7 +303,7 @@ fn fs_main(in: VOut) -> FOut {
     }
     emissive = emissive + vec3<f32>(1.0, 0.95, 0.9) * in.extra.y * 1.5;
     let col = shade(albedo, n, in.world_pos, rough, metal, in.extra.w, emissive, in.params.w);
-    return fog_out(col, in.view_w);
+    return fog_out(col);
 }
 `;
 
@@ -320,8 +324,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
     if (kind == 1) {
         let wp = camera.view_pos.xyz + in.position * 5000.0;
         let clip = camera.view_proj * vec4<f32>(wp, 1.0);
-        out.clip = vec4<f32>(clip.xy, clip.w * 0.99999, clip.w);
-        out.view_w = 1e9;
+        out.clip = vec4<f32>(clip.xy, clip.w * ${SKY_DEPTH}, clip.w);
         out.world_pos = wp;
     }
     return out;
@@ -356,7 +359,6 @@ fn fs_main(in: VOut) -> FOut {
         if (lens == 2) { col = heat_palette(0.08); }
         if (lens == 4) { col = vec3<f32>(0.03, 0.09, 0.14) + col * 0.15; }
         o.color = vec4<f32>(col, 1.0);
-        o.depth = 0.99999;
         return o;
     }
     var albedo = base * in.vcolor.rgb * in.color.rgb;
@@ -372,7 +374,7 @@ fn fs_main(in: VOut) -> FOut {
     // Grime: darker low on walls and in the corners of slabs.
     let grime = 1.0 - 0.25 * fbm2(in.world_pos.xz * 0.35 + in.world_pos.y * 0.2);
     let col = shade(albedo * grime, n, in.world_pos, clamp(rough, 0.2, 1.0), 0.0, o, vec3<f32>(0.0), 0.0);
-    return fog_out(col, in.view_w);
+    return fog_out(col);
 }
 `;
 
@@ -393,7 +395,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
         let u = cross(r, f);
         let wp = center + (r * in.position.x + u * in.position.y) * size;
         let clip = camera.view_proj * vec4<f32>(wp, 1.0);
-        out.clip = far_depth(clip); out.view_w = clip.w; out.world_pos = wp;
+        out.clip = far_depth(clip); out.world_pos = wp;
     } else if (kind == 1) {
         // A beam from the item's origin along its z axis (length = |z|), width extra.x, turned to face the camera.
         let axis = it.model[2].xyz;
@@ -403,7 +405,7 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
         let side = normalize(cross(a, normalize(camera.view_pos.xyz - mid)) + vec3<f32>(1e-5, 0.0, 0.0));
         let wp = center + axis * (in.position.y * 0.5 + 0.5) + side * in.position.x * it.extra.x;
         let clip = camera.view_proj * vec4<f32>(wp, 1.0);
-        out.clip = far_depth(clip); out.view_w = clip.w; out.world_pos = wp;
+        out.clip = far_depth(clip); out.world_pos = wp;
     }
     return out;
 }
@@ -451,7 +453,6 @@ fn fs_main(in: VOut) -> FOut {
     if (lens == 2) { c = vec3<f32>(1.0, 0.85, 0.4); }
     var o: FOut;
     o.color = vec4<f32>(c * a, 1.0);
-    o.depth = depth_of(in.view_w);
     return o;
 }
 `;
@@ -490,8 +491,8 @@ fn hash2(p: vec2<f32>) -> f32 { var q = fract(p * vec2<f32>(123.34, 456.21)); q 
 fn dist_at(px: vec2<i32>) -> f32 {
     let size = vec2<i32>(textureDimensions(depth));
     let d = textureLoad(depth, clamp(px, vec2<i32>(0), size - vec2<i32>(1)), 0);
-    if (d >= 0.99998) { return 1e6; }
-    return ${DEPTH_K.toFixed(1)} * d / max(1e-5, 1.0 - d);
+    if (d <= ${SKY_DEPTH * 2}) { return 1e6; }
+    return ${NEAR} / d;
 }
 
 fn filmic(x: vec3<f32>) -> vec3<f32> {

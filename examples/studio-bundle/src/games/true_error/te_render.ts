@@ -76,11 +76,12 @@ export class Renderer {
     init(): void {
         const groups = (extra: BindingEntry[]) => [{ entries: [...INSTANCED_BIND_GROUPS[0].entries.map(e => ({ ...e, visibility: [...e.visibility] })), ...extra] }];
         const tex = (b: number): BindingEntry => ({ binding: b, visibility: ["Fragment"], resourceType: "TextureArray" });
-        this.asset = Entropy.Pipeline.create({ name: "TE Asset", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 3, vertexShader: TE_ASSET_SHADER, fragmentShader: TE_ASSET_SHADER, extraBindGroups: groups([tex(2), tex(3), { binding: 4, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true });
-        this.arch = Entropy.Pipeline.create({ name: "TE Arch", layout: "mesh", pbr: false, sunShadows: true, vertexShader: TE_ARCH_SHADER, fragmentShader: TE_ARCH_SHADER, extraBindGroups: groups([tex(2), tex(3), tex(4), { binding: 5, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true });
-        this.glow = Entropy.Pipeline.create({ name: "TE Glow", layout: "mesh", pbr: false, vertexShader: TE_GLOW_SHADER, fragmentShader: TE_GLOW_SHADER, extraBindGroups: groups([]), transparent: true, additive: true, doubleSided: true });
+        this.asset = Entropy.Pipeline.create({ name: "TE Asset", layout: "mesh", pbr: false, sunShadows: true, shadowCascades: 3, vertexShader: TE_ASSET_SHADER, fragmentShader: TE_ASSET_SHADER, extraBindGroups: groups([tex(2), tex(3), { binding: 4, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
+        this.arch = Entropy.Pipeline.create({ name: "TE Arch", layout: "mesh", pbr: false, sunShadows: true, vertexShader: TE_ARCH_SHADER, fragmentShader: TE_ARCH_SHADER, extraBindGroups: groups([tex(2), tex(3), tex(4), { binding: 5, visibility: ["Fragment"], resourceType: "Sampler" }]), doubleSided: true, reversedDepth: true });
+        this.glow = Entropy.Pipeline.create({ name: "TE Glow", layout: "mesh", pbr: false, vertexShader: TE_GLOW_SHADER, fragmentShader: TE_GLOW_SHADER, extraBindGroups: groups([]), transparent: true, additive: true, doubleSided: true, reversedDepth: true });
         this.worldBuffer = Entropy.Buffer.create({ size: WORLD_FLOATS * 4, usage: "Uniform" });
         this.postBuffer = Entropy.Buffer.create({ size: POST_FLOATS * 4, usage: "Uniform" });
+        Entropy.Screen.setReversedDepth(true);
         try {
             this.screen = Entropy.Pipeline.create({ name: "TE Screen", form: "composite", pbr: false, vertexShader: TE_SCREEN_SHADER, fragmentShader: TE_SCREEN_SHADER, doubleSided: true, extraBindGroups: [{ entries: [{ binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }] }] });
         } catch { this.screen = ""; }

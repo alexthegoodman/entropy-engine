@@ -195,7 +195,8 @@ pub fn create_addon_pipeline(
             format,
             // A transparent pipeline is seen through: it never hides what draws after it.
             depth_write_enabled: config.transparent != Some(true),
-            depth_compare: wgpu::CompareFunction::Less,
+            // Reversed depth (Entropy.Screen.setReversedDepth): near is 1, far is 0.
+            depth_compare: if config.reversed_depth == Some(true) { wgpu::CompareFunction::Greater } else { wgpu::CompareFunction::Less },
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

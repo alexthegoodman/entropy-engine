@@ -26,8 +26,13 @@ export interface ShadowCascades { cascades: number[][]; texel: number[]; depthRa
 /**
  * Light matrices (column-major, render space -> clip with z in 0..1) for a camera at `eye`
  * looking along `forward`, with `sun` the unit vector toward the sun.
+ *
+ * With `fit`, each cascade's box ends just past its own sphere on the side away from the sun
+ * (nothing farther can shadow what it covers), and the rest of the shared depth range reaches
+ * further toward the sun instead. Same depth scale and bias, but a small cascade no longer
+ * rasterizes everything hundreds of meters behind it.
  */
-export function shadowCascades(eye: Vec3, forward: Vec3, sun: Vec3, radii = SHADOW_RADII, mapSize = SHADOW_MAP_SIZE): ShadowCascades {
+export function shadowCascades(eye: Vec3, forward: Vec3, sun: Vec3, radii = SHADOW_RADII, mapSize = SHADOW_MAP_SIZE, fit = false): ShadowCascades {
     const s = normalize(sun);
     // A light basis that only changes when the sun does.
     let x = cross([0, 1, 0], s);
@@ -45,7 +50,9 @@ export function shadowCascades(eye: Vec3, forward: Vec3, sun: Vec3, radii = SHAD
         const cy = Math.round(dot(center, y) / t) * t;
         // Depth 0 at the near plane (toward the sun), 1 at the far one, beyond the sphere; in
         // whole meters, so stored depths hold still too.
-        const near = Math.round(dot(center, s) + r + SHADOW_REACH);
+        // With `fit` the far side ends 2r + 1 m past the center: the square's corners and the
+        // rounding stay inside it.
+        const near = Math.round(dot(center, s) + (fit ? depthRange - 2 * r - 1 : r + SHADOW_REACH));
         const r0 = [x[0] / r, x[1] / r, x[2] / r, -cx / r];
         const r1 = [y[0] / r, y[1] / r, y[2] / r, -cy / r];
         const r2 = [-s[0] / depthRange, -s[1] / depthRange, -s[2] / depthRange, near / depthRange];

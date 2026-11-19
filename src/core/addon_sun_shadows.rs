@@ -301,7 +301,8 @@ impl AddonSunShadows {
             self.last_rendered += 1;
             let cols = [[m[0], m[1], m[2], m[3]], [m[4], m[5], m[6], m[7]], [m[8], m[9], m[10], m[11]], [m[12], m[13], m[14], m[15]]];
             queue.write_buffer(&self.camera_buffers[i], 0, bytemuck::cast_slice(&[camera.with_view_proj(cols)]));
-            let frustum = Frustum::from_view_proj(&nalgebra::Matrix4::from_column_slice(m));
+            // The far plane too: casters farther from the sun than the cascade reaches are clipped.
+            let frustum = Frustum::from_view_proj(&nalgebra::Matrix4::from_column_slice(m)).with_far();
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon Sun Shadow Cascade"),
                 color_attachments: &[],

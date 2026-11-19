@@ -163,6 +163,7 @@ For addons that want to write their own WGSL shaders instead of using the engine
 | `Texture.load(filename)` | Loads a texture from an image file. |
 | `Composite.register(name, outputTexId, pipelineId, bindings)` | Registers a full-screen compositing pass (e.g. combining multiple render targets into one final image). |
 | `Screen.setEffect({ pipeline, buffers })` | A full-screen pass over the finished 3D frame, before the UI: a `form: "composite"` pipeline reads a copy of the frame and its depth (depth of field, haze, ink lines); `null` turns it off. World of Music's dreamy look is one. |
+| `Screen.setReversedDepth(on)` | The main depth buffer (Depth32Float) clears to 0: for pipelines made with `reversedDepth: true`, whose shaders put clip z at the near plane (depth = near / w). Precise out to kilometers without writing `frag_depth`, so early-Z keeps working. Engine-drawn cubes, sky and models still assume 1. |
 
 </details>
 

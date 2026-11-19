@@ -136,7 +136,7 @@ impl ParticleSystem {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
+                format: crate::core::pipeline::DEPTH_FORMAT,
                 // depth_write_enabled: false, // Particles usually don't write depth (transparent)
                 depth_write_enabled: true, // Particles usually don't write depth (transparent)
                 depth_compare: wgpu::CompareFunction::Less,
