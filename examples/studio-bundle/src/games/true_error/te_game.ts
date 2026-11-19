@@ -1,13 +1,17 @@
-// True Error, level 1, as a simulation with no engine calls (tests drive it directly): Ray's
-// movement against the level's boxes and ramps (walk, run, crouch, roll, jump), the photon rifle,
-// the hacked machines (patrol, alert, fight, knocked out, then Reset or destroyed by the player's
-// choice), the dark zones and the biochip, nuclear cells, collectibles, the mission's stages
-// (te_mission.ts), checkpoints and saves. The addon (true_error_addon.ts) feeds it input and draws
-// what it says.
+// True Error as a simulation with no engine calls (tests drive it directly): Ray's movement against
+// the map's boxes, ramps and ground (walk, run, crouch, roll, jump), his weapons (the photon rifle,
+// the scattergun, the gravity launcher), takedowns from behind, the machines (patrol, alert, fight,
+// knocked out, then Reset or destroyed by the player's choice), the dark zones and the biochip,
+// nuclear cells, collectibles, the people Ray meets, lifts, the missions' stages (te_mission.ts;
+// Noctis's in te_m2.ts), checkpoints and saves. The addon (true_error_addon.ts) feeds it input and
+// draws what it says.
 
-import { buildLevel, World, openness, regionOf, START, PEDESTAL, GOAL_RADIUS, LIFT, type Level, type V3, type EnemyKind, type Solid, type Prop, type UseSpot, type ItemSpot, type Region } from "./te_level";
+import { buildLevel, World, PEDESTAL, GOAL_RADIUS, LIFT, type Level, type V3, type EnemyKind, type Solid, type Prop, type UseSpot, type ItemSpot, type Region } from "./te_level";
 import { addActs, LIVE_CONDUIT, WAVE_SPAWNS, WAVE_TIMES, HOLD_SECONDS, WARDEN_DROP } from "./te_acts";
-import { stageIndex, stageOf, type StageId } from "./te_mission";
+import { stageIndex, stageOf, MISSION_START, type StageId } from "./te_mission";
+export { MISSION_START };
+import { buildNoctis } from "./te_noctis";
+import { m2Init, m2Step, m2Usable, m2Use, m2Ride, m2Load, m2StageSave, m2Objective, m2Damaged } from "./te_m2";
 
 export { LINES } from "./te_mission";
 
@@ -15,12 +19,33 @@ export const PLAYER = { radius: 0.35, height: 1.8, crouchHeight: 1.15, rollHeigh
 /** The dodge roll: how long, how fast, when nothing can hit Ray, and the rest before the next. */
 export const ROLL = { seconds: 0.62, speed: 6.4, safeFrom: 0.03, safeTo: 0.42, cooldown: 0.3 };
 export const RIFLE = { interval: 0.14, cost: 2.4, damage: 15, range: 120, regen: 7 };
+/** Ray's weapons: the rifle (Mission 1 on), the scattergun (the Doctor's, at Noctis) and the gravity launcher (the Foundry). */
+export type Weapon = "rifle" | "scatter" | "gravity";
+export const WEAPONS: Weapon[] = ["rifle", "scatter", "gravity"];
+/** The scattergun: a fan of pellets, close and heavy; costs charge like the rifle. */
+export const SCATTER = { interval: 0.8, cost: 10, pellets: 9, damage: 9, spread: 0.075, range: 30 };
+/** The gravity launcher: a lobbed shell that implodes, dragging everything near into its well, then crushes it. */
+export const GRAVITY = { interval: 1.1, speed: 17, gravity: 13, fuse: 2.4, radius: 6.5, pull: 0.8, damage: 120, max: 6 };
+/** A takedown: how close behind an unaware machine Ray must be. */
+export const TAKEDOWN = { reach: 1.9 };
 export const ENEMY = {
     roller: { hp: 60, speed: 2.6, sight: 20, range: 14, interval: 1.1, damage: 6, spread: 0.06, radius: 0.55, height: 1.1, windup: 0.3 },
     hacked_bot: { hp: 120, speed: 1.6, sight: 24, range: 18, interval: 0.32, damage: 5, spread: 0.08, radius: 0.45, height: 2.1, burst: 4, rest: 1.6, windup: 0.5 },
     crawler: { hp: 45, speed: 4.4, sight: 18, range: 7, interval: 1.9, damage: 16, spread: 0, radius: 0.5, height: 0.95, windup: 0.5, leap: 0.55 },
     warden: { hp: 700, speed: 1.4, sight: 40, range: 20, interval: 2.4, damage: 22, spread: 0.05, radius: 0.95, height: 2.9, windup: 0.9 },
+    // Mission 2. The Hollow sprints while nothing watches it and all but stops when Ray looks at it.
+    hollow: { hp: 70, speed: 4.8, sight: 22, range: 1.7, interval: 1.1, damage: 18, spread: 0, radius: 0.4, height: 1.95, windup: 0.45 },
+    // Cherubs hover, circle, and dive.
+    cherub: { hp: 30, speed: 6.5, sight: 26, range: 9, interval: 2.4, damage: 12, spread: 0, radius: 0.5, height: 0.9, windup: 0.6, hover: 4.5 },
+    scavenger: { hp: 90, speed: 2.3, sight: 30, range: 22, interval: 0.28, damage: 6, spread: 0.07, radius: 0.42, height: 1.8, burst: 3, rest: 1.3, windup: 0.4 },
+    beacon: { hp: 60, speed: 0, sight: 0, range: 0, interval: 99, damage: 0, spread: 0, radius: 0.6, height: 3.2, windup: 0 },
+    // The cable heart: its shell opens to breathe (OPEN), and only then does a bolt really bite.
+    nest: { hp: 520, speed: 0, sight: 30, range: 0, interval: 14, damage: 0, spread: 0, radius: 2.4, height: 5, windup: 0 },
 };
+/** The cable heart's breath: closed this many seconds, then open for `open`. */
+export const NEST_CYCLE = { closed: 5.5, open: 2.6 };
+/** Machines a takedown works on (from behind, unaware). */
+const SNEAKABLE = new Set<EnemyKind>(["roller", "hacked_bot", "crawler", "hollow", "scavenger"]);
 /** Seconds a knocked-out machine stays down before it reboots, still hacked (the Warden longer). */
 export const STUN_TIME = 10;
 export const WARDEN_STUN = 20;
@@ -44,6 +69,10 @@ export interface PlayerInput {
     crouch: boolean;
     /** Roll (a tap). */
     dodge: boolean;
+    /** Next weapon (a tap). */
+    swap?: boolean;
+    /** E held down (the mast's winch). */
+    useHeld?: boolean;
     /** Camera yaw/pitch (rad): where the crosshair points. */
     yaw: number;
     pitch: number;
@@ -79,9 +108,19 @@ export interface Enemy {
     leap: { from: V3; to: V3; t: number; dur: number; arc: number } | null;
     /** Spawned during play (waves, the Warden's call): not saved. */
     spawned: boolean;
+    /** Asleep until the mission wakes it (the Foundry's racked shells). */
+    dormant: boolean;
+    /** Ignores Ray unless hurt (the pumphouse's Hollows once the beacons are gone). */
+    calm: boolean;
 }
 
-export interface Bolt { from: V3; to: V3; age: number; enemy: boolean; hit: boolean }
+/** Someone who isn't a machine to fight: the Doctor at the camp, the survivors, the Tithe. */
+export interface Npc { id: string; model: string; pos: V3; yaw: number; anim: string; talking: boolean }
+
+/** A gravity shell: flying (`well` -1) or imploding (seconds since). */
+export interface Grenade { pos: V3; vel: V3; age: number; well: number }
+
+export interface Bolt { from: V3; to: V3; age: number; enemy: boolean; hit: boolean; pellet?: boolean }
 export interface Orb { pos: V3; vel: V3; age: number }
 
 export type GameEvent =
@@ -111,7 +150,15 @@ export type GameEvent =
     | { kind: "collect"; id: string }
     | { kind: "wave"; n: number }
     | { kind: "surge" }
-    | { kind: "spawn"; id: string; at: V3 };
+    | { kind: "spawn"; id: string; at: V3 }
+    | { kind: "takedown"; id: string; at: V3 }
+    | { kind: "weapon"; weapon: Weapon }
+    | { kind: "grenade"; at: V3 }
+    | { kind: "well"; at: V3 }
+    | { kind: "crush"; at: V3 }
+    | { kind: "objective"; id: string }
+    | { kind: "wake"; id: string; at: V3 }
+    | { kind: "toast"; text: string };
 
 /** Where the simulation lens shows the old world's light, a trail from the lab to the hypercube. */
 export const ECHOES: V3[] = [
@@ -146,6 +193,7 @@ export interface Player {
     biochip: number;
     /** Riding the lift: input ignored, carried. */
     riding: boolean;
+    weapon: Weapon;
 }
 
 /** What a save keeps: where in the mission, what's been taken, which machines were dealt with. */
@@ -162,6 +210,9 @@ export interface RunSave {
     deaths: number;
     time: number;
     usedSim: boolean;
+    /** Gravity shells carried, and how far the mast is cranked (Noctis). */
+    cells?: number;
+    crank?: number;
 }
 
 export class Game {
@@ -171,6 +222,19 @@ export class Game {
     readonly enemies: Enemy[];
     readonly bolts: Bolt[] = [];
     readonly orbs: Orb[] = [];
+    readonly grenades: Grenade[] = [];
+    readonly npcs: Npc[] = [];
+    /** Which mission's map this is (1 the Central Spire, 2 Noctis). */
+    readonly mission: number;
+    /** Gravity shells carried. */
+    gravCells = 0;
+    /** Noctis: how far the mast is cranked up (0..1). */
+    crank = 0;
+    /** Noctis's lifts: each cage's floor height, and the one being ridden. */
+    readonly cages = new Map<string, { y: number; floor: Solid }>();
+    rideLift: string | null = null;
+    /** Where the camera looks (the Hollows know when they're watched). */
+    look = { yaw: 0, pitch: 0 };
     readonly taken = new Set<string>();
     readonly said = new Set<string>();
     readonly events: GameEvent[] = [];
@@ -178,8 +242,8 @@ export class Game {
     readonly collected = new Set<string>();
     /** Mission facts: biochip, conduit, reactor, surge, lift, warden-half, dead:<conduit>... */
     readonly flags = new Set<string>();
-    checkpoint = "lab";
-    stage: StageId = "climb";
+    checkpoint: string;
+    stage: StageId;
     stageT = 0;
     time = 0;
     resets = 0;
@@ -200,9 +264,12 @@ export class Game {
     readonly liftFloor: Solid = { min: [LIFT.x0 + 0.15, LIFT.bottom - 0.3, LIFT.z0 + 0.25], max: [LIFT.x1 - 0.2, LIFT.bottom, LIFT.z1 - 0.2] };
     private rng = 1;
 
-    constructor(propSize: (p: Prop) => V3 = p => p.collide ?? [0, 0, 0]) {
-        this.level = buildLevel();
-        addActs(this.level);
+    constructor(propSize: (p: Prop) => V3 = p => p.collide ?? [0, 0, 0], mission = 1) {
+        this.mission = mission;
+        if (mission === 2) this.level = buildNoctis();
+        else { this.level = buildLevel(); addActs(this.level); }
+        this.stage = MISSION_START[mission];
+        this.checkpoint = this.level.checkpoints[0].id;
         this.world = new World(this.level, propBoxes(this.level, propSize));
         for (const d of this.level.doors) {
             const s: Solid = { min: [...d.min], max: [...d.max] };
@@ -210,18 +277,23 @@ export class Game {
             this.doorOpen.set(d.id, 0);
             this.world.dynamic.push(s);
         }
-        this.world.dynamic.push(this.liftFloor);
+        if (mission === 1) this.world.dynamic.push(this.liftFloor);
+        const start = this.level.start;
         this.player = {
-            pos: [...START.pos], vel: [0, 0, 0], yaw: START.yaw, grounded: true, integrity: 100, energy: 100, alive: true, deadT: 0, cooldown: 0, hurtT: 0, speed: 0,
-            aiming: false, firing: 0, jumpT: 0, stepPhase: 0, darkT: 0, crouched: false, rollT: -1, rollDir: [0, 0, 1], rollCool: 0, biochip: -1, riding: false,
+            pos: [...start.pos], vel: [0, 0, 0], yaw: start.yaw, grounded: true, integrity: 100, energy: 100, alive: true, deadT: 0, cooldown: 0, hurtT: 0, speed: 0,
+            aiming: false, firing: 0, jumpT: 0, stepPhase: 0, darkT: 0, crouched: false, rollT: -1, rollDir: [0, 0, 1], rollCool: 0, biochip: -1, riding: false, weapon: "rifle",
         };
         this.enemies = this.level.enemies.map(s => this.makeEnemy(s.id, s.kind, s.pos, s.yaw, s.zone, s.patrol));
+        if (mission === 2) m2Init(this);
     }
+
+    /** The weapons Ray carries now. */
+    get weapons(): Weapon[] { return WEAPONS.filter(w => w === "rifle" || this.flags.has(`weapon:${w}`)); }
 
     private makeEnemy(id: string, kind: EnemyKind, pos: V3, yaw: number, zone: string, patrol: V3[], spawned = false): Enemy {
         return {
             id, kind, pos: [...pos], yaw, hp: ENEMY[kind].hp, state: "patrol", stateT: 0, patrol, leg: 1, zone,
-            cooldown: 1 + this.random() * 1.5, burst: 0, hitFlash: 0, moving: 0, roll: 0, seen: false, vel: [0, 0, 0], charge: 0, leap: null, spawned,
+            cooldown: 1 + this.random() * 1.5, burst: 0, hitFlash: 0, moving: 0, roll: 0, seen: false, vel: [0, 0, 0], charge: 0, leap: null, spawned, dormant: false, calm: false,
         };
     }
 
@@ -229,8 +301,9 @@ export class Game {
     say(id: string): void { if (!this.said.has(id)) { this.said.add(id); this.events.push({ kind: "line", id }); } }
 
     /** Which part of the mission a point is in. */
-    regionOf(p: V3): Region { return regionOf(p); }
+    regionOf(p: V3): Region { return this.level.region(p); }
     get objective(): string {
+        if (this.mission === 2) return m2Objective(this);
         if (this.stage === "holdout") return `Hold the reactor room  -  ${Math.round(Math.min(100, (this.holdT / HOLD_SECONDS) * 100))}% power`;
         return stageOf(this.stage).objective;
     }
@@ -246,13 +319,15 @@ export class Game {
     step(dt: number, input: PlayerInput): void {
         this.time += dt;
         this.stageT += dt;
+        this.look = { yaw: input.yaw, pitch: input.pitch };
         this.updatePlayer(dt, input);
         for (const e of this.enemies) this.updateEnemy(e, dt);
         this.updateOrbs(dt);
+        this.updateGrenades(dt);
         this.updateDoors(dt);
         for (const b of this.bolts) b.age += dt;
         for (let i = this.bolts.length - 1; i >= 0; i--) if (this.bolts[i].age > 0.25) this.bolts.splice(i, 1);
-        this.mission(dt);
+        this.story(dt);
     }
 
     // --- Ray -----------------------------------------------------------------------------------------
@@ -314,9 +389,14 @@ export class Game {
         // Horizontal move, walls, then the ground.
         let x = p.pos[0] + p.vel[0] * dt, z = p.pos[2] + p.vel[2] * dt;
         [x, z] = this.world.pushOut(x, z, p.pos[1], this.height, PLAYER.radius, p.pos[1] + PLAYER.step);
+        [x, z] = this.world.terrainWall(p.pos[0], p.pos[2], x, z, p.pos[1]);
+        const B = this.level.bounds;
+        if (B) { x = Math.max(B.x0, Math.min(B.x1, x)); z = Math.max(B.z0, Math.min(B.z1, z)); }
         let y = p.pos[1] + p.vel[1] * dt;
         // The highest top no higher than a step above the feet: stairs are stepped up, walls are not.
         const ground = this.world.groundAt(x, z, PLAYER.radius, p.pos[1] + PLAYER.step);
+        const T = this.world.terrain;
+        if (T && y > -20) { const t = T.height(x, z); if (y < t && y > t - 4) { y = t; p.vel[1] = Math.max(0, p.vel[1]); p.grounded = true; } }
         if (p.vel[1] <= 0 && y <= ground) { y = ground; p.vel[1] = 0; p.grounded = true; }
         // Walking down steps and slopes: stay on the ground rather than hop off each tread.
         else if (p.grounded && p.vel[1] <= 0 && p.pos[1] - ground < 0.55) { y = ground; p.vel[1] = 0; }
@@ -339,27 +419,42 @@ export class Game {
         const shielded = inDark && p.biochip > 0;
         p.darkT = inDark ? Math.min(shielded ? 0.35 : 1, p.darkT + dt * 2) : Math.max(0, p.darkT - dt * 1.5);
         if (inDark) {
-            if (shielded) { p.biochip = Math.max(0, p.biochip - BIOCHIP.drain * dt); if (regionOf(p.pos) === "relay7") this.say("darkCorridor"); }
+            if (shielded) { p.biochip = Math.max(0, p.biochip - BIOCHIP.drain * dt); if (this.regionOf(p.pos) === "relay7") this.say("darkCorridor"); }
             else { this.damagePlayer(DARK_DAMAGE * dt, false); this.say("inDark"); }
         } else if (p.biochip >= 0) p.biochip = Math.min(100, p.biochip + BIOCHIP.regen * dt);
 
-        // The rifle regains charge from its nuclear cell.
+        // The weapons regain charge from their nuclear cell; Q (or the pad's RB) swaps to the next one.
         if (p.cooldown <= 0) p.energy = Math.min(100, p.energy + RIFLE.regen * dt);
-        if (input.fire && !rolling && p.cooldown <= 0 && p.energy >= RIFLE.cost) this.fire(input);
+        if (input.swap && !rolling) {
+            const ws = this.weapons;
+            const next = ws[(ws.indexOf(p.weapon) + 1) % ws.length];
+            if (next !== p.weapon) { p.weapon = next; p.cooldown = Math.max(p.cooldown, 0.25); this.events.push({ kind: "weapon", weapon: next }); }
+        }
+        if (input.fire && !rolling && p.cooldown <= 0) this.fire(input);
 
-        // Use: Reset the knocked-out machine in reach, else work the thing in reach.
+        // Use: a takedown on the unaware machine Ray is behind, Reset the knocked-out machine in reach,
+        // else work the thing in reach. The mast's winch turns while E is held.
         if (input.use) {
-            const e = this.resettable();
-            if (e) this.reset(e);
+            const t = this.takedownTarget();
+            const e = t ? null : this.resettable();
+            if (t) this.takedown(t);
+            else if (e) this.reset(e);
             else { const u = this.usable(); if (u) this.use(u); }
         }
+        if (input.useHeld && this.mission === 2) { const u = this.usable(); if (u?.kind === "winch") m2Use(this, u, dt); }
         // Nuclear cells.
         for (const c of this.level.pickups) {
             if (this.taken.has(c.id)) continue;
             if (Math.hypot(c.pos[0] - p.pos[0], c.pos[1] - p.pos[1], c.pos[2] - p.pos[2]) < 1.3) {
+                // Gravity shells (grav-*) wait until Ray has the launcher, and until he has room.
+                if (c.id.startsWith("grav")) {
+                    if (!this.flags.has("weapon:gravity") || this.gravCells >= GRAVITY.max) continue;
+                    this.gravCells = Math.min(GRAVITY.max, this.gravCells + 2);
+                } else {
+                    p.integrity = Math.min(100, p.integrity + 35);
+                    p.energy = Math.min(100, p.energy + 60);
+                }
                 this.taken.add(c.id);
-                p.integrity = Math.min(100, p.integrity + 35);
-                p.energy = Math.min(100, p.energy + 60);
                 this.events.push({ kind: "pickup", id: c.id });
             }
         }
@@ -367,13 +462,13 @@ export class Game {
         for (const c of this.level.checkpoints) {
             if (c.id === this.checkpoint) continue;
             const order = this.level.checkpoints.findIndex(k => k.id === c.id), now = this.level.checkpoints.findIndex(k => k.id === this.checkpoint);
-            if (order > now && Math.hypot(c.pos[0] - p.pos[0], c.pos[1] - p.pos[1], c.pos[2] - p.pos[2]) < c.radius) {
+            if ((order > now || c.free) && Math.hypot(c.pos[0] - p.pos[0], c.pos[1] - p.pos[1], c.pos[2] - p.pos[2]) < c.radius) {
                 this.checkpoint = c.id;
                 this.events.push({ kind: "checkpoint", id: c.id });
             }
         }
         // The hypercube: asleep the first time Ray reaches it, the end of the mission once it wakes.
-        if (Math.hypot(p.pos[0] - PEDESTAL[0], p.pos[2] - PEDESTAL[2]) < GOAL_RADIUS && p.pos[1] > PEDESTAL[1] - 0.5) {
+        if (this.mission === 1 && Math.hypot(p.pos[0] - PEDESTAL[0], p.pos[2] - PEDESTAL[2]) < GOAL_RADIUS && p.pos[1] > PEDESTAL[1] - 0.5) {
             if (this.stage === "hypercube") { this.events.push({ kind: "dormant" }); this.setStage("bridge"); }
             else if (this.stage === "awaken" && !this.won) { this.won = true; this.events.push({ kind: "goal" }); }
         }
@@ -381,6 +476,7 @@ export class Game {
 
     /** Falling below this kills (the floors below are out of bounds until the mission goes down there). */
     killY(): number {
+        if (this.mission === 2) return -70;
         if (this.reached("ride")) return 9;
         if (this.reached("descent")) return -32;
         return -6;
@@ -392,10 +488,36 @@ export class Game {
         let best: Enemy | null = null, bd = RESET_REACH;
         for (const e of this.enemies) {
             if (e.state !== "stunned") continue;
+            // A downed cherub lies where it fell; the beacons and the heart are never stunned.
             const d = Math.hypot(e.pos[0] - p.pos[0], e.pos[1] - p.pos[1], e.pos[2] - p.pos[2]);
             if (d < bd + (e.kind === "warden" ? 1 : 0)) { bd = d; best = e; }
         }
         return best;
+    }
+
+    /**
+     * The unaware machine Ray can take down: close, Ray behind it (or it hasn't seen him and he's
+     * crouched), still on its patrol.
+     */
+    takedownTarget(): Enemy | null {
+        const p = this.player;
+        if (!p.alive || p.rollT >= 0) return null;
+        let best: Enemy | null = null, bd = TAKEDOWN.reach;
+        for (const e of this.enemies) {
+            if (e.state !== "patrol" || e.leap || !SNEAKABLE.has(e.kind)) continue;
+            const dx = p.pos[0] - e.pos[0], dz = p.pos[2] - e.pos[2], d = Math.hypot(dx, dz);
+            if (d >= bd || Math.abs(p.pos[1] - e.pos[1]) > 1.2) continue;
+            const behind = (dx * Math.sin(e.yaw) + dz * Math.cos(e.yaw)) / (d || 1) < 0.1;
+            if (behind || (p.crouched && !e.seen)) { bd = d; best = e; }
+        }
+        return best;
+    }
+
+    private takedown(e: Enemy): void {
+        e.state = "stunned"; e.stateT = 0; e.hp = 0; e.charge = 0; e.dormant = false;
+        this.events.push({ kind: "takedown", id: e.id, at: [...e.pos] });
+        this.events.push({ kind: "disabled", id: e.id, at: [...e.pos] });
+        this.say("firstTakedown");
     }
 
     private reset(e: Enemy): void {
@@ -408,11 +530,13 @@ export class Game {
 
     /** Whether a spot can be worked now (the mission decides). */
     usableNow(u: UseSpot): boolean {
+        if (this.mission === 2) return m2Usable(this, u);
         switch (u.kind) {
             case "biochip": return !this.flags.has("biochip");
             case "conduit": return this.reached("biochip") && !this.flags.has("conduit") && !this.flags.has(`dead:${u.id}`);
             case "console": return this.stage === "reactor";
             case "lift": return this.stage === "lift";
+            default: return false;
         }
     }
     /** The spot within reach that can be worked, if any. */
@@ -428,6 +552,7 @@ export class Game {
     }
     private use(u: UseSpot): void {
         const p = this.player;
+        if (this.mission === 2) { m2Use(this, u, 0); return; }
         switch (u.kind) {
             case "biochip":
                 this.flags.add("biochip"); p.biochip = 100;
@@ -461,7 +586,7 @@ export class Game {
         const p = this.player;
         let best: ItemSpot | null = null, bs = 0.965;
         for (const it of this.level.items) {
-            if (this.collected.has(it.id)) continue;
+            if (this.collected.has(it.id) || (it.after && !this.reached(it.after as StageId))) continue;
             const c: V3 = [it.pos[0], it.pos[1] + 0.06, it.pos[2]];
             if (Math.hypot(c[0] - p.pos[0], c[2] - p.pos[2]) > 2.6 || Math.abs(c[1] - p.pos[1] - 0.8) > 1.6) continue;
             const d: V3 = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], l = Math.hypot(...d);
@@ -486,26 +611,109 @@ export class Game {
         return [p.pos[0] + fx * 0.75 - fz * 0.22, p.pos[1] + this.height * 0.77, p.pos[2] + fz * 0.75 + fx * 0.22];
     }
 
+    /** The aim from the muzzle: at what the crosshair is on, else along the camera's look. */
+    private aimDir(input: PlayerInput, from: V3): V3 {
+        let dir: V3;
+        if (input.target) dir = [input.target[0] - from[0], input.target[1] - from[1], input.target[2] - from[2]];
+        else dir = [Math.sin(input.yaw) * Math.cos(input.pitch), Math.sin(input.pitch), Math.cos(input.yaw) * Math.cos(input.pitch)];
+        const l = Math.hypot(...dir) || 1;
+        return [dir[0] / l, dir[1] / l, dir[2] / l];
+    }
+
     private fire(input: PlayerInput): void {
         const p = this.player;
+        const from = this.muzzle();
+        const dir = this.aimDir(input, from);
+        if (p.weapon === "scatter") {
+            if (p.energy < SCATTER.cost) return;
+            p.cooldown = SCATTER.interval; p.energy -= SCATTER.cost; p.firing = 0.3;
+            this.events.push({ kind: "shot", at: from, enemy: false });
+            const right: V3 = [dir[2], 0, -dir[0]], rl = Math.hypot(right[0], right[2]) || 1;
+            for (let i = 0; i < SCATTER.pellets; i++) {
+                const a = (i / SCATTER.pellets) * Math.PI * 2 + this.random(), r = SCATTER.spread * Math.sqrt(this.random() + (i === 0 ? 0 : 0.15));
+                const d0: V3 = [dir[0] + (right[0] / rl) * Math.cos(a) * r, dir[1] + Math.sin(a) * r, dir[2] + (right[2] / rl) * Math.cos(a) * r];
+                const l = Math.hypot(...d0), d: V3 = [d0[0] / l, d0[1] / l, d0[2] / l];
+                this.shoot(from, d, SCATTER.range, SCATTER.damage, true);
+            }
+            return;
+        }
+        if (p.weapon === "gravity") {
+            if (this.gravCells <= 0) return;
+            this.gravCells--;
+            p.cooldown = GRAVITY.interval; p.firing = 0.3;
+            // Lobbed a little above the aim.
+            const v: V3 = [dir[0] * GRAVITY.speed, dir[1] * GRAVITY.speed + 3, dir[2] * GRAVITY.speed];
+            this.grenades.push({ pos: [...from], vel: v, age: 0, well: -1 });
+            this.events.push({ kind: "grenade", at: from });
+            return;
+        }
+        if (p.energy < RIFLE.cost) return;
         p.cooldown = RIFLE.interval;
         p.energy -= RIFLE.cost;
         p.firing = 0.25;
-        const from = this.muzzle();
-        let dir: V3;
-        if (input.target) {
-            dir = [input.target[0] - from[0], input.target[1] - from[1], input.target[2] - from[2]];
-        } else {
-            dir = [Math.sin(input.yaw) * Math.cos(input.pitch), Math.sin(input.pitch), Math.cos(input.yaw) * Math.cos(input.pitch)];
-        }
-        const l = Math.hypot(...dir) || 1;
-        dir = [dir[0] / l, dir[1] / l, dir[2] / l];
-        const hit = this.trace(from, dir, RIFLE.range, null);
-        const to: V3 = [from[0] + dir[0] * hit.t, from[1] + dir[1] * hit.t, from[2] + dir[2] * hit.t];
-        this.bolts.push({ from, to, age: 0, enemy: false, hit: hit.t < RIFLE.range });
         this.events.push({ kind: "shot", at: from, enemy: false });
-        if (hit.enemy) this.damageEnemy(hit.enemy, RIFLE.damage, to, dir);
-        else if (hit.t < RIFLE.range) this.events.push({ kind: "hit", at: to, target: "world" });
+        this.shoot(from, dir, RIFLE.range, RIFLE.damage, false);
+    }
+
+    /** One bolt (or pellet) along a ray: to the first wall or machine, hurting what it hits. */
+    private shoot(from: V3, dir: V3, range: number, damage: number, pellet: boolean): void {
+        const hit = this.trace(from, dir, range, null);
+        const t = Math.min(hit.t, range);
+        const to: V3 = [from[0] + dir[0] * t, from[1] + dir[1] * t, from[2] + dir[2] * t];
+        this.bolts.push({ from, to, age: 0, enemy: false, hit: hit.t < range, pellet });
+        if (hit.enemy) this.damageEnemy(hit.enemy, pellet ? damage * (1 - Math.min(0.6, t / range)) : damage, to, dir);
+        else if (hit.t < range && !pellet) this.events.push({ kind: "hit", at: to, target: "world" });
+        else if (hit.t < range && this.random() < 0.3) this.events.push({ kind: "hit", at: to, target: "world" });
+    }
+
+    /** Gravity shells: arc, implode where they land (or at the fuse), drag in, then crush. */
+    private updateGrenades(dt: number): void {
+        for (let i = this.grenades.length - 1; i >= 0; i--) {
+            const g = this.grenades[i];
+            g.age += dt;
+            if (g.well < 0) {
+                g.vel[1] -= GRAVITY.gravity * dt;
+                const sp = Math.hypot(...g.vel), step = sp * dt;
+                const dir: V3 = [g.vel[0] / sp, g.vel[1] / sp, g.vel[2] / sp];
+                const wall = this.world.raycast(g.pos, dir, step + 0.2).t;
+                let struck = false;
+                for (const e of this.enemies) {
+                    if (e.state === "destroyed" || e.state === "restored") continue;
+                    const s = ENEMY[e.kind];
+                    if (Math.hypot(e.pos[0] - g.pos[0], e.pos[2] - g.pos[2]) < s.radius + 0.3 && g.pos[1] > e.pos[1] - 0.2 && g.pos[1] < e.pos[1] + s.height) struck = true;
+                }
+                if (Number.isFinite(wall) || struck || g.age > GRAVITY.fuse) {
+                    if (Number.isFinite(wall)) { const t = Math.max(0, wall - 0.25); g.pos = [g.pos[0] + dir[0] * t, g.pos[1] + dir[1] * t + 0.3, g.pos[2] + dir[2] * t]; }
+                    g.well = 0;
+                    this.events.push({ kind: "well", at: [...g.pos] });
+                } else g.pos = [g.pos[0] + g.vel[0] * dt, g.pos[1] + g.vel[1] * dt, g.pos[2] + g.vel[2] * dt];
+                continue;
+            }
+            g.well += dt;
+            // The well: everything light enough slides toward its center.
+            for (const e of this.enemies) {
+                if (e.state === "destroyed" || e.kind === "nest" || e.kind === "beacon" || e.kind === "warden") continue;
+                const dx = g.pos[0] - e.pos[0], dz = g.pos[2] - e.pos[2], d = Math.hypot(dx, dz);
+                if (d > GRAVITY.radius || d < 0.4) continue;
+                const pull = Math.min(d - 0.4, (GRAVITY.radius - d + 2) * 2.2 * dt);
+                let nx = e.pos[0] + (dx / d) * pull, nz = e.pos[2] + (dz / d) * pull;
+                [nx, nz] = this.world.pushOut(nx, nz, e.pos[1], ENEMY[e.kind].height, ENEMY[e.kind].radius, e.pos[1] + 0.35);
+                e.pos = [nx, e.kind === "cherub" ? e.pos[1] + (g.pos[1] - e.pos[1]) * Math.min(1, dt * 3) : e.pos[1], nz];
+                e.leap = null; e.charge = 0;
+            }
+            if (g.well >= GRAVITY.pull) {
+                this.grenades.splice(i, 1);
+                this.events.push({ kind: "crush", at: [...g.pos] });
+                for (const e of this.enemies) {
+                    const d = Math.hypot(e.pos[0] - g.pos[0], e.pos[1] + ENEMY[e.kind].height * 0.5 - g.pos[1], e.pos[2] - g.pos[2]);
+                    const reach = GRAVITY.radius + ENEMY[e.kind].radius;
+                    if (d < reach && e.state !== "destroyed" && e.state !== "restored") this.damageEnemy(e, GRAVITY.damage * (1 - (d / reach) * 0.55), [...e.pos] as V3, [0, -1, 0], "gravity");
+                }
+                const p = this.player;
+                const dp = Math.hypot(p.pos[0] - g.pos[0], p.pos[1] + 0.9 - g.pos[1], p.pos[2] - g.pos[2]);
+                if (dp < GRAVITY.radius * 0.7 && !this.dodging) this.damagePlayer(30 * (1 - dp / (GRAVITY.radius * 0.7)));
+            }
+        }
     }
 
     /** Distance to the first wall or machine on a ray (skipping `skip`). */
@@ -515,6 +723,7 @@ export class Game {
         for (const e of this.enemies) {
             if (e === skip || e.state === "destroyed") continue;
             const s = ENEMY[e.kind];
+            if (Math.abs(e.pos[0] - o[0]) > t + 4 && Math.abs(e.pos[2] - o[2]) > t + 4) continue;
             // A capsule as a sphere stack: test the segment's closest approach to the body's axis.
             const cy0 = e.pos[1] + s.radius * 0.6, cy1 = e.pos[1] + s.height - s.radius * 0.6;
             for (const cy of [cy0, (cy0 + cy1) / 2, cy1]) {
@@ -536,10 +745,28 @@ export class Game {
         return -(dir[0] * fx + dir[2] * fz) / l > Math.cos(1);
     }
 
-    private damageEnemy(e: Enemy, amount: number, at: V3, dir: V3 = [0, 0, 1]): void {
+    /** Whether the cable heart's shell is open (it breathes on a cycle). */
+    nestOpen(e: Enemy): boolean { return e.kind === "nest" && e.stateT % (NEST_CYCLE.closed + NEST_CYCLE.open) > NEST_CYCLE.closed; }
+
+    private damageEnemy(e: Enemy, amount: number, at: V3, dir: V3 = [0, 0, 1], source: "bolt" | "gravity" = "bolt"): void {
+        if (e.state === "destroyed") return;
         if (this.shielded(e, dir)) { this.events.push({ kind: "hit", at, target: "shield" }); amount *= 0.12; }
+        else if (e.kind === "nest" && !this.nestOpen(e) && source !== "gravity") { this.events.push({ kind: "hit", at, target: "shield" }); amount *= 0.08; e.hitFlash = 0.4; }
         else { e.hitFlash = 1; this.events.push({ kind: "hit", at, target: e.id }); }
         if (e.state === "restored") return;
+        // An unaware machine hit from hiding takes double.
+        if (e.state === "patrol" && !e.seen && SNEAKABLE.has(e.kind)) amount *= 2;
+        e.dormant = false; e.calm = false;
+        // The beacons and the heart don't go down and get back up: they break.
+        if (e.kind === "beacon" || e.kind === "nest") {
+            e.hp -= amount;
+            if (e.hp <= 0) {
+                e.state = "destroyed"; e.stateT = 0; e.hp = 0;
+                this.events.push({ kind: "destroyed", id: e.id, at: [...e.pos] });
+                if (this.mission === 2) m2Damaged(this, e);
+            }
+            return;
+        }
         if (e.state === "stunned") {
             // Shooting a knocked-out machine destroys it: the other reward path.
             e.hp -= amount;
@@ -549,6 +776,7 @@ export class Game {
                 this.events.push({ kind: "destroyed", id: e.id, at: [...e.pos] });
                 if (this.destroyed === 1) this.say("firstDestroy");
                 if (e.kind === "warden") this.say("wardenDestroyed");
+                if (this.mission === 2) m2Damaged(this, e);
             }
             return;
         }
@@ -564,6 +792,7 @@ export class Game {
             e.state = "stunned"; e.stateT = 0; e.hp = 0; e.charge = 0; e.leap = null;
             this.events.push({ kind: "disabled", id: e.id, at: [...e.pos] });
             if (e.kind === "warden") this.say("wardenDown");
+            if (this.mission === 2) m2Damaged(this, e);
         }
     }
 
@@ -575,7 +804,7 @@ export class Game {
         if (p.integrity <= 0) this.kill();
     }
 
-    private kill(): void {
+    kill(): void {
         const p = this.player;
         if (!p.alive) return;
         p.alive = false; p.deadT = 0; p.integrity = 0; p.rollT = -1;
@@ -590,7 +819,7 @@ export class Game {
         p.rollT = -1; p.crouched = false;
         if (p.biochip >= 0) p.biochip = 100;
         // A lost hold-out starts over: the reactor drops back to idle and the waves go.
-        if (this.stage === "holdout") {
+        if (this.mission === 1 && this.stage === "holdout") {
             for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].spawned && this.enemies[i].zone === "reactor") this.enemies.splice(i, 1);
             this.flags.delete("reactor");
             this.holdT = 0; this.waves = 0;
@@ -614,9 +843,22 @@ export class Game {
     }
 
     /** The point of Ray an enemy aims at and looks for (lower when crouched). */
-    private chest(): V3 { const p = this.player; return [p.pos[0], p.pos[1] + this.height * 0.6, p.pos[2]]; }
+    chest(): V3 { const p = this.player; return [p.pos[0], p.pos[1] + this.height * 0.6, p.pos[2]]; }
 
-    private canSee(e: Enemy, range: number): boolean {
+    /** Whether Ray is looking right at a machine (and could see it): a Hollow held in his lens freezes. */
+    watched(e: Enemy): boolean {
+        const p = this.player;
+        if (!p.alive) return false;
+        const eye: V3 = [p.pos[0], p.pos[1] + this.height * 0.92, p.pos[2]];
+        const c: V3 = [e.pos[0], e.pos[1] + ENEMY[e.kind].height * 0.6, e.pos[2]];
+        const d: V3 = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], l = Math.hypot(...d);
+        if (l > 45) return false;
+        const f: V3 = [Math.sin(this.look.yaw) * Math.cos(this.look.pitch), Math.sin(this.look.pitch), Math.cos(this.look.yaw) * Math.cos(this.look.pitch)];
+        if ((d[0] * f[0] + d[1] * f[1] + d[2] * f[2]) / l < (l < 4 ? 0.85 : 0.955)) return false;
+        return this.world.raycast(eye, [d[0] / l, d[1] / l, d[2] / l], l).t >= l - 0.4;
+    }
+
+    canSee(e: Enemy, range: number): boolean {
         const p = this.player;
         const eye: V3 = [e.pos[0], e.pos[1] + ENEMY[e.kind].height * 0.8, e.pos[2]];
         const c = this.chest();
@@ -632,20 +874,30 @@ export class Game {
         e.hitFlash = Math.max(0, e.hitFlash - dt * 5);
         e.cooldown -= dt;
         const p = this.player;
+        if (e.dormant || e.state === "destroyed" && e.kind !== "cherub") return;
         if (e.leap) { this.updateLeap(e, dt); return; }
+        if (e.kind === "beacon") return;
+        if (e.kind === "nest") { this.updateNest(e, dt); return; }
+        if (e.kind === "cherub") { this.updateCherub(e, dt); return; }
         let goal: V3 | null = null, speed = 0;
-        // Crouched and still, Ray is harder to spot.
-        const sightK = p.crouched && p.speed < 1 ? 0.65 : 1;
+        // Crouched, Ray is harder to spot; crouched and still, harder again.
+        const sightK = p.crouched ? (p.speed < 1 ? 0.55 : 0.8) : 1;
         switch (e.state) {
             case "patrol": {
                 goal = e.patrol[e.leg % e.patrol.length];
-                speed = s.speed * 0.55;
+                speed = s.speed * (e.kind === "hollow" ? 0.2 : 0.55);
                 if (Math.hypot(goal[0] - e.pos[0], goal[2] - e.pos[2]) < 0.6) e.leg++;
-                const near = Math.hypot(p.pos[0] - e.pos[0], p.pos[1] - e.pos[1], p.pos[2] - e.pos[2]) < 14;
-                if ((regionOf(p.pos) === e.zone || near) && this.canSee(e, s.sight * sightK)) {
+                const dist = Math.hypot(p.pos[0] - e.pos[0], p.pos[1] - e.pos[1], p.pos[2] - e.pos[2]), near = dist < 14;
+                // In Noctis a patrol looks where it's going (a wide cone ahead), but hears a run close by.
+                const ahead = ((p.pos[0] - e.pos[0]) * Math.sin(e.yaw) + (p.pos[2] - e.pos[2]) * Math.cos(e.yaw)) / (Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]) || 1);
+                const noticed = this.mission === 1 || ahead > -0.25 || dist < (p.crouched ? 0.8 : 2.4) || (p.speed > 3.6 && p.grounded && dist < 11);
+                if (!e.calm && noticed && (this.regionOf(p.pos) === e.zone || near) && this.canSee(e, s.sight * sightK)) {
                     e.state = "alert"; e.stateT = 0; e.seen = true;
                     if (e.kind === "roller") this.say("firstEnemy");
+                    if (e.kind === "hollow" && this.mission === 2) this.say("firstHollow");
                 }
+                // Crouched near an unaware machine: the Doctor's hint, once.
+                if (this.mission === 2 && p.crouched && near && SNEAKABLE.has(e.kind) && Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]) < 7) this.say("takedownHint");
                 break;
             }
             case "alert": {
@@ -658,7 +910,15 @@ export class Game {
                 const d = Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]);
                 const sees = this.canSee(e, s.sight * 1.3);
                 this.face(e, p.pos, dt, e.kind === "warden" ? 2.5 : e.kind === "crawler" ? 8 : 5);
-                if (e.kind === "crawler") {
+                if (e.kind === "hollow") {
+                    // Held in Ray's lens it all but stops (and its swing waits); unwatched, it runs.
+                    const held = this.watched(e);
+                    if (e.charge > 0 || (d < s.range && e.cooldown <= 0 && p.alive && Math.abs(p.pos[1] - e.pos[1]) < 1.5)) {
+                        if (e.charge === 0) this.events.push({ kind: "charge", id: e.id, at: [...e.pos] });
+                        if (!held) e.charge += dt;
+                        if (e.charge >= s.windup) this.swipe(e);
+                    } else if (d > 1.1) { goal = p.pos; speed = held ? s.speed * 0.06 : sees ? s.speed : s.speed * 0.7; }
+                } else if (e.kind === "crawler") {
                     // Run in, crouch (the tell), then pounce at where Ray stood.
                     if (e.charge > 0 || (sees && d < s.range && e.cooldown <= 0 && p.alive)) {
                         if (e.charge === 0) this.events.push({ kind: "charge", id: e.id, at: [...e.pos] });
@@ -667,7 +927,13 @@ export class Game {
                     } else if (d > 1.6) { goal = p.pos; speed = s.speed; }
                 } else {
                     if (d > s.range * 0.7 || !sees) { goal = p.pos; speed = s.speed; }
-                    else if (e.kind === "roller") {
+                    else if (e.kind === "scavenger") {
+                        // The Tithe shoot and move: a sidestep every few seconds.
+                        const side = Math.floor(e.stateT / 2.5) % 2 ? 1 : -1;
+                        const a = Math.atan2(e.pos[0] - p.pos[0], e.pos[2] - p.pos[2]) + side * 0.5;
+                        goal = [p.pos[0] + Math.sin(a) * d, e.pos[1], p.pos[2] + Math.cos(a) * d];
+                        speed = s.speed * 0.7;
+                    } else if (e.kind === "roller") {
                         // Rollers circle at range.
                         const a = Math.atan2(e.pos[0] - p.pos[0], e.pos[2] - p.pos[2]) + 0.6;
                         goal = [p.pos[0] + Math.sin(a) * s.range * 0.55, e.pos[1], p.pos[2] + Math.cos(a) * s.range * 0.55];
@@ -680,7 +946,7 @@ export class Game {
                     }
                     // Wind up (the glow every machine shows before it fires), then shoot.
                     if (e.charge > 0 || (sees && e.cooldown <= 0 && p.alive)) {
-                        const fresh = e.kind === "hacked_bot" ? e.burst === 0 : true;
+                        const fresh = "burst" in s ? e.burst === 0 : true;
                         if (fresh && e.charge < s.windup) {
                             if (e.charge === 0) { this.events.push({ kind: "charge", id: e.id, at: this.enemyMuzzle(e) }); this.say("firstCharge"); }
                             e.charge += dt;
@@ -691,7 +957,7 @@ export class Game {
                         }
                     }
                 }
-                if (!p.alive || regionOf(p.pos) !== e.zone && !sees && e.stateT > 6 && e.kind !== "warden") { e.state = "patrol"; e.stateT = 0; e.charge = 0; }
+                if (!p.alive || this.regionOf(p.pos) !== e.zone && !sees && e.stateT > 6 && e.kind !== "warden") { e.state = "patrol"; e.stateT = 0; e.charge = 0; }
                 break;
             }
             case "stunned": {
@@ -709,9 +975,100 @@ export class Game {
                 const vx = (dx / dl) * speed, vz = (dz / dl) * speed;
                 let nx = e.pos[0] + vx * dt, nz = e.pos[2] + vz * dt;
                 [nx, nz] = this.world.pushOut(nx, nz, e.pos[1], s.height, s.radius, e.pos[1] + 0.35);
+                [nx, nz] = this.world.terrainWall(e.pos[0], e.pos[2], nx, nz, e.pos[1]);
                 const g = this.world.groundAt(nx, nz, s.radius, e.pos[1] + 0.35);
                 if (g > e.pos[1] - 0.4) { e.pos = [nx, g, nz]; e.roll += (Math.hypot(vx, vz) * dt) / 0.5; }
                 else if (e.state === "patrol") e.leg++;
+            }
+        }
+    }
+
+    /** A Hollow's swing: whatever is within reach when it lands (unless it's mid-roll). */
+    private swipe(e: Enemy): void {
+        const p = this.player, s = ENEMY.hollow;
+        e.charge = 0; e.cooldown = s.interval;
+        const d = Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]);
+        this.events.push({ kind: "pounce", id: e.id, at: [...e.pos] });
+        if (d < s.range + 0.5 && p.alive && !this.dodging) {
+            this.damagePlayer(s.damage);
+            const l = d || 1;
+            p.vel[0] += ((p.pos[0] - e.pos[0]) / l) * 3; p.vel[2] += ((p.pos[2] - e.pos[2]) / l) * 3;
+        }
+    }
+
+    /** Cherubs: drift between their points at hover height; hunting, circle Ray and dive. */
+    private updateCherub(e: Enemy, dt: number): void {
+        const s = ENEMY.cherub, p = this.player;
+        const floor = this.world.groundAt(e.pos[0], e.pos[2], 0.3, e.pos[1] + 0.2);
+        const base = Number.isFinite(floor) ? floor : e.pos[1] - s.hover;
+        let goal: V3 | null = null, speed = 0, height = base + s.hover;
+        switch (e.state) {
+            case "patrol": {
+                goal = e.patrol[e.leg % e.patrol.length];
+                speed = s.speed * 0.3;
+                if (Math.hypot(goal[0] - e.pos[0], goal[2] - e.pos[2]) < 1) e.leg++;
+                const near = Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]) < 18;
+                if ((this.regionOf(p.pos) === e.zone || near) && this.canSee(e, s.sight)) { e.state = "alert"; e.stateT = 0; e.seen = true; if (this.mission === 2) this.say("cherubs"); }
+                break;
+            }
+            case "alert": this.face(e, p.pos, dt, 6); if (e.stateT > 0.5) { e.state = "fight"; e.stateT = 0; } break;
+            case "fight": {
+                this.face(e, p.pos, dt, 6);
+                const a = Math.atan2(e.pos[0] - p.pos[0], e.pos[2] - p.pos[2]) + 0.8;
+                goal = [p.pos[0] + Math.sin(a) * s.range, 0, p.pos[2] + Math.cos(a) * s.range];
+                speed = s.speed;
+                height = Math.max(base, p.pos[1]) + s.hover;
+                if (e.charge > 0 || (e.cooldown <= 0 && p.alive && this.canSee(e, s.sight * 1.3))) {
+                    if (e.charge === 0) this.events.push({ kind: "charge", id: e.id, at: [...e.pos] });
+                    e.charge += dt; speed = 0;
+                    if (e.charge >= s.windup) {
+                        // The dive: at Ray's chest and on past it.
+                        e.charge = 0; e.cooldown = s.interval + this.random();
+                        const c = this.chest(), dx = c[0] - e.pos[0], dy = c[1] - e.pos[1], dz = c[2] - e.pos[2], l = Math.hypot(dx, dy, dz) || 1;
+                        const to: V3 = [c[0] + (dx / l) * 2.5, Math.max(base + 0.6, c[1] + (dy / l) * 1.2), c[2] + (dz / l) * 2.5];
+                        e.leap = { from: [...e.pos], to, t: 0, dur: Math.max(0.35, l / 15), arc: 0 };
+                        this.events.push({ kind: "pounce", id: e.id, at: [...e.pos] });
+                    }
+                }
+                if (!p.alive || this.regionOf(p.pos) !== e.zone && !this.canSee(e, s.sight) && e.stateT > 8) { e.state = "patrol"; e.stateT = 0; e.charge = 0; }
+                break;
+            }
+            case "stunned": case "destroyed": {
+                // Down: it drops to the ground and lies there.
+                e.pos = [e.pos[0], Math.max(base, e.pos[1] - dt * 9), e.pos[2]];
+                e.moving = 0;
+                if (e.state === "stunned" && e.stateT > STUN_TIME) { e.state = "fight"; e.stateT = 0; e.hp = s.hp * 0.5; this.events.push({ kind: "rebooted", id: e.id }); }
+                return;
+            }
+            case "restored": height = base + 2.2; break;
+        }
+        if (goal && speed > 0) {
+            const dx = goal[0] - e.pos[0], dz = goal[2] - e.pos[2], dl = Math.hypot(dx, dz);
+            if (dl > 0.3) {
+                let nx = e.pos[0] + (dx / dl) * speed * dt, nz = e.pos[2] + (dz / dl) * speed * dt;
+                [nx, nz] = this.world.pushOut(nx, nz, e.pos[1] - 0.3, s.height, s.radius, e.pos[1] - 0.3);
+                e.pos = [nx, e.pos[1], nz];
+            }
+        }
+        e.moving = Math.min(1, speed / s.speed);
+        e.roll += dt * (6 + speed);
+        e.pos[1] += (height - e.pos[1]) * Math.min(1, dt * 2);
+    }
+
+    /** The cable heart: it breathes (its shell opens), and while Ray is near it grows Hollows. */
+    private updateNest(e: Enemy, dt: number): void {
+        if (e.state === "destroyed") return;
+        const p = this.player;
+        const here = this.regionOf(p.pos) === "nest" || Math.hypot(p.pos[0] - e.pos[0], p.pos[2] - e.pos[2]) < 22;
+        if (!here) return;
+        e.seen = true;
+        if (e.state === "patrol") { e.state = "fight"; e.stateT = 0; e.cooldown = 4; }
+        if (e.cooldown <= 0) {
+            e.cooldown = ENEMY.nest.interval;
+            const kids = this.enemies.filter(k => k.spawned && k.zone === "nest" && (k.state === "fight" || k.state === "alert")).length;
+            if (kids < 3) {
+                const a = this.random() * Math.PI - Math.PI / 2;
+                this.spawn(`nest-hollow-${Math.round(this.time * 10)}`, "hollow", [e.pos[0] + Math.sin(a) * 3.5, e.pos[1], e.pos[2] + 3.2 + Math.cos(a) * 1.5], "nest");
             }
         }
     }
@@ -739,6 +1096,11 @@ export class Game {
         if (k < 1) return;
         e.leap = null;
         if (e.kind === "warden") { this.events.push({ kind: "burst", at: [...e.pos] }); e.state = "alert"; e.stateT = 0; this.say("warden"); return; }
+        if (e.kind === "cherub") {
+            const p = this.player, c = this.chest();
+            if (Math.hypot(c[0] - e.pos[0], c[1] - e.pos[1], c[2] - e.pos[2]) < 2.6 && p.alive && !this.dodging) this.damagePlayer(ENEMY.cherub.damage);
+            return;
+        }
         // Landing: whatever is right there gets the claws (unless it's mid-roll).
         const p = this.player;
         const d = Math.hypot(p.pos[0] - e.pos[0], p.pos[1] - e.pos[1], p.pos[2] - e.pos[2]);
@@ -762,12 +1124,14 @@ export class Game {
         if (e.kind === "roller") return [e.pos[0] + fx * 0.6, e.pos[1] + 0.55, e.pos[2] + fz * 0.6];
         if (e.kind === "crawler") return [e.pos[0] + fx * 0.7, e.pos[1] + 0.6, e.pos[2] + fz * 0.7];
         if (e.kind === "warden") return [e.pos[0] + fx * 1.0 - fz * 0.75, e.pos[1] + 1.9, e.pos[2] + fz * 1.0 + fx * 0.75];
+        if (e.kind === "scavenger") return [e.pos[0] + fx * 0.6 - fz * 0.2, e.pos[1] + 1.35, e.pos[2] + fz * 0.6 + fx * 0.2];
+        if (e.kind === "cherub" || e.kind === "hollow") return [e.pos[0] + fx * 0.4, e.pos[1] + ENEMY[e.kind].height * 0.7, e.pos[2] + fz * 0.4];
         return [e.pos[0] + fx * 0.35, e.pos[1] + 1.95, e.pos[2] + fz * 0.35];
     }
 
     private enemyFire(e: Enemy): void {
         const s = ENEMY[e.kind];
-        if (e.kind === "hacked_bot") {
+        if ("burst" in s) {
             const b = s as typeof ENEMY.hacked_bot;
             e.burst++;
             e.cooldown = e.burst >= b.burst ? b.rest : b.interval;
@@ -849,6 +1213,7 @@ export class Game {
 
     private ride(dt: number): void {
         const p = this.player;
+        if (this.mission === 2) { m2Ride(this, dt); return; }
         this.liftY = Math.min(LIFT.top, this.liftY + dt * 2.2);
         this.liftFloor.min[1] = this.liftY - 0.3; this.liftFloor.max[1] = this.liftY;
         p.pos = [p.pos[0], this.liftY, p.pos[2]];
@@ -870,9 +1235,10 @@ export class Game {
     }
 
     /** The story's beats and the mission's stages: what Ray has done moves it on. */
-    private mission(dt: number): void {
+    private story(dt: number): void {
+        if (this.mission === 2) { m2Step(this, dt); return; }
         const p = this.player;
-        const r = regionOf(p.pos);
+        const r = this.regionOf(p.pos);
         // Lines along the way.
         if (r === "spire0" && (p.pos[0] > -7.5 || p.pos[2] > -9.5)) this.say("leftLab");
         if (r === "spire1") this.say("secondFloor");
@@ -938,7 +1304,7 @@ export class Game {
     }
 
     /** Sky openness at a point (props and characters take their ambient from it). */
-    open(at: V3): number { return openness(at[0], at[1] + 0.5, at[2]); }
+    open(at: V3): number { return this.level.open(at[0], at[1] + 0.5, at[2]); }
 
     // --- Saves -----------------------------------------------------------------------------------------
 
@@ -948,11 +1314,12 @@ export class Game {
         const w = this.enemies.find(e => e.kind === "warden");
         if (w && (w.state === "restored" || w.state === "destroyed")) machines.warden = w.state;
         // A hold-out or a ride in progress is saved from before it started.
-        const stage: StageId = this.stage === "holdout" ? "reactor" : this.stage === "ride" ? "lift" : this.stage;
+        // (Noctis: a lift ride in progress is saved from before it.)
+        const stage: StageId = this.stage === "holdout" ? "reactor" : this.stage === "ride" ? "lift" : this.stage === "descend" ? "tithe" : this.stage === "ascent" ? "tunnel" : this.stage;
         const flags = [...this.flags].filter(f => !(stage === "reactor" && f === "reactor") && !(stage === "lift" && f === "lift"));
         return {
             v: 2, stage, checkpoint: this.checkpoint, taken: [...this.taken], collected: [...this.collected], flags, machines,
-            resets: this.resets, destroyed: this.destroyed, deaths: this.deaths, time: this.time, usedSim: this.usedSim,
+            resets: this.resets, destroyed: this.destroyed, deaths: this.deaths, time: this.time, usedSim: this.usedSim, cells: this.gravCells, crank: this.crank,
         };
     }
 
@@ -967,12 +1334,13 @@ export class Game {
         for (const e of this.enemies) { const st = s.machines?.[e.id]; if (st) { e.state = st; e.stateT = 99; if (st === "restored") e.hp = 0; } }
         this.resets = s.resets ?? 0; this.destroyed = s.destroyed ?? 0; this.deaths = s.deaths ?? 0; this.time = s.time ?? 0; this.usedSim = !!s.usedSim;
         if (this.flags.has("biochip")) this.player.biochip = 100;
+        if (this.mission === 2) { this.gravCells = s.cells ?? 0; this.crank = s.crank ?? 0; m2Load(this); }
         for (const d of this.level.doors) if (this.flags.has(`open:${d.id}`)) this.doorOpen.set(d.id, 1);
         this.updateDoors(0);
         // A saved hypercube visit means its lines were heard.
-        if (this.reached("bridge")) for (const id of ["leftLab", "secondFloor", "lensHint", "ramp", "atrium", "firstEnemy"]) this.said.add(id);
+        if (this.mission === 1 && this.reached("bridge")) for (const id of ["leftLab", "secondFloor", "lensHint", "ramp", "atrium", "firstEnemy"]) this.said.add(id);
         // Past the lift, the lift is up and the Warden is where it was left.
-        if (this.reached("warden")) {
+        if (this.mission === 1 && this.reached("warden")) {
             this.liftY = LIFT.top;
             this.liftFloor.min[1] = LIFT.top - 0.3; this.liftFloor.max[1] = LIFT.top;
             const st = s.machines?.warden;
@@ -980,7 +1348,7 @@ export class Game {
             w.spawned = true;
             if (st) { w.state = st; w.stateT = 99; } else { w.state = "patrol"; }
         }
-        this.said.add("intro");
+        this.said.add("intro"); this.said.add("intro2");
         this.respawn();
         this.events.length = 0;
     }
@@ -991,6 +1359,7 @@ export class Game {
  * done): the test tools jump around with it.
  */
 export function stageSave(stage: StageId): RunSave {
+    if (stageOf(stage).mission === 2) return m2StageSave(stage);
     const at: Partial<Record<StageId, string>> = {
         climb: "lab", dark: "second-floor", hypercube: "atrium", bridge: "atrium", biochip: "relay-hall", conduit: "vault-walk", descent: "archive",
         crossing: "relay-bottom", reactor: "reactor", holdout: "reactor", lift: "reactor", ride: "reactor", warden: "lift-top", awaken: "lift-top",

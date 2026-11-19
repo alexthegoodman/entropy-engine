@@ -65,5 +65,22 @@ export class Sound {
         this.play({ freq: 40, waveform: "kick", duration: 0.9, gain: 0.6 });
         [110, 165, 220, 330].forEach((f, i) => this.play({ freq: f, waveform: "saw", duration: 2.2, cutoff: 1400, gain: 0.12, attack: 0.05 + i * 0.1, decay: 1, sustain: 0.4, release: 1, delayTime: 0.3, delayFeedback: 0.3, delayMix: 0.3 }));
     }
+    /** The scattergun: a low boom under a spray of noise. */
+    scatter(at: V3): void {
+        this.play({ freq: 70, waveform: "kick", duration: 0.35, gain: 0.45 }, at);
+        this.play({ freq: 900, waveform: "noise", duration: 0.25, cutoff: 2600, gain: 0.3, attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 }, at);
+    }
+    /** A gravity shell leaving the launcher, its well opening, and the crush. */
+    launch(at: V3): void { this.play({ freq: 160, waveform: "sine", duration: 0.3, gain: 0.3, attack: 0.002, decay: 0.25, sustain: 0, release: 0.1 }, at); }
+    well(at: V3): void { this.play({ freq: 50, waveform: "saw", duration: 0.8, cutoff: 400, resonance: 0.7, gain: 0.35, attack: 0.05, decay: 0.6, sustain: 0.4, release: 0.2 }, at); }
+    crush(at: V3): void {
+        this.play({ freq: 35, waveform: "kick", duration: 0.8, gain: 0.7 }, at);
+        this.play({ freq: 200, waveform: "noise", duration: 0.5, cutoff: 900, gain: 0.4, attack: 0.001, decay: 0.45, sustain: 0, release: 0.2 }, at);
+    }
+    /** A takedown: a quick, close thud and a dying whine. */
+    takedown(at: V3): void {
+        this.play({ freq: 80, waveform: "tom", duration: 0.12, gain: 0.3 }, at);
+        this.play({ freq: 900, waveform: "sine", duration: 0.4, gain: 0.08, attack: 0.002, decay: 0.38, sustain: 0, release: 0.05 }, at);
+    }
     hypercube(): void { [220, 330, 440, 660, 880].forEach((f, i) => this.play({ freq: f, waveform: "sine", duration: 3.5, gain: 0.12, attack: 0.6 + i * 0.3, decay: 1, sustain: 0.6, release: 2, delayTime: 0.45, delayFeedback: 0.45, delayMix: 0.35 })); }
 }

@@ -1,7 +1,7 @@
 // True Error's screens, drawn with the retained Painter (allegiance/al_ui.ts): the title card,
-// the play HUD (integrity, the rifle's charge, the biochip, the lens, the objective, prompts,
-// toasts, act cards), the subtitles, the inspect view of a collectible, and the level-complete
-// card. Brass and verdigris over a dark glass.
+// the play HUD (integrity, the weapons' charge, the weapon in hand, the biochip, the lens, the
+// objective and its open tasks, prompts, toasts, act cards), the subtitles, the inspect view of a
+// collectible, and the mission-complete card. Brass and verdigris over a dark glass.
 
 import { Painter, textWidth, type Color } from "../allegiance/al_ui";
 
@@ -46,6 +46,13 @@ export interface HudView {
     /** An act's title card fading in and out: its number, name and age (s). */
     act: { n: number; name: string; t: number } | null;
     crouched: boolean;
+    /** The weapon in hand, and its shells when it takes them. */
+    weapon: string;
+    ammo: string | null;
+    /** More than one weapon carried (shows the swap key). */
+    canSwap: boolean;
+    /** Open objectives (Noctis), ticked off as they're done. */
+    tasks: { text: string; done: boolean }[];
 }
 
 export function drawSubtitle(p: Painter, w: number, h: number, s: HudView["subtitle"], cinematic: boolean): void {
@@ -75,13 +82,13 @@ function wrap(text: string, size: number, maxW: number): string[] {
     return out;
 }
 
-/** `saved`: a run to continue (its act and objective), or null. */
-export function drawTitle(p: Painter, w: number, h: number, t: number, saved: { act: string; objective: string; items: string } | null = null): void {
+/** `saved`: a run to continue (its mission, act and objective), or null. */
+export function drawTitle(p: Painter, w: number, h: number, t: number, saved: { act: string; objective: string; items: string; mission: string } | null = null): void {
     p.rect(0, 0, w, h, [0, 0, 0, 0.35]);
     const pulse = 0.75 + 0.25 * Math.sin(t * 2);
     const size = Math.min(110, w / 9);
     p.textC("TRUE ERROR", w / 2, h * 0.3, size, TE.brass, FONT.head);
-    p.textC("LEVEL 1  -  THE CENTRAL SPIRE", w / 2, h * 0.3 + size * 1.25, size * 0.24, TE.ink, FONT.head);
+    p.textC(saved?.mission ?? "MISSION 1  -  THE CENTRAL SPIRE", w / 2, h * 0.3 + size * 1.25, size * 0.24, TE.ink, FONT.head);
     p.textC("Mars, 4122", w / 2, h * 0.3 + size * 1.75, size * 0.2, TE.dim, FONT.body);
     if (saved) {
         p.textC("Press ENTER, A or click to continue", w / 2, h * 0.68, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
@@ -91,7 +98,7 @@ export function drawTitle(p: Painter, w: number, h: number, t: number, saved: { 
     p.textC("ESC or B skips cutscenes", w / 2, h * 0.86, 16, TE.dim, FONT.body);
 }
 
-const ROMAN = ["", "I", "II", "III", "IV", "V"];
+const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII"];
 
 /** A collectible held up to the lens: what it is, what it says, and the keys. */
 export function drawInspect(p: Painter, w: number, h: number, item: { name: string; text: string; kept: boolean; count: string }, pad: boolean): void {
@@ -118,11 +125,18 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     p.text("PHOTON CHARGE", x, y + 38, 14, TE.brass, FONT.head);
     p.bar(x, y + 58, bw, 8, Math.max(0, v.energy) / 100, TE.cyan);
     p.text(`OBJECTIVE  ${v.objective}`, x - 4, y + 96, 15, TE.ink, FONT.body, 0, 0, TE.shade);
+    let ty = y + 118;
+    v.tasks.forEach((t, i) => p.text(`${t.done ? "[x]" : "[  ]"}  ${t.text}`, x + 6, ty + i * 20, 14, t.done ? TE.dim : TE.ink, FONT.body, 0, 0, TE.shade));
+    ty += v.tasks.length * 20 + (v.tasks.length ? 6 : 0);
     if (v.biochip >= 0) {
-        p.rect(x - 12, y + 112, bw + 24, 34, TE.glass);
-        p.text("BIOCHIP", x, y + 118, 13, v.dark > 0.05 ? TE.violet : TE.brassDim, FONT.head);
-        p.bar(x + 80, y + 122, bw - 80, 8, v.biochip / 100, v.biochip < 25 ? TE.red : TE.violet);
+        p.rect(x - 12, ty - 6, bw + 24, 34, TE.glass);
+        p.text("BIOCHIP", x, ty, 13, v.dark > 0.05 ? TE.violet : TE.brassDim, FONT.head);
+        p.bar(x + 80, ty + 4, bw - 80, 8, v.biochip / 100, v.biochip < 25 ? TE.red : TE.violet);
     }
+    // The weapon in hand, bottom right.
+    p.textR(v.weapon, w - 28, h - 96, 18, TE.brass, FONT.head);
+    if (v.ammo) p.textR(v.ammo, w - 28, h - 74, 15, TE.violet, FONT.head);
+    if (v.canSwap) p.textR(v.pad ? "RB swap weapon" : "Q swap weapon", w - 28, v.ammo ? h - 128 : h - 120, 13, TE.dim, FONT.body);
     if (v.items[1] > 0) p.textR(`ARCHIVE  ${v.items[0]} / ${v.items[1]}`, w - 28, h - 52, 14, TE.brassDim, FONT.head);
     if (v.crouched) p.textC("CROUCHED", w / 2, h - 34, 13, TE.dim, FONT.head);
     if (v.act && v.act.t < 5) {
@@ -156,8 +170,8 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     });
     if (v.showHelp) {
         const lines = v.pad
-            ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "B roll   R-STICK click crouch", "X reset, use, look closer", "Y / D-PAD lenses   BACK hide help"]
-            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "C or CTRL crouch   V roll", "E reset, use, look closer", "1-5 lenses   -/= aim assist   H hide help"];
+            ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "B roll   R-STICK click crouch", "X takedown, reset, use, look closer", "Y / D-PAD lenses   RB weapon   BACK help"]
+            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "C or CTRL crouch   V roll   Q weapon", "E takedown, reset, use, look closer", "1-5 lenses   -/= aim assist   H hide help"];
         const bx = 28, by = h - 40 - lines.length * 22;
         p.rect(bx - 12, by - 10, 360, lines.length * 22 + 18, TE.glass);
         lines.forEach((l, i) => p.text(l, bx, by + i * 22, 15, TE.dim, FONT.body));
@@ -168,12 +182,13 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
 
 export interface Results { time: number; resets: number; destroyed: number; deaths: number; items: string }
 
-export function drawComplete(p: Painter, w: number, h: number, r: Results, t: number): void {
+/** `card`: the line under the headline and what Enter does next. */
+export function drawComplete(p: Painter, w: number, h: number, r: Results, t: number, card = { line: "The hypercube is awake", next: "Press ENTER or A to play again" }): void {
     p.rect(0, 0, w, h, [0, 0, 0, Math.min(0.6, t * 0.3)]);
     if (t < 0.6) return;
     const size = Math.min(80, w / 12);
     p.textC("MISSION COMPLETE", w / 2, h * 0.24, size, TE.brass, FONT.head);
-    p.textC("The hypercube is awake", w / 2, h * 0.24 + size * 1.2, size * 0.32, TE.ink, FONT.body);
+    p.textC(card.line, w / 2, h * 0.24 + size * 1.2, size * 0.32, TE.ink, FONT.body);
     const rows: [string, string][] = [
         ["TIME", `${Math.floor(r.time / 60)}:${String(Math.floor(r.time % 60)).padStart(2, "0")}`],
         ["MINDS RESTORED", String(r.resets)],
@@ -188,5 +203,5 @@ export function drawComplete(p: Painter, w: number, h: number, r: Results, t: nu
     });
     const path = r.resets > r.destroyed ? "The Doctor will remember your mercy." : r.destroyed > r.resets ? "The scrap merchants will remember you." : "";
     if (path) p.textC(path, w / 2, top + rows.length * 40 + 20, 18, TE.cyan, FONT.body);
-    p.textC("Press ENTER or A to play again", w / 2, h * 0.86, 18, TE.dim, FONT.body);
+    p.textC(card.next, w / 2, h * 0.86, 18, TE.dim, FONT.body);
 }

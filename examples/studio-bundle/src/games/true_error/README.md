@@ -56,16 +56,33 @@ Many models can be 30 to 50 credits total from start to finish, so let's try to 
 
 ---
 
-## Build status (five acts, ~30 min)
+## Build status
+
+Two missions. Winning Mission 1 continues to Mission 2 (and saves its start); `te_act` `mission` / `stage` jump to either.
+
+### Mission 1: the Central Spire (five acts, ~30 min)
 
 - Run: `npm run true-error:assets` (once), `npm run build-true-error`, then `cargo run --release --bin example -- true-error` from `entropy-engine/`.
 - Assets: prompts in `assets/true_error/assets.json`, Meshy task trail in `meshy_tasks.json`, drivers `*.mjs` there; `tools/te_assets.py` turns the Meshy GLBs into `assets/true_error/game/` (geometry GLB + PNG maps).
 - Acts: 1 the Central Spire, 2 the Sky Bridge, 3 the Relay Tower (sim-beam chasm, biochip vault, dark archive, breaker room), 4 the Descent (stair shaft, lower bridge, reactor hold-out), 5 the Return (service lift, the Warden, waking the hypercube). Stages live in `te_mission.ts`.
 - Code: `te_level` (Act 1 layout, collision), `te_acts` (Acts 2-5), `te_mission` (stages, lines), `te_items` (24 procedural collectibles), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`/`te_expect`; `te_act` `stage` starts the mission at any stage).
 - Tests: `npm run test:true-error` (vitest) and `cargo test --release --test true_error_live` (BDD screenshots, `tests/features/true_error_live.feature`).
-- Keys: WASD, Shift runs, Space jumps, C / Ctrl crouch (toggle), V rolls (invulnerable mid-roll), E resets / uses / holds up a collectible (E keeps it, Esc puts it back), 1-5 lenses.
-- Gamepad: left stick moves (click to run), right stick looks, right stick click crouches, LT aims, RT fires, A jumps, B rolls, X resets / uses, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
+- Keys: WASD, Shift runs, Space jumps, C / Ctrl crouch (toggle), V rolls (invulnerable mid-roll), E takes down / resets / uses / holds up a collectible (E keeps it, Esc puts it back), Q swaps weapons, 1-5 lenses.
+- Gamepad: left stick moves (click to run), right stick looks, right stick click crouches, LT aims, RT fires, RB swaps weapons, A jumps, B rolls, X takes down / resets / uses, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
 - Saves: run (stage, checkpoint, keeps, machines) at checkpoints and stage changes; the title offers Continue (N / Y for a new game). The collectible archive persists across runs.
 - Meshy: Warden (rigged, shield and cannon glow drawn in code), crawler (static; Meshy rigs humanoids only, so its gait is procedural), archive rack, reactor, conduit; Ray's crouch and roll clips.
 - Aim assist (Armageddon's `ar_aim.ts`): friction, sweep pull and tracking onto hostile machines in sight. 50% by default, 0-50% with - and = (saved through `addon.IO.save`).
 - Props and the skyline are batched per spatial chunk (`chunkOf`) so the engine culls them per pass.
+
+### Mission 2: Noctis (six acts, not yet timed)
+
+The canyon floor under the capital (`te_noctis.ts` map, `te_m2.ts` story). The Doctor sees Ray off at his rover, then three places in any order: the Avatar Foundry (shut down the printing line; the racked shells wake), Gate Four (the sim lens shows the old queue to the terminal with the gate's last session), and the barge Patience (hold E on the winch to raise its mast while the hull empties). Then the Doctor's line goes dead and his camp is wrecked; his radio picks up survivors at the pumphouse (break three lure beacons), the Tithe offer to show Ray where the Doctor went, the quarry lift traps him in the Undercroft (the pit, the cable heart, the metro tunnel), and the hoist comes up into the Tithe's ambush on the south wall.
+
+- Map: a terrain heightfield (`Terrain` in `te_level.ts`: walked, raycast by marching, too steep past `maxSlope`, ignored from far below; meshed in 5 x 5 chunks by `terrainMesh`), canyon walls, mesas with ramps, a sunken canal with a few gentle banks, pads under the buildings, a plateau frame beyond with the capital's towers. Every location has two or three ways in.
+- New machines: the Hollow (rigged; sprints unwatched, nearly stops while Ray looks at it), the cherub (flying, circles and dives), the Tithe scavenger (rigged gunner; spared, not Reset), the lure beacon and the cable heart (break, never stunned; the heart's shell opens on a breath cycle).
+- New weapons (Q / RB): the scattergun (pellets, close), the gravity launcher (lobbed shell, implodes, drags machines in, crushes; shells from `grav-*` pickups).
+- Stealth: Noctis's patrols see in a cone ahead and hear a run within 11 m; crouched or behind, E is a takedown; unaware machines take double damage.
+- People: the Doctor, Mara, Oduya, Pip, Vesper and the Tithe (`Game.npcs`, placed per stage).
+- Meshy: 30 more models (prompts in `assets.json`, `add_m2.mjs`; rigs/clips `drive_anims_m2.mjs`); `harvest_pod`'s first prompt was declined by Meshy's safety check and redone.
+- Tests: `tests/true_error_noctis.test.ts` (map sanity, weapons, stealth, a full playthrough, saves) and `tests/features/true_error_noctis.feature` (played after the Spire's feature by `tests/true_error_live.rs`).
+- Frame time on a UHD 770 (release, 1600 x 900): 25-28 ms in Noctis, GPU-bound (JS 5-7.5 ms).

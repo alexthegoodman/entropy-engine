@@ -57,6 +57,37 @@ MODELS = {
     "archive_rack": (os.path.join(ROOT, "models", "archive_rack.glb"), 1024),
     "reactor": (os.path.join(ROOT, "models", "reactor.glb"), 1024),
     "conduit": (os.path.join(ROOT, "models", "conduit.glb"), 1024),
+    # Mission 2, Noctis.
+    "hollow": (os.path.join(ROOT, "models", "hollow_anim.glb"), 2048),
+    "scavenger": (os.path.join(ROOT, "models", "scavenger_anim.glb"), 2048),
+    "vesper": (os.path.join(ROOT, "models", "vesper_anim.glb"), 2048),
+    "survivor": (os.path.join(ROOT, "models", "survivor_anim.glb"), 2048),
+    "elder": (os.path.join(ROOT, "models", "elder_anim.glb"), 2048),
+    "pip": (os.path.join(ROOT, "models", "pip.glb"), 1024),
+    "cherub": (os.path.join(ROOT, "models", "cherub.glb"), 1024),
+    "scattergun": (os.path.join(ROOT, "models", "scattergun.glb"), 1024),
+    "gravity_launcher": (os.path.join(ROOT, "models", "gravity_launcher.glb"), 1024),
+    "doctor_buggy": (os.path.join(ROOT, "models", "doctor_buggy.glb"), 1024),
+    "crates": (os.path.join(ROOT, "models", "crates.glb"), 1024),
+    "radio_set": (os.path.join(ROOT, "models", "radio_set.glb"), 1024),
+    "assembly_arm": (os.path.join(ROOT, "models", "assembly_arm.glb"), 1024),
+    "body_printer": (os.path.join(ROOT, "models", "body_printer.glb"), 1024),
+    "conveyor": (os.path.join(ROOT, "models", "conveyor.glb"), 1024),
+    "vat": (os.path.join(ROOT, "models", "vat.glb"), 1024),
+    "upload_gate": (os.path.join(ROOT, "models", "upload_gate.glb"), 2048),
+    "kiosk": (os.path.join(ROOT, "models", "kiosk.glb"), 1024),
+    "statue": (os.path.join(ROOT, "models", "statue.glb"), 1024),
+    "barge_hull": (os.path.join(ROOT, "models", "barge_hull.glb"), 2048),
+    "signal_mast": (os.path.join(ROOT, "models", "signal_mast.glb"), 1024),
+    "lock_gate": (os.path.join(ROOT, "models", "lock_gate.glb"), 1024),
+    "water_tank": (os.path.join(ROOT, "models", "water_tank.glb"), 1024),
+    "harvest_pod": (os.path.join(ROOT, "models", "harvest_pod.glb"), 1024),
+    "lure_beacon": (os.path.join(ROOT, "models", "lure_beacon.glb"), 1024),
+    "metro_car": (os.path.join(ROOT, "models", "metro_car.glb"), 1024),
+    "cable_nest": (os.path.join(ROOT, "models", "cable_nest.glb"), 1024),
+    "rock_spire": (os.path.join(ROOT, "models", "rock_spire.glb"), 1024),
+    "wind_turbine": (os.path.join(ROOT, "models", "wind_turbine.glb"), 1024),
+    "shack": (os.path.join(ROOT, "models", "shack.glb"), 1024),
 }
 
 
@@ -158,6 +189,14 @@ CLIPS = {
     "doctor": ("doctor_rig.glb", [("doctor_walk.glb", ["walk"]), ("doctor_actions.glb", ["idle", "talk", "talk2"])]),
     "warden": ("warden_rig.glb", [("warden_walk.glb", ["walk"]), ("warden_run.glb", ["run"]),
                ("warden_actions.glb", ["combat_idle", "walk_shoot", "hit", "stun", "death", "throw"])]),
+    # Mission 2 (assets/true_error/drive_anims_m2.mjs ACTIONS).
+    "hollow": ("hollow_rig.glb", [("hollow_walk.glb", ["walk"]), ("hollow_run.glb", ["run"]),
+               ("hollow_actions.glb", ["idle", "attack", "scream", "stagger", "hit", "stun", "death"])]),
+    "scavenger": ("scavenger_rig.glb", [("scavenger_walk.glb", ["walk"]), ("scavenger_run.glb", ["run"]),
+                  ("scavenger_actions.glb", ["combat_idle", "walk_shoot", "hit", "stun", "death", "kneel"])]),
+    "vesper": ("vesper_rig.glb", [("vesper_walk.glb", ["walk"]), ("vesper_actions.glb", ["idle", "talk", "talk2", "combat_idle"])]),
+    "survivor": ("survivor_rig.glb", [("survivor_walk.glb", ["walk"]), ("survivor_actions.glb", ["idle", "talk", "talk2", "wave"])]),
+    "elder": ("elder_rig.glb", [("elder_walk.glb", ["walk"]), ("elder_actions.glb", ["idle", "talk"])]),
 }
 
 

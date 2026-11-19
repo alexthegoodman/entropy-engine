@@ -2,21 +2,24 @@
 // material layer and the baked sky openness in the vertex alpha), the plain far below, and the
 // hypercube - a real tesseract, its 16 corners turned in two 4D planes and projected to 3D.
 
-import { openness, MAT, type Box, type Ramp, type V3 } from "./te_level";
+import { openness as spireOpenness, MAT, type Box, type Ramp, type Terrain, type V3 } from "./te_level";
 
 export interface MeshData { vertexData: Float32Array; indexData: Uint32Array }
 
 /** Meters one repeat of each material covers (te_level.ts MAT order). */
 const TILE = [2.4, 2.4, 2, 2, 3, 2.4, 1.5, 1.8, 3];
 
+type Open = (x: number, y: number, z: number) => number;
+
 class Builder {
     v: number[] = [];
     i: number[] = [];
+    constructor(readonly openness: Open = spireOpenness) {}
     quad(p: V3[], n: V3, uv: [number, number][], tint: V3, mat: number, openOffset = 0.3): void {
         const base = this.v.length / 12;
         for (let k = 0; k < 4; k++) {
             const q = p[k];
-            const o = openness(q[0] + n[0] * openOffset, q[1] + n[1] * openOffset + 0.2, q[2] + n[2] * openOffset);
+            const o = this.openness(q[0] + n[0] * openOffset, q[1] + n[1] * openOffset + 0.2, q[2] + n[2] * openOffset);
             this.v.push(q[0], q[1], q[2], n[0], n[1], n[2], uv[k][0], uv[k][1], tint[0], tint[1], tint[2], mat + Math.min(0.99, o * 0.99));
         }
         this.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -56,10 +59,61 @@ function addRamp(b: Builder, r: Ramp): void {
     b.quad([bot[3], top[3], top[0], bot[0]], [0, 0, -1], [[0, 0], [0, 0.2], [1, 0.2], [1, 0]], tint, r.mat);
 }
 
-export function archMesh(boxes: Box[], ramps: Ramp[]): MeshData {
-    const b = new Builder();
+export function archMesh(boxes: Box[], ramps: Ramp[], open: Open = spireOpenness): MeshData {
+    const b = new Builder(open);
     for (const box of boxes) if (box.draw) addBox(b, box);
     for (const r of ramps) addRamp(b, r);
+    return b.done();
+}
+
+/**
+ * One square of the terrain (x0..x0+size, z0..z0+size), smooth-shaded: a vertex per grid point
+ * with its normal from the heightfield, the material per cell (each cell its own four vertices,
+ * since a layer can't blend across a triangle). UVs in meters / tile, as the boxes have.
+ */
+export function terrainMesh(T: Terrain, x0: number, z0: number, size: number, open: Open): MeshData {
+    const v: number[] = [], idx: number[] = [];
+    const c = T.cell, n = Math.round(size / c);
+    const e = c * 0.5;
+    const normal = (x: number, z: number): V3 => {
+        const nx = T.height(x - e, z) - T.height(x + e, z), nz = T.height(x, z - e) - T.height(x, z + e);
+        const l = Math.hypot(nx, 2 * e, nz);
+        return [nx / l, (2 * e) / l, nz / l];
+    };
+    const H: number[] = [], N: V3[] = [];
+    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+        const x = x0 + i * c, z = z0 + j * c;
+        H.push(T.height(x, z)); N.push(normal(x, z));
+    }
+    const at = (i: number, j: number) => j * (n + 1) + i;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const xs = x0 + i * c, zs = z0 + j * c;
+        if (T.holes?.some(o => xs < o.x1 && xs + c > o.x0 && zs < o.z1 && zs + c > o.z0)) continue;
+        const h = [H[at(i, j)], H[at(i + 1, j)], H[at(i + 1, j + 1)], H[at(i, j + 1)]];
+        const slope = Math.max(Math.abs(h[0] - h[2]), Math.abs(h[1] - h[3])) / (c * Math.SQRT2);
+        const mid = (h[0] + h[1] + h[2] + h[3]) / 4;
+        const mat = T.mat(xs + e, zs + e, mid, slope);
+        const t = TILE[mat];
+        const shade = 0.88 + (Math.sin(xs * 0.11) * Math.sin(zs * 0.13)) * 0.06;
+        const base = v.length / 12;
+        const corners: [number, number, number][] = [[i, j, 0], [i + 1, j, 1], [i + 1, j + 1, 2], [i, j + 1, 3]];
+        const steep = slope > 0.75;
+        for (const [ci, cj, k] of corners) {
+            const x = x0 + ci * c, z = z0 + cj * c, y = h[k], nn = N[at(ci, cj)];
+            const o = open(x, y + 0.5, z);
+            const u = steep ? (x * Math.abs(nn[2]) - z * Math.abs(nn[0]) + x * 0.3) / t : x / t, w = steep ? -y / t : z / t;
+            v.push(x, y, z, nn[0], nn[1], nn[2], u, w, shade, shade * 0.97, shade * 0.95, mat + Math.min(0.99, o * 0.99));
+        }
+        idx.push(base, base + 3, base + 2, base, base + 2, base + 1);
+    }
+    return { vertexData: new Float32Array(v), indexData: new Uint32Array(idx) };
+}
+
+/** Ground at y all round a square hole of `inner` (the plateau beyond Noctis's terrain), out to `outer`. */
+export function frameMesh(y: number, inner: number, outer: number): MeshData {
+    const b = new Builder(() => 1);
+    const q = (x0: number, z0: number, x1: number, z1: number) => b.quad([[x0, y, z0], [x0, y, z1], [x1, y, z1], [x1, y, z0]], [0, 1, 0], [[0, 0], [0, 1], [1, 1], [1, 0]], [0.95, 0.62, 0.45], MAT.soil, 0);
+    q(-outer, inner, outer, outer); q(-outer, -outer, outer, -inner); q(-outer, -inner, -inner, inner); q(inner, -inner, outer, inner);
     return b.done();
 }
 

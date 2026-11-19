@@ -223,7 +223,8 @@ describe("True Error level 1", () => {
 
     it("every collectible in the level is defined, reachable to look at, and on something", () => {
         const g = new Game();
-        expect(g.level.items.length).toBe(COLLECTIBLES.length);
+        // Between them, the two missions place every collectible once.
+        expect(g.level.items.length + new Game(undefined, 2).level.items.length).toBe(COLLECTIBLES.length);
         for (const it of g.level.items) {
             expect(COLLECTIBLE.has(it.id), it.id).toBe(true);
             const ground = g.world.groundAt(it.pos[0], it.pos[2], 0.05, it.pos[1] + 0.05);

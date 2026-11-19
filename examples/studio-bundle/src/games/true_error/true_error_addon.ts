@@ -1,21 +1,24 @@
-// TRUE ERROR - level 1, the Central Spire.
+// TRUE ERROR - Mission 1, the Central Spire, and Mission 2, Noctis.
 //
 // A third-person, over-the-shoulder game on a ruined, terraformed Mars (src/games/true_error/README.md).
 // Ray, the first Reborn, wakes in the Secret Doctor's lab and climbs the capital's torn spire to the
 // hypercube, finds it asleep, and goes out across the city to wake it (te_acts.ts, te_mission.ts).
+// Then down to the canyon floor under the capital (te_noctis.ts, te_m2.ts), where the Doctor is taken.
 // Models come from Meshy (assets/true_error, tools/te_assets.py); the spire itself is built in code
 // (te_level.ts), and the collectibles are built from shapes (te_items.ts). This file wires the modules to the engine: input (pointer-locked mouse look, or a gamepad),
 // the shoulder camera and the cutscenes, the game's fixed step (te_game.ts), the characters' skinning
 // (te_skin.ts), drawing (te_render.ts), sound, the HUD, and the MCP tools tests/true_error_live.rs drives.
 
-import { Game, NO_INPUT, LINES, ECHOES, ENEMY, RESET_REACH, ROLL, stageSave, type PlayerInput, type GameEvent, type Enemy, type RunSave } from "./te_game";
+import { Game, NO_INPUT, LINES, ECHOES, ENEMY, RESET_REACH, ROLL, GRAVITY, stageSave, type PlayerInput, type GameEvent, type Enemy, type RunSave, type Weapon, type Npc } from "./te_game";
 import { START, DOCTOR_POS, PEDESTAL, HYPERCUBE_Y, CITY_FLOOR, LIFT, hash, type V3, type Prop } from "./te_level";
 import { REACTOR, HOLD_SECONDS, simBoxes } from "./te_acts";
-import { ACTS, STAGES, stageIndex, type StageId } from "./te_mission";
+import { STAGES, stageIndex, stageOf, actName, MISSION_NAMES, type StageId } from "./te_mission";
+import { CAMP, QUEUE, QLIFT, HOIST, OVERLOOK, PLATEAU_Y } from "./te_noctis";
+import { m2Tasks } from "./te_m2";
 import { COLLECTIBLE, COLLECTIBLES, partMatrix, shapeKey, tumble, type Collectible } from "./te_items";
 import { Renderer, SkinnedMesh, type ModelAsset, type WorldLook } from "./te_render";
 import { ARCH, GLOW, LENS } from "./te_shader";
-import { archMesh, groundMesh, tesseract, EDGES, along, placeModel, rifleFrame } from "./te_scene";
+import { archMesh, groundMesh, frameMesh, terrainMesh, tesseract, EDGES, along, placeModel, rifleFrame } from "./te_scene";
 import { Skeleton, Animator, skinVertices, axisAngle } from "./te_skin";
 import { Sound } from "./te_audio";
 import { drawHud, drawTitle, drawSubtitle, drawComplete, drawInspect, LENS_NAMES, TE, type HudView } from "./te_hud";
@@ -29,7 +32,7 @@ import { StickLook, nearestTarget, frictionScale, assistPull, pullMargin, ASSIST
 const addon = Entropy.AddonAtom.register({
     name: "True Error",
     version: "0.1.0",
-    description: "Level 1 of True Error: the first Reborn climbs the Central Spire of a ruined Mars, crosses to the Relay Tower and back, and wakes the hypercube.",
+    description: "True Error: the first Reborn climbs the Central Spire of a ruined Mars and wakes the hypercube, then goes down to the canyon floor of Noctis, where the Doctor is taken.",
     author: ["Entropy Team", "Claude"],
     capabilities: { graphics: true, ui: true },
 });
@@ -106,7 +109,7 @@ function keyDown(k: string): void {
     if (mode === "title" && (k === "Enter" || k === " ")) begin();
     else if (mode === "title" && (k === "n" || k === "N" || k === "NewGame")) { savedRun = null; saveAll(); begin(); }
     else if ((mode === "intro" || mode === "outro" || mode === "cutscene") && k === "Escape") skipCinematic();
-    else if (mode === "complete" && k === "Enter") restart();
+    else if (mode === "complete" && k === "Enter") afterComplete();
     else if (mode === "inspect") {
         if (k === "e" || k === "E") keepItem();
         else if (k === "Escape" || k === "q" || k === "Q") closeInspect();
@@ -136,6 +139,7 @@ function padKey(button: string): string | null {
         case "DPadLeft": return "PrevLens";
         case "DPadUp": return "1";
         case "Select": return "h";
+        case "RightTrigger": return mode === "play" ? "q" : null;
         default: return null;
     }
 }
@@ -157,7 +161,7 @@ function setupInput(): void {
     Entropy.Input.onMouseDown((button: number) => {
         if (Entropy.Input.isPointerOverUI?.() && mode !== "play") { /* the UI is drawn, not interactive */ }
         if (mode === "title" && button === 0) { begin(); return; }
-        if (mode === "complete" && button === 0) { restart(); return; }
+        if (mode === "complete" && button === 0) { afterComplete(); return; }
         if (mode === "play" && lockSupported && !locked && button === 0 && realTime - lockAskedAt > 1) {
             lockAskedAt = realTime;
             Entropy.Input.setPointerLock?.(true);
@@ -270,13 +274,14 @@ function playerInput(): PlayerInput {
     if (run && crouchToggle && Math.hypot(mx, my) > 0.2) crouchToggle = false;
     // E resets a downed machine or works the thing in reach; failing those, it picks up what Ray looks at.
     let use = tapped("e");
-    if (use && !game.resettable() && !game.usable()) {
+    if (use && !game.takedownTarget() && !game.resettable() && !game.usable()) {
         const it = game.lookItem(cam.pos, lookDir());
         if (it) { openInspect(it.id); use = false; }
     }
     return {
         move: [Math.max(-1, Math.min(1, mx)), Math.max(-1, Math.min(1, my))], run, jump: tapped(" "),
         fire: mouseFire || padFire(), aim: buttons.has(1) || padAim(), use, crouch: crouchToggle, dodge: tapped("v"),
+        swap: tapped("q"), useHeld: key("e") || pad.held.has("West"),
         yaw: lookYaw, pitch: lookPitch, target: crosshair().point,
     };
 }
@@ -346,6 +351,21 @@ const DORMANT: Shot[] = [
     { from: { pos: [PEDESTAL[0] + 6, 15.2, PEDESTAL[2] - 6], target: [PEDESTAL[0], HYPERCUBE_Y - 0.8, PEDESTAL[2]], fov: 46 }, to: { pos: [PEDESTAL[0] + 3.5, 15.8, PEDESTAL[2] - 5.5], target: [PEDESTAL[0], HYPERCUBE_Y - 0.4, PEDESTAL[2]], fov: 40 }, seconds: 4.5 },
     { from: { pos: [PEDESTAL[0] - 1, 17, PEDESTAL[2] - 9], target: [40, 15, 0], fov: 50 }, to: { pos: [PEDESTAL[0] + 2, 17.5, PEDESTAL[2] - 8], target: [90, 18, 0], fov: 44 }, seconds: 5 },
 ];
+/** Noctis: the canyon from the north rim, down over the floor to the camp, the Doctor and Ray. */
+const INTRO2: Shot[] = [
+    { from: { pos: [0, 95, 235], target: [0, 0, 20], fov: 50 }, to: { pos: [-50, 72, 190], target: [-10, 0, 40], fov: 50 }, seconds: 4.5 },
+    { from: { pos: [40, 26, 70], target: [0, 4, 150], fov: 48 }, to: { pos: [18, 7, 124], target: [0, 1.5, 147], fov: 46 }, seconds: 5 },
+    { from: { pos: [3.4, 1.7, 145.4], target: [-1.2, 1.45, 143.6], fov: 42 }, to: { pos: [3.0, 1.75, 145.0], target: [-1.2, 1.5, 143.4], fov: 38 }, seconds: 5 },
+    { from: { pos: [-1.0, 1.95, 151.4], target: [-1, 1.45, 141], fov: 44 }, to: { pos: [-0.6, 1.9, 151], target: [-1, 1.5, 141], fov: 40 }, seconds: 5.5 },
+    { from: { pos: [-6.5, 2.4, 146.5], target: [0, 1.4, 143], fov: 50 }, to: { pos: [-6, 2.2, 145.5], target: [0, 1.4, 143.5], fov: 48 }, seconds: 7 },
+    { from: { pos: [0.5, 3, 152], target: [0, 2, 100], fov: 55 }, to: { pos: [0.5, 3.6, 149], target: [0, 1, 90], fov: 58 }, seconds: 4.5 },
+];
+/** Out of the Undercroft: Ray at the overlook, the canyon, the capital on the plateau. */
+const OUTRO2: Shot[] = [
+    { from: { pos: [OVERLOOK[0] + 2.6, 31.9, OVERLOOK[2] - 3.2], target: [OVERLOOK[0], 31.4, OVERLOOK[2]], fov: 40 }, to: { pos: [OVERLOOK[0] + 2, 32.1, OVERLOOK[2] - 2.6], target: [OVERLOOK[0], 31.6, OVERLOOK[2]], fov: 36 }, seconds: 4 },
+    { from: { pos: [OVERLOOK[0] - 6, 34, OVERLOOK[2] + 4], target: [100, 18, -100], fov: 50 }, to: { pos: [OVERLOOK[0] - 14, 40, OVERLOOK[2] + 10], target: [0, 40, 200], fov: 54 }, seconds: 4.5 },
+    { from: { pos: [120, 62, -150], target: [0, 90, 330], fov: 52 }, to: { pos: [100, 74, -128], target: [0, 120, 330], fov: 56 }, seconds: 4.5 },
+];
 let shots: Shot[] = [];
 let shotIndex = 0, shotT = 0;
 const ease = (t: number) => t * t * (3 - 2 * t);
@@ -385,14 +405,24 @@ function setMode(m: Mode): void {
     if (m !== "play" && m !== "inspect") { Entropy.Input.setPointerLock?.(false); locked = false; }
     if (m !== "play") buttons.clear();
 }
-/** From the title: the saved run if there is one, else a new game with its intro. */
+/** From the title: the saved run if there is one (a fresh Noctis plays its intro), else a new game. */
 function begin(): void {
+    if (savedRun && savedRun.stage === "embark" && !savedRun.flags.length) { startMission(2); return; }
     if (savedRun) { continueRun(savedRun); return; }
-    newGame();
+    startMission(1);
+}
+/** A mission from its start, with its intro. */
+function startMission(mission: number): void {
+    newGame(mission);
     setMode("intro");
-    shots = INTRO; shotIndex = 0; shotT = 0;
+    shots = mission === 2 ? INTRO2 : INTRO; shotIndex = 0; shotT = 0;
     lineQueue = []; lineNow = null;
-    queueLines("intro");
+    queueLines(mission === 2 ? "intro2" : "intro");
+}
+/** Enter on the complete card: Mission 1 goes on down to Noctis; Noctis starts over. */
+function afterComplete(): void {
+    if (game.mission === 1) { savedRun = null; saveAll(); startMission(2); }
+    else restart();
 }
 function skipCinematic(): void {
     shotIndex = shots.length;
@@ -401,28 +431,30 @@ function skipCinematic(): void {
 function startPlay(): void {
     setMode("play");
     lookYaw = game.player.yaw; lookPitch = -0.12;
-    actCard = { n: game.act, name: ACTS[game.act], t: 0 };
+    actCard = { n: game.act, name: actName(game.mission, game.act), t: 0 };
 }
-function newGame(): void {
+function newGame(mission = 1): void {
     for (const c of characters.values()) c.mesh.show(false);
-    game = new Game(propHalfExtents);
-    lens = 0; crouchToggle = false; inspecting = null;
+    game = new Game(propHalfExtents, mission);
+    lens = 0; crouchToggle = false; inspecting = null; stillCam = null;
+    toasts.length = 0; sparks.length = 0; flashes.length = 0; hurtT = 0;
+    buildMapMeshes();
     setupCharacters();
 }
 function continueRun(run: RunSave): void {
-    newGame();
+    newGame(stageOf(run.stage).mission);
     game.load(run);
     lineQueue = []; lineNow = null;
     startPlay();
 }
 function restart(): void {
     savedRun = null; saveAll();
-    newGame();
     begin();
 }
-/** Keeps the run where it stands (checkpoints, stages, keeps) and the archive, with the settings. */
+/** Keeps the run where it stands (checkpoints, stages, keeps) and the archive, with the settings. A won
+ * Spire saves the start of Noctis. */
 function saveRun(): void {
-    if (game.won) savedRun = null; else savedRun = game.save();
+    if (game.won) savedRun = game.mission === 1 ? stageSave("embark") : null; else savedRun = game.save();
     saveAll();
 }
 
@@ -455,13 +487,22 @@ class Character {
      * Poses, and skins and uploads when the figure is in view (or near enough to cast a shadow into
      * it); returns the model matrix to draw with. Off screen the pose still advances, unskinned.
      */
-    pose(dt: number, pos: V3, yaw: number): number[] {
+    private skinnedAt = -99;
+    /**
+     * `frozen`: holding still (the Foundry's racked shells), skinned once and left. Far figures are
+     * skinned every second or third frame; the pose itself always advances.
+     */
+    pose(dt: number, pos: V3, yaw: number, frozen = false): number[] {
         const t0 = Date.now();
         this.anim.update(dt);
         const c: V3 = [pos[0], pos[1] + 1, pos[2]];
-        if (inView(c, 1.6) || Math.hypot(c[0] - cam.pos[0], c[1] - cam.pos[1], c[2] - cam.pos[2]) < 8) {
+        const d = Math.hypot(c[0] - cam.pos[0], c[1] - cam.pos[1], c[2] - cam.pos[2]);
+        const every = d > 28 ? 3 : d > 14 ? 2 : 1;
+        const due = frozen ? this.skinnedAt < 0 : frames - this.skinnedAt >= every;
+        if (due && (inView(c, 1.6) || d < 8)) {
             skinVertices(this.asset.glb, this.sk, this.mesh.verts);
             this.mesh.upload();
+            this.skinnedAt = frames;
         }
         skinMs += Date.now() - t0;
         return placeModel(pos, yaw, 1, 0, this.asset.floor, 0);
@@ -517,7 +558,7 @@ function handle(ev: GameEvent): void {
     switch (ev.kind) {
         case "shot":
             if (!ev.enemy) shotCount++;
-            sound.photon(ev.at, ev.enemy);
+            if (!ev.enemy && game.player.weapon === "scatter") sound.scatter(ev.at); else sound.photon(ev.at, ev.enemy);
             flashes.push({ pos: ev.at, color: ev.enemy ? [1, 0.25, 0.15] : [0.4, 0.8, 1], intensity: 2.5, range: 5, age: 0, life: 0.08 });
             break;
         case "hit": burst(ev.at, ev.target === "world" ? [1, 0.75, 0.4, 2] : [0.5, 0.85, 1, 3], ev.target === "world" ? 6 : 10, 3.5, 0.35); sound.hit(ev.at, ev.target !== "world"); break;
@@ -550,8 +591,8 @@ function handle(ev: GameEvent): void {
             sound.explode(ev.at);
             break;
         case "stage":
-            if (ev.newAct) actCard = { n: ev.act, name: ACTS[ev.act], t: 0 };
-            if (ev.id === "ride") sound.door();
+            if (ev.newAct) actCard = { n: ev.act, name: actName(game.mission, ev.act), t: 0 };
+            if (ev.id === "ride" || ev.id === "descend" || ev.id === "ascent") sound.door();
             saveRun();
             break;
         case "dormant":
@@ -564,6 +605,10 @@ function handle(ev: GameEvent): void {
             if (ev.id.startsWith("conduit")) sound.breaker(ev.ok);
             else if (ev.id === "biochip") { sound.reset(game.player.pos); toast("BIOCHIP INSTALLED", TE.violet); }
             else if (ev.id === "console") { sound.surge(); toast("REACTOR SPINNING UP", TE.cyan); }
+            else if (ev.id === "winch") sound.step(game.player.pos, true);
+            else if (ev.id === "radio") sound.radio();
+            else if (ev.id === "printer" || ev.id.startsWith("term-")) sound.breaker(ev.ok);
+            else if (ev.id === "locker" || ev.id === "doctor" || ev.id === "mara") sound.lens();
             else sound.door();
             if (ev.ok && ev.id.startsWith("conduit")) toast("CONDUIT LIVE", TE.cyan);
             break;
@@ -588,11 +633,27 @@ function handle(ev: GameEvent): void {
         case "step": sound.step(ev.at); break;
         case "goal":
             setMode("outro");
-            shots = OUTRO; shotIndex = 0; shotT = 0;
+            shots = game.mission === 2 ? OUTRO2 : OUTRO; shotIndex = 0; shotT = 0;
             lineQueue = []; lineNow = null;
-            queueLines("outro");
+            queueLines(game.mission === 2 ? "outro2" : "outro");
             sound.hypercube();
             break;
+        case "takedown": sound.takedown(ev.at); toast("TAKEDOWN", TE.cyan); break;
+        case "weapon": sound.lens(); toast(WEAPON_MODEL[ev.weapon].name, TE.brass); break;
+        case "grenade": sound.launch(ev.at); break;
+        case "well": sound.well(ev.at); break;
+        case "crush":
+            burst(ev.at, [0.7, 0.3, 1, 4], 40, 6, 0.6, 0.08);
+            flashes.push({ pos: ev.at, color: [0.7, 0.35, 1], intensity: 9, range: 14, age: 0, life: 0.4 });
+            sound.crush(ev.at);
+            break;
+        case "objective":
+            sound.surge();
+            toast(ev.id === "foundry" ? "THE LINE IS DOWN" : ev.id === "gate" ? "THE GATE'S LAST SESSION" : "THE MAST IS UP", TE.cyan);
+            saveRun();
+            break;
+        case "wake": burst([ev.at[0], ev.at[1] + 1.2, ev.at[2]], [1, 0.3, 0.2, 3], 8, 2, 0.4); break;
+        case "toast": toast(ev.text, TE.brass); break;
     }
 }
 
@@ -639,7 +700,7 @@ function frame(dt: number, ui = true): void {
         const c = cinematicCam(dt);
         if (c) cam = c;
         else if (mode === "intro") startPlay();
-        else if (mode === "cutscene") { setMode("play"); lookYaw = Math.PI / 2; lookPitch = -0.05; actCard = { n: game.act, name: ACTS[game.act], t: 0 }; }
+        else if (mode === "cutscene") { setMode("play"); lookYaw = Math.PI / 2; lookPitch = -0.05; actCard = { n: game.act, name: actName(game.mission, game.act), t: 0 }; }
         else { setMode("complete"); saveRun(); }
     }
     if (inspecting) inspecting.t += dt;
@@ -663,6 +724,7 @@ function draw(dt: number, ui = true): void {
     // The spire and the plain, cached once.
     r.put(r.statics, levelKey, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0]);
     r.put(r.statics, groundKey, IDENTITY, [1, 1, 1, 1], [ARCH.ground, 0, 0, 0]);
+    for (const c of terrainChunks) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0], [0, 0, 0, 0], c.bounds);
     r.put(r.statics, "sky", IDENTITY, [1, 1, 1, 1], [ARCH.sky, 0, 0, 0]);
 
     // Props (and the skyline).
@@ -683,7 +745,7 @@ function draw(dt: number, ui = true): void {
     drawEnemies(dt);
     perf.skin += (skinMs - perf.skin) * 0.05;
     drawEffects(dt);
-    drawHypercube(t);
+    if (game.mission === 1) drawHypercube(t);
     if (mode === "inspect" && inspecting) drawHeld(inspecting);
 
     r.statics.flush(); r.props.flush(); r.glows.flush();
@@ -728,10 +790,16 @@ function drawProp(p: Prop, skyline = false): void {
     if (!a) return;
     const height = a.glb.max[1] - a.glb.min[1];
     const s = skyline && p.model !== "bridge" ? p.size / height : p.size / a.extent;
-    const pos: V3 = [p.pos[0], p.pos[1] - (p.sink ?? 0), p.pos[2]];
-    const m = placeModel(pos, p.yaw, s, a.center[0], a.floor, a.center[1]);
-    const emissive = p.model === "dark_emitter" ? 0.4 : p.model === "boiler" ? 0.12 : p.model === "reactor" ? 0.08 + reactorPower() * 0.5 : p.model === "archive_rack" ? 0.18 : 0;
-    const heat = p.heat ?? (p.model === "boiler" ? 0.8 : p.model === "hovercar" ? 0.6 : p.model === "reactor" ? 0.3 + reactorPower() * 0.6 : 0.1);
+    // The mast telescopes up out of its base as it's cranked; the Doctor's rover lies on its side once he's taken.
+    const sink = (p.sink ?? 0) + (p.model === "signal_mast" ? (1 - game.crank) * p.size * 0.62 : 0);
+    const flipped = p.model === "doctor_buggy" && game.flags.has("doctor-gone");
+    const pos: V3 = [p.pos[0], p.pos[1] - sink + (flipped ? 0.4 : 0), p.pos[2]];
+    const m = placeModel(pos, p.yaw, s, a.center[0], a.floor, a.center[1], 0, flipped ? 1.45 : 0);
+    const emissive = p.model === "dark_emitter" ? 0.4 : p.model === "boiler" ? 0.12 : p.model === "reactor" ? 0.08 + reactorPower() * 0.5 : p.model === "archive_rack" ? 0.18
+        : p.model === "body_printer" ? (game.flags.has("foundry") ? 0.02 : 0.3) : p.model === "upload_gate" ? 0.15 : p.model === "harvest_pod" ? 0.12 : p.model === "radio_set" ? 0.1 : 0;
+    // The heat lens: the pods are warm (someone's in them), the printer and the vats run hot.
+    const heat = p.heat ?? (p.model === "boiler" ? 0.8 : p.model === "hovercar" ? 0.6 : p.model === "reactor" ? 0.3 + reactorPower() * 0.6
+        : p.model === "harvest_pod" ? 0.75 : p.model === "body_printer" ? (game.flags.has("foundry") ? 0.2 : 0.7) : p.model === "vat" ? 0.45 : p.model === "doctor_buggy" ? 0.4 : 0.1);
     const open = skyline ? 1 : game.open(p.pos);
     // The box's center (x/z recentered, the floor lifted to pos) and half its diagonal: tight
     // enough that a far tower stays out of the near shadow cascades.
@@ -748,6 +816,8 @@ function drawProp(p: Prop, skyline = false): void {
  */
 function chunkOf(p: V3, skyline: boolean): string {
     if (skyline) return `t${Math.round(p[0])},${Math.round(p[2])}`;
+    // Noctis is wide open: 48 m cells, the Undercroft apart from the ground above it.
+    if (game.mission === 2) return `g${Math.floor(p[0] / 48)},${Math.floor(p[2] / 48)}${p[1] < -20 ? "u" : ""}`;
     return `f${Math.round(p[1] / 7)}${p[0] < 0 ? "w" : p[0] < 60 ? "e" : "r"}${p[2] < 0 ? "n" : "s"}`;
 }
 
@@ -773,13 +843,16 @@ function drawBuilt(t: number): void {
         const s = game.door(d.id);
         if (s) boxSolid(s.min, s.max, d.mat, d.tint, 0.6, game.open(s.min));
     }
-    // The lift: a cage of iron on a riveted floor.
-    const L = LIFT, y = game.liftY, x0 = L.x0 + 0.15, x1 = L.x1 - 0.2, z0 = L.z0 + 0.25, z1 = L.z1 - 0.2;
-    boxSolid([x0, y - 0.3, z0], [x1, y, z1], MAT.metal, [0.5, 0.45, 0.38], 0.7, 0.2);
-    for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as [number, number][]) boxSolid([x - 0.07, y, z - 0.07], [x + 0.07, y + 3.1, z + 0.07], MAT.metal, [0.62, 0.5, 0.32], 0.9, 0.2);
-    boxSolid([x0, y + 3.1, z0], [x1, y + 3.25, z1], MAT.metal, [0.45, 0.4, 0.35], 0.7, 0.2);
-    boxSolid([x0, y + 0.95, z1 - 0.05], [x1, y + 1.02, z1], MAT.metal, [0.62, 0.5, 0.32], 0.9, 0.2);
-    r.glowAt(GLOW.dot, placed([(x0 + x1) / 2, y + 3, (z0 + z1) / 2], 0.35), [1, 0.65, 0.3, game.stage === "ride" ? 1.4 : 0.6]);
+    // The lifts: cages of iron on riveted floors.
+    const cage = (x0: number, x1: number, z0: number, z1: number, y: number, riding: boolean) => {
+        boxSolid([x0, y - 0.3, z0], [x1, y, z1], MAT.metal, [0.5, 0.45, 0.38], 0.7, 0.2);
+        for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as [number, number][]) boxSolid([x - 0.07, y, z - 0.07], [x + 0.07, y + 3.1, z + 0.07], MAT.metal, [0.62, 0.5, 0.32], 0.9, 0.2);
+        boxSolid([x0, y + 3.1, z0], [x1, y + 3.25, z1], MAT.metal, [0.45, 0.4, 0.35], 0.7, 0.2);
+        boxSolid([x0, y + 0.95, z1 - 0.05], [x1, y + 1.02, z1], MAT.metal, [0.62, 0.5, 0.32], 0.9, 0.2);
+        r.glowAt(GLOW.dot, placed([(x0 + x1) / 2, y + 3, (z0 + z1) / 2], 0.35), [1, 0.65, 0.3, riding ? 1.4 : 0.6]);
+    };
+    if (game.mission === 1) { const L = LIFT; cage(L.x0 + 0.15, L.x1 - 0.2, L.z0 + 0.25, L.z1 - 0.2, game.liftY, game.stage === "ride"); }
+    for (const L of [QLIFT, HOIST]) { const c = game.cages.get(L.id); if (c) cage(L.x0 + 0.1, L.x1 - 0.1, L.z0 + 0.1, L.z1 - 0.1, c.y, game.rideLift === L.id); }
     // The old world's floor across the chasm: only the simulation lens shows it.
     for (const b of simBoxes(game.level)) {
         const c: V3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
@@ -796,7 +869,7 @@ function drawBuilt(t: number): void {
     }
     // Collectibles: on their tables, a glint now and then; the simulation lens outlines them.
     for (const it of game.level.items) {
-        if (game.collected.has(it.id) || inspecting?.id === it.id) continue;
+        if (game.collected.has(it.id) || inspecting?.id === it.id || (it.after && !game.reached(it.after as StageId))) continue;
         if (!inView(it.pos, 1) || Math.hypot(it.pos[0] - cam.pos[0], it.pos[1] - cam.pos[1], it.pos[2] - cam.pos[2]) > 60) continue;
         const c = COLLECTIBLE.get(it.id);
         if (!c) continue;
@@ -842,7 +915,7 @@ function drawCharacters(dt: number): void {
         let yaw = p.yaw;
         const has = (n: string) => ray.sk.clipIndex(n) >= 0;
         const moving = p.speed > 0.4;
-        if (mode === "intro" || mode === "title") { yaw = RAY_TO_DOCTOR; animFor(ray, "idle"); }
+        if (mode === "intro" || mode === "title") { yaw = game.mission === 2 ? Math.atan2(CAMP.doctor[0] - p.pos[0], CAMP.doctor[2] - p.pos[2]) : RAY_TO_DOCTOR; animFor(ray, "idle"); }
         else if (!p.alive) animFor(ray, "death", { loop: false, fade: 0.15 });
         else if (p.rollT >= 0) {
             const low = crouchToggle && has("roll_crouch");
@@ -872,26 +945,29 @@ function drawCharacters(dt: number): void {
         ray.mesh.show(show);
         const m = ray.pose(dt, p.pos, yaw);
         r.writeRecord(ray.mesh.buffer, m, [1, 1, 1, 1], [0, ray.asset.flags, 0, 0.75], [0, p.hurtT > 0 ? 0.12 : 0, game.player.darkT * 0.6, charOpen(p.pos)]);
-        // The rifle, in the right hand, pointing where Ray aims (lowered otherwise; stowed mid-roll).
-        const rifle = r.models.get("rifle");
+        // The weapon in hand, pointing where Ray aims (lowered otherwise; stowed mid-roll).
+        const held = WEAPON_MODEL[p.weapon];
+        const rifle = r.models.get(held.model);
         if (rifle && show && p.alive && p.rollT < 0 && mode !== "intro" && mode !== "title") {
             const hand = ray.bone("RightHand", m);
             const aimDir = p.aiming ? lookDir() : (() => { const a = p.yaw, d = -0.55; return [Math.sin(a) * Math.cos(d), Math.sin(d), Math.cos(a) * Math.cos(d)] as V3; })();
             const at: V3 = [hand[0] + aimDir[0] * 0.22, hand[1] + aimDir[1] * 0.22 + 0.04, hand[2] + aimDir[2] * 0.22];
-            const s = 0.95 / rifle.extent;
-            const frameM = rifleFrame(at, aimDir, s);
+            const s = held.length / rifle.extent;
+            const frameM = rifleFrame(at, held.flip ? [-aimDir[0], -aimDir[1], -aimDir[2]] : aimDir, s);
             // Recenter the model on its bounds.
             const cx = rifle.center[0], cy = (rifle.glb.min[1] + rifle.glb.max[1]) / 2, cz = rifle.center[1];
             frameM[12] -= frameM[0] * cx + frameM[4] * cy + frameM[8] * cz;
             frameM[13] -= frameM[1] * cx + frameM[5] * cy + frameM[9] * cz;
             frameM[14] -= frameM[2] * cx + frameM[6] * cy + frameM[10] * cz;
-            r.put(r.props, "model:rifle", frameM, [1, 1, 1, 1], [0, rifle.flags, p.firing > 0.15 ? 0.6 : 0.05, 0.5], [0, 0, 0, game.open(p.pos)]);
-            if (p.firing > 0.17) r.glowAt(GLOW.dot, placed(game.muzzle(), 0.35), [0.5, 0.85, 1, 1.2]);
+            r.put(r.props, `model:${held.model}`, frameM, [1, 1, 1, 1], [0, rifle.flags, p.firing > 0.15 ? 0.6 : 0.05, 0.5], [0, 0, 0, game.open(p.pos)]);
+            if (p.firing > 0.17) r.glowAt(GLOW.dot, placed(game.muzzle(), p.weapon === "scatter" ? 0.6 : 0.35), held.flash);
         }
     }
-    // The Secret Doctor, in his lab.
+    drawNpcs(dt);
+    // The Secret Doctor, in his lab (Noctis's people are drawn by drawNpcs).
     const doc = characters.get("doctor");
-    if (doc) {
+    if (doc) doc.mesh.show(false);
+    if (doc && game.mission === 1) {
         const near = Math.hypot(cam.pos[0] - DOCTOR_POS[0], cam.pos[2] - DOCTOR_POS[2]) < 40 && cam.pos[1] < 12 && cam.pos[1] > -4;
         doc.mesh.show(near);
         if (near) {
@@ -905,11 +981,54 @@ function drawCharacters(dt: number): void {
     }
 }
 
+/** Each weapon's model, its length in the hand, which way its barrel points, and its muzzle flash. */
+const WEAPON_MODEL: Record<Weapon, { model: string; length: number; flip: boolean; flash: number[]; name: string }> = {
+    rifle: { model: "rifle", length: 0.95, flip: false, flash: [0.5, 0.85, 1, 1.2], name: "PHOTON RIFLE" },
+    scatter: { model: "scattergun", length: 0.85, flip: false, flash: [1, 0.65, 0.3, 1.6], name: "SCATTERGUN" },
+    gravity: { model: "gravity_launcher", length: 1.0, flip: true, flash: [0.75, 0.35, 1, 1.4], name: "GRAVITY LAUNCHER" },
+};
+
+/** Who speaks a line, as the NPC that should be animated talking. */
+const SPEAKER: Record<string, string> = { doctor: "THE SECRET DOCTOR", mara: "MARA", oduya: "ODUYA", vesper: "VESPER", pip: "PIP" };
+/** Each NPC model's clips: idle, talking. */
+const NPC_CLIPS: Record<string, [string, string]> = { doctor: ["idle", "talk"], survivor: ["idle", "talk"], elder: ["idle", "talk"], vesper: ["idle", "talk"], scavenger: ["combat_idle", "combat_idle"] };
+
+/** Noctis's people: the Doctor at his rover, the survivors, the Tithe. */
+function drawNpcs(dt: number): void {
+    const r = renderer;
+    for (const [id, c] of characters) if (id.startsWith("npc:") && !game.npcs.some(n => `npc:${n.id}` === id)) c.mesh.show(false);
+    for (const n of game.npcs) {
+        const near = Math.hypot(cam.pos[0] - n.pos[0], cam.pos[1] - n.pos[1], cam.pos[2] - n.pos[2]) < 80;
+        if (n.model === "pip") {
+            const a = r.models.get("pip");
+            if (!a || !near) continue;
+            const bob = Math.abs(Math.sin(realTime * 3)) * 0.04;
+            r.put(r.props, "model:pip", placeModel([n.pos[0], n.pos[1] + bob, n.pos[2]], n.yaw, 0.85 / a.extent, a.center[0], a.floor, a.center[1]), [1, 1, 1, 1], [0, a.flags, 0.05, 0.5], [0, 0, 0, charOpen(n.pos)]);
+            r.glowAt(GLOW.dot, placed([n.pos[0] + Math.sin(n.yaw) * 0.22, n.pos[1] + 0.5 + bob, n.pos[2] + Math.cos(n.yaw) * 0.22], 0.12), [0.4, 0.9, 1, 1.2]);
+            continue;
+        }
+        let c = characters.get(`npc:${n.id}`);
+        if (!c) {
+            const a = r.loadModel(n.model);
+            if (!a || !a.glb.skin) continue;
+            c = new Character(a, `npc-${n.id}`);
+            characters.set(`npc:${n.id}`, c);
+        }
+        c.mesh.show(near);
+        if (!near) continue;
+        const clips = NPC_CLIPS[n.model] ?? ["idle", "idle"];
+        const talking = !!lineNow && !!SPEAKER[n.id] && lineNow.who.startsWith(SPEAKER[n.id]);
+        animFor(c, talking ? clips[1] : clips[0], { fade: 0.4 });
+        const m = c.pose(dt, n.pos, n.yaw);
+        r.writeRecord(c.mesh.buffer, m, [1, 1, 1, 1], [0, c.asset.flags, 0, 0.9], [0, 0, 0, charOpen(n.pos)]);
+    }
+}
+
 /** A skinned machine's character, made the first time it's drawn (waves and the Warden arrive late). */
 function characterFor(e: Enemy): Character | null {
     const got = characters.get(e.id);
     if (got) return got;
-    const model = e.kind === "warden" ? "warden" : "hacked_bot";
+    const model = e.kind === "warden" || e.kind === "hollow" || e.kind === "scavenger" ? e.kind : "hacked_bot";
     const a = renderer.loadModel(model);
     if (!a || !a.glb.skin) return null;
     const c = new Character(a, e.id);
@@ -922,21 +1041,30 @@ function drawEnemies(dt: number): void {
     const r = renderer;
     const t = realTime;
     // Characters whose machine is gone (a lost hold-out's waves) hide.
-    for (const [id, c] of characters) if (id !== "ray" && id !== "doctor" && !game.enemies.some(e => e.id === id)) c.mesh.show(false);
+    for (const [id, c] of characters) if (id !== "ray" && id !== "doctor" && !id.startsWith("npc:") && !game.enemies.some(e => e.id === id)) c.mesh.show(false);
     for (const e of game.enemies) {
         const glitch = e.state === "restored" || e.state === "destroyed" ? 0 : e.state === "stunned" ? 1 : 0.55;
         const tint = e.state === "restored" ? [0.8, 0.9, 1.05, 1] : [1, 1, 1, 1];
         const open = charOpen(e.pos);
         const near = Math.hypot(cam.pos[0] - e.pos[0], cam.pos[1] - e.pos[1], cam.pos[2] - e.pos[2]) < 70;
-        if (e.kind === "hacked_bot" || e.kind === "warden") {
+        if (e.kind === "hacked_bot" || e.kind === "warden" || e.kind === "hollow" || e.kind === "scavenger") {
             const c = characterFor(e);
             if (!c) continue;
             const visible = e.state !== "destroyed" || e.stateT < 6;
             c.mesh.show(visible && near);
             if (!visible || !near) continue;
             const has = (n: string) => c.sk.clipIndex(n) >= 0;
-            if (e.state === "destroyed") animFor(c, "death", { loop: false, fade: 0.1 });
+            // The Foundry's racked shells hang still on their hooks until the line wakes them.
+            if (e.dormant) {
+                animFor(c, "idle", { speed: 0.02 });
+                const m = c.pose(dt, [e.pos[0], e.pos[1] + 0.25, e.pos[2]], e.yaw, true);
+                r.writeRecord(c.mesh.buffer, m, [0.92, 0.9, 0.88, 1], [0, c.asset.flags, 0, 0.2], [0, 0, 0, open]);
+                continue;
+            }
+            if (e.kind === "hollow") animHollow(e, c);
+            else if (e.state === "destroyed") animFor(c, "death", { loop: false, fade: 0.1 });
             else if (e.state === "stunned") animFor(c, "stun", { loop: false, fade: 0.15 });
+            else if (e.state === "restored" && e.kind === "scavenger") animFor(c, "kneel", { fade: 0.6, speed: 0.12 });
             else if (e.state === "restored") animFor(c, "combat_idle", { fade: 0.6, speed: 0.4 });
             else if (e.kind === "warden" && e.charge > 0 && has("throw")) animFor(c, "throw", { loop: false, fade: 0.15, speed: clipSpeed(c, "throw", ENEMY.warden.windup + 0.4) });
             else if (e.hitFlash > 0.9 && e.state === "fight" && e.kind !== "warden") animFor(c, "hit", { loop: false, fade: 0.08, restart: true });
@@ -948,6 +1076,10 @@ function drawEnemies(dt: number): void {
             r.writeRecord(c.mesh.buffer, m, tint, [0, c.asset.flags, 0, e.state === "destroyed" ? Math.max(0, 0.9 - e.stateT * 0.2) : 0.9], [0, e.hitFlash * 0.6, glitch, open]);
             if (e.state === "stunned" && Math.random() < dt * 8) burst(c.bone("Spine02", m), [1, 0.4, 0.2, 3], 3, 2.5, 0.3);
             if (e.kind === "warden" && e.state !== "destroyed") drawWardenGear(e, c, m);
+        } else if (e.kind === "cherub") {
+            drawCherub(e, tint, glitch, open);
+        } else if (e.kind === "beacon" || e.kind === "nest") {
+            drawFixture(e, open);
         } else if (e.kind === "crawler") {
             if (e.state === "destroyed" && e.stateT > 3) continue;
             const a = r.models.get("crawler");
@@ -1005,6 +1137,60 @@ function drawEnemies(dt: number): void {
         }
     }
 }
+/** A Hollow's clip: the stagger while it walks its rounds, a run when it hunts unwatched, frozen mid-step when watched. */
+function animHollow(e: Enemy, c: Character): void {
+    if (e.state === "destroyed") { animFor(c, "death", { loop: false, fade: 0.1 }); return; }
+    if (e.state === "stunned") { animFor(c, "stun", { loop: false, fade: 0.15 }); return; }
+    if (e.state === "restored") { animFor(c, "idle", { fade: 0.6, speed: 0.5 }); return; }
+    if (e.charge > 0) { animFor(c, "attack", { loop: false, fade: 0.08, speed: 1.3 }); return; }
+    if (c.anim.current === "attack" && !c.anim.finished) return;
+    if (e.state === "alert") { animFor(c, "scream", { loop: false, fade: 0.15, speed: 1.6 }); return; }
+    if (e.state === "fight" && e.moving > 0.3) {
+        const watched = game.watched(e);
+        animFor(c, watched ? "stagger" : "run", { fade: 0.2, speed: watched ? 0.08 : 1.15 });
+        return;
+    }
+    animFor(c, e.moving > 0.3 ? "stagger" : "idle", { fade: 0.3, speed: e.moving > 0.3 ? 0.7 : 0.6 });
+}
+
+/** A gate cherub: bobbing, nose down into a dive, on the ground when it's down; its red eye. */
+function drawCherub(e: Enemy, tint: number[], glitch: number, open: number): void {
+    const r = renderer, a = r.models.get("cherub");
+    if (!a) return;
+    const down = e.state === "stunned" || e.state === "destroyed";
+    if (e.state === "destroyed" && e.stateT > 5) return;
+    const bob = down ? 0 : Math.sin(realTime * 4 + e.pos[0]) * 0.08;
+    const pitch = e.leap ? 0.6 : down ? 1.2 : e.charge > 0 ? -0.3 : e.moving * 0.15;
+    const m = placeModel([e.pos[0], e.pos[1] + bob - 0.45, e.pos[2]], e.yaw, 1.1 / a.extent, a.center[0], a.floor, a.center[1], pitch, down ? 0.4 : Math.sin(realTime * 2 + e.pos[2]) * 0.06);
+    r.put(r.props, "model:cherub", m, tint, [0, a.flags, e.charge > 0 ? 0.3 : 0, 0.7], [0, e.hitFlash * 0.6, glitch, open]);
+    const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
+    const eye: V3 = [e.pos[0] + fx * 0.36 + Math.cos(e.yaw) * 0.1, e.pos[1] + bob + 0.05, e.pos[2] + fz * 0.36 - Math.sin(e.yaw) * 0.1];
+    if (e.state !== "destroyed") r.glowAt(GLOW.dot, placed(eye, 0.1 + (e.charge > 0 ? 0.15 : 0)), e.state === "restored" ? [0.3, 0.8, 1, 1.2] : down ? [1, 0.2, 0.1, Math.random() < 0.5 ? 1 : 0.1] : [1, 0.12, 0.08, 1.6]);
+    // Its rotors, a blur over each arm.
+    if (!down) for (let i = 0; i < 4; i++) {
+        const ang = e.yaw + Math.PI / 4 + i * (Math.PI / 2);
+        r.glowAt(GLOW.ring, placed([e.pos[0] + Math.sin(ang) * 0.52, e.pos[1] + bob + 0.12, e.pos[2] + Math.cos(ang) * 0.52], 0.24, 1, 0.24), [0.85, 0.8, 0.7, 0.12], [0, 0, 0, 0], false, "ring");
+    }
+}
+
+/** The lure beacons and the cable heart: fixed, pulsing red, broken when they're done. */
+function drawFixture(e: Enemy, open: number): void {
+    const r = renderer, beacon = e.kind === "beacon";
+    const a = r.models.get(beacon ? "lure_beacon" : "cable_nest");
+    if (!a) return;
+    const dead = e.state === "destroyed";
+    const opened = !beacon && game.nestOpen(e);
+    const pulse = 0.5 + 0.5 * Math.sin(realTime * (beacon ? 5 : 2.4) + e.pos[0]);
+    const breathe = beacon || dead ? 1 : 1 + (opened ? 0.05 : 0.015) * Math.sin(realTime * 3);
+    const size = (beacon ? 3.2 : 7.5) * breathe;
+    const m = placeModel([e.pos[0], e.pos[1] - (dead && !beacon ? 0.8 : 0), e.pos[2]], e.yaw + (beacon ? 0 : Math.PI), size / a.extent, a.center[0], a.floor, a.center[1], dead && beacon ? 0.25 : 0, dead && beacon ? 1.35 : 0);
+    r.put(r.props, `model:${beacon ? "lure_beacon" : "cable_nest"}`, m, dead ? [0.45, 0.42, 0.4, 1] : [1, 1, 1, 1], [0, a.flags, dead ? 0 : opened ? 0.9 : 0.25 + pulse * 0.2, dead ? 0.1 : 0.9], [0, e.hitFlash * 0.6, dead ? 0 : 0.4, open]);
+    if (dead) return;
+    const core: V3 = beacon ? [e.pos[0], e.pos[1] + 2.85, e.pos[2]] : [e.pos[0], e.pos[1] + 3.6, e.pos[2] + 0.6];
+    r.glowAt(GLOW.dot, placed(core, beacon ? 0.5 + pulse * 0.3 : opened ? 2.4 : 1.1), [1, 0.12, 0.08, beacon ? 1 + pulse : opened ? 2.4 : 0.6 + pulse * 0.3]);
+    if (beacon) r.glowAt(GLOW.dot, placed(core, 3 + pulse * 2), [1, 0.1, 0.05, 0.12]);
+}
+
 /** The crawler model's nose points along +x of its bind pose (Meshy's side view): turn it onto +z. */
 const CRAWLER_YAW = Math.PI / 2;
 
@@ -1034,7 +1220,7 @@ function drawEffects(dt: number): void {
         const k = Math.min(1, b.age / 0.06);
         const from = lerp3(b.from, b.to, Math.max(0, k - 0.35)), to = lerp3(b.from, b.to, k);
         const m = [1, 0, 0, 0, 0, 1, 0, 0, to[0] - from[0], to[1] - from[1], to[2] - from[2], 0, from[0], from[1], from[2], 1];
-        r.glowAt(GLOW.beam, m, b.enemy ? [1, 0.2, 0.1, 3] : [0.35, 0.8, 1, 3.5], [0.07, 0, 0, 0]);
+        r.glowAt(GLOW.beam, m, b.enemy ? [1, 0.2, 0.1, 3] : b.pellet ? [1, 0.6, 0.25, 2.2] : [0.35, 0.8, 1, 3.5], [b.pellet ? 0.035 : 0.07, 0, 0, 0]);
     }
     // The Warden's orbs: violet, pulsing, a short trail.
     for (const o of game.orbs) {
@@ -1043,6 +1229,22 @@ function drawEffects(dt: number): void {
         r.glowAt(GLOW.dot, placed(o.pos, 1.3), [0.6, 0.2, 1, 0.5]);
         const v = norm(o.vel);
         for (let i = 1; i <= 3; i++) r.glowAt(GLOW.dot, placed([o.pos[0] - v[0] * i * 0.3, o.pos[1] - v[1] * i * 0.3, o.pos[2] - v[2] * i * 0.3], 0.3 - i * 0.06), [0.8, 0.3, 1, 1.2 - i * 0.3]);
+    }
+    // Gravity shells: a dark ball in violet rings; their wells a churning sphere that shrinks to the crush.
+    for (const g of game.grenades) {
+        if (g.well < 0) {
+            solid("sphere", placed(g.pos, 0.11), MAT.metal, [0.08, 0.07, 0.1], 0.9, 0.2);
+            r.glowAt(GLOW.ring, along(g.pos, [g.pos[0] + 0.001, g.pos[1] + 0.25, g.pos[2]], 0.2), [0.7, 0.3, 1, 1.5], [0, 0, 0, 0], false, "ring");
+            r.glowAt(GLOW.dot, placed(g.pos, 0.45), [0.6, 0.25, 1, 0.9]);
+        } else {
+            const k = g.well / GRAVITY.pull, rad = GRAVITY.radius * (1 - k * 0.75);
+            r.glowAt(GLOW.dark, placed(g.pos, rad, rad, rad), [0.6, 0.2, 1, 0.5 + k * 0.4], [0, 0, 0, 0], false, "sphere");
+            r.glowAt(GLOW.dot, placed(g.pos, 0.6 + k * 1.5), [0.9, 0.6, 1, 1.5 + k * 2]);
+            for (let i = 0; i < 14; i++) {
+                const a = t * 6 + i * 0.9, rr = rad * (1 - ((t * 1.5 + i * 0.07) % 1));
+                r.glowAt(GLOW.mote, placed([g.pos[0] + Math.cos(a) * rr, g.pos[1] + Math.sin(i * 1.7) * rr * 0.4, g.pos[2] + Math.sin(a) * rr], 0.1), [0.7, 0.3, 1, 1.4]);
+            }
+        }
     }
     for (let i = sparks.length - 1; i >= 0; i--) {
         const s = sparks[i];
@@ -1073,8 +1275,16 @@ function drawEffects(dt: number): void {
         const z = cam.pos[2] + (hash(i, 5) - 0.5) * span;
         r.glowAt(GLOW.mote, placed([x, y, z], 0.025 + hash(i, 6) * 0.03), [1, 0.75, 0.5, 0.35]);
     }
+    // Noctis, through the simulation lens: Gate Four's old queue, ghosts shuffling toward the terminal it used last.
+    if (game.mission === 2 && lens === LENS.simulation && !game.flags.has("gate")) {
+        QUEUE.forEach((q, i) => {
+            const sway = Math.sin(t * 1.3 + i) * 0.05, pulse = 0.5 + 0.5 * Math.sin(t * 2 - i * 0.8);
+            r.glowAt(GLOW.holo, placed([q[0] + sway, q[1] + 0.85, q[2]], 0.22, 0.6, 0.18), [0.35, 0.9, 1, 0.45 + pulse * 0.3], [0, 0, 0, 0], true, "cyl");
+            r.glowAt(GLOW.holo, placed([q[0] + sway, q[1] + 1.62, q[2]], 0.13), [0.35, 0.9, 1, 0.6 + pulse * 0.3], [0, 0, 0, 0], true, "sphere");
+        });
+    }
     // The simulation lens: the old world's light along the way to the hypercube.
-    if (lens === LENS.simulation && !game.reached("bridge")) {
+    if (game.mission === 1 && lens === LENS.simulation && !game.reached("bridge")) {
         ECHOES.forEach((p, i) => {
             const pulse = 0.5 + 0.5 * Math.sin(t * 3 - i * 0.6);
             r.glowAt(GLOW.dot, placed([p[0], p[1] + 0.4, p[2]], 0.5 + pulse * 0.2), [0.3, 0.9, 1, 0.5 + pulse], [0, 0, 0, 0], true);
@@ -1087,6 +1297,7 @@ function drawEffects(dt: number): void {
         r.glowAt(GLOW.ring, placed([u.pos[0], u.pos[1] + 0.04, u.pos[2]], 0.9, 1, 0.9), [0.4, 0.8, 1, 0.35 + Math.sin(t * 3) * 0.15], [0, 0, 0, 0], false, "ring");
     }
     if (game.stage === "hypercube" || game.stage === "awaken") r.glowAt(GLOW.ring, placed([PEDESTAL[0], PEDESTAL[1] + 0.05, PEDESTAL[2]], 5, 1, 5), [0.4, 0.8, 1, 0.5], [0, 0, 0, 0], false, "ring");
+    if (game.stage === "rim") r.glowAt(GLOW.ring, placed([OVERLOOK[0], OVERLOOK[1] + 0.05, OVERLOOK[2]], 2.5, 1, 2.5), [1, 0.8, 0.5, 0.5], [0, 0, 0, 0], false, "ring");
     // The live conduit hums: sparks off its cable top now and then.
     if (game.stage === "conduit" && Math.random() < dt * 2) {
         const live = game.level.props.find(p => p.model === "conduit" && (p.heat ?? 0) > 0.5);
@@ -1155,7 +1366,7 @@ function writeLook(dt: number): void {
     const up = norm([rr[1] * d[2] - rr[2] * d[1], rr[2] * d[0] - rr[0] * d[2], rr[0] * d[1] - rr[1] * d[0]]);
     const cinematic = mode === "intro" || mode === "outro" || mode === "cutscene";
     renderer.writePost({
-        fogDensity: 0.022, fogHeight: 115, fogFloor: CITY_FLOOR, time: realTime, fogColor: FOG, exposure: 1.1,
+        ...(game.mission === 2 ? { fogDensity: 0.0055, fogHeight: 60, fogFloor: -30 } : { fogDensity: 0.022, fogHeight: 115, fogFloor: CITY_FLOOR }), time: realTime, fogColor: FOG, exposure: 1.1,
         vignette: cinematic ? 0.55 : mode === "inspect" ? 0.6 : 0.32, grain: lens === LENS.night ? 0.06 : 0.025, hurt: Math.min(1, hurtT * 2 + (p.integrity < 25 && mode === "play" ? 0.25 : 0)),
         fade: mode === "intro" && shotIndex === 0 ? Math.max(0, 1 - shotT) : mode === "complete" ? 0.4 : !p.alive ? Math.min(0.9, p.deadT * 0.4) : 0,
         lens, glitch, letterbox: cinematic ? 1 : 0, saturation: lens === LENS.none ? 1.05 : 1,
@@ -1176,8 +1387,11 @@ function updateShadows(): void {
 function prompt(): string {
     const k = device === "pad" ? "X" : "E";
     if (!game.player.alive) return "Rebooting...";
-    if (game.resettable()) return `${k}  RESET ALGORITHM     or shoot to destroy`;
+    if (game.takedownTarget()) return `${k}  TAKEDOWN`;
+    const down = game.resettable();
+    if (down) return down.kind === "scavenger" ? `${k}  SPARE THEM     or shoot to finish it` : `${k}  RESET ALGORITHM     or shoot to destroy`;
     const u = game.usable();
+    if (u?.kind === "winch") return `HOLD ${k}  CRANK THE MAST UP   ${Math.round(game.crank * 100)}%`;
     if (u) return `${k}  ${u.label}`;
     const it = game.lookItem(cam.pos, lookDir());
     if (it) return `${k}  LOOK CLOSER  -  ${COLLECTIBLE.get(it.id)?.name ?? ""}`;
@@ -1195,7 +1409,7 @@ function drawUi(dt: number): void {
     if (mode === "title") {
         const s = savedRun;
         const st = s ? STAGES[stageIndex(s.stage)] : null;
-        drawTitle(p, w, h, realTime, s && st ? { act: `ACT ${st.act}  ${ACTS[st.act]}`, objective: st.objective, items: `${s.collected.length} / ${COLLECTIBLES.length} kept` } : null);
+        drawTitle(p, w, h, realTime, s && st ? { act: `ACT ${st.act}  ${actName(st.mission, st.act)}`, objective: st.objective, items: `${s.collected.length} kept`, mission: `MISSION ${st.mission}  -  ${MISSION_NAMES[st.mission]}` } : null);
     }
     else if (mode === "play" && stillCam) drawSubtitle(p, w, h, sub, false);
     else if (mode === "play") {
@@ -1205,6 +1419,8 @@ function drawUi(dt: number): void {
             subtitle: sub, toasts, hurt: hurtT, crosshair: game.player.alive && !game.player.riding, aiming: game.player.aiming, showHelp,
             dark: game.player.darkT, range: lens === LENS.distance ? crosshair().dist : null, lockHint: lockSupported && !locked && device === "keys", pad: device === "pad", fps,
             biochip: game.player.biochip, items: [archive.size, COLLECTIBLES.length], act: actCard, crouched: game.player.crouched,
+            weapon: WEAPON_MODEL[game.player.weapon].name, ammo: game.player.weapon === "gravity" ? `SHELLS  ${game.gravCells} / ${GRAVITY.max}` : null,
+            canSwap: game.weapons.length > 1, tasks: m2Tasks(game),
         };
         drawHud(p, w, h, view);
         drawSubtitle(p, w, h, sub, false);
@@ -1213,9 +1429,13 @@ function drawUi(dt: number): void {
         if (c) drawInspect(p, w, h, { name: c.name, text: c.text, kept: game.collected.has(c.id), count: `${game.collected.size} / ${COLLECTIBLES.length}` }, device === "pad");
     } else if (mode === "intro" || mode === "outro" || mode === "cutscene") {
         drawSubtitle(p, w, h, sub, true);
-        if (mode === "intro" && shotIndex === 0) p.textC("TRUE ERROR", w / 2, h * 0.36, Math.min(110, w / 9), [TE.brass[0], TE.brass[1], TE.brass[2], Math.min(1, shotT * 0.8)], "Bungee");
+        if (mode === "intro" && shotIndex === 0) {
+            p.textC(game.mission === 2 ? "NOCTIS" : "TRUE ERROR", w / 2, h * 0.36, Math.min(110, w / 9), [TE.brass[0], TE.brass[1], TE.brass[2], Math.min(1, shotT * 0.8)], "Bungee");
+            if (game.mission === 2) p.textC("MISSION 2", w / 2, h * 0.36 - 40, 22, [TE.ink[0], TE.ink[1], TE.ink[2], Math.min(1, shotT * 0.8)], "Bungee");
+        }
     } else if (mode === "complete") {
-        drawComplete(p, w, h, { time: game.time, resets: game.resets, destroyed: game.destroyed, deaths: game.deaths, items: `${game.collected.size} / ${COLLECTIBLES.length}` }, modeT);
+        drawComplete(p, w, h, { time: game.time, resets: game.resets, destroyed: game.destroyed, deaths: game.deaths, items: `${game.collected.size} / ${game.level.items.length}` }, modeT,
+            game.mission === 1 ? { line: "The hypercube is awake", next: "Press ENTER or A to go down to Noctis" } : { line: "Out of the Undercroft. The Doctor is still missing.", next: "Press ENTER or A to play again" });
     }
     p.flush();
 }
@@ -1223,16 +1443,39 @@ function drawUi(dt: number): void {
 // --- Start -------------------------------------------------------------------------------------------------
 
 function loadEverything(): void {
-    for (const name of ["ray", "doctor", "hacked_bot", "rifle", "roller", "workbench", "upload_pod", "holo_terminal", "battery", "rubble", "girders", "pedestal", "junk", "boiler", "carcass", "tower_a", "tower_b", "bridge", "hovercar", "dark_emitter", "archive_rack", "reactor", "conduit", "crawler", "warden"]) {
+    for (const name of ["ray", "doctor", "hacked_bot", "rifle", "roller", "workbench", "upload_pod", "holo_terminal", "battery", "rubble", "girders", "pedestal", "junk", "boiler", "carcass", "tower_a", "tower_b", "bridge", "hovercar", "dark_emitter", "archive_rack", "reactor", "conduit", "crawler", "warden",
+        "hollow", "scavenger", "vesper", "survivor", "elder", "pip", "cherub", "scattergun", "gravity_launcher", "doctor_buggy", "crates", "radio_set", "assembly_arm", "body_printer", "conveyor", "vat", "upload_gate",
+        "kiosk", "statue", "barge_hull", "signal_mast", "lock_gate", "water_tank", "harvest_pod", "lure_beacon", "metro_car", "cable_nest", "rock_spire", "wind_turbine", "shack"]) {
         try { renderer.loadModel(name); } catch (e) { Entropy.println(`[true-error] ${name}: ${(e as Error).message}`); }
     }
     if (renderer.missing.length) Entropy.println(`[true-error] models not found (run tools/te_assets.py): ${renderer.missing.join(", ")}`);
+    buildMapMeshes();
+    setupCharacters();
+}
+
+/** The terrain's chunks (Noctis), each its own batch with bounds so the engine culls them per pass. */
+let terrainChunks: { key: string; bounds: number[] }[] = [];
+let meshMission = 0;
+/** The map's static meshes for the mission being played (built once each, cached by key). */
+function buildMapMeshes(): void {
+    if (meshMission === game.mission || !renderer.ready) return;
+    meshMission = game.mission;
     const level = game.level;
     // The mesh key carries a fingerprint of the layout so an edited level rebuilds.
     const sig = level.boxes.length * 31 + level.ramps.length * 7 + Math.round(level.boxes.reduce((s, b) => s + b.min[0] * 3 + b.max[1] * 5 + b.max[2] * 7 + b.mat + (b.draw ? 1 : 0), 0) * 10);
-    levelKey = renderer.levelMesh(`spire-${sig}-v4`, () => archMesh(level.boxes, level.ramps));
-    groundKey = renderer.levelMesh("plain-v1", () => groundMesh(CITY_FLOOR, 4000));
-    setupCharacters();
+    levelKey = renderer.levelMesh(`${level.mission === 2 ? "noctis" : "spire"}-${sig}-v4`, () => archMesh(level.boxes, level.ramps, level.open));
+    terrainChunks = [];
+    const T = level.terrain;
+    if (T) {
+        const n = 5, size = (T.half * 2) / n;
+        const tsig = Math.round([[13.7, -42.1], [-120, 50], [130, -125], [0, 180], [-60, 122]].reduce((a, [x, z]) => a + T.height(x, z) * 1000, 0));
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+            const x0 = -T.half + i * size, z0 = -T.half + j * size;
+            const key = renderer.levelMesh(`noctis-ground-${i}-${j}-${tsig}-v2`, () => terrainMesh(T, x0, z0, size, level.open));
+            terrainChunks.push({ key, bounds: [x0 + size / 2, 25, z0 + size / 2, size * 0.72 + 35] });
+        }
+        groundKey = renderer.levelMesh("noctis-plateau-v1", () => frameMesh(PLATEAU_Y, T.half, 4000));
+    } else groundKey = renderer.levelMesh("plain-v1", () => groundMesh(CITY_FLOOR, 4000));
 }
 
 addon.onInit(() => {
@@ -1276,6 +1519,8 @@ function snapshot() {
         checkpoint: game.checkpoint, resets: game.resets, destroyed: game.destroyed, deaths: game.deaths, won: game.won, said: [...game.said],
         stage: game.stage, act: game.act, objective: game.objective, flags: [...game.flags], collected: [...game.collected], inspecting: inspecting?.id ?? null, prompt: mode === "play" ? prompt() : "",
         holdT: Math.round(game.holdT * 10) / 10, liftY: Math.round(game.liftY * 100) / 100, orbs: game.orbs.length,
+        mission: game.mission, weapon: game.player.weapon, weapons: game.weapons, gravCells: game.gravCells, crank: Math.round(game.crank * 100) / 100,
+        npcs: game.npcs.map((n: Npc) => n.id), tasks: m2Tasks(game), grenades: game.grenades.length,
     };
 }
 
@@ -1296,7 +1541,7 @@ function registerTools(): void {
             parameters: { type: "object", properties: {} },
             run: (a) => {
                 const p = game.player;
-                const now = { mode, lens: LENS_NAMES[lens], device, aiming: p.aiming, run: padSprint || key("Shift"), crouched: p.crouched, rolling: p.rollT >= 0, inspecting: inspecting?.id ?? null, stage: game.stage, kept: game.collected.size, biochip: p.biochip > 0, riding: p.riding,
+                const now = { mode, mission: game.mission, weapon: p.weapon, lens: LENS_NAMES[lens], device, aiming: p.aiming, run: padSprint || key("Shift"), crouched: p.crouched, rolling: p.rollT >= 0, inspecting: inspecting?.id ?? null, stage: game.stage, kept: game.collected.size, biochip: p.biochip > 0, riding: p.riding,
                     moved: Math.hypot(p.pos[0] - expectMark.pos[0], p.pos[2] - expectMark.pos[2]) > 0.3,
                     turned: Math.abs(lookYaw - expectMark.yaw) > 0.05, fired: shotCount > expectMark.shots, onTarget: onTarget(), pad: { left: pad.left, sinceAxis: Math.round((realTime - pad.lastAxis) * 100) / 100 }, pos: game.player.pos.map(v => Math.round(v * 100) / 100) };
                 expectMark = { pos: [...p.pos] as V3, yaw: lookYaw, shots: shotCount };
@@ -1307,7 +1552,7 @@ function registerTools(): void {
         },
         {
             name: "te_act",
-            description: "True Error: drive the game. action: begin | skip | play (jump to play) | step (frames) | move (dx, dy, run, crouch, frames) | look (yaw, pitch) | fire (frames, aim) | use | crouch (on) | roll (dx, dy) | inspect (id: a collectible, held up) | keep (the held one) | putBack | stage (id: start the mission there) | calm (every machine stands down) | assist (value 0-0.5) | aimNear (id, off) | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on) | log (prints the state to stdout).",
+            description: "True Error: drive the game. action: begin | skip | play (jump to play) | mission (n: start mission n with its intro) | step (frames) | move (dx, dy, run, crouch, frames) | look (yaw, pitch) | fire (frames, aim) | use | crank (frames: E held) | swap (next weapon) | weapon (name: rifle|scatter|gravity, given and drawn) | crouch (on) | roll (dx, dy) | inspect (id: a collectible, held up) | keep (the held one) | putBack | stage (id: start the missions there) | calm (every machine stands down) | assist (value 0-0.5) | aimNear (id, off) | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on) | log (prints the state to stdout).",
             parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] },
             run: (a) => {
                 const n = Math.max(1, Math.floor(num(a.frames, 1)));
@@ -1316,6 +1561,18 @@ function registerTools(): void {
                     case "skip": skipCinematic(); advance(n); break;
                     case "play": if (mode === "title") begin(); skipCinematic(); advance(2); if (mode !== "play") startPlay(); advance(n); break;
                     case "step": advance(n); break;
+                    case "mission": startMission(num(a.n, 1) === 2 ? 2 : 1); advance(n); break;
+                    case "crank": advance(n, { useHeld: true }); break;
+                    case "swap": advance(1, { swap: true }); advance(n); break;
+                    case "weapon": {
+                        const w = String(a.name) as Weapon;
+                        if (!WEAPON_MODEL[w]) throw new Error(`No weapon ${w}`);
+                        if (w !== "rifle") game.flags.add(`weapon:${w}`);
+                        if (w === "gravity") game.gravCells = Math.max(game.gravCells, 4);
+                        game.player.weapon = w;
+                        advance(n);
+                        break;
+                    }
                     case "move": advance(n, { move: [num(a.dx, 0), num(a.dy, 1)], run: !!a.run, aim: !!a.aim, crouch: !!a.crouch || crouchToggle }); break;
                     case "crouch": crouchToggle = !!a.on; advance(n); break;
                     case "roll": advance(1, { move: [num(a.dx, 0), num(a.dy, 1)], dodge: true, crouch: crouchToggle }); advance(n, { move: [num(a.dx, 0), num(a.dy, 1)], crouch: crouchToggle }); break;
@@ -1360,7 +1617,9 @@ function registerTools(): void {
                         break;
                     }
                     case "release": stillCam = null; advance(n); break;
-                    case "win": if (!game.reached("awaken")) continueRun(stageSave("awaken")); game.player.pos = [PEDESTAL[0] + 3.5, PEDESTAL[1], PEDESTAL[2] - 3]; advance(n); break;
+                    case "win":
+                        if (game.mission === 2) { if (game.stage !== "rim") continueRun(stageSave("rim")); game.player.pos = [OVERLOOK[0] + 0.5, OVERLOOK[1], OVERLOOK[2] - 0.5]; advance(n); break; }
+                        if (!game.reached("awaken")) continueRun(stageSave("awaken")); game.player.pos = [PEDESTAL[0] + 3.5, PEDESTAL[1], PEDESTAL[2] - 3]; advance(n); break;
                     case "restart": restart(); advance(n); break;
                     case "help": showHelp = !!a.on; advance(1); break;
                     case "log": Entropy.println(`[true-error] ${JSON.stringify(snapshot())}`); break;

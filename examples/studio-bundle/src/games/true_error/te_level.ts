@@ -22,7 +22,12 @@ export interface Box { min: V3; max: V3; mat: number; tint: V3; draw: boolean; s
 export interface Ramp { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; thick: number; mat: number }
 
 export type ModelName = "workbench" | "upload_pod" | "holo_terminal" | "battery" | "rubble" | "girders" | "pedestal" | "junk" | "boiler" | "carcass" | "tower_a" | "tower_b" | "bridge" | "hovercar" | "dark_emitter" | "roller" | "rifle" | "doctor" | "hacked_bot" | "ray"
-    | "archive_rack" | "reactor" | "conduit" | "crawler" | "warden";
+    | "archive_rack" | "reactor" | "conduit" | "crawler" | "warden"
+    // Mission 2, Noctis.
+    | "hollow" | "scavenger" | "vesper" | "survivor" | "elder" | "pip" | "cherub" | "scattergun" | "gravity_launcher"
+    | "doctor_buggy" | "crates" | "radio_set" | "assembly_arm" | "body_printer" | "conveyor" | "vat" | "upload_gate"
+    | "kiosk" | "statue" | "barge_hull" | "signal_mast" | "lock_gate" | "water_tank" | "harvest_pod" | "lure_beacon"
+    | "metro_car" | "cable_nest" | "rock_spire" | "wind_turbine" | "shack";
 
 export interface Prop {
     model: ModelName;
@@ -39,19 +44,28 @@ export interface Prop {
     heat?: number;
 }
 
-export type EnemyKind = "roller" | "hacked_bot" | "crawler" | "warden";
+/**
+ * Machines (and worse). Mission 2 adds the Hollow (an empty avatar body that only moves while
+ * unwatched), the cherub (a flying gate drone that dives), the Tithe's scavengers (human gunners:
+ * spared, not Reset), and two that never move: the lure beacon and the cable heart (the nest).
+ */
+export type EnemyKind = "roller" | "hacked_bot" | "crawler" | "warden" | "hollow" | "cherub" | "scavenger" | "beacon" | "nest";
 /** `zone`: the region (regionOf) it guards; it wakes when Ray is there, or close and in sight. */
 export interface EnemySpawn { id: string; kind: EnemyKind; pos: V3; yaw: number; patrol: V3[]; zone: string }
 export interface Pickup { id: string; pos: V3 }
 export interface LevelLight { pos: V3; color: V3; intensity: number; range: number; flicker?: number }
-export interface Checkpoint { id: string; pos: V3; yaw: number; radius: number }
+/** `free`: taken whenever reached (the open stretch of Noctis is done in any order); the rest only forward. */
+export interface Checkpoint { id: string; pos: V3; yaw: number; radius: number; free?: boolean }
 /** A slab that slides up out of the way when opened (blast doors, the lift's gates). */
 export interface Door { id: string; min: V3; max: V3; mat: number; tint: V3 }
 /** Something E works on: the biochip, the conduits' breakers, the reactor's console, the lift. */
-export type UseKind = "biochip" | "conduit" | "console" | "lift";
+export type UseKind = "biochip" | "conduit" | "console" | "lift"
+    // Mission 2: someone to talk to, a radio, a weapon to take, the Foundry's line, the gate's terminals, the mast's winch.
+    | "talk" | "radio" | "weapon" | "printer" | "terminal" | "winch";
 export interface UseSpot { id: string; kind: UseKind; pos: V3; yaw: number; label: string }
 /** A collectible's place (te_items.ts has what it is). */
-export interface ItemSpot { id: string; pos: V3; yaw: number }
+/** `after`: only there once the mission has reached that stage (te_mission.ts StageId). */
+export interface ItemSpot { id: string; pos: V3; yaw: number; after?: string }
 export interface DarkZone { id: string; center: V3; radius: number }
 
 export const FLOORS = [0, 7, 14];
@@ -108,7 +122,34 @@ export function lowEdgeX(z: number): number {
     return 10 + Math.sin(z * 0.31 + 0.6) * 2.4 + (hash(Math.floor(z / CELL), 31) - 0.5) * 1.6;
 }
 
+/**
+ * Open ground (mission 2): a heightfield under everything else. Walked on wherever nothing higher
+ * is, too steep to climb past `maxSlope` (rise per meter), raycast by marching. Ignored by anything
+ * well below it (the caverns under Noctis).
+ */
+export interface Terrain {
+    height(x: number, z: number): number;
+    /** The ARCH material of a cell, from its height and slope. */
+    mat(x: number, z: number, h: number, slope: number): number;
+    /** The mesh covers -half..half in x and z, in cells this many meters across. */
+    half: number;
+    cell: number;
+    maxSlope: number;
+    /** Left out of the mesh (shafts going down through it); the heightfield still holds there. */
+    holes?: { x0: number; x1: number; z0: number; z1: number }[];
+}
+
 export interface Level {
+    /** Which mission's map (1 the Central Spire, 2 Noctis). */
+    mission: number;
+    start: { pos: V3; yaw: number };
+    /** The part of the map a point is in (enemies guard one; the mission reads it). */
+    region: (p: V3) => string;
+    /** Sky openness (te_scene bakes it into the architecture; props and characters take it per instance). */
+    open: (x: number, y: number, z: number) => number;
+    terrain?: Terrain;
+    /** Ray can't leave this rectangle (the canyon walls should stop him first). */
+    bounds?: { x0: number; x1: number; z0: number; z1: number };
     boxes: Box[];
     ramps: Ramp[];
     props: Prop[];
@@ -329,11 +370,11 @@ export function buildLevel(): Level {
         { id: "lift-top", min: [L.x0 + 0.9, L.top, L.z0 - 0.1], max: [L.x1 - 0.9, L.top + 3.4, L.z0 + 0.1], mat: MAT.metal, tint: [0.55, 0.48, 0.38] },
     ];
 
-    return { boxes, ramps, props, enemies, pickups, lights, checkpoints, skyline: buildSkyline(), doors, uses: [], items: [], darkZones: [DARK_ZONE] };
+    return { mission: 1, start: START, region: regionOf, open: openness, boxes, ramps, props, enemies, pickups, lights, checkpoints, skyline: buildSkyline(), doors, uses: [], items: [], darkZones: [DARK_ZONE] };
 }
 
 /** Which part of the mission a point is in (enemies guard one; the mission reads it too). */
-export type Region = "spire0" | "spire1" | "spire2" | "bridge" | "relay14" | "relay7" | "shaft" | "lowbridge" | "reactor" | "lift" | "void";
+export type Region = string;
 export function regionOf(p: V3): Region {
     const [x, y, z] = p;
     if (x > LIFT.x0 && x < LIFT.x1 && z > LIFT.z0 && z < LIFT.z1 && y > LOW_FLOOR - 1) return "lift";
@@ -383,10 +424,12 @@ export class World {
     readonly ramps: Ramp[];
     /** Solids that move (doors): checked on every query, outside the grid. */
     readonly dynamic: Solid[] = [];
+    readonly terrain: Terrain | undefined;
     private grid = new Map<number, number[]>();
     private static readonly G = 4;
 
     constructor(level: Level, propBoxes: Solid[]) {
+        this.terrain = level.terrain;
         for (const b of level.boxes) if (b.solid) this.solids.push({ min: b.min, max: b.max });
         this.solids.push(...propBoxes);
         this.ramps = level.ramps;
@@ -434,7 +477,30 @@ export class World {
             const t = this.rampTop(rp, x, z);
             if (t <= maxY + 0.05 && t > best) best = t;
         }
+        if (this.terrain) {
+            const t = this.terrain.height(x, z);
+            if (t <= maxY + 0.05 && t > best) best = t;
+        }
         return best;
+    }
+
+    /**
+     * A move from (ox, oz) to (x, z) by feet at `feet`, stopped (or slid along one axis) where the
+     * ground rises too steeply: canyon walls, mesa flanks, the canal's banks. Underground it's no wall.
+     */
+    terrainWall(ox: number, oz: number, x: number, z: number, feet: number): [number, number] {
+        const T = this.terrain;
+        if (!T) return [x, z];
+        const ho = T.height(ox, oz);
+        if (feet < ho - 1.5) return [x, z];
+        const ok = (nx: number, nz: number) => {
+            const rise = T.height(nx, nz) - Math.max(feet, ho), d = Math.hypot(nx - ox, nz - oz);
+            return rise <= 0.04 || rise <= d * T.maxSlope;
+        };
+        if (ok(x, z)) return [x, z];
+        if (ok(x, oz)) return [x, oz];
+        if (ok(ox, z)) return [ox, z];
+        return [ox, oz];
     }
 
     /**
@@ -509,7 +575,38 @@ export class World {
                 }
             }
         }
+        if (this.terrain) {
+            const hit = this.marchTerrain(o, d, best);
+            if (hit) { best = hit.t; normal = hit.normal; }
+        }
         return best < maxT ? { t: best, normal } : { t: Infinity, normal };
+    }
+
+    /** The first point along a ray under the terrain (from above it), refined by bisection. */
+    private marchTerrain(o: V3, d: V3, maxT: number): { t: number; normal: V3 } | null {
+        const T = this.terrain!;
+        const above = (t: number) => o[1] + d[1] * t - T.height(o[0] + d[0] * t, o[2] + d[2] * t);
+        let gap = above(0);
+        if (gap < 0) return null;
+        let t = 0;
+        while (t < maxT) {
+            const step = Math.max(0.35, Math.min(10, gap * 0.4));
+            const next = Math.min(maxT, t + step);
+            const g = above(next);
+            if (g < 0) {
+                let a = t, b = next;
+                for (let i = 0; i < 8; i++) { const m = (a + b) / 2; if (above(m) < 0) b = m; else a = m; }
+                const x = o[0] + d[0] * b, z = o[2] + d[2] * b, e = 0.5;
+                const nx = T.height(x - e, z) - T.height(x + e, z), nz = T.height(x, z - e) - T.height(x, z + e);
+                const l = Math.hypot(nx, 2 * e, nz);
+                return { t: b, normal: [nx / l, (2 * e) / l, nz / l] };
+            }
+            if (next >= maxT) break;
+            t = next; gap = g;
+            // Going up and already well clear: nothing to hit (the walls top out at ~70 m).
+            if (d[1] > 0.2 && gap > 80) break;
+        }
+        return null;
     }
 }
 
