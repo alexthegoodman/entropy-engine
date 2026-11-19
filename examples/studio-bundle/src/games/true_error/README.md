@@ -56,12 +56,16 @@ Many models can be 30 to 50 credits total from start to finish, so let's try to 
 
 ---
 
-## Build status (Level 1)
+## Build status (five acts, ~30 min)
 
 - Run: `npm run true-error:assets` (once), `npm run build-true-error`, then `cargo run --release --bin example -- true-error` from `entropy-engine/`.
 - Assets: prompts in `assets/true_error/assets.json`, Meshy task trail in `meshy_tasks.json`, drivers `*.mjs` there; `tools/te_assets.py` turns the Meshy GLBs into `assets/true_error/game/` (geometry GLB + PNG maps).
-- Code: `te_level` (layout, collision), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`).
+- Acts: 1 the Central Spire, 2 the Sky Bridge, 3 the Relay Tower (sim-beam chasm, biochip vault, dark archive, breaker room), 4 the Descent (stair shaft, lower bridge, reactor hold-out), 5 the Return (service lift, the Warden, waking the hypercube). Stages live in `te_mission.ts`.
+- Code: `te_level` (Act 1 layout, collision), `te_acts` (Acts 2-5), `te_mission` (stages, lines), `te_items` (24 procedural collectibles), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`/`te_expect`; `te_act` `stage` starts the mission at any stage).
 - Tests: `npm run test:true-error` (vitest) and `cargo test --release --test true_error_live` (BDD screenshots, `tests/features/true_error_live.feature`).
-- Gamepad: left stick moves (click to run), right stick looks, LT aims, RT fires, A jumps, X resets, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
+- Keys: WASD, Shift runs, Space jumps, C / Ctrl crouch (toggle), V rolls (invulnerable mid-roll), E resets / uses / holds up a collectible (E keeps it, Esc puts it back), 1-5 lenses.
+- Gamepad: left stick moves (click to run), right stick looks, right stick click crouches, LT aims, RT fires, A jumps, B rolls, X resets / uses, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
+- Saves: run (stage, checkpoint, keeps, machines) at checkpoints and stage changes; the title offers Continue (N / Y for a new game). The collectible archive persists across runs.
+- Meshy: Warden (rigged, shield and cannon glow drawn in code), crawler (static; Meshy rigs humanoids only, so its gait is procedural), archive rack, reactor, conduit; Ray's crouch and roll clips.
 - Aim assist (Armageddon's `ar_aim.ts`): friction, sweep pull and tracking onto hostile machines in sight. 50% by default, 0-50% with - and = (saved through `addon.IO.save`).
 - Props and the skyline are batched per spatial chunk (`chunkOf`) so the engine culls them per pass.

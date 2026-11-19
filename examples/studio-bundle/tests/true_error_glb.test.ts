@@ -10,7 +10,7 @@ describe("True Error GLB + skinning", () => {
     it.skipIf(!has("ray"))("Ray parses with his skin and named clips", () => {
         const m = parseGlb(new Uint8Array(readFileSync(`${GAME}/ray.glb`)));
         expect(m.skin?.joints.length).toBe(24);
-        expect(m.clips.map(c => c.name)).toEqual(["walk", "run", "idle", "combat_idle", "walk_shoot", "walk_back_shoot", "jump", "hit", "death"]);
+        expect(m.clips.map(c => c.name)).toEqual(["walk", "run", "idle", "combat_idle", "walk_shoot", "walk_back_shoot", "jump", "hit", "death", "crouch_walk", "crouch_back", "roll", "roll_crouch", "crouch_reload", "crouch_idle"]);
         expect(m.indices.length % 3).toBe(0);
         expect(m.joints!.length).toBe((m.positions.length / 3) * 4);
     });

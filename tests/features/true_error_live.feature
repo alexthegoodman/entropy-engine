@@ -104,3 +104,99 @@ Feature: True Error - Level 1, the Central Spire
     Then I call the tool "te_expect" with {"onTarget": true, "aiming": true}
     And I capture "24-aim-assist"
     And I release the gamepad button "LeftTrigger2"
+
+  Scenario: Crouch, roll and a collectible held up and kept
+    Given the real True Error game is running in test mode
+    When I call the tool "te_act" with {"action": "fixed", "dt": 0.0333}
+    And I call the tool "te_act" with {"action": "stage", "id": "bridge", "frames": 4}
+    And I call the tool "te_act" with {"action": "calm", "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [36, 14, 0], "yaw": 1.57, "pitch": -0.05, "frames": 10}
+    Then I call the tool "te_expect" with {"stage": "bridge", "crouched": false}
+    And I capture "30-bridge-girder"
+    When I call the tool "te_act" with {"action": "crouch", "on": true, "frames": 12}
+    Then I call the tool "te_expect" with {"crouched": true}
+    And I capture "31-crouched"
+    When I call the tool "te_act" with {"action": "crouch", "on": false, "frames": 12}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [37.5, 14, 0], "yaw": 1.57, "pitch": -0.05, "frames": 2}
+    And I call the tool "te_act" with {"action": "roll", "frames": 6}
+    Then I call the tool "te_expect" with {"rolling": true}
+    And I capture "32-rolling"
+    When I call the tool "te_act" with {"action": "step", "frames": 30}
+    Then I call the tool "te_state"
+    When I call the tool "te_act" with {"action": "teleport", "pos": [48.6, 14, -0.6], "yaw": 3.14, "pitch": -0.3, "frames": 6}
+    Then I capture "33-commuter-pass-on-bench"
+    When I call the tool "te_act" with {"action": "inspect", "id": "commuter-pass", "frames": 20}
+    Then I call the tool "te_expect" with {"mode": "inspect", "inspecting": "commuter-pass"}
+    And I capture "34-inspect"
+    When I call the tool "te_act" with {"action": "keep", "frames": 10}
+    Then I call the tool "te_expect" with {"mode": "play", "kept": 1}
+    When I call the tool "te_act" with {"action": "camera", "pos": [48, 24, -26], "target": [48, 14, 0], "fov": 55, "frames": 4}
+    Then I capture "35-sky-bridge-wide"
+    # The crawler patrols west from x 86: its head should lead (left in this frame).
+    When I call the tool "te_act" with {"action": "camera", "pos": [84, 16.5, 1.9], "target": [84, 14.3, -0.7], "fov": 45, "frames": 2}
+    Then I capture "36-crawler-side"
+    And I call the tool "te_act" with {"action": "release", "frames": 1}
+
+  Scenario: The Relay Tower - the chasm, the vault, the breakers
+    Given the real True Error game is running in test mode
+    When I call the tool "te_act" with {"action": "fixed", "dt": 0.0333}
+    And I call the tool "te_act" with {"action": "stage", "id": "biochip", "frames": 4}
+    And I call the tool "te_act" with {"action": "calm", "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [103, 14, 10], "yaw": 1.57, "pitch": -0.25, "frames": 10}
+    Then I capture "40-chasm"
+    When I call the tool "te_act" with {"action": "lens", "index": 4, "frames": 10}
+    Then I capture "41-chasm-sim-beams"
+    When I call the tool "te_act" with {"action": "lens", "index": 0, "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [120.6, 14, 11.8], "yaw": 0.6, "pitch": -0.1, "frames": 4}
+    And I call the tool "te_act" with {"action": "face", "at": [122, 15, 13], "frames": 6}
+    Then I capture "42-vault-biochip"
+    When I call the tool "te_act" with {"action": "use", "frames": 10}
+    Then I call the tool "te_expect" with {"biochip": true, "stage": "conduit"}
+    When I call the tool "te_act" with {"action": "teleport", "pos": [104, 7, -13], "yaw": 1.57, "pitch": -0.05, "frames": 10}
+    Then I capture "43-archive-dark"
+    When I call the tool "te_act" with {"action": "teleport", "pos": [121, 7, -13], "yaw": 1.57, "pitch": -0.05, "frames": 10}
+    Then I capture "44-breakers"
+    When I call the tool "te_act" with {"action": "lens", "index": 2, "frames": 8}
+    Then I capture "45-breakers-heat"
+    When I call the tool "te_act" with {"action": "lens", "index": 0, "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [123, 7, -9.8], "yaw": 1.57, "pitch": -0.05, "frames": 4}
+    And I call the tool "te_act" with {"action": "use", "frames": 20}
+    Then I call the tool "te_expect" with {"stage": "descent"}
+    When I call the tool "te_act" with {"action": "camera", "pos": [140, 30, -40], "target": [108, 10, 0], "fov": 50, "frames": 4}
+    Then I capture "46-relay-tower"
+    And I call the tool "te_act" with {"action": "release", "frames": 1}
+
+  Scenario: The Descent and the Return - reactor, hold-out, lift, Warden
+    Given the real True Error game is running in test mode
+    When I call the tool "te_act" with {"action": "fixed", "dt": 0.0333}
+    And I call the tool "te_act" with {"action": "stage", "id": "descent", "frames": 4}
+    And I call the tool "te_act" with {"action": "calm", "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [92, 0, -8.2], "yaw": 3.14, "pitch": -0.35, "frames": 10}
+    Then I capture "50-stair-shaft"
+    When I call the tool "te_act" with {"action": "stage", "id": "crossing", "frames": 4}
+    And I call the tool "te_act" with {"action": "calm", "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [64, -14, -12], "yaw": -1.57, "pitch": -0.05, "frames": 10}
+    Then I capture "51-lower-bridge"
+    When I call the tool "te_act" with {"action": "stage", "id": "reactor", "frames": 4}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [-4.4, -14, -4], "yaw": -1.57, "pitch": -0.05, "frames": 10}
+    Then I capture "52-reactor-console"
+    When I call the tool "te_act" with {"action": "use", "frames": 10}
+    Then I call the tool "te_expect" with {"stage": "holdout"}
+    When I call the tool "te_act" with {"action": "step", "frames": 240}
+    Then I call the tool "te_state"
+    And I capture "53-holdout"
+    When I call the tool "te_act" with {"action": "stage", "id": "lift", "frames": 4}
+    And I call the tool "te_act" with {"action": "calm", "frames": 2}
+    And I call the tool "te_act" with {"action": "teleport", "pos": [-21.85, -14, 15.6], "yaw": 0, "pitch": -0.05, "frames": 6}
+    And I call the tool "te_act" with {"action": "use", "frames": 30}
+    Then I call the tool "te_expect" with {"stage": "ride", "riding": true}
+    And I capture "54-lift-ride"
+    When I call the tool "te_act" with {"action": "step", "frames": 600}
+    Then I call the tool "te_expect" with {"stage": "warden"}
+    # A fresh start at the Warden: it patrols where it landed, so the frame is the same every run.
+    When I call the tool "te_act" with {"action": "stage", "id": "warden", "frames": 90}
+    And I call the tool "te_act" with {"action": "camera", "pos": [-1, 16, -3], "target": [2, 15, -7], "fov": 45, "frames": 2}
+    Then I capture "55-warden"
+    When I call the tool "te_act" with {"action": "release", "frames": 1}
+    And I call the tool "te_act" with {"action": "win", "frames": 100}
+    Then I capture "57-awaken"

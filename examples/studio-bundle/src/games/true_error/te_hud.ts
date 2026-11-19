@@ -1,6 +1,7 @@
 // True Error's screens, drawn with the retained Painter (allegiance/al_ui.ts): the title card,
-// the play HUD (integrity, the rifle's charge, the lens, the objective, prompts, toasts), the
-// subtitles, and the level-complete card. Brass and verdigris over a dark glass.
+// the play HUD (integrity, the rifle's charge, the biochip, the lens, the objective, prompts,
+// toasts, act cards), the subtitles, the inspect view of a collectible, and the level-complete
+// card. Brass and verdigris over a dark glass.
 
 import { Painter, textWidth, type Color } from "../allegiance/al_ui";
 
@@ -38,6 +39,13 @@ export interface HudView {
     /** The player last used a gamepad: its controls in the help. */
     pad: boolean;
     fps: number;
+    /** The biochip's charge 0..100, or -1 before Ray has one. */
+    biochip: number;
+    /** Collectibles kept on this run, of how many. */
+    items: [number, number];
+    /** An act's title card fading in and out: its number, name and age (s). */
+    act: { n: number; name: string; t: number } | null;
+    crouched: boolean;
 }
 
 export function drawSubtitle(p: Painter, w: number, h: number, s: HudView["subtitle"], cinematic: boolean): void {
@@ -67,15 +75,38 @@ function wrap(text: string, size: number, maxW: number): string[] {
     return out;
 }
 
-export function drawTitle(p: Painter, w: number, h: number, t: number): void {
+/** `saved`: a run to continue (its act and objective), or null. */
+export function drawTitle(p: Painter, w: number, h: number, t: number, saved: { act: string; objective: string; items: string } | null = null): void {
     p.rect(0, 0, w, h, [0, 0, 0, 0.35]);
     const pulse = 0.75 + 0.25 * Math.sin(t * 2);
     const size = Math.min(110, w / 9);
     p.textC("TRUE ERROR", w / 2, h * 0.3, size, TE.brass, FONT.head);
     p.textC("LEVEL 1  -  THE CENTRAL SPIRE", w / 2, h * 0.3 + size * 1.25, size * 0.24, TE.ink, FONT.head);
     p.textC("Mars, 4122", w / 2, h * 0.3 + size * 1.75, size * 0.2, TE.dim, FONT.body);
-    p.textC("Press ENTER, A or click to begin", w / 2, h * 0.72, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
-    p.textC("ESC or B skips cutscenes", w / 2, h * 0.72 + 34, 16, TE.dim, FONT.body);
+    if (saved) {
+        p.textC("Press ENTER, A or click to continue", w / 2, h * 0.68, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
+        p.textC(`${saved.act}  -  ${saved.objective}  -  ${saved.items}`, w / 2, h * 0.68 + 32, 15, TE.ink, FONT.body);
+        p.textC("N or Y starts a new game", w / 2, h * 0.68 + 58, 16, TE.dim, FONT.body);
+    } else p.textC("Press ENTER, A or click to begin", w / 2, h * 0.72, 22, [TE.cyan[0], TE.cyan[1], TE.cyan[2], pulse], FONT.body);
+    p.textC("ESC or B skips cutscenes", w / 2, h * 0.86, 16, TE.dim, FONT.body);
+}
+
+const ROMAN = ["", "I", "II", "III", "IV", "V"];
+
+/** A collectible held up to the lens: what it is, what it says, and the keys. */
+export function drawInspect(p: Painter, w: number, h: number, item: { name: string; text: string; kept: boolean; count: string }, pad: boolean): void {
+    p.rect(0, 0, w, h, [0, 0, 0, 0.18]);
+    const bw = Math.min(520, w * 0.42), x = w - bw - 40, size = Math.max(15, Math.min(19, w / 90));
+    const lines = wrap(item.text, size, bw - 40);
+    const bh = 120 + lines.length * size * 1.4;
+    const y = h / 2 - bh / 2;
+    p.rect(x, y, bw, bh, TE.glass);
+    p.rect(x, y, 4, bh, TE.brass);
+    p.text(item.name.toUpperCase(), x + 22, y + 22, 20, TE.brass, FONT.head);
+    p.text(item.kept ? "IN YOUR ARCHIVE" : `ARCHIVE  ${item.count}`, x + 22, y + 50, 13, item.kept ? TE.green : TE.dim, FONT.head);
+    lines.forEach((l, i) => p.text(l, x + 22, y + 80 + i * size * 1.4, size, TE.ink, FONT.body));
+    const keys = pad ? "X keep   B put it back   R-STICK turn it over" : "E keep   ESC or Q put it back   MOUSE turn it over";
+    p.text(keys, x + 22, y + bh - 30, 14, TE.cyan, FONT.body);
 }
 
 export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
@@ -87,6 +118,18 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     p.text("PHOTON CHARGE", x, y + 38, 14, TE.brass, FONT.head);
     p.bar(x, y + 58, bw, 8, Math.max(0, v.energy) / 100, TE.cyan);
     p.text(`OBJECTIVE  ${v.objective}`, x - 4, y + 96, 15, TE.ink, FONT.body, 0, 0, TE.shade);
+    if (v.biochip >= 0) {
+        p.rect(x - 12, y + 112, bw + 24, 34, TE.glass);
+        p.text("BIOCHIP", x, y + 118, 13, v.dark > 0.05 ? TE.violet : TE.brassDim, FONT.head);
+        p.bar(x + 80, y + 122, bw - 80, 8, v.biochip / 100, v.biochip < 25 ? TE.red : TE.violet);
+    }
+    if (v.items[1] > 0) p.textR(`ARCHIVE  ${v.items[0]} / ${v.items[1]}`, w - 28, h - 52, 14, TE.brassDim, FONT.head);
+    if (v.crouched) p.textC("CROUCHED", w / 2, h - 34, 13, TE.dim, FONT.head);
+    if (v.act && v.act.t < 5) {
+        const a = Math.min(1, v.act.t * 1.5, (5 - v.act.t) * 1.2);
+        p.textC(`ACT ${ROMAN[v.act.n] ?? v.act.n}`, w / 2, h * 0.3, 22, [TE.brass[0], TE.brass[1], TE.brass[2], a], FONT.head);
+        p.textC(v.act.name, w / 2, h * 0.3 + 34, Math.min(64, w / 16), [TE.ink[0], TE.ink[1], TE.ink[2], a], FONT.head);
+    }
     // The lens, top right.
     const lensC = v.lens === 4 ? TE.cyan : v.lens === 1 ? TE.green : v.lens === 2 ? TE.red : TE.brass;
     p.textR(`LENS  ${LENS_NAMES[v.lens]}`, w - 28, 22, 18, lensC, FONT.head);
@@ -113,8 +156,8 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     });
     if (v.showHelp) {
         const lines = v.pad
-            ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "X reset a downed machine (or shoot it)", "Y / D-PAD lenses   BACK hide help"]
-            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "E reset a downed machine (or shoot it)", "1-5 lenses   -/= aim assist   H hide help"];
+            ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "B roll   R-STICK click crouch", "X reset, use, look closer", "Y / D-PAD lenses   BACK hide help"]
+            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "C or CTRL crouch   V roll", "E reset, use, look closer", "1-5 lenses   -/= aim assist   H hide help"];
         const bx = 28, by = h - 40 - lines.length * 22;
         p.rect(bx - 12, by - 10, 360, lines.length * 22 + 18, TE.glass);
         lines.forEach((l, i) => p.text(l, bx, by + i * 22, 15, TE.dim, FONT.body));
@@ -123,19 +166,20 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     if (v.fps > 0) p.textR(`${Math.round(v.fps)} fps`, w - 28, h - 30, 13, TE.dim, FONT.body);
 }
 
-export interface Results { time: number; resets: number; destroyed: number; deaths: number }
+export interface Results { time: number; resets: number; destroyed: number; deaths: number; items: string }
 
 export function drawComplete(p: Painter, w: number, h: number, r: Results, t: number): void {
     p.rect(0, 0, w, h, [0, 0, 0, Math.min(0.6, t * 0.3)]);
     if (t < 0.6) return;
     const size = Math.min(80, w / 12);
-    p.textC("LEVEL COMPLETE", w / 2, h * 0.24, size, TE.brass, FONT.head);
-    p.textC("The Central Spire", w / 2, h * 0.24 + size * 1.2, size * 0.32, TE.ink, FONT.body);
+    p.textC("MISSION COMPLETE", w / 2, h * 0.24, size, TE.brass, FONT.head);
+    p.textC("The hypercube is awake", w / 2, h * 0.24 + size * 1.2, size * 0.32, TE.ink, FONT.body);
     const rows: [string, string][] = [
         ["TIME", `${Math.floor(r.time / 60)}:${String(Math.floor(r.time % 60)).padStart(2, "0")}`],
         ["MINDS RESTORED", String(r.resets)],
         ["MACHINES DESTROYED", String(r.destroyed)],
         ["REBOOTS", String(r.deaths)],
+        ["ARCHIVE", r.items],
     ];
     const top = h * 0.46;
     rows.forEach(([k, v], i) => {

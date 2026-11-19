@@ -52,6 +52,11 @@ MODELS = {
     "bridge": (os.path.join(ROOT, "models", "bridge.glb"), 1024),
     "hovercar": (os.path.join(ROOT, "models", "hovercar.glb"), 1024),
     "dark_emitter": (os.path.join(ROOT, "models", "dark_emitter.glb"), 1024),
+    "warden": (os.path.join(ROOT, "models", "warden_anim.glb"), 2048),
+    "crawler": (os.path.join(ROOT, "models", "crawler.glb"), 1024),
+    "archive_rack": (os.path.join(ROOT, "models", "archive_rack.glb"), 1024),
+    "reactor": (os.path.join(ROOT, "models", "reactor.glb"), 1024),
+    "conduit": (os.path.join(ROOT, "models", "conduit.glb"), 1024),
 }
 
 
@@ -145,10 +150,14 @@ def prepare(name, src, size):
 # drive_anims.mjs ACTIONS).
 CLIPS = {
     "ray": ("ray_rig.glb", [("ray_walk.glb", ["walk"]), ("ray_run.glb", ["run"]),
-            ("ray_actions.glb", ["idle", "combat_idle", "walk_shoot", "walk_back_shoot", "jump", "hit", "death"])]),
+            ("ray_actions.glb", ["idle", "combat_idle", "walk_shoot", "walk_back_shoot", "jump", "hit", "death"]),
+            ("ray_actions2.glb", ["crouch_walk", "crouch_back", "roll", "roll_crouch", "crouch_reload"]),
+            ("ray_crouch_idle.glb", ["crouch_idle"])]),
     "hacked_bot": ("hacked_bot_rig.glb", [("hacked_bot_walk.glb", ["walk"]), ("hacked_bot_run.glb", ["run"]),
                    ("hacked_bot_actions.glb", ["combat_idle", "walk_shoot", "hit", "stun", "death"])]),
     "doctor": ("doctor_rig.glb", [("doctor_walk.glb", ["walk"]), ("doctor_actions.glb", ["idle", "talk", "talk2"])]),
+    "warden": ("warden_rig.glb", [("warden_walk.glb", ["walk"]), ("warden_run.glb", ["run"]),
+               ("warden_actions.glb", ["combat_idle", "walk_shoot", "hit", "stun", "death", "throw"])]),
 }
 
 

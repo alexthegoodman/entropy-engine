@@ -3,6 +3,10 @@
 // zone around a dark-bomb fragment, so the way on is around it along the blown-out east edge and up
 // a fallen slab to the atrium (y = 14), where the hypercube floats over its pedestal, open to the sky.
 //
+// Past the hypercube the mission goes on (te_acts.ts): a snapped sky bridge east to the Relay
+// Tower, down its stair shaft, back along a lower bridge to the spire's reactor floor (y = -14), and
+// up the service lift in the spire's north-west corner to the atrium again.
+//
 // Everything solid is an axis-aligned box or a ramp (a slab tilted along z). The same boxes are
 // drawn (ARCH pipeline, tiling materials) and collided with; props from Meshy add their own boxes.
 // Coordinates: meters, +y up, +x east (the side the Error's blast tore open), +z north.
@@ -12,11 +16,13 @@ export type V3 = [number, number, number];
 /** ARCH material layers (texture array order, see te_render.ts MATERIALS). */
 export const MAT = { concrete: 0, granite: 1, marble: 2, metal: 3, soil: 4, sandstone: 5, wood: 6, brick: 7, asphalt: 8 } as const;
 
-export interface Box { min: V3; max: V3; mat: number; tint: V3; draw: boolean; solid: boolean; uvScale?: number }
+/** `sim`: walkable but unseen, outlined only through the simulation lens (the old world's floor). */
+export interface Box { min: V3; max: V3; mat: number; tint: V3; draw: boolean; solid: boolean; uvScale?: number; sim?: boolean }
 /** A slab rising along z from (z0, y0) to (z1, y1), x0..x1 wide, `thick` deep. */
 export interface Ramp { x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; thick: number; mat: number }
 
-export type ModelName = "workbench" | "upload_pod" | "holo_terminal" | "battery" | "rubble" | "girders" | "pedestal" | "junk" | "boiler" | "carcass" | "tower_a" | "tower_b" | "bridge" | "hovercar" | "dark_emitter" | "roller" | "rifle" | "doctor" | "hacked_bot" | "ray";
+export type ModelName = "workbench" | "upload_pod" | "holo_terminal" | "battery" | "rubble" | "girders" | "pedestal" | "junk" | "boiler" | "carcass" | "tower_a" | "tower_b" | "bridge" | "hovercar" | "dark_emitter" | "roller" | "rifle" | "doctor" | "hacked_bot" | "ray"
+    | "archive_rack" | "reactor" | "conduit" | "crawler" | "warden";
 
 export interface Prop {
     model: ModelName;
@@ -29,13 +35,24 @@ export interface Prop {
     /** Lowered into the floor this far (rubble piles settle). */
     sink?: number;
     tint?: V3;
+    /** How hot it reads through the heat lens (0..1), where it isn't the model's usual. */
+    heat?: number;
 }
 
-export type EnemyKind = "roller" | "hacked_bot";
-export interface EnemySpawn { id: string; kind: EnemyKind; pos: V3; yaw: number; patrol: V3[]; zone: number }
+export type EnemyKind = "roller" | "hacked_bot" | "crawler" | "warden";
+/** `zone`: the region (regionOf) it guards; it wakes when Ray is there, or close and in sight. */
+export interface EnemySpawn { id: string; kind: EnemyKind; pos: V3; yaw: number; patrol: V3[]; zone: string }
 export interface Pickup { id: string; pos: V3 }
 export interface LevelLight { pos: V3; color: V3; intensity: number; range: number; flicker?: number }
 export interface Checkpoint { id: string; pos: V3; yaw: number; radius: number }
+/** A slab that slides up out of the way when opened (blast doors, the lift's gates). */
+export interface Door { id: string; min: V3; max: V3; mat: number; tint: V3 }
+/** Something E works on: the biochip, the conduits' breakers, the reactor's console, the lift. */
+export type UseKind = "biochip" | "conduit" | "console" | "lift";
+export interface UseSpot { id: string; kind: UseKind; pos: V3; yaw: number; label: string }
+/** A collectible's place (te_items.ts has what it is). */
+export interface ItemSpot { id: string; pos: V3; yaw: number }
+export interface DarkZone { id: string; center: V3; radius: number }
 
 export const FLOORS = [0, 7, 14];
 export const SLAB = 0.6;
@@ -46,11 +63,15 @@ export const START: { pos: V3; yaw: number } = { pos: [-13.6, 0, -15.6], yaw: Ma
 export const DOCTOR_POS: V3 = [-12.6, 0, -18.8];
 export const PEDESTAL: V3 = [0, 14, 2];
 export const HYPERCUBE_Y = 14 + 4.6;
-export const DARK_ZONE: { center: V3; radius: number } = { center: [-1, 7, 0], radius: 6.2 };
+export const DARK_ZONE: DarkZone = { id: "spire", center: [-1, 7, 0], radius: 6.2 };
 /** Where the level is won: the hypercube's reach. */
 export const GOAL_RADIUS = 5.2;
 export const ROOF_Y = 40;
 export const CITY_FLOOR = -260;
+/** The spire's reactor floor, where the lower bridge comes in and the lift starts. */
+export const LOW_FLOOR = -14;
+/** The service lift's shaft (north-west corner, the reactor floor up to the atrium). */
+export const LIFT = { x0: -24, x1: -19.7, z0: 13.7, z1: 18.3, bottom: LOW_FLOOR, top: 14 };
 
 /** A small deterministic hash in 0..1. */
 export function hash(a: number, b = 0, c = 0): number {
@@ -77,7 +98,14 @@ function holed(floor: number, cx: number, cz: number): boolean {
     if (floor === 1 && x > -21.5 && x < -16.5 && z > -7 && z < 7) return true;
     // Where the atrium's slab broke away and fell onto the second floor.
     if (floor === 2 && x > 4 && x < 12 && z > -21 && z < -8) return true;
+    // The service lift's shaft runs through every floor.
+    if (x > LIFT.x0 && x < LIFT.x1 && z > LIFT.z0 && z < LIFT.z1) return true;
     return false;
+}
+
+/** The east edge of the reactor floor (y = -14): broken back further than the floors above. */
+export function lowEdgeX(z: number): number {
+    return 10 + Math.sin(z * 0.31 + 0.6) * 2.4 + (hash(Math.floor(z / CELL), 31) - 0.5) * 1.6;
 }
 
 export interface Level {
@@ -90,6 +118,10 @@ export interface Level {
     checkpoints: Checkpoint[];
     /** Distant city: towers, bridges (drawn, not collided). */
     skyline: Prop[];
+    doors: Door[];
+    uses: UseSpot[];
+    items: ItemSpot[];
+    darkZones: DarkZone[];
 }
 
 export function buildLevel(): Level {
@@ -116,11 +148,23 @@ export function buildLevel(): Level {
         add([cx, ROOF_Y - 1, cz], [cx + CELL * 2, ROOF_Y, cz + CELL * 2], MAT.concrete, [0.75, 0.72, 0.7], { solid: false });
     }
     // Below: the tower's lower floors, broken back further the lower they are (seen over the edge).
+    // The reactor floor (k = 2, y = -14) is walked on; the lift's shaft goes through the one above.
     for (let k = 1; k <= 6; k++) {
         const y = -7 * k;
+        if (y === LOW_FLOOR) {
+            for (let cz = -HALF; cz < HALF; cz += CELL) for (let cx = -HALF; cx < HALF; cx += CELL) {
+                const edge = lowEdgeX(cz + CELL / 2);
+                if (cx + CELL > edge + 0.5) continue;
+                const drop = cx + CELL > edge - 1.5 ? 0.08 + hash(cx, cz, 9) * 0.2 : 0;
+                const shade = 0.88 + hash(cz, cx, 19) * 0.12;
+                add([cx, y - SLAB - drop, cz], [cx + CELL, y - drop * 0.5, cz + CELL], MAT.concrete, [shade * 0.8, shade * 0.78, shade * 0.76]);
+            }
+            continue;
+        }
         for (let cz = -HALF; cz < HALF; cz += CELL * 2) {
             const e = 11 + Math.sin(cz * 0.21 + k) * 4 - k * 0.6 + hash(cz, k) * 3;
-            add([-HALF, y - SLAB, cz], [e, y, cz + CELL * 2], MAT.concrete, [0.8, 0.78, 0.76], { solid: false });
+            const shaft = k === 1 && cz + CELL * 2 > LIFT.z0 && cz < LIFT.z1;
+            add([shaft ? LIFT.x1 : -HALF, y - SLAB, cz], [e, y, cz + CELL * 2], MAT.concrete, [0.8, 0.78, 0.76], { solid: false });
         }
     }
     // The shaft of the tower down to the city: a solid core seen through the fog.
@@ -133,7 +177,9 @@ export function buildLevel(): Level {
         for (const [x, z] of [[t, -HALF], [t, HALF], [-HALF, t]] as [number, number][]) {
             if (x > edgeX(0, z) - 1) continue;
             const top = colTop(x, z);
-            add([x - 0.5, -0.6, z - 0.5], [x + 0.5, top, z + 0.5], MAT.granite, [0.58, 0.54, 0.5]);
+            // Down to the reactor floor where that floor still reaches.
+            const foot = x < lowEdgeX(z) - 1 ? LOW_FLOOR - SLAB : -0.6;
+            add([x - 0.5, foot, z - 0.5], [x + 0.5, top, z + 0.5], MAT.granite, [0.58, 0.54, 0.5]);
         }
     }
     for (const fy of [...FLOORS, 27, ROOF_Y - 1]) {
@@ -145,8 +191,8 @@ export function buildLevel(): Level {
         add([-HALF - 0.45, fy - 1.1, -HALF], [-HALF + 0.45, fy - (fy === 0 || fy === 7 || fy === 14 ? 0.55 : 0), HALF], MAT.granite, [0.5, 0.47, 0.44], { solid: fy < 20 });
     }
     // Low parapets between the columns stop a walk out of a window; the glass is long gone.
-    for (const fy of FLOORS) {
-        for (const side of [-1, 1]) add([-HALF, fy, side * HALF - 0.2], [Math.min(edgeX(0, side * HALF) - 1, 20), fy + 0.9, side * HALF + 0.2], MAT.metal, [0.45, 0.4, 0.35]);
+    for (const fy of [LOW_FLOOR, ...FLOORS]) {
+        for (const side of [-1, 1]) add([-HALF, fy, side * HALF - 0.2], [Math.min((fy === LOW_FLOOR ? lowEdgeX(side * HALF) : edgeX(0, side * HALF)) - 1, 20), fy + 0.9, side * HALF + 0.2], MAT.metal, [0.45, 0.4, 0.35]);
         add([-HALF - 0.2, fy, -HALF], [-HALF + 0.2, fy + 0.9, HALF], MAT.metal, [0.45, 0.4, 0.35]);
     }
 
@@ -230,11 +276,11 @@ export function buildLevel(): Level {
     ];
 
     const enemies: EnemySpawn[] = [
-        { id: "roller-1", kind: "roller", pos: [2, 0, -8], yaw: Math.PI, zone: 0, patrol: [[2, 0, -8], [6, 0, 2], [-4, 0, 6], [-6, 0, -6]] },
-        { id: "roller-2", kind: "roller", pos: [-2, 7, 10.5], yaw: 0, zone: 1, patrol: [[-2, 7, 10.5], [8, 7, 17], [7, 7, 9], [0, 7, 9]] },
-        { id: "bot-1", kind: "hacked_bot", pos: [9.5, 7, -3], yaw: Math.PI, zone: 1, patrol: [[9.5, 7, -3], [9.5, 7, 5], [12.5, 7, -14]] },
-        { id: "bot-2", kind: "hacked_bot", pos: [-6, 14, -10], yaw: 0, zone: 2, patrol: [[-6, 14, -10], [6, 14, -6], [-2, 14, -12]] },
-        { id: "roller-3", kind: "roller", pos: [6, 14, 10], yaw: Math.PI, zone: 2, patrol: [[6, 14, 10], [-6, 14, 12], [-9, 14, 2], [6, 14, 4]] },
+        { id: "roller-1", kind: "roller", pos: [2, 0, -8], yaw: Math.PI, zone: "spire0", patrol: [[2, 0, -8], [6, 0, 2], [-4, 0, 6], [-6, 0, -6]] },
+        { id: "roller-2", kind: "roller", pos: [-2, 7, 10.5], yaw: 0, zone: "spire1", patrol: [[-2, 7, 10.5], [8, 7, 17], [7, 7, 9], [0, 7, 9]] },
+        { id: "bot-1", kind: "hacked_bot", pos: [9.5, 7, -3], yaw: Math.PI, zone: "spire1", patrol: [[9.5, 7, -3], [9.5, 7, 5], [12.5, 7, -14]] },
+        { id: "bot-2", kind: "hacked_bot", pos: [-6, 14, -10], yaw: 0, zone: "spire2", patrol: [[-6, 14, -10], [6, 14, -6], [-2, 14, -12]] },
+        { id: "roller-3", kind: "roller", pos: [6, 14, 10], yaw: Math.PI, zone: "spire2", patrol: [[6, 14, 10], [-6, 14, 12], [-9, 14, 2], [6, 14, 4]] },
     ];
 
     const pickups: Pickup[] = [
@@ -266,7 +312,43 @@ export function buildLevel(): Level {
         { id: "atrium", pos: [8, 14, -5], yaw: Math.PI, radius: 3 },
     ];
 
-    return { boxes, ramps, props, enemies, pickups, lights, checkpoints, skyline: buildSkyline() };
+    // --- The service lift: a shaft of brick from the reactor floor up past the atrium, gated at the
+    // bottom and the top (south side); the first and second floors only see its walls.
+    const L = LIFT, shaftTop = L.top + 7;
+    const gate = (y: number) => [[L.x0, y, L.z0 - 0.15], [L.x0 + 0.9, y + 3.4, L.z0 + 0.15], [L.x1 - 0.9, y, L.z0 - 0.15], [L.x1, y + 3.4, L.z0 + 0.15], [L.x0, y + 3.4, L.z0 - 0.15], [L.x1, y + 7 - SLAB, L.z0 + 0.15]] as V3[];
+    for (const y of [L.bottom, -7, 0, 7, L.top]) {
+        if (y === L.bottom || y === L.top) { const g = gate(y); for (let i = 0; i < g.length; i += 2) add(g[i], g[i + 1], MAT.brick, [0.6, 0.5, 0.45]); }
+        else add([L.x0, y - SLAB, L.z0 - 0.15], [L.x1, y + 7 - SLAB, L.z0 + 0.15], MAT.brick, [0.6, 0.5, 0.45]);
+    }
+    add([L.x1 - 0.15, L.bottom, L.z0], [L.x1 + 0.15, shaftTop, L.z1], MAT.brick, [0.6, 0.5, 0.45]);
+    add([L.x0, L.bottom, L.z1 - 0.15], [L.x1, shaftTop, L.z1 + 0.15], MAT.brick, [0.6, 0.5, 0.45]);
+    add([L.x0 - 0.3, L.bottom, L.z0], [L.x0, shaftTop, L.z1], MAT.brick, [0.6, 0.5, 0.45]);
+    add([L.x0 - 0.3, shaftTop, L.z0 - 0.15], [L.x1 + 0.15, shaftTop + 0.5, L.z1 + 0.15], MAT.concrete, [0.7, 0.68, 0.66]);
+    const doors: Door[] = [
+        { id: "lift-bottom", min: [L.x0 + 0.9, L.bottom, L.z0 - 0.1], max: [L.x1 - 0.9, L.bottom + 3.4, L.z0 + 0.1], mat: MAT.metal, tint: [0.55, 0.48, 0.38] },
+        { id: "lift-top", min: [L.x0 + 0.9, L.top, L.z0 - 0.1], max: [L.x1 - 0.9, L.top + 3.4, L.z0 + 0.1], mat: MAT.metal, tint: [0.55, 0.48, 0.38] },
+    ];
+
+    return { boxes, ramps, props, enemies, pickups, lights, checkpoints, skyline: buildSkyline(), doors, uses: [], items: [], darkZones: [DARK_ZONE] };
+}
+
+/** Which part of the mission a point is in (enemies guard one; the mission reads it too). */
+export type Region = "spire0" | "spire1" | "spire2" | "bridge" | "relay14" | "relay7" | "shaft" | "lowbridge" | "reactor" | "lift" | "void";
+export function regionOf(p: V3): Region {
+    const [x, y, z] = p;
+    if (x > LIFT.x0 && x < LIFT.x1 && z > LIFT.z0 && z < LIFT.z1 && y > LOW_FLOOR - 1) return "lift";
+    if (x >= 89.5 && x <= 126.5 && z >= -18.5 && z <= 18.5) {
+        if (x < 98 && z < -7 && y < 13) return "shaft";
+        if (y >= 13) return "relay14";
+        if (y >= 6) return "relay7";
+        return "shaft";
+    }
+    if (y < -8) return x < 13 && Math.abs(x) <= HALF && Math.abs(z) <= HALF ? "reactor" : z > -17 && z < -7 ? "lowbridge" : "void";
+    if (x > 16 && y > 10 && Math.abs(z) < 4) return "bridge";
+    if (y >= FLOORS[2] - 1) return "spire2";
+    if (y >= FLOORS[1] - 1) return "spire1";
+    if (y >= -1) return "spire0";
+    return "void";
 }
 
 /** The ruined capital around the spire: towers on rings out to 1.4 km, a few sky bridges. */
@@ -299,6 +381,8 @@ export interface Solid { min: V3; max: V3 }
 export class World {
     readonly solids: Solid[] = [];
     readonly ramps: Ramp[];
+    /** Solids that move (doors): checked on every query, outside the grid. */
+    readonly dynamic: Solid[] = [];
     private grid = new Map<number, number[]>();
     private static readonly G = 4;
 
@@ -342,6 +426,10 @@ export class World {
             if (x + r * 0.5 < s.min[0] || x - r * 0.5 > s.max[0] || z + r * 0.5 < s.min[2] || z - r * 0.5 > s.max[2]) continue;
             if (s.max[1] <= maxY && s.max[1] > best) best = s.max[1];
         }
+        for (const s of this.dynamic) {
+            if (x + r * 0.5 < s.min[0] || x - r * 0.5 > s.max[0] || z + r * 0.5 < s.min[2] || z - r * 0.5 > s.max[2]) continue;
+            if (s.max[1] <= maxY && s.max[1] > best) best = s.max[1];
+        }
         for (const rp of this.ramps) {
             const t = this.rampTop(rp, x, z);
             if (t <= maxY + 0.05 && t > best) best = t;
@@ -355,8 +443,8 @@ export class World {
      */
     pushOut(x: number, z: number, y: number, h: number, r: number, stepY: number): [number, number] {
         for (let pass = 0; pass < 2; pass++) {
-            for (const i of this.near(x - r, z - r, x + r, z + r, this.scratch)) {
-                const s = this.solids[i];
+            const list = [...this.near(x - r, z - r, x + r, z + r, this.scratch)].map(i => this.solids[i]);
+            for (const s of [...list, ...this.dynamic]) {
                 if (s.max[1] <= stepY || s.min[1] >= y + h) continue;
                 const cx = Math.max(s.min[0], Math.min(x, s.max[0])), cz = Math.max(s.min[2], Math.min(z, s.max[2]));
                 const dx = x - cx, dz = z - cz, d = Math.hypot(dx, dz);
@@ -371,6 +459,17 @@ export class World {
             }
         }
         return [x, z];
+    }
+
+    /** Whether anything solid overlaps a vertical cylinder from y0 to y1 (room to stand up). */
+    blocked(x: number, z: number, r: number, y0: number, y1: number): boolean {
+        for (const i of this.near(x - r, z - r, x + r, z + r, this.scratch)) {
+            const s = this.solids[i];
+            if (s.max[1] <= y0 || s.min[1] >= y1) continue;
+            const cx = Math.max(s.min[0], Math.min(x, s.max[0])), cz = Math.max(s.min[2], Math.min(z, s.max[2]));
+            if (Math.hypot(x - cx, z - cz) < r * 0.9) return true;
+        }
+        return false;
     }
 
     /** Distance along the ray to the first box or ramp it hits, or Infinity (dir unit length). */
@@ -393,6 +492,7 @@ export class World {
         };
         if (candidates) for (const i of candidates) test(this.solids[i]);
         else for (const s of this.solids) test(s);
+        for (const s of this.dynamic) test(s);
         // Ramps: step along the ray (they're few and long).
         for (const r of this.ramps) {
             const steps = Math.ceil(best / 0.25);
@@ -418,7 +518,23 @@ export class World {
  * architecture's vertices and given to props per instance.
  */
 export function openness(x: number, y: number, z: number): number {
-    if (y < -1) return 0.7;
+    // The Relay Tower: a lit entry floor, a dark archive below, a darker shaft.
+    if (x > 89.6 && x < 126.4 && Math.abs(z) < 18.4) {
+        const facade = Math.min(x - 90, 126 - x, 18 - Math.abs(z));
+        if (x < 98 && z < -7 && y < 13.5) return 0.08;
+        if (y >= 13.5) return Math.min(1, 0.22 + smooth(4, 0.3, facade) * 0.4);
+        return 0.07 + smooth(3, 0.3, facade) * 0.12;
+    }
+    if (y < -1) {
+        // The reactor floor: open toward its broken east edge, the lift shaft closed in.
+        if (y > LOW_FLOOR - 2 && x < lowEdgeX(z) + 0.5 && Math.abs(z) < HALF + 0.5 && x > -HALF - 0.5) {
+            if (x > LIFT.x0 && x < LIFT.x1 && z > LIFT.z0 && z < LIFT.z1) return 0.1;
+            const e = lowEdgeX(z);
+            return Math.max(0.06, Math.min(1, 0.12 + smooth(e - 8, e + 1, x) * 0.7 + smooth(4, 0.5, Math.min(HALF - Math.abs(z), x + HALF)) * 0.2));
+        }
+        return 0.7;
+    }
+    if (x > LIFT.x0 && x < LIFT.x1 && z > LIFT.z0 && z < LIFT.z1) return 0.1;
     const f = y >= 13.5 ? 2 : y >= 6.5 ? 1 : 0;
     if (f === 2) {
         // The atrium: open under the roof's tear, high walls of windows.

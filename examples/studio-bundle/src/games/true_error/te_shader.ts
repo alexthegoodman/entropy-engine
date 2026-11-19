@@ -4,7 +4,9 @@
 //           array pair per model, bound per mesh), instanced from a storage buffer of Items.
 //   ARCH    the tower and everything built in code: tiling PBR material sets (assets/materials) as
 //           texture arrays, the layer and a baked sky openness packed into the vertex color's alpha
-//           (layer + openness * 0.99); also the Mars sky (kind 1) and the ground far below (kind 2).
+//           (layer + openness * 0.99); also the Mars sky (kind 1), the ground far below (kind 2) and
+//           solids (kind 3: the shared box/cylinder/sphere shapes placed per instance - doors, the lift,
+//           crates, collectibles - their layer, metalness, uv scale and openness in Item.extra).
 //   GLOW    additive light: dots, laser bolts, holograms, the dark zone, the hypercube's edges.
 //   SCREEN  height fog over the city from depth, the lenses (night, heat, distance, simulation),
 //           the Error's glitch, letterbox, tone curve, vignette and grain.
@@ -27,7 +29,7 @@ export const ITEM_FLOATS = 28;
 export const POST_FLOATS = 8 * 4;
 
 /** Item.params.x for ARCH. */
-export const ARCH = { surface: 0, sky: 1, ground: 2 } as const;
+export const ARCH = { surface: 0, sky: 1, ground: 2, solid: 3 } as const;
 /** Item.params.x for GLOW. */
 export const GLOW = { dot: 0, beam: 1, holo: 2, dark: 3, edge: 4, mote: 5, ring: 6 } as const;
 /** World.time.z: the lens. */
@@ -333,7 +335,8 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut {
 @vertex
 fn vs_shadow(in: VertexInput, @builtin(instance_index) ii: u32) -> @builtin(position) vec4<f32> {
     let it = items[ii];
-    if (i32(it.params.x + 0.5) != 0) { return vec4<f32>(0.0, 0.0, 2.0, 1.0); }
+    let kind = i32(it.params.x + 0.5);
+    if ((kind != 0 && kind != 3) || it.color.w < 0.5) { return vec4<f32>(0.0, 0.0, 2.0, 1.0); }
     return camera.view_proj * (it.model * vec4<f32>(in.position, 1.0));
 }
 
@@ -343,10 +346,12 @@ fn fs_main(in: VOut) -> FOut {
     let dp1 = dpdx(in.world_pos); let dp2 = dpdy(in.world_pos);
     var uv = in.uv;
     if (kind == 2) { uv = in.world_pos.xz / 9.0; }
+    if (kind == 3) { uv = in.uv * in.extra.z; }
     let duv1 = dpdx(uv); let duv2 = dpdy(uv);
     let packed = in.vcolor.a;
-    let layer = i32(floor(packed + 0.001));
-    let open = clamp(fract(packed + 0.001) / 0.99, 0.0, 1.0);
+    var layer = i32(floor(packed + 0.001));
+    var open = clamp(fract(packed + 0.001) / 0.99, 0.0, 1.0);
+    if (kind == 3) { layer = i32(in.extra.x + 0.5); open = in.extra.w; }
     let base = textureSample(base_maps, tile_sampler, uv, layer).rgb;
     let nm = textureSample(normal_maps, tile_sampler, uv, layer).xyz * 2.0 - 1.0;
     let rough = textureSample(rough_maps, tile_sampler, uv, layer).r;
@@ -361,7 +366,8 @@ fn fs_main(in: VOut) -> FOut {
         o.color = vec4<f32>(col, 1.0);
         return o;
     }
-    var albedo = base * in.vcolor.rgb * in.color.rgb;
+    // Solids use the shared shapes, whose vertex colour is black: their tint alone colours them.
+    var albedo = base * select(in.vcolor.rgb, vec3<f32>(1.0), kind == 3) * in.color.rgb;
     var n = normalize(in.normal);
     n = perturb(n, in.world_pos, uv, vec3<f32>(nm.x, nm.y, max(nm.z, 0.2)), dp1, dp2, duv1, duv2);
     var o = open;
@@ -373,6 +379,11 @@ fn fs_main(in: VOut) -> FOut {
     }
     // Grime: darker low on walls and in the corners of slabs.
     let grime = 1.0 - 0.25 * fbm2(in.world_pos.xz * 0.35 + in.world_pos.y * 0.2);
+    if (kind == 3) {
+        // A solid: its own metalness, a glow of its tint, a heat for the heat lens.
+        let col3 = shade(albedo, n, in.world_pos, clamp(rough, 0.15, 1.0), in.extra.y, o, in.color.rgb * in.params.z, in.params.w);
+        return fog_out(col3);
+    }
     let col = shade(albedo * grime, n, in.world_pos, clamp(rough, 0.2, 1.0), 0.0, o, vec3<f32>(0.0), 0.0);
     return fog_out(col);
 }
