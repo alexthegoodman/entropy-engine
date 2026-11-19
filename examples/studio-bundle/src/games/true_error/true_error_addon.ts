@@ -19,7 +19,7 @@ import { enginePainter, type Painter, type DrawApi, type Color } from "../allegi
 import { placed } from "../world_of_music/wom_render";
 import { shadowCascades } from "../allegiance/al_sky";
 import { Controller } from "../allegiance/al_controller";
-import { StickLook } from "../armageddon/ar_aim";
+import { StickLook, nearestTarget, frictionScale, assistPull, pullMargin, ASSIST } from "../armageddon/ar_aim";
 
 const addon = Entropy.AddonAtom.register({
     name: "True Error",
@@ -97,6 +97,7 @@ function keyDown(k: string): void {
         if (k === "NextLens") setLens((lens + 1) % LENS_NAMES.length);
         if (k === "PrevLens") setLens((lens + LENS_NAMES.length - 1) % LENS_NAMES.length);
         if (k.toLowerCase() === "h") showHelp = !showHelp;
+        if (k === "-" || k === "=") { setAssist(aimAssist + (k === "=" ? ASSIST.step : -ASSIST.step)); toast(`AIM ASSIST ${Math.round(aimAssist * 100)}%`, TE.brass); }
         if (k === "Escape") locked = false;
     }
 }
@@ -152,24 +153,65 @@ function setupInput(): void {
     });
 }
 
+// Aim assist (Armageddon's, ar_aim.ts): the look slows while the crosshair is on or near a hostile machine
+// it can see (friction, stronger on the pad and when aiming), sweeps bend onto it, and while aiming or
+// firing the crosshair tracks it. The player's setting runs 0-50% (- and = keys), 50% unless changed.
+let aimAssist = ASSIST.max;
+function setAssist(v: number): void {
+    aimAssist = Math.max(0, Math.min(ASSIST.max, Math.round(v * 100) / 100));
+    try { addon.IO.save({ v: 1, assist: aimAssist }); } catch { /* no data folder */ }
+}
+function loadSettings(): void {
+    try { const d = addon.IO.load(); if (typeof d?.assist === "number" && Number.isFinite(d.assist)) aimAssist = Math.max(0, Math.min(ASSIST.max, d.assist)); } catch { /* defaults */ }
+}
+const hostile = (e: Enemy) => e.state === "patrol" || e.state === "alert" || e.state === "fight";
+const chestOf = (e: Enemy): V3 => [e.pos[0], e.pos[1] + ENEMY[e.kind].height * 0.6, e.pos[2]];
+/** How much the crosshair is on a visible hostile machine: friction and pull weights, and its chest. */
+function assistNow(): { friction: number; pull: number; at: V3 | null } {
+    if (aimAssist <= 0 || mode !== "play" || !game.player.alive || stillCam) return { friction: 0, pull: 0, at: null };
+    const eye = cam.pos, dir = lookDir(), zoom = 62 / cam.fov;
+    const chests = game.enemies.filter(hostile).map(chestOf);
+    const seen = (q: V3) => {
+        const d: V3 = [q[0] - eye[0], q[1] - eye[1], q[2] - eye[2]], l = Math.hypot(...d);
+        return game.world.raycast(eye, [d[0] / l, d[1] / l, d[2] / l], l).t >= l - 0.3;
+    };
+    const f = nearestTarget(eye, dir, chests, zoom, seen), p = nearestTarget(eye, dir, chests, zoom, seen, pullMargin(aimAssist));
+    return { friction: f.weight, pull: p.weight, at: p.at };
+}
+/** Whether the crosshair's ray meets a hostile machine (te_expect). */
+function onTarget(): boolean {
+    const e = game.trace(cam.pos, lookDir(), 400, null).enemy;
+    return !!e && hostile(e);
+}
+
 function readLook(dt: number): void {
     const look = Entropy.Input.takeMouseLook?.() ?? [0, 0, 0];
-    if (look[2] > 0.5) { locked = true; lookYaw -= look[0] * 0.0022; lookPitch -= look[1] * 0.0019; }
-    else if (locked && lockSupported) locked = false;
-    if (look[0] || look[1]) device = "keys";
     if (padIn) { pad.axis(padIn.l, padIn.r, realTime, padIn.t); padIn = null; }
     // Sticks and triggers go stale when a pad stops reporting; buttons get real releases.
     if (realTime - pad.lastAxis > 0.5) { pad.left = [0, 0]; pad.right = [0, 0]; pad.triggers = [0, 0]; }
     const [lx, ly] = pad.left, [rx, ry] = pad.right;
+    if (look[0] || look[1]) device = "keys";
     if (lx || ly || rx || ry || pad.triggers[0] > 0.1 || pad.triggers[1] > 0.1) device = "pad";
+    const yawWas = lookYaw, pitchWas = lookPitch;
+    const assist = assistNow();
+    if (look[2] > 0.5) {
+        locked = true;
+        const k = frictionScale(assist.friction, false, aimT, aimAssist);
+        lookYaw -= look[0] * 0.0022 * k; lookPitch -= look[1] * 0.0019 * k;
+    } else if (locked && lockSupported) locked = false;
     if (mode === "play") {
         // Slower while aiming down the rifle, like the mouse feels with the narrower view.
         const [sx, sy] = stickLook.step(rx, ry, dt);
-        const k = (padAim() ? 0.55 : 1) * dt;
+        const k = (padAim() ? 0.55 : 1) * frictionScale(assist.friction, true, aimT, aimAssist) * dt;
         lookYaw -= sx * k; lookPitch += sy * k * 0.75;
     } else stickLook.reset();
     if (key("ArrowLeft")) lookYaw += 0.035; if (key("ArrowRight")) lookYaw -= 0.035;
     if (key("ArrowUp")) lookPitch += 0.025; if (key("ArrowDown")) lookPitch -= 0.025;
+    if (assist.at) {
+        const engaged = aimT > 0.5 || buttons.has(0) || padFire();
+        const [py, pp] = assistPull(cam.pos, lookYaw, lookPitch, assist.at, assist.pull, aimAssist, Math.hypot(lookYaw - yawWas, lookPitch - pitchWas), engaged, dt);
+        lookYaw += py; lookPitch += pp;
+    }
     lookPitch = Math.max(-1.2, Math.min(1.0, lookPitch));
 }
 
@@ -384,7 +426,7 @@ function toast(text: string, color: Color): void { toasts.unshift({ text, age: 0
 function handle(ev: GameEvent): void {
     switch (ev.kind) {
         case "shot":
-            shotCount++;
+            if (!ev.enemy) shotCount++;
             sound.photon(ev.at, ev.enemy);
             flashes.push({ pos: ev.at, color: ev.enemy ? [1, 0.25, 0.15] : [0.4, 0.8, 1], intensity: 2.5, range: 5, age: 0, life: 0.08 });
             break;
@@ -843,6 +885,7 @@ addon.onInit(() => {
     Entropy.Lighting.updateSun({ horizonColor: SKY_HORIZON, zenithColor: SKY_TOP, sunDirection: SUN, sunColor: SUN_COLOR, sunIntensity: 0 });
     painter = enginePainter(addon.UI as unknown as DrawApi);
     lockSupported = typeof Entropy.Input.setPointerLock === "function";
+    loadSettings();
     loadEverything();
     setupInput();
     registerTools();
@@ -866,7 +909,7 @@ const vec = (v: unknown, d: V3): V3 => (Array.isArray(v) && v.length === 3 && v.
 function snapshot() {
     const p = game.player;
     return {
-        mode, frames, realTime: Math.round(realTime * 100) / 100, perf: { js: Math.round(perf.js * 10) / 10, skin: Math.round(perf.skin * 10) / 10 }, lens: LENS_NAMES[lens], post: renderer.screenOn, missing: renderer.missing,
+        mode, frames, realTime: Math.round(realTime * 100) / 100, aimAssist, perf: { js: Math.round(perf.js * 10) / 10, skin: Math.round(perf.skin * 10) / 10 }, lens: LENS_NAMES[lens], post: renderer.screenOn, missing: renderer.missing,
         models: [...renderer.models.keys()], characters: [...characters.keys()],
         scene: { props: renderer.props.lastStats.instances, glows: renderer.glows.lastStats.instances, statics: renderer.statics.lastStats.instances },
         sound: sound.played, ui: painter?.opCount() ?? 0, subtitle: lineNow?.text ?? null,
@@ -889,13 +932,13 @@ function registerTools(): void {
         },
         {
             name: "te_expect",
-            description: "True Error: asserts the state after real key, mouse or gamepad input (fails the call on a mismatch): mode, lens (name), device (keys|pad), aiming, run (bool), moved / turned / fired (bool: since the previous te_expect).",
+            description: "True Error: asserts the state after real key, mouse or gamepad input (fails the call on a mismatch): mode, lens (name), device (keys|pad), aiming, run, onTarget (bool: the crosshair is on a hostile machine), moved / turned / fired (bool: since the previous te_expect).",
             parameters: { type: "object", properties: {} },
             run: (a) => {
                 const p = game.player;
                 const now = { mode, lens: LENS_NAMES[lens], device, aiming: p.aiming, run: padSprint || key("Shift"),
                     moved: Math.hypot(p.pos[0] - expectMark.pos[0], p.pos[2] - expectMark.pos[2]) > 0.3,
-                    turned: Math.abs(lookYaw - expectMark.yaw) > 0.05, fired: shotCount > expectMark.shots, pad: { left: pad.left, sinceAxis: Math.round((realTime - pad.lastAxis) * 100) / 100 }, pos: game.player.pos.map(v => Math.round(v * 100) / 100) };
+                    turned: Math.abs(lookYaw - expectMark.yaw) > 0.05, fired: shotCount > expectMark.shots, onTarget: onTarget(), pad: { left: pad.left, sinceAxis: Math.round((realTime - pad.lastAxis) * 100) / 100 }, pos: game.player.pos.map(v => Math.round(v * 100) / 100) };
                 expectMark = { pos: [...p.pos] as V3, yaw: lookYaw, shots: shotCount };
                 const wrong = Object.entries(a).filter(([k, v]) => k in now && (now as Record<string, unknown>)[k] !== v);
                 if (wrong.length) throw new Error(`expected ${JSON.stringify(Object.fromEntries(wrong))}, got ${JSON.stringify(now)}`);
@@ -904,7 +947,7 @@ function registerTools(): void {
         },
         {
             name: "te_act",
-            description: "True Error: drive the game. action: begin | skip | play (jump to play) | step (frames) | move (dx, dy, run, frames) | look (yaw, pitch) | fire (frames, aim) | use | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on).",
+            description: "True Error: drive the game. action: begin | skip | play (jump to play) | step (frames) | move (dx, dy, run, frames) | look (yaw, pitch) | fire (frames, aim) | use | assist (value 0-0.5) | aimNear (id, off) | lens (index 0-4) | teleport (pos, yaw) | face (at) | fixed (dt or 0) | camera (pos, target, fov: a still frame) | win | restart | help (on).",
             parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] },
             run: (a) => {
                 const n = Math.max(1, Math.floor(num(a.frames, 1)));
@@ -920,6 +963,16 @@ function registerTools(): void {
                     case "use": advance(1, { use: true }); advance(n); break;
                     case "lens": lens = Math.max(0, Math.min(4, Math.floor(num(a.index, 0)))); if (lens === LENS.simulation) game.usedSim = true; advance(n); break;
                     case "teleport": { const p = game.player; p.pos = vec(a.pos, p.pos); p.vel = [0, 0, 0]; p.yaw = num(a.yaw, p.yaw); lookYaw = p.yaw; lookPitch = num(a.pitch, -0.1); advance(n); break; }
+                    case "aimNear": {
+                        // The crosshair just beside a machine (off: radians of yaw), for testing the assist.
+                        const e = game.enemies.find(x => x.id === a.id);
+                        if (!e) throw new Error(`No machine ${String(a.id)}`);
+                        const c = chestOf(e), d: V3 = [c[0] - cam.pos[0], c[1] - cam.pos[1], c[2] - cam.pos[2]];
+                        lookYaw = Math.atan2(d[0], d[2]) + num(a.off, 0); lookPitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
+                        advance(n);
+                        break;
+                    }
+                    case "assist": aimAssist = Math.max(0, Math.min(ASSIST.max, num(a.value, ASSIST.max))); advance(n); break;
                     case "fixed": fixedStep = num(a.dt, 0) > 0 ? num(a.dt, 0) : null; break;
                     case "camera": {
                         // A still frame from anywhere (for screenshots): the play camera is paused while set.

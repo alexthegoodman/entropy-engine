@@ -63,4 +63,5 @@ Many models can be 30 to 50 credits total from start to finish, so let's try to 
 - Code: `te_level` (layout, collision), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`).
 - Tests: `npm run test:true-error` (vitest) and `cargo test --release --test true_error_live` (BDD screenshots, `tests/features/true_error_live.feature`).
 - Gamepad: left stick moves (click to run), right stick looks, LT aims, RT fires, A jumps, X resets, Y / D-pad lenses, Back help, Start / A begin, B skips cutscenes.
+- Aim assist (Armageddon's `ar_aim.ts`): friction, sweep pull and tracking onto hostile machines in sight. 50% by default, 0-50% with - and = (saved through `addon.IO.save`).
 - Props and the skyline are batched per spatial chunk (`chunkOf`) so the engine culls them per pass.

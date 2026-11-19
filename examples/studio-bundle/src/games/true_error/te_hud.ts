@@ -114,7 +114,7 @@ export function drawHud(p: Painter, w: number, h: number, v: HudView): void {
     if (v.showHelp) {
         const lines = v.pad
             ? ["L-STICK move (click: run)   A jump", "R-STICK look   RT fire   LT aim", "X reset a downed machine (or shoot it)", "Y / D-PAD lenses   BACK hide help"]
-            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "E reset a downed machine (or shoot it)", "1-5 lenses   H hide help"];
+            : ["WASD move   SHIFT run   SPACE jump", "MOUSE look   LMB fire   RMB aim", "E reset a downed machine (or shoot it)", "1-5 lenses   -/= aim assist   H hide help"];
         const bx = 28, by = h - 40 - lines.length * 22;
         p.rect(bx - 12, by - 10, 360, lines.length * 22 + 18, TE.glass);
         lines.forEach((l, i) => p.text(l, bx, by + i * 22, 15, TE.dim, FONT.body));

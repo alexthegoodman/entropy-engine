@@ -95,3 +95,12 @@ Feature: True Error - Level 1, the Central Spire
     And I advance 2 frames
     Then I call the tool "te_expect" with {"lens": "STANDARD"}
     And I capture "23-gamepad-help"
+    # Aim assist at its default 50%: just beside a machine, holding LT pulls the crosshair onto it.
+    When I call the tool "te_act" with {"action": "teleport", "pos": [-12, 0, -6], "yaw": 1.57, "pitch": -0.02, "frames": 4}
+    And I call the tool "te_act" with {"action": "aimNear", "id": "roller-1", "off": 0.06, "frames": 1}
+    Then I call the tool "te_expect" with {"onTarget": false}
+    When I press the gamepad button "LeftTrigger2"
+    And I advance 30 frames
+    Then I call the tool "te_expect" with {"onTarget": true, "aiming": true}
+    And I capture "24-aim-assist"
+    And I release the gamepad button "LeftTrigger2"
