@@ -54,6 +54,7 @@ There's no "project" concept for an embedded app — addons own their persistenc
 
 - `addon.IO.save(data)` / `addon.IO.saveDebounced(data, delayMs?)` / `addon.IO.load()` - one JSON file per addon, named after it.
 - `addon.IO.store.read/write/list/remove(path)` — as many files as you need in the addon's own folder (`<data_dir>/<addon name>/`), with atomic writes. The DAW's song library is built on it.
+- `addon.IO.readAsset(path)` - a file's bytes as a `Uint8Array` (or null), path relative to the working directory with no `..`. For formats the engine has no loader for, such as GLBs an addon parses itself.
 - `addon.GameState.save(key, data)` / `addon.GameState.load(key)` — shared state under any key you choose, readable by any addon.
 - `addon.Scripts.read(filename)` / `addon.Scripts.write(filename, content)` — plain text files.
 

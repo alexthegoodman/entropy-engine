@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/games/true_error/**/*.ts", "src/games/allegiance/al_ui.ts", "src/games/allegiance/al_sky.ts"]
+}

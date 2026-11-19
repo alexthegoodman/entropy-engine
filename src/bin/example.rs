@@ -76,6 +76,15 @@ async fn main() {
                 // The loadout is saved in the addon's own IO.store folder.
                 // ENTROPY_ARMAGEDDON_BDD_DATA lets tests/armageddon_live start from a clean folder.
                 .with_data_dir(env::var("ENTROPY_ARMAGEDDON_BDD_DATA").unwrap_or_else(|_| "../armageddon-data".to_string())),
+            Some("true-error") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/true_error.js")
+                .with_hot_reload(true)
+                .with_title("TRUE ERROR")
+                .with_window_size(1600.0, 900.0)
+                // Meshy models and textures are read from examples/studio-bundle/assets/true_error/game
+                // (tools/te_assets.py); the level meshes cache under the data dir (mesh-cache/true-error).
+                // ENTROPY_TRUE_ERROR_BDD_DATA lets tests/true_error_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_TRUE_ERROR_BDD_DATA").unwrap_or_else(|_| "../true-error-data".to_string())),
             Some("world-of-music") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/world_of_music.js")
                 .with_hot_reload(true)

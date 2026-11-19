@@ -1071,6 +1071,10 @@ export interface ScopedAPI {
     pickAndImportModel: () => Promise<string>;
     /** The user's Music folder, or null if the OS has none. Also allows `listDir` under it. */
     musicDir: () => string | null;
+    /** A file's bytes (an asset format the engine has no loader for, such as a GLB the addon
+     * parses itself). `path` is relative to the working directory; absolute paths and `..` are
+     * refused. Null if it can't be read. */
+    readAsset: (path: string) => Uint8Array | null;
     /** A native folder dialog; the chosen folder becomes readable by `listDir`. Null if cancelled. */
     pickSampleFolder: () => string | null;
     /** A native folder dialog for any purpose (e.g. an export destination). Null if cancelled. */

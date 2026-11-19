@@ -1569,6 +1569,8 @@ globalThis.Entropy = {
                     },
                     // The user's Music folder (null if the OS has none). Also allows listDir under it.
                     musicDir: () => ops.op_io_music_dir() || null,
+                    // A file's bytes (path relative to the working directory, no ".."), or null.
+                    readAsset: (path) => ops.op_io_read_asset(path) ?? null,
                     // A native folder dialog; the chosen folder becomes readable by listDir. Null if cancelled.
                     pickSampleFolder: () => ops.op_io_pick_sample_folder() || null,
                     // A native folder dialog for any purpose (e.g. an export destination). Null if cancelled.

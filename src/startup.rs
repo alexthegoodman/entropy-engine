@@ -208,6 +208,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_QUADPLANET_BDD_RESULT",
     "ENTROPY_ALLEGIANCE_BDD_RESULT",
     "ENTROPY_ABYSS_BDD_RESULT",
+    "ENTROPY_TRUE_ERROR_BDD_RESULT",
     "ENTROPY_NEBULA_BDD_RESULT",
     "ENTROPY_WOM_BDD_RESULT",
     "ENTROPY_MATERIALLAB_BDD_RESULT",
@@ -239,6 +240,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real Abyss game is running in test mode"
         || text == "the real Nebula Kingdom game is running in test mode"
         || text == "the real Armageddon 2070 game is running in test mode"
+        || text == "the real True Error game is running in test mode"
         || text == "the real World of Music game is running in test mode"
         || text == "the real Material Lab is running in test mode"
         || text == "the real Guitar Tabs app is running in test mode"
@@ -404,9 +406,11 @@ impl BrowserBddDriver {
         let wom = std::env::var_os("ENTROPY_WOM_BDD_RESULT").is_some();
         // Armageddon 2070 too.
         let armageddon = std::env::var_os("ENTROPY_ARMAGEDDON_BDD_RESULT").is_some();
+        // True Error too.
+        let true_error = std::env::var_os("ENTROPY_TRUE_ERROR_BDD_RESULT").is_some();
         // The Material Lab (a bare wall for parallax work) rides it as well.
         let materiallab = std::env::var_os("ENTROPY_MATERIALLAB_BDD_RESULT").is_some();
-        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || wom || armageddon || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
+        let quadplanet = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && (allegiance || abyss || nebula || wom || armageddon || true_error || materiallab || std::env::var_os("ENTROPY_QUADPLANET_BDD_RESULT").is_some());
         let tabs = !daw && !canvas && !launcher && !sheet && !ml && !media && !mesha && !quadplanet && std::env::var_os("ENTROPY_TABS_BDD_RESULT").is_some();
         let forum = std::env::var_os("ENTROPY_P2P_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if forum {
@@ -439,6 +443,8 @@ impl BrowserBddDriver {
             "ENTROPY_NEBULA_BDD_RESULT"
         } else if quadplanet && armageddon {
             "ENTROPY_ARMAGEDDON_BDD_RESULT"
+        } else if quadplanet && true_error {
+            "ENTROPY_TRUE_ERROR_BDD_RESULT"
         } else if quadplanet && wom {
             "ENTROPY_WOM_BDD_RESULT"
         } else if quadplanet && materiallab {
@@ -503,6 +509,12 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_ARMAGEDDON_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
                 Some(text) => Box::leak(text.into_boxed_str()),
                 None => include_str!("../tests/features/armageddon_live.feature"),
+            }
+        } else if quadplanet && true_error {
+            // ENTROPY_TRUE_ERROR_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.
+            match std::env::var("ENTROPY_TRUE_ERROR_BDD_FEATURE").ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => Box::leak(text.into_boxed_str()),
+                None => include_str!("../tests/features/true_error_live.feature"),
             }
         } else if quadplanet && wom {
             // ENTROPY_WOM_BDD_FEATURE plays another feature file (ad-hoc captures) without rebuilding.

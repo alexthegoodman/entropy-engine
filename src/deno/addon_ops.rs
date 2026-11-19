@@ -4536,6 +4536,19 @@ pub fn op_clipboard_write_text(_state: &mut OpState, #[string] text: String) -> 
     crate::entropy_gui::clipboard::write_text(&text)
 }
 
+/// A file's bytes, for asset formats the engine has no loader for (an addon parsing its own GLBs).
+/// `path` is relative to the working directory, like `Texture.loadArray`'s files: no absolute
+/// paths and no `..`. None if it can't be read.
+#[op2]
+#[buffer]
+pub fn op_io_read_asset(_state: &mut OpState, #[string] path: String) -> Option<Vec<u8>> {
+    let p = std::path::Path::new(&path);
+    if p.is_absolute() || p.components().any(|c| !matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
+        return None;
+    }
+    std::fs::read(p).ok()
+}
+
 /// The user's Music folder (also made readable by `listDir`), or "" if the OS has none.
 #[op2]
 #[string]
