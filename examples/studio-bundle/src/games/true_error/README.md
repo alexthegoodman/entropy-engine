@@ -86,3 +86,11 @@ The canyon floor under the capital (`te_noctis.ts` map, `te_m2.ts` story). The D
 - Meshy: 30 more models (prompts in `assets.json`, `add_m2.mjs`; rigs/clips `drive_anims_m2.mjs`); `harvest_pod`'s first prompt was declined by Meshy's safety check and redone.
 - Tests: `tests/true_error_noctis.test.ts` (map sanity, weapons, stealth, a full playthrough, saves) and `tests/features/true_error_noctis.feature` (played after the Spire's feature by `tests/true_error_live.rs`).
 - Frame time on a UHD 770 (release, 1600 x 900): 25-28 ms in Noctis, GPU-bound (JS 5-7.5 ms).
+
+### Scenery (both missions)
+
+- `te_dressing.ts` dresses each map once as it's built (deterministic): a kit of 30 street / rubbish / wreck / plant / ruin props (`add_kit.mjs`) over the floors and Noctis's streets, and a wall kit of 15 pieces (`add_walls.mjs`: pipes, breaker panels, notice boards, screens, vents, caged lamps, chalkboards, cables, posters, fire cabinets, AC units, lockers, shelves, bookcases, radiators) hung on or stood against every tall wall and column, mixed by room (the lab, offices, machine floors, outside; Noctis buildings get an upper band). Solid pieces keep off routes, spots and passages.
+- Noctis's old roads are asphalt ribbons (`roadMesh`, ARCH `road`), the scrub between is baked billboard cards (`scrubMesh`, ARCH `scrub`); the shaders add procedural wear (stains, cracks, dust, streaks) and weather kit props from the floor up (ASSET flag 8; flag 4 drops a prop from the shadow passes).
+- Assets: `python tools/te_assets.py kit [names]` converts kit models and regenerates `te_kit_bounds.ts` (collision and wall offsets). Six wall pieces were remeshed down in Meshy (`assets/true_error/remesh/`); remeshing broke the thin panels of the rest, so they keep their 6-8k originals.
+- Tests: `tests/true_error_dressing.test.ts`; screenshots `tests/features/true_error_scenery.feature` (run by pointing `ENTROPY_TRUE_ERROR_BDD_FEATURE` at it).
+- Frame time on a UHD 770 (1600 x 900): the Spire 31-37 ms, Noctis 26-34 ms (was 23-29 / 19-22 before the scenery).

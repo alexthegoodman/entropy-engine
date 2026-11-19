@@ -11,6 +11,8 @@
 // drawn (ARCH pipeline, tiling materials) and collided with; props from Meshy add their own boxes.
 // Coordinates: meters, +y up, +x east (the side the Error's blast tore open), +z north.
 
+import type { KitModel } from "./te_dressing";
+
 export type V3 = [number, number, number];
 
 /** ARCH material layers (texture array order, see te_render.ts MATERIALS). */
@@ -27,7 +29,9 @@ export type ModelName = "workbench" | "upload_pod" | "holo_terminal" | "battery"
     | "hollow" | "scavenger" | "vesper" | "survivor" | "elder" | "pip" | "cherub" | "scattergun" | "gravity_launcher"
     | "doctor_buggy" | "crates" | "radio_set" | "assembly_arm" | "body_printer" | "conveyor" | "vat" | "upload_gate"
     | "kiosk" | "statue" | "barge_hull" | "signal_mast" | "lock_gate" | "water_tank" | "harvest_pod" | "lure_beacon"
-    | "metro_car" | "cable_nest" | "rock_spire" | "wind_turbine" | "shack";
+    | "metro_car" | "cable_nest" | "rock_spire" | "wind_turbine" | "shack"
+    // The scenery kit (te_dressing.ts).
+    | KitModel;
 
 export interface Prop {
     model: ModelName;
@@ -42,7 +46,22 @@ export interface Prop {
     tint?: V3;
     /** How hot it reads through the heat lens (0..1), where it isn't the model's usual. */
     heat?: number;
+    /** Tipped over or leaning: pitch and roll (radians) after the yaw. */
+    tilt?: [number, number];
+    /** Not drawn past this many meters from the camera. */
+    cull?: number;
+    /** Casts no sun shadow (small litter, plants). */
+    noShadow?: boolean;
+    /** Scenery from the kit (te_dressing.ts): weathered like the ground it stands on. */
+    kit?: boolean;
+    /** The floor under it, when it hangs above it (the kit's weathering grows up from there). */
+    ground?: number;
+    /** Emissive strength (lamps, screens). */
+    glow?: number;
 }
+
+/** An old street (Noctis): a worn asphalt ribbon through these points (x, z), `width` meters wide. */
+export interface Road { pts: [number, number][]; width: number }
 
 /**
  * Machines (and worse). Mission 2 adds the Hollow (an empty avatar body that only moves while
@@ -148,6 +167,8 @@ export interface Level {
     /** Sky openness (te_scene bakes it into the architecture; props and characters take it per instance). */
     open: (x: number, y: number, z: number) => number;
     terrain?: Terrain;
+    /** Old streets drawn over the terrain (te_dressing.ts). */
+    roads?: Road[];
     /** Ray can't leave this rectangle (the canyon walls should stop him first). */
     bounds?: { x0: number; x1: number; z0: number; z1: number };
     boxes: Box[];

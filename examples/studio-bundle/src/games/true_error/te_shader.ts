@@ -6,7 +6,13 @@
 //           texture arrays, the layer and a baked sky openness packed into the vertex color's alpha
 //           (layer + openness * 0.99); also the Mars sky (kind 1), the ground far below (kind 2) and
 //           solids (kind 3: the shared box/cylinder/sphere shapes placed per instance - doors, the lift,
-//           crates, collectibles - their layer, metalness, uv scale and openness in Item.extra).
+//           crates, collectibles - their layer, metalness, uv scale and openness in Item.extra), Noctis's
+//           old roads (kind 4: asphalt ribbons worn by the shader - cracks, potholes, sand, paint) and
+//           its scrub (kind 5: crossed cards whose grass blades the shader cuts out). Surfaces with
+//           params.y = 1 are terrain: mapped from the world (two projections, so cliffs don't
+//           stretch) with a second, larger sample against tiling. Every surface gathers procedural
+//           wear: dust on what faces up, oil stains and scorch marks on floors, cracks in concrete
+//           and asphalt, streaks down walls.
 //   GLOW    additive light: dots, laser bolts, holograms, the dark zone, the hypercube's edges.
 //   LIGHT   deferred: ASSET and ARCH write a G-buffer (albedo; normal + emissive; roughness,
 //           metalness, openness, heat) and this full-screen pass lights each visible pixel once
@@ -33,7 +39,7 @@ export const ITEM_FLOATS = 28;
 export const POST_FLOATS = 8 * 4;
 
 /** Item.params.x for ARCH. */
-export const ARCH = { surface: 0, sky: 1, ground: 2, solid: 3 } as const;
+export const ARCH = { surface: 0, sky: 1, ground: 2, solid: 3, road: 4, scrub: 5 } as const;
 /** Item.params.x for GLOW. */
 export const GLOW = { dot: 0, beam: 1, holo: 2, dark: 3, edge: 4, mote: 5, ring: 6 } as const;
 /** World.time.z: the lens. */
@@ -52,7 +58,7 @@ struct World {
     sky_hor: vec4<f32>,  // horizon color, sim-vision pulse
     ground: vec4<f32>,   // light bounced up from below, interior ambient floor
     dark: vec4<f32>,     // dark zone center, radius
-    misc: vec4<f32>,     // dark zone strength, hit flash, 0, 0
+    misc: vec4<f32>,     // dark zone strength, hit flash, dust, 0
     lights: array<Light, ${MAX_LIGHTS}>,
 };
 @group(2) @binding(0) var<uniform> world: World;
@@ -65,6 +71,21 @@ fn vnoise(p: vec2<f32>) -> f32 {
     return mix(mix(hash2(i), hash2(i + vec2<f32>(1.0, 0.0)), u.x), mix(hash2(i + vec2<f32>(0.0, 1.0)), hash2(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
 fn fbm2(p: vec2<f32>) -> f32 { return vnoise(p) * 0.5 + vnoise(p * 2.03 + vec2<f32>(5.1, 1.7)) * 0.3 + vnoise(p * 4.1 + vec2<f32>(2.3, 9.4)) * 0.2; }
+// Distance to the nearest cell border of a jittered grid (0 on a crack): F2 - F1 of a Voronoi.
+fn crack(p: vec2<f32>) -> f32 {
+    let i = floor(p); let f = fract(p);
+    var d1 = 8.0; var d2 = 8.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            let g = vec2<f32>(f32(x), f32(y));
+            let o = vec2<f32>(hash2(i + g), hash2(i + g + vec2<f32>(19.7, 7.3)));
+            let d = length(g + o - f);
+            if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+        }
+    }
+    return d2 - d1;
+}
+const DUST = vec3<f32>(0.45, 0.3, 0.21);
 `;
 
 const ITEMS = /* wgsl */ `
@@ -296,7 +317,8 @@ fn vs_main(in: VertexInput, @builtin(instance_index) ii: u32) -> VOut { return s
 @vertex
 fn vs_shadow(in: VertexInput, @builtin(instance_index) ii: u32) -> @builtin(position) vec4<f32> {
     let it = items[ii];
-    if (it.color.w < 0.5) { return vec4<f32>(0.0, 0.0, 2.0, 1.0); }
+    // Flag 4: casts no shadow (litter, plants).
+    if (it.color.w < 0.5 || (u32(it.params.y + 0.5) & 4u) != 0u) { return vec4<f32>(0.0, 0.0, 2.0, 1.0); }
     return camera.view_proj * (it.model * vec4<f32>(in.position, 1.0));
 }
 
@@ -314,8 +336,23 @@ fn fs_main(in: VOut) -> GOut {
     var rough = 0.65; var metal = 0.25;
     if ((flags & 2u) != 0u) { rough = clamp(mr.g, 0.08, 1.0); metal = mr.b; }
     var albedo = base.rgb * in.color.rgb;
+    if ((flags & 8u) != 0u) {
+        // Scenery weathers where it stands (flag 8, extra.x the ground's height): sand and grime
+        // banked round its foot, dust settled on whatever faces up.
+        let p = in.world_pos;
+        let f = vnoise(p.xz * 1.7 + vec2<f32>(p.y * 0.6, 0.0));
+        let foot = 1.0 - smoothstep(0.0, 0.7, p.y - in.extra.x + (f - 0.5) * 0.5);
+        albedo = mix(albedo * (1.0 - 0.3 * foot), DUST * (0.7 + 0.35 * f), foot * (0.25 + 0.45 * world.misc.z));
+        let up = smoothstep(0.5, 0.95, normalize(in.normal).y);
+        let drift = up * world.misc.z * smoothstep(0.25, 0.7, vnoise(p.xz * 0.9 + vec2<f32>(3.1, 7.7)));
+        albedo = mix(albedo, DUST * (0.85 + 0.3 * f), drift * 0.85);
+        rough = mix(rough, 0.92, max(drift, foot * 0.6));
+        metal = metal * (1.0 - drift);
+    }
     // Emission is albedo * strength: the glitch bands and the hit flash tint the albedo toward their color.
     var e = in.params.z;
+    // Scenery glows only where its texture is bright (a lamp's glass, a screen), not its iron.
+    if ((flags & 8u) != 0u) { e = e * smoothstep(0.3, 0.65, max(base.r, base.g)); }
     // The Error's corruption: glitch bands crawling over hacked machines.
     if (in.extra.z > 0.0) {
         let t = world.time.x;
@@ -362,41 +399,181 @@ fn vs_shadow(in: VertexInput, @builtin(instance_index) ii: u32) -> @builtin(posi
     return camera.view_proj * (it.model * vec4<f32>(in.position, 1.0));
 }
 
+// Meters one repeat of each material covers (te_scene.ts TILE).
+fn tile_of(layer: i32) -> f32 {
+    var t = array<f32, 9>(2.4, 2.4, 2.0, 2.0, 3.0, 2.4, 1.5, 1.8, 3.0);
+    return t[clamp(layer, 0, 8)];
+}
+
+// Wear on a built surface or the ground: oil stains and scorch marks on floors, cracks through
+// concrete and asphalt, dust on whatever faces up, streaks down walls. Kept cheap: single-octave
+// noise for the masks, and the crack and rim work only where a patch or a mark actually is (and
+// cracks only within 70 m, where they'd show).
+fn wear(albedo: vec3<f32>, p: vec3<f32>, n: vec3<f32>, layer: i32, terrain: bool) -> vec3<f32> {
+    var a = albedo;
+    let up = n.y;
+    if (up > 0.5) {
+        // One mark per 6 m cell at most: a blotch with a noisy rim.
+        let cell = floor(p.xz / 6.0);
+        let h = hash2(cell + vec2<f32>(p.y * 0.01, 0.0));
+        let oil = h < 0.16 && !terrain && layer != 4;
+        if (oil || h > 0.9) {
+            let c = (cell + vec2<f32>(0.25 + 0.5 * hash2(cell + vec2<f32>(1.7, 0.3)), 0.25 + 0.5 * hash2(cell + vec2<f32>(4.3, 8.1)))) * 6.0;
+            let rad = 0.6 + 1.5 * hash2(cell + vec2<f32>(9.1, 2.2));
+            let d0 = length(p.xz - c) / rad;
+            if (d0 < 2.2) {
+                let d = d0 + (vnoise(p.xz * 1.4) - 0.5) * 0.7;
+                if (oil) { a = a * mix(0.32, 1.0, smoothstep(0.45, 1.0, d)); }
+                else { a = mix(a, vec3<f32>(0.045, 0.04, 0.035), (1.0 - smoothstep(0.15, 1.3, d * 0.75)) * 0.8); }
+            }
+        }
+        if ((layer == 0 || layer == 2 || layer == 8) && length(p - camera.view_pos.xyz) < 70.0) {
+            // Cracks only in patches, warped so the cells don't read as a grid; a thin line, broken up along its length.
+            let cracked = smoothstep(0.55, 0.75, vnoise(p.xz * 0.11 + vec2<f32>(11.0, 3.0)));
+            if (cracked > 0.0) {
+                let q = p.xz + (vec2<f32>(vnoise(p.xz * 0.7), vnoise(p.xz * 0.7 + vec2<f32>(5.2, 1.3))) - 0.5) * 1.6;
+                let line = (1.0 - smoothstep(0.0, 0.022, crack(q * 0.42))) * smoothstep(0.35, 0.6, vnoise(q * 2.3));
+                a = a * (1.0 - 0.55 * cracked * line);
+            }
+        }
+        let lying = smoothstep(0.55, 0.95, up) * smoothstep(0.3, 0.72, vnoise(p.xz * 0.23 + vec2<f32>(3.0, 1.0)));
+        a = mix(a, DUST * (0.8 + 0.4 * vnoise(p.xz * 0.45)), world.misc.z * lying * select(0.75, 0.25, terrain));
+    } else if (abs(up) < 0.45) {
+        // Rain never came, but the condensers leaked: grime runs down from every ledge.
+        let k = p.x * abs(n.z) + p.z * abs(n.x);
+        let st = vnoise(vec2<f32>(k * 2.4, p.y * 0.11)) * 0.7 + vnoise(vec2<f32>(k * 7.0, p.y * 0.3)) * 0.3;
+        a = a * (1.0 - 0.32 * smoothstep(0.42, 0.78, st));
+    }
+    return a;
+}
+
+// Noctis's old roads (ARCH.road): uv.x across (-1..1 the asphalt, a ragged margin to 1.35), uv.y
+// meters along. Faded paint, cracks, potholes, sand blown over the edges and in drifts.
+fn road_albedo(base: vec3<f32>, uv: vec2<f32>, p: vec3<f32>) -> vec3<f32> {
+    let ax = abs(uv.x);
+    var a = base * vec3<f32>(0.5, 0.48, 0.47);
+    let worn = smoothstep(0.32, 0.62, vnoise(p.xz * 0.35 + vec2<f32>(7.0, 2.0)));
+    // A dashed center line and the edge lines, mostly gone.
+    let center = (1.0 - smoothstep(0.022, 0.034, ax)) * step(fract(uv.y / 9.0), 0.5);
+    let edge = 1.0 - smoothstep(0.016, 0.028, abs(ax - 0.88));
+    a = mix(a, vec3<f32>(0.72, 0.58, 0.26), center * worn * 0.8);
+    a = mix(a, vec3<f32>(0.7, 0.68, 0.62), edge * worn * 0.6);
+    // Alligator cracking in patches, near enough to see.
+    let cracked = smoothstep(0.5, 0.68, vnoise(p.xz * 0.09 + vec2<f32>(2.0, 9.0)));
+    if (cracked > 0.0 && length(p - camera.view_pos.xyz) < 70.0) {
+        let q = p.xz + (vec2<f32>(vnoise(p.xz * 0.9), vnoise(p.xz * 0.9 + vec2<f32>(5.2, 1.3))) - 0.5) * 1.2;
+        a = a * (1.0 - 0.5 * cracked * (1.0 - smoothstep(0.0, 0.03, crack(q * 0.9))) * smoothstep(0.3, 0.55, vnoise(q * 3.0)));
+    }
+    // A long crack along the lanes in places.
+    let seam = abs(fract(uv.x * 2.0 + vnoise(vec2<f32>(uv.y * 0.07, 0.0)) * 0.8) - 0.5);
+    a = a * (1.0 - 0.35 * (1.0 - smoothstep(0.0, 0.012, seam)) * smoothstep(0.55, 0.7, vnoise(vec2<f32>(uv.y * 0.05, uv.x))));
+    // Potholes: dark rims, sand in the bottom.
+    let cell = floor(vec2<f32>(uv.x * 2.0, uv.y / 5.0));
+    if (hash2(cell + vec2<f32>(3.0, 1.0)) > 0.86) {
+        let c = vec2<f32>((cell.x + 0.5) / 2.0, (cell.y + 0.5) * 5.0);
+        let d = length(vec2<f32>((uv.x - c.x) * 3.5, (uv.y - c.y) * 0.9)) + (vnoise(p.xz * 2.0) - 0.5) * 0.5;
+        a = mix(a, a * 0.35, 1.0 - smoothstep(0.55, 0.75, d));
+        a = mix(a, DUST * 0.75, 1.0 - smoothstep(0.0, 0.5, d));
+    }
+    // Sand: over the shoulders and in drifts across.
+    let drift = smoothstep(0.7, 0.95, vnoise(p.xz * 0.12) * 0.8 + ax * 0.35 + vnoise(p.xz * 0.9) * 0.15);
+    return mix(a, DUST * (0.75 + 0.3 * vnoise(p.xz * 3.0)), drift);
+}
+
 @fragment
 fn fs_main(in: VOut) -> GOut {
     let kind = i32(in.params.x + 0.5);
     if (kind == 1) { discard; }
-    let dp1 = dpdx(in.world_pos); let dp2 = dpdy(in.world_pos);
+    let terrain = kind == 0 && in.params.y > 0.5;
+    let p = in.world_pos;
+    if (kind == ${ARCH.road}) {
+        // The ragged edge, and nothing past it.
+        if (abs(in.uv.x) > 1.0 + 0.2 * (vnoise(vec2<f32>(in.uv.y * 0.3, in.uv.x * 2.0)) - 0.4)) { discard; }
+    }
+    if (kind == ${ARCH.scrub}) {
+        // Blades across the card, each its own height and lean; thinning away from the camera.
+        let dist = length(p - camera.view_pos.xyz);
+        if (dist > 90.0 || hash2(floor(p.xz * 3.0)) < (dist - 55.0) / 35.0) { discard; }
+        let bx = in.uv.x * 13.0;
+        let id = floor(bx);
+        let seed = in.vcolor.r * 37.0 + in.vcolor.g * 11.0;
+        let hb = 0.35 + 0.65 * hash2(vec2<f32>(id, seed));
+        let lean = (hash2(vec2<f32>(id + 3.1, seed)) - 0.5) * 0.9;
+        let x = fract(bx) - 0.5 - lean * in.uv.y * in.uv.y;
+        if (in.uv.y > hb || abs(x) > 0.36 * (1.0 - in.uv.y / hb)) { discard; }
+    }
+    let dp1 = dpdx(p); let dp2 = dpdy(p);
     var uv = in.uv;
-    if (kind == 2) { uv = in.world_pos.xz / 9.0; }
+    if (kind == 2) { uv = p.xz / 9.0; }
     if (kind == 3) { uv = in.uv * in.extra.z; }
-    let duv1 = dpdx(uv); let duv2 = dpdy(uv);
     let packed = in.vcolor.a;
     var layer = i32(floor(packed + 0.001));
     var open = clamp(fract(packed + 0.001) / 0.99, 0.0, 1.0);
     if (kind == 3) { layer = i32(in.extra.x + 0.5); open = in.extra.w; }
-    let base = textureSample(base_maps, tile_sampler, uv, layer).rgb;
-    let nm = textureSample(normal_maps, tile_sampler, uv, layer).xyz * 2.0 - 1.0;
-    let rough = textureSample(rough_maps, tile_sampler, uv, layer).r;
-    // Solids use the shared shapes, whose vertex colour is black: their tint alone colours them.
-    var albedo = base * select(in.vcolor.rgb, vec3<f32>(1.0), kind == 3) * in.color.rgb;
+    if (kind == ${ARCH.road}) { layer = 8; open = clamp(packed / 0.99, 0.0, 1.0); uv = vec2<f32>(in.uv.x * 1.3, in.uv.y / 3.0); }
+    if (kind == ${ARCH.scrub}) { layer = 4; open = clamp(packed / 0.99, 0.0, 1.0); }
+    // The ground is mapped from the world: from above here, from the side on the cliffs (below).
+    if (terrain) { uv = p.xz / tile_of(layer); }
+    let duv1 = dpdx(uv); let duv2 = dpdy(uv);
+    var base = textureSample(base_maps, tile_sampler, uv, layer).rgb;
+    var nm = textureSample(normal_maps, tile_sampler, uv, layer).xyz * 2.0 - 1.0;
+    var rough = textureSample(rough_maps, tile_sampler, uv, layer).r;
     var n = normalize(in.normal);
-    n = perturb(n, in.world_pos, uv, vec3<f32>(nm.x, nm.y, max(nm.z, 0.2)), dp1, dp2, duv1, duv2);
+    var puv = uv; var pd1 = duv1; var pd2 = duv2;
+    if (terrain) {
+        let t = tile_of(layer);
+        // Against tiling: the same material three times larger and turned, blended in patches.
+        let rot = mat2x2<f32>(0.8, 0.6, -0.6, 0.8);
+        let big = rot * p.xz / (t * 3.3);
+        let g1 = rot * dp1.xz / (t * 3.3); let g2 = rot * dp2.xz / (t * 3.3);
+        let wide = textureSampleGrad(base_maps, tile_sampler, big, layer, g1, g2).rgb;
+        base = mix(base, wide, 0.25 + 0.4 * vnoise(p.xz * 0.05));
+        // Cliffs: a side projection along whichever horizontal axis the slope faces.
+        let top = smoothstep(0.5, 0.8, abs(n.y));
+        if (top < 0.999) {
+            let alongz = abs(n.x) > abs(n.z);
+            let suv = select(vec2<f32>(p.x, -p.y), vec2<f32>(p.z, -p.y), alongz) / t;
+            let s1 = select(vec2<f32>(dp1.x, -dp1.y), vec2<f32>(dp1.z, -dp1.y), alongz) / t;
+            let s2 = select(vec2<f32>(dp2.x, -dp2.y), vec2<f32>(dp2.z, -dp2.y), alongz) / t;
+            base = mix(textureSampleGrad(base_maps, tile_sampler, suv, layer, s1, s2).rgb, base, top);
+            nm = mix(textureSampleGrad(normal_maps, tile_sampler, suv, layer, s1, s2).xyz * 2.0 - 1.0, nm, top);
+            rough = mix(textureSampleGrad(rough_maps, tile_sampler, suv, layer, s1, s2).r, rough, top);
+            if (top < 0.5) { puv = suv; pd1 = s1; pd2 = s2; }
+        }
+        // Large-scale color: darker hollows, paler crests, rust-red and ochre drifts.
+        let m = vnoise(p.xz * 0.013 + vec2<f32>(4.0, 1.0));
+        base = base * mix(vec3<f32>(0.82, 0.8, 0.8), vec3<f32>(1.12, 1.02, 0.92), m) * (0.9 + 0.2 * vnoise(p.xz * 0.17));
+    }
+    // Solids use the shared shapes, whose vertex colour is black: their tint alone colours them.
+    var albedo = base * select(in.vcolor.rgb, vec3<f32>(1.0), kind == 3 || kind == ${ARCH.road} || kind == ${ARCH.scrub}) * in.color.rgb;
+    if (kind == ${ARCH.scrub}) {
+        // Dry grass and creeper: dark at the root, ochre to rust at the tips; the tint varies per tuft.
+        let v = in.uv.y;
+        let tip = mix(vec3<f32>(0.4, 0.29, 0.19), vec3<f32>(0.34, 0.13, 0.1), step(0.82, in.vcolor.b - 0.4 * in.vcolor.g + 0.2));
+        let c = mix(vec3<f32>(0.1, 0.065, 0.05), tip * in.vcolor.rgb, smoothstep(0.0, 0.8, v));
+        return gbuffer(c * (0.8 + 0.3 * hash2(floor(in.uv * 13.0) + in.vcolor.rg)), n, 0.0, 0.9, 0.0, open, 0.0);
+    }
+    n = perturb(n, p, puv, vec3<f32>(nm.x, nm.y, max(nm.z, 0.2)), dp1, dp2, pd1, pd2);
     var o = open;
     if (kind == 2) {
         // The plain far below: dust drifts, darker craters.
-        let w = fbm2(in.world_pos.xz * 0.004);
+        let w = fbm2(p.xz * 0.004);
         albedo = albedo * (0.7 + 0.5 * w);
         o = 1.0;
     }
-    // Grime: darker low on walls and in the corners of slabs.
-    let grime = 1.0 - 0.25 * fbm2(in.world_pos.xz * 0.35 + in.world_pos.y * 0.2);
+    if (kind == ${ARCH.road}) {
+        return gbuffer(road_albedo(albedo, in.uv, p), n, 0.0, clamp(rough * 1.1, 0.4, 1.0), 0.0, o, 0.0);
+    }
     if (kind == 3) {
         // A solid: its own metalness, a glow of its tint (the albedo turns toward the tint as it glows), a heat for the heat lens.
         let glowing = mix(albedo, in.color.rgb, clamp(in.params.z * 2.0, 0.0, 1.0));
         return gbuffer(glowing, n, in.params.z, clamp(rough, 0.15, 1.0), in.extra.y, o, in.params.w);
     }
-    return gbuffer(albedo * grime, n, 0.0, clamp(rough, 0.2, 1.0), 0.0, o, 0.0);
+    // Grime: darker low on walls and in the corners of slabs; then the wear.
+    let grime = 1.0 - 0.25 * fbm2(p.xz * 0.35 + p.y * 0.2);
+    var a = albedo * grime;
+    if (kind == 0) { a = wear(a, p, normalize(in.normal), layer, terrain); }
+    return gbuffer(a, n, 0.0, clamp(rough, 0.2, 1.0), 0.0, o, 0.0);
 }
 `;
 

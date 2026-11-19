@@ -14,6 +14,7 @@ import { START, DOCTOR_POS, PEDESTAL, HYPERCUBE_Y, CITY_FLOOR, LIFT, hash, type 
 import { REACTOR, HOLD_SECONDS, simBoxes } from "./te_acts";
 import { STAGES, stageIndex, stageOf, actName, MISSION_NAMES, type StageId } from "./te_mission";
 import { CAMP, QUEUE, QLIFT, HOIST, OVERLOOK, PLATEAU_Y } from "./te_noctis";
+import { KIT_MODELS, roadMesh, scrubMesh } from "./te_dressing";
 import { m2Tasks } from "./te_m2";
 import { COLLECTIBLE, COLLECTIBLES, partMatrix, shapeKey, tumble, type Collectible } from "./te_items";
 import { Renderer, SkinnedMesh, type ModelAsset, type WorldLook } from "./te_render";
@@ -728,7 +729,10 @@ function draw(dt: number, ui = true): void {
     // The spire and the plain, cached once.
     r.put(r.statics, levelKey, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0]);
     r.put(r.statics, groundKey, IDENTITY, [1, 1, 1, 1], [ARCH.ground, 0, 0, 0]);
-    for (const c of terrainChunks) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 0, 0, 0], [0, 0, 0, 0], c.bounds);
+    for (const c of terrainChunks) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.surface, 1, 0, 0], [0, 0, 0, 0], c.bounds);
+    for (const c of roadMeshes) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.road, 0, 0, 0], [0, 0, 0, 0], c.bounds);
+    // Scrub only near: the cards thin out by 90 m (the shader) and a chunk past that isn't drawn.
+    for (const c of scrubChunks) if (Math.hypot(c.bounds[0] - cam.pos[0], c.bounds[2] - cam.pos[2]) < 90 + c.bounds[3]) r.put(r.statics, c.key, IDENTITY, [1, 1, 1, 1], [ARCH.scrub, 0, 0, 0], [0, 0, 0, 0], c.bounds);
     r.put(r.skies, "sky", IDENTITY, [1, 1, 1, 1], [ARCH.sky, 0, 0, 0]);
 
     // Props (and the skyline).
@@ -788,10 +792,30 @@ const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 /** How far the reactor has spun up (0 idle .. 1 full power, and stays there after the surge). */
 function reactorPower(): number { return game.flags.has("surge") ? 1 : game.stage === "holdout" ? Math.min(1, game.holdT / HOLD_SECONDS) : 0; }
 
+/** A kit prop's placement, worked out once (they never move). */
+const kitDraw = new WeakMap<Prop, { m: number[]; bounds: number[]; open: number; chunk: string }>();
+
 function drawProp(p: Prop, skyline = false): void {
     const r = renderer;
     const a = r.models.get(p.model);
     if (!a) return;
+    if (p.kit) {
+        if (p.cull && Math.hypot(p.pos[0] - cam.pos[0], p.pos[1] - cam.pos[1], p.pos[2] - cam.pos[2]) > p.cull) return;
+        let k = kitDraw.get(p);
+        if (!k) {
+            const s = p.size / a.extent, g = a.glb, height = (g.max[1] - g.min[1]) * s;
+            const pos: V3 = [p.pos[0], p.pos[1] - (p.sink ?? 0), p.pos[2]];
+            k = {
+                m: placeModel(pos, p.yaw, s, a.center[0], a.floor, a.center[1], p.tilt?.[0] ?? 0, p.tilt?.[1] ?? 0),
+                bounds: [pos[0], pos[1] + height * 0.5, pos[2], 0.5 * s * Math.hypot(g.max[0] - g.min[0], g.max[1] - g.min[1], g.max[2] - g.min[2])],
+                open: game.open([p.pos[0], p.pos[1] + 0.5, p.pos[2]]), chunk: chunkOf(pos, false),
+            };
+            kitDraw.set(p, k);
+        }
+        // Flags: 4 casts no shadow (nothing under 3 m does: the cascades' cost, for little), 8 weathered (dust and grime from extra.x, the ground it stands on or hangs over, up).
+        r.put(r.props, `model:${p.model}@${k.chunk}`, k.m, [...(p.tint ?? [1, 1, 1]), 1], [0, a.flags | (p.noShadow || p.size < 3 ? 4 : 0) | 8, p.glow ?? 0, p.glow ? 0.5 : 0.1], [p.ground ?? p.pos[1], 0, 0, k.open], k.bounds);
+        return;
+    }
     const height = a.glb.max[1] - a.glb.min[1];
     const s = skyline && p.model !== "bridge" ? p.size / height : p.size / a.extent;
     // The mast telescopes up out of its base as it's cranked; the Doctor's rover lies on its side once he's taken.
@@ -1358,6 +1382,7 @@ function writeLook(dt: number): void {
         skyTop: SKY_TOP, skyHorizon: SKY_HORIZON, simPulse,
         ground: [0.36, 0.22, 0.15], interior: 0.3,
         dark: zone.center, darkRadius: zone.radius, darkStrength: 1, hitFlash: 0,
+        dust: game.mission === 2 ? 0.6 : 0.35,
         lights,
     };
     renderer.writeWorld(look);
@@ -1449,7 +1474,7 @@ function drawUi(dt: number): void {
 function loadEverything(): void {
     for (const name of ["ray", "doctor", "hacked_bot", "rifle", "roller", "workbench", "upload_pod", "holo_terminal", "battery", "rubble", "girders", "pedestal", "junk", "boiler", "carcass", "tower_a", "tower_b", "bridge", "hovercar", "dark_emitter", "archive_rack", "reactor", "conduit", "crawler", "warden",
         "hollow", "scavenger", "vesper", "survivor", "elder", "pip", "cherub", "scattergun", "gravity_launcher", "doctor_buggy", "crates", "radio_set", "assembly_arm", "body_printer", "conveyor", "vat", "upload_gate",
-        "kiosk", "statue", "barge_hull", "signal_mast", "lock_gate", "water_tank", "harvest_pod", "lure_beacon", "metro_car", "cable_nest", "rock_spire", "wind_turbine", "shack"]) {
+        "kiosk", "statue", "barge_hull", "signal_mast", "lock_gate", "water_tank", "harvest_pod", "lure_beacon", "metro_car", "cable_nest", "rock_spire", "wind_turbine", "shack", ...KIT_MODELS]) {
         try { renderer.loadModel(name); } catch (e) { Entropy.println(`[true-error] ${name}: ${(e as Error).message}`); }
     }
     if (renderer.missing.length) Entropy.println(`[true-error] models not found (run tools/te_assets.py): ${renderer.missing.join(", ")}`);
@@ -1459,6 +1484,9 @@ function loadEverything(): void {
 
 /** The terrain's chunks (Noctis), each its own batch with bounds so the engine culls them per pass. */
 let terrainChunks: { key: string; bounds: number[] }[] = [];
+/** Noctis's old streets and the scrub between them (ARCH.road, ARCH.scrub), culled the same way. */
+let roadMeshes: { key: string; bounds: number[] }[] = [];
+let scrubChunks: { key: string; bounds: number[] }[] = [];
 let meshMission = 0;
 /** The map's static meshes for the mission being played (built once each, cached by key). */
 function buildMapMeshes(): void {
@@ -1479,6 +1507,20 @@ function buildMapMeshes(): void {
             terrainChunks.push({ key, bounds: [x0 + size / 2, 25, z0 + size / 2, size * 0.72 + 35] });
         }
         groundKey = renderer.levelMesh("noctis-plateau-v1", () => frameMesh(PLATEAU_Y, T.half, 4000));
+        roadMeshes = (level.roads ?? []).map((road, i) => {
+            const xs = road.pts.map(p => p[0]), zs = road.pts.map(p => p[1]);
+            const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+            const key = renderer.levelMesh(`noctis-road-${i}-${road.pts.length}-${Math.round(xs[0] * 7 + zs[0] * 3 + road.width)}-${tsig}-v1`, () => roadMesh(road, T.height, level.open, i));
+            return { key, bounds: [cx, 2, cz, Math.hypot(Math.max(...xs) - cx, Math.max(...zs) - cz) + road.width + 12] };
+        });
+        scrubChunks = [];
+        const sn = 10, ss = (T.half * 2) / sn, ssig = sig + (level.roads?.length ?? 0);
+        for (let i = 0; i < sn; i++) for (let j = 0; j < sn; j++) {
+            const x0 = -T.half + i * ss, z0 = -T.half + j * ss;
+            if (Math.max(Math.abs(x0 + ss / 2), Math.abs(z0 + ss / 2)) > 200) continue;
+            const key = renderer.levelMesh(`noctis-scrub-${i}-${j}-${tsig}-${ssig}-v1`, () => scrubMesh(level, x0, z0, ss));
+            scrubChunks.push({ key, bounds: [x0 + ss / 2, 2, z0 + ss / 2, ss * 0.72 + 6] });
+        }
     } else groundKey = renderer.levelMesh("plain-v1", () => groundMesh(CITY_FLOOR, 4000));
 }
 

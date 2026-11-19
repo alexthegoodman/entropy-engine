@@ -30,6 +30,8 @@ export interface WorldLook {
     skyTop: V3; skyHorizon: V3; simPulse: number;
     ground: V3; interior: number;
     dark: V3; darkRadius: number; darkStrength: number; hitFlash: number;
+    /** How much dust settles on everything (0..1): up-facing surfaces, the feet of props. */
+    dust: number;
     lights: { pos: V3; range: number; color: V3; intensity: number }[];
 }
 
@@ -198,7 +200,7 @@ export class Renderer {
 
     writeWorld(l: WorldLook): void {
         const w = this.world;
-        w.set([l.time, l.exposure, l.lens, l.glitch, ...l.sun, l.sunIntensity, ...l.sunColor, l.ambient, ...l.skyTop, Math.min(l.lights.length, MAX_LIGHTS), ...l.skyHorizon, l.simPulse, ...l.ground, l.interior, ...l.dark, l.darkRadius, l.darkStrength, l.hitFlash, 0, 0], 0);
+        w.set([l.time, l.exposure, l.lens, l.glitch, ...l.sun, l.sunIntensity, ...l.sunColor, l.ambient, ...l.skyTop, Math.min(l.lights.length, MAX_LIGHTS), ...l.skyHorizon, l.simPulse, ...l.ground, l.interior, ...l.dark, l.darkRadius, l.darkStrength, l.hitFlash, l.dust, 0], 0);
         for (let i = 0; i < MAX_LIGHTS; i++) {
             const li = l.lights[i];
             const o = 32 + i * 8;

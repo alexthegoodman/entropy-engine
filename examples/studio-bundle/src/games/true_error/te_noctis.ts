@@ -22,7 +22,7 @@ import { MAT, hash, type Level, type Box, type V3, type Prop, type EnemySpawn, t
 // --- Places ---------------------------------------------------------------------------------------
 
 export const CAMP = { doctor: [-1, 0, 141] as V3, rover: [7, 0, 145] as V3, radio: [-4.5, 0, 143.5] as V3, start: { pos: [-1.5, 0, 149] as V3, yaw: Math.PI } };
-export const FOUNDRY = { x0: 104, x1: 148, z0: 26, z1: 58, h: 12, catwalk: 5.2 };
+export const FOUNDRY = { x0: 104, x1: 148, z0: 26, z1: 58, h: 17, catwalk: 5.2 };
 export const PULPIT: V3 = [141, 1.2, 51];
 export const LOCKER: V3 = [107, FOUNDRY.catwalk, 55.5];
 export const GATE = { center: [-120, 1.2, 50] as V3, x0: -150, x1: -90, z0: 20, z1: 80, top: 1.2, gallery: 7 };
@@ -39,7 +39,7 @@ export const MAST: V3 = [68, 0, -45];
 export const WINCH: V3 = [63.5, 0, -44];
 /** Seconds of cranking to raise the mast, and the points that bring the hull's things out. */
 export const CRANK = { seconds: 16, waves: [0.3, 0.65] };
-export const PUMPHOUSE = { x0: -122, x1: -108, z0: -112, z1: -100, h: 6 };
+export const PUMPHOUSE = { x0: -122, x1: -108, z0: -112, z1: -100, h: 8.5 };
 export const BEACONS: { id: string; pos: V3 }[] = [
     { id: "beacon-w", pos: [-139, 0, -113] },
     { id: "beacon-e", pos: [-99, 0, -121] },
@@ -311,7 +311,28 @@ export function buildNoctis(): Level {
         enemy("f-hollow-4", "hollow", [133, 0, 54], "foundry", [[133, 0, 54], [110, 0, 48]]);
         enemy("f-roller-1", "roller", [128, 0, 30], "foundry", [[128, 0, 30], [140, 0, 36], [116, 0, 36]]);
         pickups.push({ id: "cell-foundry", pos: [146, 0, 28] }, { id: "grav-foundry", pos: [105, 5.2, 57] });
-        light([125, 9, 42], [1, 0.62, 0.3], 3.5, 18);
+        // The facade: pilasters, a plinth and a cornice, high windows long since blacked out.
+        const pier: V3 = [0.36, 0.27, 0.23], glass: V3 = [0.1, 0.09, 0.085];
+        const open = (side: string, t: number) => (side === "w" && t > 35 && t < 49) || (side === "n" && t > 115 && t < 129) || (side === "s" && t > 129 && t < 134.2);
+        for (const [side, a0, a1, c] of [["w", F.z0, F.z1, F.x0], ["e", F.z0, F.z1, F.x1], ["s", F.x0, F.x1, F.z0], ["n", F.x0, F.x1, F.z1]] as [string, number, number, number][]) {
+            const out = side === "w" || side === "s" ? -1 : 1, ns = side === "s" || side === "n";
+            const slab = (t0: number, t1: number, y0: number, y1: number, d0: number, d1: number, mat: number, tint: V3) => {
+                const p0 = c + out * d0, p1 = c + out * d1;
+                add(ns ? [t0, y0, Math.min(p0, p1)] : [Math.min(p0, p1), y0, t0], ns ? [t1, y1, Math.max(p0, p1)] : [Math.max(p0, p1), y1, t1], mat, tint, { solid: false });
+            };
+            for (let t = a0; t <= a1 + 0.01; t += 5.5) if (!open(side, t)) slab(t - 0.55, t + 0.55, 0, F.h + 0.6, 0.3, 0.85, MAT.brick, pier);
+            slab(a0 - 0.9, a1 + 0.9, F.h - 0.9, F.h + 0.6, 0.3, 1.0, MAT.brick, pier);
+            for (let t = a0 + 2.75; t < a1 - 1; t += 5.5) {
+                if (!open(side, t) && !open(side, t - 2) && !open(side, t + 2)) slab(t - 2.2, t + 2.2, -0.3, 1.1, 0.3, 0.5, MAT.brick, pier);
+                if (!(side === "n" && t > 112 && t < 132)) slab(t - 1.6, t + 1.6, 9.5, 14.6, 0.3, 0.36, MAT.metal, glass);
+            }
+        }
+        // Its stacks, brick, standing over the east end: the canyon's landmark from the camp.
+        for (const [x, z, h] of [[150.6, 23.5, 36], [150.6, 31, 30]] as number[][]) {
+            add([x - 1.3, -0.5, z - 1.3], [x + 1.3, h, z + 1.3], MAT.brick, [0.4, 0.3, 0.26]);
+            add([x - 1.5, h - 1.2, z - 1.5], [x + 1.5, h - 0.6, z + 1.5], MAT.brick, [0.34, 0.26, 0.22], { solid: false });
+        }
+        light([125, 12, 42], [1, 0.62, 0.3], 3.8, 22);
         light([141, 3, 41.5], [1, 0.75, 0.4], 2.8, 9, 0.2);
         light([PULPIT[0], 2.8, PULPIT[2]], [0.3, 0.85, 1], 1.6, 5);
         light([107.5, 7.4, 55], [1, 0.7, 0.45], 1.6, 6);
@@ -422,6 +443,7 @@ export function buildNoctis(): Level {
         wall(-113.4, P.z1, P.x1, P.z1, Y, P.h, MAT.brick, brick);
         add([-116.6, 3.2, P.z1 - 0.3], [-113.4, P.h, P.z1 + 0.3], MAT.brick, brick);
         add([P.x0 - 0.5, P.h, P.z0 - 0.5], [P.x1 + 0.5, P.h + 0.4, P.z1 + 0.5], MAT.concrete, [0.5, 0.48, 0.46], { solid: false });
+        add([P.x1 + 0.4, -0.5, -111.6], [P.x1 + 2, 17, -110], MAT.brick, [0.42, 0.3, 0.26]);
         add([P.x0, -0.6, P.z0], [P.x1, 0, P.z1], MAT.concrete, conc);
         doors.push({ id: "pump-door", min: [-116.5, Y, P.z1 - 0.12], max: [-113.5, Y + 3.2, P.z1 + 0.12], mat: MAT.wood, tint: [0.5, 0.38, 0.28] });
         prop({ model: "boiler", pos: [-110.5, Y, -110], yaw: 0, size: 3.2, collide: [0.9, 1.6, 0.9] });
@@ -451,10 +473,10 @@ export function buildNoctis(): Level {
     // --- The quarry and the Tithe's camp around it; their lift.
     {
         const Q = QUARRY;
-        for (const [x, z, yaw] of [[108, -88, 0.6], [156, -100, -0.5], [100, -146, 2.2], [158, -146, -2.4]] as number[][]) prop({ model: "shack", pos: at(x, z), yaw, size: 6, collide: [2.7, 2.2, 2.6] });
+        for (const [x, z, yaw] of [[108, -88, 0.6], [156, -100, -0.5], [100, -146, 2.2], [158, -146, -2.4]] as number[][]) prop({ model: "shack", pos: at(x, z), yaw, size: 8.5, collide: [3.8, 3.1, 3.7] });
         prop({ model: "crates", pos: at(116, -92), yaw: 0.6, size: 2.2, collide: [0.9, 1.05, 0.9] });
         prop({ model: "junk", pos: at(150, -112), yaw: 1.3, size: 2.6, collide: [1.1, 0.4, 1.1] });
-        prop({ model: "wind_turbine", pos: at(162, -122), yaw: 1.1, size: 22, collide: [1, 11, 1] });
+        prop({ model: "wind_turbine", pos: at(162, -122), yaw: 1.1, size: 38, collide: [1.6, 19, 1.6] });
         const L = QLIFT;
         for (const [x, z] of [[L.x0, L.z0], [L.x1, L.z0], [L.x0, L.z1], [L.x1, L.z1]] as [number, number][]) add([x - 0.25, L.bottom, z - 0.25], [x + 0.25, L.top + 9, z + 0.25], MAT.metal, rust);
         add([L.x0 - 0.3, L.top + 9, L.z0 - 0.3], [L.x1 + 0.3, L.top + 9.6, L.z1 + 0.3], MAT.metal, rust, { solid: false });
@@ -558,8 +580,8 @@ export function buildNoctis(): Level {
         add([H.x1, Y - 3, H.z0], [H.x1 + 0.3, Y, H.z1 + 0.3], MAT.brick, [0.5, 0.4, 0.36]);
         add([H.x0 - 0.3, Y - 3, H.z0], [H.x0, Y, H.z1], MAT.brick, [0.5, 0.4, 0.36]);
         add([H.x0, Y - 3, H.z1], [H.x1, Y, H.z1 + 0.3], MAT.brick, [0.5, 0.4, 0.36]);
-        prop({ model: "shack", pos: [163, Y, -196], yaw: 0.2, size: 6, collide: [2.7, 2.2, 2.6] });
-        prop({ model: "shack", pos: [186, Y, -192], yaw: -1.4, size: 6, collide: [2.7, 2.2, 2.6] });
+        prop({ model: "shack", pos: [163, Y, -196], yaw: 0.2, size: 8.5, collide: [3.8, 3.1, 3.7] });
+        prop({ model: "shack", pos: [186, Y, -192], yaw: -1.4, size: 8.5, collide: [3.8, 3.1, 3.7] });
         for (const [x, z, yaw] of [[172, -192, 0.3], [160, -186, 1.2], [180, -184, 0.7], [167, -198, 0.1]] as number[][]) prop({ model: "crates", pos: [x, Y, z], yaw, size: 2, collide: [0.8, 0.95, 0.8] });
         prop({ model: "radio_set", pos: [184, Y, -199], yaw: Math.PI, size: 1.6, collide: [0.7, 0.45, 0.45] });
         light([170, Y + 3, -192], [1, 0.6, 0.3], 2.4, 12, 0.4);
@@ -569,8 +591,8 @@ export function buildNoctis(): Level {
 
     // --- The flats between: rock spires, dead turbines, the odd wreck; cover for every route.
     const rocks: [number, number, number][] = [[-40, 100, 12], [36, 104, 15], [-90, 10, 10], [10, -20, 13], [90, 10, 11], [-60, -30, 14], [-100, -150, 16], [40, -110, 12], [165, 40, 18], [-170, 100, 17], [-30, -120, 11], [100, -60, 9], [-150, 150, 15], [60, 150, 13]];
-    rocks.forEach(([x, z, s], i) => prop({ model: "rock_spire", pos: at(x, z, -0.3), yaw: hash(i, 2) * 6, size: s, collide: [s * 0.17, s * 0.5, s * 0.16] }));
-    for (const [x, z] of [[-70, 150], [70, 160], [-110, 110], [120, 150], [0, -140], [-170, -140]] as number[][]) prop({ model: "wind_turbine", pos: at(x, z), yaw: hash(x, z) * 6, size: 24, collide: [1, 12, 1] });
+    rocks.forEach(([x, z, s0], i) => { const s = s0 * 1.35; prop({ model: "rock_spire", pos: at(x, z, -0.3), yaw: hash(i, 2) * 6, size: s, collide: [s * 0.17, s * 0.5, s * 0.16] }); });
+    for (const [x, z] of [[-70, 150], [70, 160], [-110, 110], [120, 150], [0, -140], [-170, -140]] as number[][]) prop({ model: "wind_turbine", pos: at(x, z), yaw: hash(x, z) * 6, size: 40, collide: [1.6, 20, 1.6] });
     for (const [x, z, yaw] of [[-30, 90, 1.2], [44, 60, -0.4], [-80, -20, 2.4], [20, 20, 0.9], [-130, 120, 0.2]] as number[][]) prop({ model: "hovercar", pos: at(x, z, 0.2), yaw, size: 6.5, collide: [2.8, 1.0, 1.6] });
     for (const [x, z] of [[-48, 76], [28, 74], [-70, -6], [110, -20], [-20, -100], [-160, 60]] as number[][]) prop({ model: "crates", pos: at(x, z), yaw: hash(z, x) * 3, size: 2.2, collide: [0.9, 1.05, 0.9] });
     prop({ model: "carcass", pos: at(-34, 118), yaw: 0.8, size: 1.9, collide: [0.6, 0.6, 0.6] });

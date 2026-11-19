@@ -11,6 +11,7 @@ import { addActs, LIVE_CONDUIT, WAVE_SPAWNS, WAVE_TIMES, HOLD_SECONDS, WARDEN_DR
 import { stageIndex, stageOf, MISSION_START, type StageId } from "./te_mission";
 export { MISSION_START };
 import { buildNoctis } from "./te_noctis";
+import { dressLevel } from "./te_dressing";
 import { m2Init, m2Step, m2Usable, m2Use, m2Ride, m2Load, m2StageSave, m2Objective, m2Damaged } from "./te_m2";
 
 export { LINES } from "./te_mission";
@@ -268,6 +269,7 @@ export class Game {
         this.mission = mission;
         if (mission === 2) this.level = buildNoctis();
         else { this.level = buildLevel(); addActs(this.level); }
+        dressLevel(this.level);
         this.stage = MISSION_START[mission];
         this.checkpoint = this.level.checkpoints[0].id;
         this.world = new World(this.level, propBoxes(this.level, propSize));
