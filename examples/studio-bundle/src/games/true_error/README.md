@@ -53,3 +53,13 @@ I suggest that you always do generate an image before generating the model, so y
 You can find an image of Ray in `assets/Ray1.png`.
 
 Many models can be 30 to 50 credits total from start to finish, so let's try to fit the level within 20 models for now, then we can assess and see where we are at with it.
+
+---
+
+## Build status (Level 1)
+
+- Run: `npm run true-error:assets` (once), `npm run build-true-error`, then `cargo run --release --bin example -- true-error` from `entropy-engine/`.
+- Assets: prompts in `assets/true_error/assets.json`, Meshy task trail in `meshy_tasks.json`, drivers `*.mjs` there; `tools/te_assets.py` turns the Meshy GLBs into `assets/true_error/game/` (geometry GLB + PNG maps).
+- Code: `te_level` (layout, collision), `te_game` (simulation), `te_skin`/`te_glb` (CPU skinning), `te_render`/`te_shader` (pipelines), `true_error_addon` (camera, cinematics, MCP tools `te_state`/`te_act`).
+- Tests: `npm run test:true-error` (vitest) and `cargo test --release --test true_error_live` (BDD screenshots, `tests/features/true_error_live.feature`).
+- Props and the skyline are batched per spatial chunk (`chunkOf`) so the engine culls them per pass.

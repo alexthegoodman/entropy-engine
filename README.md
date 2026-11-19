@@ -509,6 +509,11 @@ cargo run --bin example --release -- world-of-music
 npm run build-armageddon
 cargo run --bin example --release -- armageddon-2070
 
+// third-person steampunk Mars, 4122: climb the ruined spire to the hypercube (True Error, see examples/studio-bundle/src/games/true_error/README.md)
+npm run true-error:assets   // once: Meshy GLBs -> assets/true_error/game (tools/te_assets.py)
+npm run build-true-error
+cargo run --bin example --release -- true-error
+
 // a bare wall of PBR material for parallax occlusion work (Material Lab, see docs/MATERIAL_LAB.md)
 npm run build-material-lab
 cargo run --bin example --release -- material-lab
